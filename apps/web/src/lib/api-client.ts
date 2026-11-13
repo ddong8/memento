@@ -1320,6 +1320,19 @@ export const api = {
       execution_mode?: string;
       active_run?: boolean;
     }>("/api/ask/conversations/recent-active"),
+  /** A follow-up nothing running can take: the server keeps it for the conversation's next message. */
+  queueAskFollowUp: (convId: string, text: string) =>
+    post<{ queued: boolean }>(`/api/ask/conversations/${encodeURIComponent(convId)}/followups`, { text }),
+  withdrawAskFollowUp: (convId: string, text: string) =>
+    apiFetch<{ removed: boolean }>(`/api/ask/conversations/${encodeURIComponent(convId)}/followups`, {
+      method: "DELETE",
+      body: JSON.stringify({ text }),
+    }),
+  /** The follow-ups waiting for the next message, oldest first; take hands them out once. */
+  getAskFollowUps: (convId: string, take = false) =>
+    fresh<{ items: Array<{ text: string; at?: number }> }>(
+      `/api/ask/conversations/${encodeURIComponent(convId)}/followups${take ? "?take=true" : ""}`,
+    ),
   cancelAskRun: (convId: string) =>
     apiFetch<{ status: string }>(`/api/ask/conversations/${convId}/cancel`, { method: "POST" }).finally(() =>
       forgetRunStatus(convId),

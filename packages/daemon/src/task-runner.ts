@@ -164,6 +164,9 @@ export const chunk = (taskId: string, stream: "stdout" | "stderr", text: string,
 
 const claudeUserMessage = (text: string) => ({ type: "user", message: { role: "user", content: text } });
 
+/** How long after its answer a Claude run still waiting on background tasks keeps taking follow-ups. */
+const STEER_AFTER_ANSWER_MS = 30 * 60_000;
+
 /** Claude Code in print mode with stream-json in and out: every tool call is an event, the prompt goes in on stdin, and follow-ups can be written while it runs. */
 export function claudeArgs(o: { sessionId?: string; sysAppend?: string; model?: string; settingsJson?: string; sessionName?: string } = {}): string[] {
   return [
@@ -762,6 +765,14 @@ export class TaskRunner {
 
     proc.stdin.on("error", () => {});
     this.steerInputs.set(taskId, proc.stdin);
+    let steerCap: NodeJS.Timeout | undefined;
+    const closeSteer = () => {
+      if (steerCap) clearTimeout(steerCap);
+      const sink = this.steerInputs.get(taskId);
+      if (sink !== proc.stdin) return;
+      this.steerInputs.delete(taskId);
+      sink.end();
+    };
     const flushReplies = () => {
       if (!(parser instanceof ClaudeStreamParser)) return;
       for (const reply of parser.takeReplies()) if (proc.stdin.writable) proc.stdin.write(`${JSON.stringify(reply)}\n`);
@@ -890,10 +901,13 @@ export class TaskRunner {
           const sess = this.taskSessions.get(taskId);
           if (sess && !sess.sessionId) sess.sessionId = parser.sessionId;
         }
+        // Answered and nothing queued: stdin closes so the CLI can exit. Not while it still waits on background
+        // tasks (it goes on when they end): a follow-up typed then still reaches the session, as in its TUI.
+        // An error answer (quota, API) ends it right away; otherwise at most STEER_AFTER_ANSWER_MS past the
+        // answer, in case a task's end never shows in the stream.
         if (parser instanceof ClaudeStreamParser && parser.finished && (parser.queuedTurns ?? 0) === 0) {
-          const sink = this.steerInputs.get(taskId);
-          this.steerInputs.delete(taskId);
-          sink?.end();
+          if (parser.activeBackgroundTasks.size === 0 || parser.resultFailed) closeSteer();
+          else if (!steerCap) steerCap = setTimeout(closeSteer, STEER_AFTER_ANSWER_MS).unref();
         }
       });
     }

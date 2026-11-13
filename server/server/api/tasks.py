@@ -42,7 +42,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..db.models import DeviceTask, Machine, User
 from ..db.session import async_session_factory, get_db
 from ..middleware.auth import get_current_user
-from ..services import device_reports, mission_service, notify_service, task_alerts, workspace_relay
+from ..services import ask_followups, device_reports, mission_service, notify_service, task_alerts, workspace_relay
 from ..services.agent_limits import mark_usage_limit
 from ..services.ws_manager import ws_manager
 from ..services.device_dispatch import deliver_task
@@ -320,10 +320,15 @@ async def send_task_input(
         raise HTTPException(status_code=404)
     if _user.role not in ("admin", "owner") and task.user_id != _user.id:
         raise HTTPException(status_code=404)
+    conv_id = str((task.payload or {}).get("conversation_id") or "").strip()
     if task.status not in ("queued", "running"):
-        return {"ok": False, "reason": f"task status is {task.status}, not running"}
+        # Too late for this task: kept for the conversation's next message instead
+        queued = bool(conv_id and not body.question_id and await ask_followups.add(task.user_id or _user.id, conv_id, body.input))
+        return {"ok": False, "queued": queued, "reason": f"task status is {task.status}, not running"}
 
     sent = await ws_manager.send_input(task.device_id, str(task.id), body.input, body.question_id)
+    if not sent and conv_id and not body.question_id:
+        return {"ok": False, "queued": await ask_followups.add(task.user_id or _user.id, conv_id, body.input)}
     return {"ok": sent}
 
 
@@ -554,6 +559,8 @@ async def device_websocket_endpoint(
                 tid = data.get("task_id")
                 if tid and isinstance(data.get("event"), dict):
                     ws_manager.push_event(tid, data["event"])
+                    if data["event"].get("kind") == "steer":
+                        notify_service.spawn(ask_followups.note_steer(tid, data["event"]))
                     if data["event"].get("kind") == "session" and data["event"].get("session_id"):
                         notify_service.spawn(_note_task_session(tid, str(data["event"]["session_id"])))
             elif msg_type == "agent_tool_use":

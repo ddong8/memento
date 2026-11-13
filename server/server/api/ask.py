@@ -35,7 +35,7 @@ from ..services.ask_prompt import build_messages, classify_continuation
 from ..services.ask_retrieval import retrieve, retrieve_core_memories
 from ..services.ask_store import append_conversation_turns, get_or_create_conversation, reconcile_session
 from ..services.ask_stream import SSE_HEADERS, direct_agent_stream, run_response
-from ..services import ai_health
+from ..services import ai_health, ask_followups
 from . import ask_conversations
 
 logger = logging.getLogger("server.ask")
@@ -141,6 +141,29 @@ async def attach_run(conv_id: str, after: int = 0, _user: User = Depends(get_cur
     if run is None:
         raise HTTPException(status_code=404, detail="no run")
     return StreamingResponse(run.stream(after), media_type="text/event-stream", headers=SSE_HEADERS)
+
+
+class FollowUpRequest(BaseModel):
+    text: str
+
+
+@router.post("/conversations/{conv_id}/followups")
+async def queue_followup(conv_id: str, body: FollowUpRequest, _user: User = Depends(get_current_user)) -> dict:
+    """A follow-up nothing running can take: it waits here for the conversation's next message."""
+    return {"queued": await ask_followups.add(_user.id, conv_id, body.text)}
+
+
+@router.get("/conversations/{conv_id}/followups")
+async def list_followups(conv_id: str, take: bool = False, _user: User = Depends(get_current_user)) -> dict:
+    """The waiting follow-ups, oldest first; take=true hands them out once (the page sending them next)."""
+    items = await (ask_followups.pop if take else ask_followups.peek)(_user.id, conv_id)
+    return {"items": items}
+
+
+@router.delete("/conversations/{conv_id}/followups")
+async def withdraw_followup(conv_id: str, body: FollowUpRequest, _user: User = Depends(get_current_user)) -> dict:
+    """Withdraw one waiting follow-up before it goes out."""
+    return {"removed": await ask_followups.remove(_user.id, conv_id, body.text)}
 
 
 @router.post("/conversations/{conv_id}/cancel")

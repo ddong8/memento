@@ -268,7 +268,6 @@ const ExecutionCard = memo(function ExecutionCard({
   }, [userToggled, isSuccess, hasParentContent, isAgent, isFailed, waitingQuestion]);
 
   const [copied, setCopied] = useState(false);
-  const [copiedResume, setCopiedResume] = useState(false);
   const [showAllLogs, setShowAllLogs] = useState(false);
 
   const copyText = () => {
@@ -653,50 +652,6 @@ const ExecutionCard = memo(function ExecutionCard({
             </div>
 
             <div style={{ display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
-              {(() => {
-                const sid = (result as any)?.session_id || (args?.session_id as string) || "";
-                if (!sid || !isAgent) return null;
-                // Only CLIs whose own interactive mode can pick the session up: WorkBuddy's live in memento's
-                // gateway and Antigravity's in its app, where no terminal command reaches them.
-                let cmd = "";
-                if (binary.includes("claude")) {
-                  cmd = cwd ? `cd "${cwd}" && claude -r ${sid}` : `claude -r ${sid}`;
-                } else if (binary.includes("codex")) {
-                  cmd = cwd ? `cd "${cwd}" && codex resume ${sid}` : `codex resume ${sid}`;
-                }
-                if (!cmd) return null;
-                return (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      void navigator.clipboard?.writeText(cmd).then(() => {
-                        setCopiedResume(true);
-                        setTimeout(() => setCopiedResume(false), 2000);
-                      }, () => {});
-                    }}
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: 3.5,
-                      padding: "2px 6px",
-                      borderRadius: 6,
-                      border: "1px solid var(--aurora-border)",
-                      background: "var(--aurora-chip)",
-                      color: copiedResume ? "var(--aurora-accent)" : "var(--aurora-fg2)",
-                      fontSize: 10.5,
-                      fontFamily: "monospace",
-                      cursor: "pointer",
-                      transition: "all 0.15s ease",
-                      whiteSpace: "nowrap",
-                    }}
-                    title={`点击复制终端接力命令：\n${cmd}`}
-                  >
-                    <Icon name={copiedResume ? "check" : "terminal"} size={10.5} />
-                    <span>{copiedResume ? "已复制命令" : "终端接力"}</span>
-                  </button>
-                );
-              })()}
               <button
                 type="button"
                 onClick={(e) => {

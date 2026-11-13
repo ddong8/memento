@@ -8,9 +8,23 @@ import type { Turn } from "./turns";
 export interface FollowUp {
   id: string;
   text: string;
+  /** When it was typed (ms): queued ones go out in this order. */
+  at: number;
   /** Pasted with it: never steered (the agents take text mid-run), so it waits for the next message. */
   images?: string[];
   status: "sending" | "sent" | "queued";
+  /**
+   * The server keeps it (POST …/followups, or the device reported it late / unsupported): it comes back
+   * from there when the reply ends, so a page closed or put in the background meanwhile doesn't lose it.
+   */
+  held?: boolean;
+}
+
+/** A follow-up the server kept for the conversation's next message. */
+export interface HeldFollowUp {
+  text: string;
+  /** Seconds since the epoch, as the server stores it. */
+  at?: number;
 }
 
 const TERMINAL = new Set(["succeeded", "failed", "timeout", "cancelled"]);
@@ -34,21 +48,32 @@ export function steerableTaskId(turns: readonly Turn[]): string | null {
   return null;
 }
 
-/** The queued follow-ups as one message, in the order they were typed. */
-export function queuedMessage(items: readonly FollowUp[]): string {
-  return items
-    .filter((f) => f.status === "queued")
-    .map((f) => f.text.trim())
-    .filter(Boolean)
-    .join("\n\n");
+/**
+ * The next message once the reply ended: what this page still holds itself (queued, not kept by the
+ * server) and what the server kept, in the order typed, one block each; the same text only once.
+ */
+export function nextMessage(local: readonly FollowUp[], held: readonly HeldFollowUp[]): { text: string; images: string[] } {
+  const own = local.filter((f) => f.status === "queued" && !f.held);
+  const items = [
+    ...own.map((f) => ({ text: f.text.trim(), at: f.at })),
+    ...held.map((h) => ({ text: String(h.text ?? "").trim(), at: (h.at ?? 0) * 1000 })),
+  ].sort((a, b) => a.at - b.at);
+  const seen = new Set<string>();
+  const texts: string[] = [];
+  for (const { text } of items) {
+    if (!text || seen.has(text)) continue;
+    seen.add(text);
+    texts.push(text);
+  }
+  return { text: texts.join("\n\n"), images: own.flatMap((f) => f.images ?? []) };
 }
 
 /**
  * After the agent reported a follow-up as late or unsupported: the earliest one already sent with that
- * text goes back into the queue, so it still reaches the agent as the next message.
+ * text is queued again. The server kept it when the device reported it, so it's marked held.
  */
 export function requeue(items: readonly FollowUp[], text: string): FollowUp[] {
   const i = items.findIndex((f) => f.status !== "queued" && f.text.trim() === text.trim());
   if (i < 0) return items as FollowUp[];
-  return items.map((f, k) => (k === i ? { ...f, status: "queued" } : f));
+  return items.map((f, k) => (k === i ? { ...f, status: "queued", held: true } : f));
 }

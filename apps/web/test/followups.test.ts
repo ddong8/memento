@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type FollowUp, queuedMessage, requeue, steerableTaskId } from "../src/lib/ask/followups";
+import { type FollowUp, nextMessage, requeue, steerableTaskId } from "../src/lib/ask/followups";
 import type { Turn } from "../src/lib/ask/turns";
 
 const agentCall = (task_id: string, status: string, binary = "claude") => ({
@@ -31,21 +31,36 @@ describe("follow-ups while a reply runs", () => {
 
   it("sends the queued ones as one message in typed order, skipping delivered ones", () => {
     const items: FollowUp[] = [
-      { id: "1", text: "先看 README", status: "queued" },
-      { id: "2", text: "已经送到的", status: "sent" },
-      { id: "3", text: " 再跑测试 ", status: "queued" },
+      { id: "1", text: "先看 README", at: 1000, status: "queued" },
+      { id: "2", text: "已经送到的", at: 2000, status: "sent" },
+      { id: "3", text: " 再跑测试 ", at: 3000, status: "queued", images: ["data:image/png;base64,x"] },
     ];
-    expect(queuedMessage(items)).toBe("先看 README\n\n再跑测试");
-    expect(queuedMessage([])).toBe("");
+    expect(nextMessage(items, [])).toEqual({ text: "先看 README\n\n再跑测试", images: ["data:image/png;base64,x"] });
+    expect(nextMessage([], [])).toEqual({ text: "", images: [] });
+  });
+
+  it("merges what the server kept with this page's own, by time, each text once", () => {
+    const items: FollowUp[] = [
+      { id: "1", text: "页面上排队的", at: 5_000, status: "queued" },
+      // kept by the server: it comes back from there, not from the page
+      { id: "2", text: "设备说来不及", at: 2_000, status: "queued", held: true },
+    ];
+    const held = [
+      { text: "设备说来不及", at: 2 },
+      { text: "关页面前发的", at: 1 },
+      { text: "页面上排队的", at: 6 },
+    ];
+    expect(nextMessage(items, held).text).toBe("关页面前发的\n\n设备说来不及\n\n页面上排队的");
   });
 
   it("puts a follow-up the agent could not take back into the queue, once", () => {
     const items: FollowUp[] = [
-      { id: "1", text: "补一句", status: "sent" },
-      { id: "2", text: "补一句", status: "sent" },
+      { id: "1", text: "补一句", at: 1, status: "sent" },
+      { id: "2", text: "补一句", at: 2, status: "sent" },
     ];
     const once = requeue(items, "补一句");
     expect(once.map((f) => f.status)).toEqual(["queued", "sent"]);
+    expect(once[0].held).toBe(true);
     expect(requeue(once, "补一句").map((f) => f.status)).toEqual(["queued", "queued"]);
     expect(requeue(items, "别的")).toBe(items);
   });

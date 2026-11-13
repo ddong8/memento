@@ -141,6 +141,8 @@ export class ClaudeStreamParser extends AgentStreamParser {
   /** Set by the result event: user messages still waiting to be read. Zero means the run is done and stdin can be closed. */
   queuedTurns: number | undefined;
   finished = false;
+  /** The last result was an error (a quota hit, an API error): nothing more comes from this run. */
+  resultFailed = false;
   /** The limit that turned a request down (rate_limit_event with status "rejected"): which one, and when it resets (epoch s). */
   rejectedLimit: { type?: string; resetsAt?: number } | undefined;
 
@@ -340,6 +342,7 @@ export class ClaudeStreamParser extends AgentStreamParser {
       }
       case "result": {
         this.finished = true;
+        this.resultFailed = d.is_error === true;
         this.queuedTurns = num(d.queued_turn_count) ?? 0;
         if (d.session_id != null) this.sessionId = String(d.session_id);
         if (typeof d.result === "string") this.result = d.result;

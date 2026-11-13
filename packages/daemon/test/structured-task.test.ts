@@ -306,3 +306,91 @@ it.skipIf(process.platform === "win32")(
   },
   45_000,
 );
+
+it.skipIf(process.platform === "win32")(
+  "Claude task: answered but still waiting on a background task, a follow-up still reaches the session",
+  async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "bgsteer_"));
+    const home = join(tmp, "home");
+    execFileSync("mkdir", ["-p", home]);
+    const stdinLog = join(tmp, "claude_stdin.txt");
+    const sid = "0b9c5f2e-3c41-4d7e-9d1a-6a2f1e0c7b11";
+    const line = (o: unknown) => `printf '%s\\n' '${JSON.stringify(o)}'`;
+    const fake = join(sharedBin, "claude-bgsteer-memento");
+    // Answers, leaves a background task running; takes a follow-up, then the task ends with one more turn
+    writeFileSync(
+      fake,
+      `#!/bin/sh
+IFS= read -r first; printf '%s\\n' "$first" > "${stdinLog}"
+${line({ type: "system", subtype: "init", session_id: sid, model: "claude-test" })}
+${line({ type: "system", subtype: "task_started", task_id: "bg1", description: "盯部署" })}
+${line({ type: "result", subtype: "success", is_error: false, result: "先这样", session_id: sid, queued_turn_count: 0 })}
+IFS= read -r second && printf '%s\\n' "$second" >> "${stdinLog}"
+${line({ type: "system", subtype: "task_notification", task_id: "bg1", status: "completed" })}
+${line({ type: "result", subtype: "success", is_error: false, result: "收到追问", session_id: sid, queued_turn_count: 0 })}
+cat > /dev/null
+`,
+    );
+    chmodSync(fake, 0o755);
+    process.env.HOME = home;
+
+    const taskId = "feedbeef-0000-4000-8000-0000000000b9";
+    const received: Record<string, unknown>[] = [];
+    const wss = new WebSocketServer({ port: 0, host: "127.0.0.1" });
+    let resolveDone!: (m: Record<string, unknown>) => void;
+    const finished = new Promise<Record<string, unknown>>((r) => (resolveDone = r));
+    wss.on("connection", (ws) => {
+      ws.send(JSON.stringify({ type: "connected", device_name: "test" }));
+      ws.send(
+        JSON.stringify({
+          type: "task_dispatch",
+          task: { id: taskId, action: "agent", timeout_seconds: 60, payload: { binary: "claude-bgsteer-memento", prompt: "部署后盯着", cwd: tmp } },
+        }),
+      );
+      let steered = false;
+      ws.on("message", (raw) => {
+        const msg = JSON.parse(raw.toString()) as Record<string, unknown>;
+        received.push(msg);
+        const event = msg.event as Record<string, unknown> | undefined;
+        // After the answer (usage comes with the result), while the background task still runs
+        if (!steered && msg.type === "agent_event" && event?.kind === "usage") {
+          steered = true;
+          ws.send(JSON.stringify({ type: "task_input", task_id: taskId, input: "顺便把日志也看看" }));
+        }
+        if (msg.type === "task_finished") resolveDone(msg);
+      });
+    });
+    await new Promise((r) => wss.once("listening", r));
+    const port = (wss.address() as { port: number }).port;
+    const client = new WsTaskClient({
+      serverUrl: `http://127.0.0.1:${port}`,
+      token: "t",
+      deviceId: "dev",
+      deviceName: "test",
+      platform: "test",
+      extraWatchDirs: [],
+    });
+    void client.start();
+    const done = await finished;
+    client.dispose();
+    await new Promise((r) => wss.close(r));
+
+    const steers = received
+      .filter((m) => m.type === "agent_event")
+      .map((m) => m.event as Record<string, unknown>)
+      .filter((e) => e.kind === "steer");
+    expect(steers.map((e) => e.status)).toEqual(["sent"]);
+    const sent = readFileSync(stdinLog, "utf8")
+      .trim()
+      .split("\n")
+      .map((l) => (JSON.parse(l) as { message: { content: string } }).message.content);
+    expect(sent).toEqual(["部署后盯着", "顺便把日志也看看"]);
+    // stdin closed once the background task ended, so the run finished
+    expect(done).toMatchObject({ status: "succeeded" });
+
+    try {
+      rmSync(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    } catch {}
+  },
+  45_000,
+);

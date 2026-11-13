@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `15d12f16` · Updated: `2026-11-12`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `f3b2b89a` · Updated: `2026-11-13`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -13,10 +13,10 @@
 - 类型 (Type): Monorepo (Workspaces)
 - 技术栈 (Stack): TypeScript/JavaScript, Python, Shell / Bash · React, Electron, Next.js, TailwindCSS, Model Context Protocol (MCP), FastAPI, SQLAlchemy, Celery
 - 基础设施 (Infra): PostgreSQL, pgvector (Vector DB), Redis, MinIO / S3 Object Storage, Celery Task Queue
-- 规模 (Scale): 9 个子系统 · 35 组 API 路由 / 233 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 193 个测试文件
+- 规模 (Scale): 9 个子系统 · 35 组 API 路由 / 236 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 194 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `15d12f16` (2026-11-12): ci(release): CI 通过后按客户端版本号自动打标签并触发发版
+- 最近改动 (Latest): `f3b2b89a` (2026-11-13): refactor(web): 去掉执行卡片和任务详情的 Terminal 视图，输出统一按 Markdown 渲染
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -150,7 +150,7 @@ flowchart TD
 - `GET /api/ask/runs/active`
 - `GET /api/ask/conversations/{conv_id}/run`
 - `GET /api/ask/conversations/{conv_id}/stream`
-- _... (5 more endpoints)_
+- _... (8 more endpoints)_
 
 #### `/ask_conversations` (ask_conversations.py)
 
@@ -470,6 +470,7 @@ erDiagram
 | `ai_health` | [`server/server/services/ai_health.py`](server/server/services/ai_health.py) | AI call health: hourly counters in Redis, read back by the health page and alerts. |
 | `ai_provider` | [`server/server/services/ai_provider.py`](server/server/services/ai_provider.py) | AI Provider service — multi-provider fallback client. |
 | `ai_summary_service` | [`server/server/services/ai_summary_service.py`](server/server/services/ai_summary_service.py) | AI summary service — two-pass daily summary: per-conversation digest → merged daily report. |
+| `ask_followups` | [`server/server/services/ask_followups.py`](server/server/services/ask_followups.py) | Follow-ups the running agent didn't take, kept per conversation until the next message carries them. |
 | `ask_prompt` | [`server/server/services/ask_prompt.py`](server/server/services/ask_prompt.py) | Prompt assembly for /api/ask: the system prompt, the history window, and |
 | `ask_retrieval` | [`server/server/services/ask_retrieval.py`](server/server/services/ask_retrieval.py) | Retrieval for /api/ask: hybrid keyword + vector ranking over the user's |
 | `ask_runs` | [`server/server/services/ask_runs.py`](server/server/services/ask_runs.py) | Ask runs that outlive the HTTP request that started them. |
@@ -500,7 +501,6 @@ erDiagram
 | `health_service` | [`server/server/services/health_service.py`](server/server/services/health_service.py) | System health overview: is the learning loop actually working? |
 | `import_service` | [`server/server/services/import_service.py`](server/server/services/import_service.py) | Account-level data import — restore a memento-export ZIP into the |
 | `ingest_service` | [`server/server/services/ingest_service.py`](server/server/services/ingest_service.py) | Ingest service — processes incoming files from the collector. |
-| `jobs` | [`server/server/services/jobs.py`](server/server/services/jobs.py) | Manually triggered long jobs (review now, run the evaluation) with a status the app can poll. |
 
 ## 6.5. AST Call Graph, DTO Schemas & CLI Entrypoints
 
@@ -541,6 +541,7 @@ erDiagram
 | `InviteCreateRequest` | Pydantic DTO | [`server/server/api/admin.py`](server/server/api/admin.py) | `max_uses: int`, `expires_days: int \| None`, `role_on_accept: str`, `note: str \| None` |
 | `GrantPermissionRequest` | Pydantic DTO | [`server/server/api/admin.py`](server/server/api/admin.py) | `user_id: str`, `project_id: str \| None`, `tool_id: str \| None`, `permission: str` |
 | `AskRequest` | Pydantic DTO | [`server/server/api/ask.py`](server/server/api/ask.py) | `question: str`, `conversation_id: str \| None`, `request_id: str \| None`, `history: list[dict] \| None`, `tool: str \| None`, `days: int \| None` |
+| `FollowUpRequest` | Pydantic DTO | [`server/server/api/ask.py`](server/server/api/ask.py) | `text: str` |
 | `EnsureConversationBySessionRequest` | Pydantic DTO | [`server/server/api/ask_conversations.py`](server/server/api/ask_conversations.py) | `session_id: str`, `project_id: str \| None`, `execution_mode: str \| None`, `device_id: str \| None`, `cwd: str \| None` |
 | `UpdateConversationRequest` | Pydantic DTO | [`server/server/api/ask_conversations.py`](server/server/api/ask_conversations.py) | `title: str \| None`, `device_id: str \| None`, `cwd: str \| None`, `execution_mode: str \| None`, `model: str \| None`, `effort: str \| None` |
 | `RegisterRequest` | Pydantic DTO | [`server/server/api/auth.py`](server/server/api/auth.py) | `email: str`, `password: str`, `name: str \| None`, `invite_code: str \| None` |
@@ -561,7 +562,6 @@ erDiagram
 | `AcceptBody` | Pydantic DTO | [`server/server/api/learning.py`](server/server/api/learning.py) | `statement: str \| None`, `general: bool` |
 | `PitfallBody` | Pydantic DTO | [`server/server/api/learning.py`](server/server/api/learning.py) | `title: str`, `symptom: str`, `fix: str`, `cause: str \| None`, `project: str \| None` |
 | `GuardBody` | Pydantic DTO | [`server/server/api/learning.py`](server/server/api/learning.py) | `enabled: bool` |
-| `GuardEventsBody` | Pydantic DTO | [`server/server/api/learning.py`](server/server/api/learning.py) | `events: list[dict]` |
 
 ### CLI Binaries & Automation Entrypoints
 
@@ -598,7 +598,7 @@ erDiagram
 
 | Suite | Directory | Files | Sample Tests |
 | :--- | :--- | :--- | :--- |
-| server/tests (pytest) | [`server/tests`](server/tests) | 108 | `test_agent_limits.py`, `test_agent_login.py`, `test_agent_run_states.py`, `test_ai_provider.py`, `test_artifact_media_stream.py` |
+| server/tests (pytest) | [`server/tests`](server/tests) | 109 | `test_agent_limits.py`, `test_agent_login.py`, `test_agent_run_states.py`, `test_ai_provider.py`, `test_artifact_media_stream.py` |
 | packages/daemon/test (vitest / jest) | [`packages/daemon/test`](packages/daemon/test) | 51 | `agent-args.test.ts`, `agent-login.test.ts`, `agent-stream.test.ts`, `agy-models.test.ts`, `antigravity-app-quota.test.ts` |
 | apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 28 | `api-client.test.ts`, `ask-top-bar.test.tsx`, `auth-fetch.test.ts`, `build-update.test.ts`, `cache-writes.test.ts` |
 | apps/mobile/test (vitest / jest) | [`apps/mobile/test`](apps/mobile/test) | 2 | `deeplink.test.ts`, `webview-props.test.ts` |
@@ -640,12 +640,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `f3b2b89a` (2026-11-13): refactor(web): 去掉执行卡片和任务详情的 Terminal 视图，输出统一按 Markdown 渲染
 - `15d12f16` (2026-11-12): ci(release): CI 通过后按客户端版本号自动打标签并触发发版
 - `40e70c18` (2026-11-12): chore(release): 升级客户端版本至 v1.0.118，跨设备续接原样接着原会话、代码包直连、协作任务可派智能体
 - `752c9386` (2026-11-12): feat(remote): 跨设备续接原样接着原会话，代码包设备直连，协作任务可派智能体并即时推进
 - `3fab4a0e` (2026-11-12): refactor(ask): 续接与 Claude Code 保持一致，去掉固定压缩窗口和手动瘦身开关
 - `960d4451` (2026-11-12): chore(release): 升级客户端版本至 v1.0.117，执行机提交带回源设备并由源设备推送
-- `ca58e81e` (2026-11-12): feat(workspace): 执行机上的提交原样带回源设备，推送改由源设备完成
 
 ## 10. Key Environment Variables & Configuration
 

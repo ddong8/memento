@@ -3,7 +3,7 @@
 import { Suspense, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
-import { getApiBase, authFetch, api, DeviceSummary, AskConversationSummary, ProjectSummary, seedApiEtagCache, invalidateApiCache, type AgentQuotasResponse, type AskConversationDetail } from "@/lib/api-client";
+import { getApiBase, authFetch, api, forgetRunStatus, DeviceSummary, AskConversationSummary, ProjectSummary, seedApiEtagCache, invalidateApiCache, type AgentQuotasResponse, type AskConversationDetail } from "@/lib/api-client";
 import { useI18n } from "@/lib/i18n";
 import { Icon } from "@/components/aurora/Icon";
 import { BrandMark } from "@/components/aurora/BrandMark";
@@ -48,7 +48,7 @@ import { modelLimitLabel, modelLimitOf } from "@/lib/ask/model-limits";
 import { cleanProjectPath, homeDeviceOf, isConcreteDevice, isDeviceOnline, pathWithin, projectPathOn } from "@/lib/ask/devices";
 import { isLiveConnected, onLiveEvent } from "@/lib/live-events";
 import { AGENT_TOOL_ID, type Cascade, cascadeOf, configHas, usableDevice } from "@/lib/ask/cascade";
-import { type FollowUp, queuedMessage, requeue, steerableTaskId } from "@/lib/ask/followups";
+import { type FollowUp, nextMessage, requeue, steerableTaskId } from "@/lib/ask/followups";
 import { ExecutionMode, RunCursor, Source, Turn, compressImageToDataUrl, interruptibleSleep, mergeFinishedTurns, normalizeEpochMs, normalizeIsoTimestamp, turnsChanged } from "@/lib/ask/turns";
 
 
@@ -190,6 +190,8 @@ function AskPageContent() {
   // Messages sent while a reply runs: steered into the running agent, or queued for when the reply ends
   const [followUps, setFollowUps] = useState<FollowUp[]>([]);
   const followUpsRef = useRef<FollowUp[]>([]);
+  /** Taking the queued follow-ups out once the reply ended (the server's included) is under way. */
+  const flushingFollowUpsRef = useRef(false);
   const followUpConvRef = useRef<string | null>(null);
   const updateFollowUps = useCallback((fn: (items: FollowUp[]) => FollowUp[]) => {
     followUpsRef.current = fn(followUpsRef.current);
@@ -1473,6 +1475,22 @@ function AskPageContent() {
         if (askCache) {
           askCache.streaming = false;
           askCache.activeRun = null;
+        }
+        // Follow-ups typed during the last reply that no page sent (it was closed first): back into the input
+        if (!followUpsRef.current.length && !flushingFollowUpsRef.current) {
+          void api
+            .getAskFollowUps(data.id, true)
+            .then((r) => {
+              const { text } = nextMessage([], r.items ?? []);
+              if (!text) return;
+              if (lastRestoredIdRef.current !== data.id) return void api.queueAskFollowUp(data.id, text).catch(() => {});
+              setInput((cur) => {
+                const next = [text, cur].filter(Boolean).join("\n\n");
+                if (askCache) askCache.input = next;
+                return next;
+              });
+            })
+            .catch(() => {});
         }
       }
       saveToRecentConvTurnsCache(data.id, loadedTurns, data);
@@ -3772,17 +3790,26 @@ function AskPageContent() {
   // A follow-up while the reply runs: into the running agent when it reads input mid-run (it sees it at its
   // next step), else queued and sent as the next message when this reply ends. Any number, one after another.
   const sendFollowUp = useCallback((text: string, images: string[]) => {
-    const id = `fu-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    followUpConvRef.current = activeConversationIdRef.current;
+    const at = Date.now();
+    const id = `fu-${at}-${Math.random().toString(36).slice(2, 8)}`;
+    const convId = activeConversationIdRef.current;
+    followUpConvRef.current = convId;
     const taskId = images.length === 0 ? steerableTaskId(turnsRef.current) : null;
     if (!taskId) {
-      updateFollowUps((items) => [...items, { id, text, images, status: "queued" }]);
+      // Nothing running takes it: the server keeps text for the next message (images stay on this page)
+      updateFollowUps((items) => [...items, { id, text, at, images, status: "queued" }]);
+      if (convId && text.trim() && images.length === 0) {
+        api
+          .queueAskFollowUp(convId, text)
+          .then((r) => r?.queued && updateFollowUps((items) => items.map((f) => (f.id === id ? { ...f, held: true } : f))))
+          .catch(() => {});
+      }
       return;
     }
-    updateFollowUps((items) => [...items, { id, text, status: "sending" }]);
-    const settle = (ok: boolean) =>
+    updateFollowUps((items) => [...items, { id, text, at, status: "sending" }]);
+    const settle = (ok: boolean, held = false) =>
       updateFollowUps((items) =>
-        items.map((f) => (f.id === id && f.status === "sending" ? { ...f, status: ok ? "sent" : "queued" } : f)),
+        items.map((f) => (f.id === id && f.status === "sending" ? { ...f, status: ok ? "sent" : "queued", held } : f)),
       );
     authFetch(`${getApiBase()}/api/tasks/${taskId}/input`, {
       method: "POST",
@@ -3790,7 +3817,7 @@ function AskPageContent() {
       body: JSON.stringify({ input: text }),
     })
       .then((res) => res.json().catch(() => ({})))
-      .then((data: { ok?: boolean }) => settle(Boolean(data?.ok)))
+      .then((data: { ok?: boolean; queued?: boolean }) => settle(Boolean(data?.ok), Boolean(data?.queued)))
       .catch(() => settle(false));
   }, [updateFollowUps]);
 
@@ -3813,24 +3840,46 @@ function AskPageContent() {
   // typed while it worked. Stopped by the user, or another conversation opened: back into the input instead.
   const sendWithTextRef = useRef(sendWithText);
   sendWithTextRef.current = sendWithText;
+  // The page stops showing a run for more than its end (a phone in the background, a reconnect, another
+  // conversation opened), so the server says whether it really ended; until then nothing is dropped.
   useEffect(() => {
     if (streaming) return;
-    const items = followUpsRef.current;
-    if (!items.length) return;
-    const queued = items.filter((f) => f.status === "queued");
-    updateFollowUps(() => []);
-    const text = queuedMessage(queued);
-    const images = queued.flatMap((f) => f.images ?? []);
-    if (!text && !images.length) return;
-    if (userCancelledRef.current || followUpConvRef.current !== activeConversationIdRef.current) {
-      setInput((cur) => {
-        const next = [text, cur].filter(Boolean).join("\n\n");
-        if (askCache) askCache.input = next;
-        return next;
-      });
+    if (!followUpsRef.current.length || flushingFollowUpsRef.current) return;
+    const convId = followUpConvRef.current;
+    if (!convId) return;
+    if (convId !== activeConversationIdRef.current) {
+      // Another conversation is open now: its text waits on the server for that one's next message
+      const local = followUpsRef.current;
+      updateFollowUps(() => []);
+      for (const f of local) if (f.status === "queued" && !f.held && f.text.trim()) void api.queueAskFollowUp(convId, f.text).catch(() => {});
       return;
     }
-    sendWithTextRef.current(text, { images });
+    flushingFollowUpsRef.current = true;
+    void (async () => {
+      try {
+        forgetRunStatus(convId);
+        const status = await api.getAskRunStatus(convId).catch(() => null);
+        const run = status?.run;
+        if (!status?.ok || (run && !run.done && !run.cancelled)) return; // still running: wait for its end
+        if (streamingRef.current) return; // a new reply started meanwhile
+        const local = followUpsRef.current;
+        updateFollowUps(() => []);
+        const held = await api.getAskFollowUps(convId, true).then((r) => r.items ?? [], () => []);
+        const { text, images } = nextMessage(local, held);
+        if (!text && !images.length) return;
+        if (userCancelledRef.current || convId !== activeConversationIdRef.current) {
+          setInput((cur) => {
+            const next = [text, cur].filter(Boolean).join("\n\n");
+            if (askCache) askCache.input = next;
+            return next;
+          });
+          return;
+        }
+        sendWithTextRef.current(text, { images });
+      } finally {
+        flushingFollowUpsRef.current = false;
+      }
+    })();
   }, [streaming, updateFollowUps]);
 
   const handleRetryLastTurn = useCallback(() => {
@@ -6291,7 +6340,11 @@ function AskPageContent() {
                     {f.status === "queued" && (
                       <button
                         type="button"
-                        onClick={() => updateFollowUps((items) => items.filter((x) => x.id !== f.id))}
+                        onClick={() => {
+                          updateFollowUps((items) => items.filter((x) => x.id !== f.id));
+                          const convId = followUpConvRef.current;
+                          if (f.held && convId) void api.withdrawAskFollowUp(convId, f.text).catch(() => {});
+                        }}
                         title={isZh ? "撤回" : "Remove"}
                         style={{ border: "none", background: "transparent", color: "var(--aurora-fg3)", cursor: "pointer", fontSize: 11, padding: 0, flexShrink: 0 }}
                       >

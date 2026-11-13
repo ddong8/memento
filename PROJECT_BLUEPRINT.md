@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `3f6aeefc` · Updated: `2026-11-14`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `88093675` · Updated: `2026-11-14`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,7 +16,7 @@
 - 规模 (Scale): 9 个子系统 · 35 组 API 路由 / 236 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 200 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `3f6aeefc` (2026-11-14): style(web): 去掉按钮与界面装饰性渐变，统一按各系统最佳中文字体排版
+- 最近改动 (Latest): `88093675` (2026-11-14): fix(images): 工作台里用户上传的截图不再找不到或显示成别的图
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -615,9 +615,9 @@ erDiagram
 - [`server/server/services/plan_service.py`](server/server/services/plan_service.py) (7 commits)
 - [`server/tests/test_plan_service.py`](server/tests/test_plan_service.py) (7 commits)
 - [`apps/web/src/components/TaskTimeline.tsx`](apps/web/src/components/TaskTimeline.tsx) (6 commits)
-- [`packages/daemon/src/agent-stream.ts`](packages/daemon/src/agent-stream.ts) (6 commits)
 - [`apps/web/src/components/ExecutionCard.tsx`](apps/web/src/components/ExecutionCard.tsx) (5 commits)
 - [`apps/web/src/components/viewers/MediaInspectorPanel.tsx`](apps/web/src/components/viewers/MediaInspectorPanel.tsx) (5 commits)
+- [`apps/web/src/lib/i18n/en-US.ts`](apps/web/src/lib/i18n/en-US.ts) (5 commits)
 
 ## 8. Development & Verification Commands
 
@@ -640,12 +640,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `88093675` (2026-11-14): fix(images): 工作台里用户上传的截图不再找不到或显示成别的图
 - `3f6aeefc` (2026-11-14): style(web): 去掉按钮与界面装饰性渐变，统一按各系统最佳中文字体排版
 - `bd1c349f` (2026-11-13): feat(daemon): 执行机守护进程自动跟随新版本升级，不用再登录每台服务器重跑安装脚本
 - `2b0c623e` (2026-11-13): chore(release): 升级客户端版本至 v1.0.124，修复 Claude 额度时有时无和服务器上 Antigravity 额度显示未启动
 - `227cf1a6` (2026-11-13): fix(quota): vps3 上 Claude 额度不再时有时无，没有桌面应用的机器也能看到 Antigravity 额度
 - `7c7ee405` (2026-11-13): perf(web): 工作台切回窗口不再反复读取已不存在的文件，历史抽屉轮询随推送降频；修复不带 limit 打开对话返回 500
-- `e1874360` (2026-11-13): chore(release): 升级客户端版本至 v1.0.123，工作台文件和续接会话也走设备直连
 
 ## 10. Key Environment Variables & Configuration
 

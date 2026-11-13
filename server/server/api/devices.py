@@ -27,7 +27,7 @@ from ..db.models import AccessLog, ConversationMessage, Document, DocumentVersio
 from ..db.session import get_db
 from ..middleware.auth import get_current_user, get_current_user_flexible, get_optional_user
 from ..services.cache import cache_delete_prefix, cache_get, cache_set
-from ..services import device_commands
+from ..services import chat_images, device_commands
 from ..services.cluster import PREFIX, cluster
 from ..services.user_filter import normalize_device_name, user_machine_ids
 from ..services.ws_manager import ws_manager
@@ -843,7 +843,7 @@ async def locate_device_file(
     server has it itself (on its disk or in its media cache)."""
     target_machine, mids = await _authorized_machine(db, device_id, _user)
     clean_path = _clean_device_path(path)
-    if _server_file(clean_path) or clean_path in _known_cache_map:
+    if _server_file(clean_path) or clean_path in _known_cache_map or chat_images.storage_key(_user.id, clean_path) and await chat_images.load(_user.id, clean_path):
         return {"local": True}
     cached = await _get_cached_stat(clean_path)
     if cached and cached[0] > 0 and (device_id == "auto" or not target_machine):
@@ -1028,6 +1028,17 @@ async def stream_device_file(
             mime_type = "application/json; charset=utf-8"
         else:
             mime_type = "application/octet-stream"
+
+    # An image the user pasted into a question: the copy kept in object storage, the same on every replica and
+    # after a deploy, and there after the device has cleaned its own (services/chat_images.py)
+    kept = await chat_images.load(_user.id, raw_clean_path)
+    if kept:
+        data, kept_type = kept
+        return Response(
+            content=b"" if request is not None and request.method == "HEAD" else data,
+            media_type=kept_type,
+            headers={"Content-Length": str(len(data)), "Cache-Control": "private, max-age=86400", "Accept-Ranges": "none"},
+        )
 
     total_size = 0
     server_copy = _server_file(clean_path)

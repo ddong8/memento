@@ -394,3 +394,68 @@ cat > /dev/null
   },
   45_000,
 );
+
+it.skipIf(process.platform === "win32")(
+  "Pasted images are written under the names the server gives them (each question its own)",
+  async () => {
+    const { existsSync, readFileSync: read } = await import("node:fs");
+    const tmp = mkdtempSync(join(tmpdir(), "imgnames_"));
+    const conv = `test-${Date.now().toString(36)}`;
+    const dir = join("/tmp/memento_images", conv);
+    const fake = join(sharedBin, "claude-imgnames-memento");
+    writeFileSync(
+      fake,
+      `#!/bin/sh\nIFS= read -r first\nprintf '%s\\n' '{"type":"result","subtype":"success","is_error":false,"result":"ok","session_id":"s1"}'\ncat > /dev/null\n`,
+    );
+    chmodSync(fake, 0o755);
+    const png = `data:image/png;base64,${Buffer.from("PNGDATA").toString("base64")}`;
+    const webp = `data:image/webp;base64,${Buffer.from("WEBPDATA").toString("base64")}`;
+    const taskId = "feedbeef-0000-4000-8000-0000000000c1";
+    const wss = new WebSocketServer({ port: 0, host: "127.0.0.1" });
+    let resolveDone!: (m: Record<string, unknown>) => void;
+    const finished = new Promise<Record<string, unknown>>((r) => (resolveDone = r));
+    wss.on("connection", (ws) => {
+      ws.send(JSON.stringify({ type: "connected", device_name: "test" }));
+      ws.send(
+        JSON.stringify({
+          type: "task_dispatch",
+          task: {
+            id: taskId,
+            action: "agent",
+            timeout_seconds: 60,
+            payload: {
+              binary: "claude-imgnames-memento",
+              prompt: "看图",
+              cwd: tmp,
+              conversation_id: conv,
+              images: [png, webp],
+              // the second name isn't one the server would give: the old image_<n> then
+              image_names: ["image_q1a2_1.png", "../evil.webp"],
+            },
+          },
+        }),
+      );
+      ws.on("message", (raw) => {
+        const msg = JSON.parse(raw.toString()) as Record<string, unknown>;
+        if (msg.type === "task_finished") resolveDone(msg);
+      });
+    });
+    await new Promise((r) => wss.once("listening", r));
+    const port = (wss.address() as { port: number }).port;
+    const client = new WsTaskClient({ serverUrl: `http://127.0.0.1:${port}`, token: "t", deviceId: "dev", deviceName: "test", platform: "test", extraWatchDirs: [] });
+    void client.start();
+    await finished;
+    client.dispose();
+    await new Promise((r) => wss.close(r));
+
+    try {
+      expect(read(join(dir, "image_q1a2_1.png"), "utf8")).toBe("PNGDATA");
+      expect(read(join(dir, "image_2.webp"), "utf8")).toBe("WEBPDATA");
+      expect(existsSync(join("/tmp/memento_images", "evil.webp"))).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  },
+  45_000,
+);

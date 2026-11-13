@@ -1026,7 +1026,9 @@ async def _tool_run_on_device(db: AsyncSession, user: User, args: dict, *, class
                         if ext_part == "jpeg":
                             ext_part = "jpg"
                         safe_b64 = b64_part.strip().replace("'", "")
-                        target_file = f"/tmp/memento_images/{conv_folder}/image_{idx + 1}.{ext_part}"
+                        given_names = args.get("image_names") or []
+                        given = given_names[idx] if idx < len(given_names) else None
+                        target_file = f"/tmp/memento_images/{conv_folder}/{given or f'image_{idx + 1}.{ext_part}'}"
                         img_cmds.append(
                             f"python3 -c \"import base64; open('{target_file}','wb').write(base64.b64decode('{safe_b64}'))\""
                         )

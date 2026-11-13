@@ -1085,6 +1085,9 @@ export class TaskRunner {
       }
       try {
         mkdirSync(imgDir, { recursive: true });
+        // The names the prompt gives them (each question its own, so a later one doesn't overwrite this one's);
+        // a server that doesn't send them still says image_<n>
+        const names = Array.isArray(payload.image_names) ? payload.image_names.map((n) => String(n ?? "")) : [];
         for (let idx = 0; idx < payload.images.length; idx++) {
           const img = String(payload.images[idx] ?? "");
           if (img.startsWith("data:image/")) {
@@ -1095,7 +1098,8 @@ export class TaskRunner {
               const mime = header.split(";")[0]?.split(":")[1] ?? "image/png";
               let ext = mime.split("/")[1] ?? "png";
               if (ext === "jpeg") ext = "jpg";
-              const imgPath = join(imgDir, `image_${idx + 1}.${ext}`);
+              const given = names[idx] ?? "";
+              const imgPath = join(imgDir, /^image_[A-Za-z0-9_]{1,40}\.[a-z0-9]{2,5}$/i.test(given) ? given : `image_${idx + 1}.${ext}`);
               writeFileSync(imgPath, Buffer.from(b64data, "base64"));
             }
           }

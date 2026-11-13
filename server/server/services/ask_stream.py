@@ -338,23 +338,31 @@ async def _prepare_agent_args(
 
     if images:
         args["images"] = images
+        from . import chat_images
+        exts: list[str] = []
+        for img in images:
+            mime = img.split(",", 1)[0].split(";")[0].split(":")[-1] if img.startswith("data:image/") else "image/png"
+            ext = mime.split("/")[1] if "/" in mime else "png"
+            exts.append("jpg" if ext == "jpeg" else ext)
+        # Each question's images get their own names on devices that write the names they're given, so a
+        # later question's image_1.webp no longer overwrites this one's (see services/chat_images.py)
+        names = chat_images.image_names(exts, await chat_images.device_names_images(db, device_id))
+        args["image_names"] = names
         for idx, img in enumerate(images):
             if img.startswith("data:image/"):
                 try:
-                    header, b64data = img.split(",", 1)
-                    mime = header.split(";")[0].split(":")[1] if ":" in header else "image/png"
-                    ext = mime.split("/")[1] if "/" in mime else "png"
-                    if ext == "jpeg":
-                        ext = "jpg"
+                    _header, b64data = img.split(",", 1)
+                    raw = base64.b64decode(b64data)
                     import tempfile
                     base_img_root = Path("/data2/memento/images") if Path("/data2").exists() else Path(tempfile.gettempdir()) / "memento_images"
                     img_dir = base_img_root / str(conv_id)
                     img_dir.mkdir(parents=True, exist_ok=True)
-                    img_path = img_dir / f"image_{idx + 1}.{ext}"
-                    img_path.write_bytes(base64.b64decode(b64data))
-                    # 设备端 Daemon 统一落盘到 /tmp/memento_images/{conv_id}/image_N.ext（或通过软链指向 /data2 大盘）
-                    # 因此提示给 Agent CLI 的本地查看路径统一为全平台兼容的 /tmp/memento_images 路径
-                    agent_file_path = f"/tmp/memento_images/{conv_id}/image_{idx + 1}.{ext}"
+                    (img_dir / names[idx]).write_bytes(raw)
+                    # A copy every replica can serve and a deploy keeps: the workbench opens these paths
+                    await chat_images.keep(user.id, conv_id, names[idx], raw)
+                    # The device writes it to /tmp/memento_images/{conv_id}/<name> (or a /data2 folder behind
+                    # that path), so the path the agent is given is that one on every platform
+                    agent_file_path = chat_images.agent_path(conv_id, names[idx])
                     att_notes.append(
                         f"【用户上传了图片 #{idx + 1}】\n"
                         f"本地文件路径: {agent_file_path}\n"

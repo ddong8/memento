@@ -4,22 +4,22 @@
   "release_notes": "1. 续接 Claude Code 会话时自动用上次运行它的同一版本（终端、VS Code 自带的都能用上），刚在别处用过的会话在 Memento 里接着做也能读回缓存\n2. Memento 跑过的大会话（20 万 token 以上）闲置 54 分钟、缓存过期前自动压缩，和 Claude Code 终端的闲置压缩一致，隔很久再接着做不用整段重写；沿用 Claude Code 的 idleCompaction 开关\n3. 去掉“刚在别的客户端用过、缓存不通用”的错误提示\n4. 手机端版本号与客户端统一为 1.0.120",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.119-win-x64.zip",
-      "size": 158230153,
-      "sha256": "baf31cf0fdfb2d0a5289152d760457f6e738c006b29268b25a87be0142747e66",
-      "sha512": "Ev1FqQUef0WjUrlFckvsePIMqtJ8Y+wYyYqytDMwtG59fT2745eQkMECxJhwP2w0+4mE1LZANADxUL3lfie8wQ=="
+      "asset_name": "Memento-1.0.120-win-x64.zip",
+      "size": 158242696,
+      "sha256": "e31aa678740b7b63293b3fc103771b6344a12d93e63b6e24337564c5ad91c656",
+      "sha512": "QZQMTj/Bsz9NVVBgmYLXrOkcEdYQpNYGP2+FRfldjbd93CfqritRPttNbuYKgYUvQdSh2wGeNMf3smUk1x8M4w=="
     },
     "macos": {
-      "asset_name": "Memento-1.0.119-mac-arm64.zip",
-      "size": 132716712,
-      "sha256": "f3a2cb75018c3201768c71203749f50f8165224e1e1adc590f7d80504a28d0a1",
-      "sha512": "LjyFBCMyRZ5ImUdHiI+zOcEcnedzyyA/H27IIebBchiYO5Ssp96iuf9WtwoNyn3G7LhS+XtRGeE0A/1KyXFxNQ=="
+      "asset_name": "Memento-1.0.120-mac-arm64.zip",
+      "size": 132728488,
+      "sha256": "6c9a668e5e1a1915dffcc974978d72bde5526137b99d06ca33b36370fb58d4bb",
+      "sha512": "1hSKQ9+3eZbTPPw5rsokxYHpyPQQeDleWfxL5VPHcOS59L2Nk+WO02iKa3TPivsAsF11Kr9GLdXb90+DfzZ6Wg=="
     },
     "linux": {
-      "asset_name": "Memento-1.0.119-linux-x64.tar.gz",
-      "size": 131997361,
-      "sha256": "9b5eb80297607f4948a07fa9d0e70f085b33aea9c28dd4624903e09e2a56bcf0",
-      "sha512": "59Wfg5jTkSpM1dXukB73kA6m2+bpWjxP+Sdixp5rDScYHt5lwWLI65xtHcjnLbvAzyvqKwnL9vd/Ko4ayiFZTQ=="
+      "asset_name": "Memento-1.0.120-linux-x64.tar.gz",
+      "size": 132010277,
+      "sha256": "01d0b38a420029ad523540f2db87e6fda70430a3b68b27e27cf60ef6754e61db",
+      "sha512": "C/UxogLwLi2eA277mROTLrsteTMG1l+fG+2bhT0rDfNv9SpC3Lncajg46PnVfLQz5WB1wN+rB1m76+Pzo0qzlQ=="
     }
   }
 }

@@ -4,22 +4,22 @@
   "release_notes": "1. 跨设备任务里，执行机上的智能体可以把测试、构建交给代码所在的设备执行：带着当前全部改动，在那台设备单独的检出目录里跑，不碰你的工作目录，依赖和本地配置直接沿用\n2. 在代码机上执行的命令、退出码和用时显示在任务时间线里，危险命令不会在代码机上执行\n3. 修复项目蓝图生成器刚更新后偶尔仍被当成旧版本的问题\n4. 手机端版本号与客户端统一为 1.0.121",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.120-win-x64.zip",
-      "size": 158242696,
-      "sha256": "e31aa678740b7b63293b3fc103771b6344a12d93e63b6e24337564c5ad91c656",
-      "sha512": "QZQMTj/Bsz9NVVBgmYLXrOkcEdYQpNYGP2+FRfldjbd93CfqritRPttNbuYKgYUvQdSh2wGeNMf3smUk1x8M4w=="
+      "asset_name": "Memento-1.0.121-win-x64.zip",
+      "size": 158262129,
+      "sha256": "3d4aa9b3f576e1f37fc139ad070e8c569dbb1adf58291ba169c5414df94b8eae",
+      "sha512": "NylN2IDM+i9FSIWhBuHUaZbMw6EELF2UKqYrfJvHPXsnMW5AGrpOf0vTTAHo4fqjLxTXWX+YkX1XLaFuWQQJyg=="
     },
     "macos": {
-      "asset_name": "Memento-1.0.120-mac-arm64.zip",
-      "size": 132728488,
-      "sha256": "6c9a668e5e1a1915dffcc974978d72bde5526137b99d06ca33b36370fb58d4bb",
-      "sha512": "1hSKQ9+3eZbTPPw5rsokxYHpyPQQeDleWfxL5VPHcOS59L2Nk+WO02iKa3TPivsAsF11Kr9GLdXb90+DfzZ6Wg=="
+      "asset_name": "Memento-1.0.121-mac-arm64.zip",
+      "size": 132748043,
+      "sha256": "5e0225f4f1f9e1690ea69ee317d231951a60c93d51043dbc2710839e3996f5df",
+      "sha512": "bnMHjKgaiAXm8PchQt417UHU6z+A6he6YBBJMARLTsiTxhh0ELXQYlRnnTCfIxAuwB73Fd+YM/5s8tr9tT1cnQ=="
     },
     "linux": {
-      "asset_name": "Memento-1.0.120-linux-x64.tar.gz",
-      "size": 132010277,
-      "sha256": "01d0b38a420029ad523540f2db87e6fda70430a3b68b27e27cf60ef6754e61db",
-      "sha512": "C/UxogLwLi2eA277mROTLrsteTMG1l+fG+2bhT0rDfNv9SpC3Lncajg46PnVfLQz5WB1wN+rB1m76+Pzo0qzlQ=="
+      "asset_name": "Memento-1.0.121-linux-x64.tar.gz",
+      "size": 132028263,
+      "sha256": "10a100434804c2c428fb7eeb65292a574c675ffeaac623457334cc47d69ba047",
+      "sha512": "rscYBtUXJ+tQTmJ237Yz0rEQe8XfA+aGCFlDAPmi6ueoj3M+lqTzpiNZ7WNNww4ujVbmncskI2Ojx8pMNcoxWg=="
     }
   }
 }

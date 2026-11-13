@@ -4,22 +4,22 @@
   "release_notes": "1. 回答进行中的追问不再丢失：Claude Code 回答完还在等后台任务时，追问仍能直接送进同一会话\n2. 智能体来不及接收的追问由服务端保管，本轮结束后自动作为下一条消息发出；手机切到后台或关掉页面也不会丢，重新打开对话时回到输入框\n3. 排队中的追问可以撤回\n4. 执行卡片去掉 Terminal 视图和「终端接力」按钮，输出统一按 Markdown 显示\n5. 手机端版本号与客户端统一为 1.0.119",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.118-win-x64.zip",
-      "size": 158229281,
-      "sha256": "c050f08ca2b9cf6741400269d233df96eca003d3f96ad3d809ec90126d2a1b80",
-      "sha512": "zzPbxobn8U0GoMhVAJgF5wuLui+XuHrKl2nQ8V4jvJixfmGbVaJ/h6rQ0qRZMDgE6QG1coCyBv6a6C9Tj37u+A=="
+      "asset_name": "Memento-1.0.119-win-x64.zip",
+      "size": 158230153,
+      "sha256": "baf31cf0fdfb2d0a5289152d760457f6e738c006b29268b25a87be0142747e66",
+      "sha512": "Ev1FqQUef0WjUrlFckvsePIMqtJ8Y+wYyYqytDMwtG59fT2745eQkMECxJhwP2w0+4mE1LZANADxUL3lfie8wQ=="
     },
     "macos": {
-      "asset_name": "Memento-1.0.118-mac-arm64.zip",
-      "size": 132715687,
-      "sha256": "4324ee5fb7591a5e25ee2ea09f520216ebe99fa0a0512152184ddc728a4128ec",
-      "sha512": "DaHlrlKlasvEP6M676eiDfT44abHOSGATMkp9X/C1jCXEodsdnnK4hPByvAjxqOCd49V4sl8nEmcL8w6K9yaFw=="
+      "asset_name": "Memento-1.0.119-mac-arm64.zip",
+      "size": 132716712,
+      "sha256": "f3a2cb75018c3201768c71203749f50f8165224e1e1adc590f7d80504a28d0a1",
+      "sha512": "LjyFBCMyRZ5ImUdHiI+zOcEcnedzyyA/H27IIebBchiYO5Ssp96iuf9WtwoNyn3G7LhS+XtRGeE0A/1KyXFxNQ=="
     },
     "linux": {
-      "asset_name": "Memento-1.0.118-linux-x64.tar.gz",
-      "size": 131995124,
-      "sha256": "3e79774d8b4427aa1fcb684d26164132603c99bcd07b39f70c22691b67702851",
-      "sha512": "tperf+SolFx37XzpVmooeAWKI/D6jB7hZNhz8FzUqPu7tVk2cXGDo1TVvr/0Yz0fgWIUbD6nn6sB8oUSHDaTgw=="
+      "asset_name": "Memento-1.0.119-linux-x64.tar.gz",
+      "size": 131997361,
+      "sha256": "9b5eb80297607f4948a07fa9d0e70f085b33aea9c28dd4624903e09e2a56bcf0",
+      "sha512": "59Wfg5jTkSpM1dXukB73kA6m2+bpWjxP+Sdixp5rDScYHt5lwWLI65xtHcjnLbvAzyvqKwnL9vd/Ko4ayiFZTQ=="
     }
   }
 }

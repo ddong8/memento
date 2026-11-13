@@ -8,7 +8,6 @@ const cost = (over: Partial<SessionResumeCost>): SessionResumeCost => ({
   heavy: true,
   last_client: "Memento",
   minutes_since_activity: 600,
-  other_client_recent: false,
   cache_cold: true,
   ...over,
 });
@@ -34,9 +33,8 @@ describe("session resume banner", () => {
     expect(resumeCostNotes(cost({}), false, true)[1]).toContain("由 Claude Code 按模型自己的大小压缩");
   });
 
-  it("another client just used it: its cache isn't shared", () => {
-    const notes = resumeCostNotes(cost({ other_client_recent: true, cache_cold: false, minutes_since_activity: 3, last_client: "VS Code", heavy: false }), false, true);
-    expect(notes).toEqual(["3 分钟前刚在 VS Code 里用过：两边的缓存不通用，第一步要重新缓存全部上下文（约 34 万 token）。"]);
+  it("another client just used it: the cache is shared, so nothing to warn about", () => {
+    expect(resumeCostNotes(cost({ cache_cold: false, minutes_since_activity: 3, last_client: "VS Code", heavy: false }), false, true)).toEqual([]);
   });
 
   it("a light, warm session needs no note", () => {

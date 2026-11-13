@@ -143,6 +143,8 @@ export class ClaudeStreamParser extends AgentStreamParser {
   finished = false;
   /** The last result was an error (a quota hit, an API error): nothing more comes from this run. */
   resultFailed = false;
+  /** How big the session's context was at its latest request (what that request read, plus its answer). */
+  contextTokens = 0;
   /** The limit that turned a request down (rate_limit_event with status "rejected"): which one, and when it resets (epoch s). */
   rejectedLimit: { type?: string; resetsAt?: number } | undefined;
 
@@ -249,6 +251,11 @@ export class ClaudeStreamParser extends AgentStreamParser {
         break;
       case "assistant": {
         const content = isObject(d.message) ? d.message.content : undefined;
+        const msgUsage = isObject(d.message) && isObject(d.message.usage) ? d.message.usage : undefined;
+        if (msgUsage && (!isObject(d.message) || d.message.model !== "<synthetic>")) {
+          const ctx = (num(msgUsage.input_tokens) ?? 0) + (num(msgUsage.cache_read_input_tokens) ?? 0) + (num(msgUsage.cache_creation_input_tokens) ?? 0);
+          if (ctx > 0) this.contextTokens = ctx + (num(msgUsage.output_tokens) ?? 0);
+        }
         if (Array.isArray(content)) {
           for (const block of content.filter(isObject)) {
             if (block.type === "text" && String(block.text ?? "").trim()) {

@@ -39,7 +39,8 @@ import {
   workbuddyCliDir,
   type WorkbuddyGatewayHandle,
 } from "./workbuddy.js";
-import { fetchClaudeSession } from "./session-sync.js";
+import { IdleCompactor, matchingBuild } from "./claude-cache.js";
+import { fetchClaudeSession, findClaudeSession } from "./session-sync.js";
 import { TaskWorktree } from "./worktree.js";
 import { finishWorkspace, parseWorkspaceSpec, prepareWorkspace, toSourcePaths, type Relay, type WorkspaceRun } from "./workspace-sync.js";
 
@@ -547,6 +548,8 @@ export class TaskRunner {
   private readonly taskLogBuffer = new Map<string, TaskChunkMessage[]>();
   private readonly MAX_TASK_LOG_BUFFER = 2000;
   private hookBridge: HookBridge | undefined;
+  /** Compacts the Claude sessions memento ran once they sit idle, before their cache runs out (as Claude Code's terminal does). */
+  private readonly idleCompactor = new IdleCompactor((m) => this.log(m), { findSession: (id) => findClaudeSession(id) });
   /** Requests to the server over this device's connection: fetching code that lives on another device. */
   relay: Relay | undefined;
 
@@ -745,6 +748,7 @@ export class TaskRunner {
     this.outputs.clear();
     void this.hookBridge?.stop();
     this.hookBridge = undefined;
+    this.idleCompactor.dispose();
   }
 
   /** Starts one process for the task and resolves with its exit code (TIMED_OUT on timeout). */
@@ -1165,6 +1169,20 @@ export class TaskRunner {
             throw new Error(`${SESSION_UNAVAILABLE} ${sessionId.slice(0, 8)}：${e instanceof Error ? e.message : e}。可以点「瘦身后重试」，用它的核心记忆快照在这台设备上接着做`);
           }
         }
+        if (sessionId) {
+          this.idleCompactor.cancel(sessionId);
+          // Goes on with the Claude Code build that ran the session last (the terminal's, an editor's): another
+          // build starts its requests differently and the whole history is written to the cache again
+          try {
+            const build = await matchingBuild(exe, await findClaudeSession(sessionId), await executionEnvironment());
+            if (build) {
+              exe = build.path;
+              this.log(`Session ${sessionId} goes on with Claude Code ${build.version} (${build.source}), the build that ran it last${build.had ? `, not ${build.had}` : ""}: its cache still applies`);
+            }
+          } catch {
+            // the default build then
+          }
+        }
         const sessionName = claudeSessionName(text("title"), text("user_question"), prompt);
         args = claudeArgs({ sessionId, sysAppend, model, settingsJson: claudeSettings, sessionName });
         parser = new ClaudeStreamParser();
@@ -1539,6 +1557,13 @@ export class TaskRunner {
       if (this.cancelledTasks.has(taskId)) {
         this.log(`Task ${taskId} was cancelled by user; skipping final task_finished overwrite`);
         return;
+      }
+
+      // Idle from now: compacted before its cache runs out when nobody goes on with it (Claude Code's idle compaction)
+      if (parser instanceof ClaudeStreamParser && parser.sessionId && workDir && !usageLimit && !timedOut) {
+        void this.idleCompactor
+          .schedule({ sessionId: parser.sessionId, cwd: workDir, exe, model: parser.model || model || undefined, env, contextTokens: parser.contextTokens })
+          .catch(() => {});
       }
 
       this.send(

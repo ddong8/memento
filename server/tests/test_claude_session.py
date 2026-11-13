@@ -41,23 +41,23 @@ def test_piece_without_requests_reports_nothing():
     assert session_activity('{"type":"summary","summary":"x"}\nnot json') == {}
 
 
-def test_right_after_vscode_the_next_memento_step_recaches_everything():
+def test_right_after_vscode_the_cache_is_still_warm():
     cost = resume_cost(session_activity(TRANSCRIPT), NOW)
     assert cost["heavy"] and cost["last_client"] == "VS Code"
     assert cost["minutes_since_activity"] == 18
-    assert cost["other_client_recent"] and not cost["cache_cold"]
+    assert not cost["cache_cold"] and "other_client_recent" not in cost
 
 
 def test_after_an_hour_the_cache_has_expired_whoever_used_it():
     meta = {"context_tokens": 40_000, "last_client": "sdk-cli", "last_client_at": "2026-10-24T02:30:00Z"}
     cost = resume_cost(meta, NOW)
-    assert not cost["heavy"] and cost["cache_cold"] and not cost["other_client_recent"]
+    assert not cost["heavy"] and cost["cache_cold"]
 
 
 def test_memento_continuing_its_own_recent_session_stays_warm():
     meta = {"context_tokens": 40_000, "last_client": "sdk-cli", "last_client_at": "2026-10-24T03:50:00Z"}
     cost = resume_cost(meta, NOW)
-    assert not cost["cache_cold"] and not cost["other_client_recent"]
+    assert not cost["cache_cold"]
 
 
 def test_unknown_context_gives_no_hints():
@@ -68,7 +68,7 @@ def test_memento_under_its_own_name_is_still_memento():
     meta = {"context_tokens": 40_000, "last_client": "memento", "last_client_at": "2026-10-24T03:50:00Z"}
     cost = resume_cost(meta, NOW)
     assert cost["last_client"] == "Memento"
-    assert not cost["cache_cold"] and not cost["other_client_recent"]
+    assert not cost["cache_cold"]
 
 
 def test_claude_runs_under_mementos_name_unless_the_user_keeps_sdk_cli():

@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `7186b1e4` · Updated: `2026-11-13`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `0f5afcce` · Updated: `2026-11-13`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -13,10 +13,10 @@
 - 类型 (Type): Monorepo (Workspaces)
 - 技术栈 (Stack): TypeScript/JavaScript, Python, Shell / Bash · React, Electron, Next.js, TailwindCSS, Model Context Protocol (MCP), FastAPI, SQLAlchemy, Celery
 - 基础设施 (Infra): PostgreSQL, pgvector (Vector DB), Redis, MinIO / S3 Object Storage, Celery Task Queue
-- 规模 (Scale): 9 个子系统 · 35 组 API 路由 / 236 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 194 个测试文件
+- 规模 (Scale): 9 个子系统 · 35 组 API 路由 / 236 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 195 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `7186b1e4` (2026-11-13): fix(ask): 追问不再丢失：等后台任务时仍能送进会话，没送到的由服务端保管到下一条消息
+- 最近改动 (Latest): `0f5afcce` (2026-11-13): chore(release): 升级客户端版本至 v1.0.119，追问不再丢失并去掉终端接力
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -599,7 +599,7 @@ erDiagram
 | Suite | Directory | Files | Sample Tests |
 | :--- | :--- | :--- | :--- |
 | server/tests (pytest) | [`server/tests`](server/tests) | 109 | `test_agent_limits.py`, `test_agent_login.py`, `test_agent_run_states.py`, `test_ai_provider.py`, `test_artifact_media_stream.py` |
-| packages/daemon/test (vitest / jest) | [`packages/daemon/test`](packages/daemon/test) | 51 | `agent-args.test.ts`, `agent-login.test.ts`, `agent-stream.test.ts`, `agy-models.test.ts`, `antigravity-app-quota.test.ts` |
+| packages/daemon/test (vitest / jest) | [`packages/daemon/test`](packages/daemon/test) | 52 | `agent-args.test.ts`, `agent-login.test.ts`, `agent-stream.test.ts`, `agy-models.test.ts`, `antigravity-app-quota.test.ts` |
 | apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 28 | `api-client.test.ts`, `ask-top-bar.test.tsx`, `auth-fetch.test.ts`, `build-update.test.ts`, `cache-writes.test.ts` |
 | apps/mobile/test (vitest / jest) | [`apps/mobile/test`](apps/mobile/test) | 2 | `deeplink.test.ts`, `webview-props.test.ts` |
 | packages/core/test (vitest / jest) | [`packages/core/test`](packages/core/test) | 2 | `ask-stream.test.ts`, `task-events.test.ts` |
@@ -608,13 +608,13 @@ erDiagram
 
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
-- [`packages/daemon/assets/workbuddy_cli.mjs`](packages/daemon/assets/workbuddy_cli.mjs) (14 commits)
+- [`packages/daemon/assets/workbuddy_cli.mjs`](packages/daemon/assets/workbuddy_cli.mjs) (15 commits)
 - [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (13 commits)
 - [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (11 commits)
 - [`apps/web/src/lib/api-client.ts`](apps/web/src/lib/api-client.ts) (7 commits)
-- [`server/server/services/orchestrator.py`](server/server/services/orchestrator.py) (7 commits)
 - [`server/server/services/plan_service.py`](server/server/services/plan_service.py) (7 commits)
 - [`server/tests/test_plan_service.py`](server/tests/test_plan_service.py) (7 commits)
+- [`server/server/services/orchestrator.py`](server/server/services/orchestrator.py) (6 commits)
 - [`apps/web/src/lib/i18n/en-US.ts`](apps/web/src/lib/i18n/en-US.ts) (5 commits)
 - [`apps/web/src/lib/i18n/zh-CN.ts`](apps/web/src/lib/i18n/zh-CN.ts) (5 commits)
 - [`packages/daemon/src/agent-stream.ts`](packages/daemon/src/agent-stream.ts) (5 commits)
@@ -640,12 +640,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
-- `7186b1e4` (2026-11-13): fix(ask): 追问不再丢失：等后台任务时仍能送进会话，没送到的由服务端保管到下一条消息
+- `0f5afcce` (2026-11-13): chore(release): 升级客户端版本至 v1.0.119，追问不再丢失并去掉终端接力
+- `e5d6ee34` (2026-11-13): fix(ask): 追问不再丢失：等后台任务时仍能送进会话，没送到的由服务端保管到下一条消息
 - `f3b2b89a` (2026-11-13): refactor(web): 去掉执行卡片和任务详情的 Terminal 视图，输出统一按 Markdown 渲染
 - `15d12f16` (2026-11-12): ci(release): CI 通过后按客户端版本号自动打标签并触发发版
 - `40e70c18` (2026-11-12): chore(release): 升级客户端版本至 v1.0.118，跨设备续接原样接着原会话、代码包直连、协作任务可派智能体
 - `752c9386` (2026-11-12): feat(remote): 跨设备续接原样接着原会话，代码包设备直连，协作任务可派智能体并即时推进
-- `3fab4a0e` (2026-11-12): refactor(ask): 续接与 Claude Code 保持一致，去掉固定压缩窗口和手动瘦身开关
 
 ## 10. Key Environment Variables & Configuration
 

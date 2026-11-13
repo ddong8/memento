@@ -3,9 +3,10 @@
 Every request in a resumed session carries the whole conversation so far. Claude Code logs each
 request's usage, so the latest assistant entry's input + cache_creation + cache_read tokens is the
 context the next step will carry. A session also ran in some client last (VS Code, the terminal,
-or memento, logged as `memento` from desktop 1.0.94 on and as `claude -p`'s `sdk-cli` before): the
-prompt cache is per client and lasts an hour, so continuing it from memento right after another client,
-or after an hour, first re-writes the whole context to the cache.
+or memento, logged as `memento` from desktop 1.0.94 on and as `claude -p`'s `sdk-cli` before). The
+prompt cache lasts an hour and is keyed on the request, not the client: continuing it from memento right
+after another client reads it back (with the same Claude Code build, which the device picks), after an
+hour the first step re-writes the whole context to the cache.
 
 Measured on a 276 MB session resumed from memento: about 510k tokens per step, with 320k–590k
 re-cached at every switch from VS Code and after every idle hour.
@@ -26,9 +27,8 @@ from datetime import datetime, timezone
 HEAVY_CONTEXT_TOKENS = int(os.environ.get("MEMENTO_SESSION_HEAVY_TOKENS", "150000"))
 # Claude Code writes its prompt cache for an hour.
 CACHE_TTL_MINUTES = 60
-# The client names memento's runs carry: its own, or sdk-cli (before desktop 1.0.94, or when the user keeps it)
+# The client name memento's runs carry (sdk-cli before desktop 1.0.94, or when the user keeps it)
 MEMENTO_CLIENT = "memento"
-MEMENTO_CLIENTS = frozenset({MEMENTO_CLIENT, "sdk-cli"})
 CLIENT_NAMES = {"claude-vscode": "VS Code", "cli": "终端", "sdk-cli": "Memento", MEMENTO_CLIENT: "Memento"}
 
 
@@ -87,9 +87,9 @@ def resume_cost(meta: dict | None, now: datetime | None = None) -> dict:
         "heavy": tokens > HEAVY_CONTEXT_TOKENS,
         "last_client": CLIENT_NAMES.get(client, client) if client else None,
         "minutes_since_activity": idle,
-        # The next step re-writes the whole context to the cache: another client used it last
-        # (its cache isn't memento's), or it sat for longer than the cache lives.
-        "other_client_recent": bool(client and client not in MEMENTO_CLIENTS and idle is not None and idle < CACHE_TTL_MINUTES),
+        # The next step re-writes the whole context to the cache: it sat for longer than the cache lives. Right
+        # after another client it doesn't: the cache is keyed on the request, not the client, and the device
+        # resumes with the Claude Code build that ran the session last (measured 11-13: 98% read back).
         "cache_cold": bool(idle is not None and idle >= CACHE_TTL_MINUTES),
     }
 

@@ -1526,7 +1526,6 @@ export interface SessionResumeCost {
   last_client: string | null;
   minutes_since_activity: number | null;
   /** Another client used it within the hour: its prompt cache isn't Memento's, the next step re-caches everything */
-  other_client_recent: boolean;
   /** Unused for over an hour: the prompt cache has expired */
   cache_cold: boolean;
 }

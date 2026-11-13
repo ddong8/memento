@@ -38,8 +38,8 @@ export function isJunkSessionTitle(val?: string): boolean {
 }
 
 /**
- * What the resume banner says about cost: the first step re-caching everything (right after another
- * client, or after the hour the cache lasts), and for a heavy session what raw vs compact resume means.
+ * What the resume banner says about cost: the first step re-caching everything after the hour the cache
+ * lasts, and for a heavy session what raw vs compact resume means.
  */
 export function resumeCostNotes(
   cost: SessionResumeCost | null | undefined,
@@ -50,9 +50,7 @@ export function resumeCostNotes(
   const sizeText = formatContextTokens(cost.context_tokens, zh);
   const notes: string[] = [];
   if (zh) {
-    if (cost.other_client_recent) {
-      notes.push(`${cost.minutes_since_activity ?? 0} 分钟前刚在 ${cost.last_client} 里用过：两边的缓存不通用，第一步要重新缓存全部上下文（${sizeText}）。`);
-    } else if (cost.cache_cold && cost.heavy) {
+    if (cost.cache_cold && cost.heavy) {
       notes.push(`已超过 1 小时没用，缓存已过期，第一步要重新缓存全部上下文（${sizeText}）。`);
     }
     if (cost.heavy) {
@@ -61,8 +59,7 @@ export function resumeCostNotes(
         : `接着在原会话里做，上下文由 Claude Code 按模型自己的大小压缩，不会新开会话；每一步都带着全部上下文（${sizeText}）。`);
     }
   } else {
-    if (cost.other_client_recent) notes.push(`Used in ${cost.last_client} ${cost.minutes_since_activity ?? 0} min ago: caches aren't shared, the first step re-caches ${sizeText}.`);
-    else if (cost.cache_cold && cost.heavy) notes.push(`Idle for over an hour: the cache has expired, the first step re-caches ${sizeText}.`);
+    if (cost.cache_cold && cost.heavy) notes.push(`Idle for over an hour: the cache has expired, the first step re-caches ${sizeText}.`);
     if (cost.heavy) notes.push(compactMode
       ? "A new session starts from a snapshot; later turns go on in it in place."
       : `It goes on in the same session, compacted by Claude Code by its model's own context; each step carries ${sizeText}.`);

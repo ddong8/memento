@@ -4,22 +4,22 @@
   "release_notes": "1. 英文字体按系统选用最合适的：苹果设备用 SF，Windows 用 Segoe UI，Linux 跟随桌面环境（GNOME、Ubuntu、KDE 各用自己的界面字体），安卓用 Roboto\n2. 桌面端更像原生应用：按钮用系统箭头光标，界面文字不会被误选，窗口标题栏和菜单的深浅色跟随应用主题，启动更快\n3. 手机端长按按钮不再弹出文字选择菜单\n4. 没手动选过深浅色时，跟随系统实时切换\n5. 手机端版本号与客户端统一为 1.0.126",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.125-win-x64.zip",
-      "size": 158276073,
-      "sha256": "2701433b731152bd8e4a49891e894996e9507e1bc7b5724465619169754418a8",
-      "sha512": "Sg1wjwoCKceXhOBcgdRPMTKtN5CpONR8gJRSFGy4ZFBIN4EHjLEqzypViNYAzmXSvm9Vxtr9NfT4yQp62lCqVw=="
+      "asset_name": "Memento-1.0.126-win-x64.zip",
+      "size": 158276875,
+      "sha256": "ef0742de3f780f4c411c897f65b8a476d8f8dc704d7ac0a2fbc5e88e8c3acec1",
+      "sha512": "bf3l1nI535meadr5CxxbNWdVycmDaPij3ojVtFAI2Hu022Auc2genRYYtE7SL1eUFNKoqWbPO0AfFdSRWZW4dw=="
     },
     "macos": {
-      "asset_name": "Memento-1.0.125-mac-arm64.zip",
-      "size": 132763750,
-      "sha256": "801a3066d5db06d808a72de056d062989469659d83551f776e31ca88c50a4d46",
-      "sha512": "u3xlQJ8Z1BsBu2kbz486p/MAyoaklJmd1V1eCY52B5aSstgf2vrZLhiVaE512uvxuESU5KRlxI9EcIPiacka9w=="
+      "asset_name": "Memento-1.0.126-mac-arm64.zip",
+      "size": 132764405,
+      "sha256": "0bf845a3689f535c6afe4500a27b1bd339a0d41adcd81a85cc204ffe084f15e5",
+      "sha512": "W2KLBI1pB4kzKRUS2op4ESWD4kN1yJOdySpgu+5R0oNgZSZjkZ0zl+kPpTg/ts7JIXOTV3P31evfLIsuLfmr9A=="
     },
     "linux": {
-      "asset_name": "Memento-1.0.125-linux-x64.tar.gz",
-      "size": 132043277,
-      "sha256": "785fbfee74229c7acf0aa318cc965f5e5e4d5a0b9c3bfd1df56c57393341bd81",
-      "sha512": "wjxm0/xslYIERdPlpLFpd6eoFrg4RR2V1aih00tORljnom4sRj5iNp+QGOHEPR7LD9cgzqUChLlg7aXuJKMGIQ=="
+      "asset_name": "Memento-1.0.126-linux-x64.tar.gz",
+      "size": 132044261,
+      "sha256": "9a9142f4f9ec99992f981533fee2fe1146aa22630401469f9348eeb159575d18",
+      "sha512": "W8YscBpb+Sb2zmuDtI5VK46bd+PFi0wVSYVfeDWTcs/+WxXkjK87QUjJmp686s6BGHKkGMIVzlwdZMHp/TQYAQ=="
     }
   }
 }

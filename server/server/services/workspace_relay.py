@@ -12,6 +12,9 @@ server passes each request on to the device holding the code (the source) over t
 - ``session``: a Claude Code session's transcript on the device it is on, for the executor to continue it
   as is: the source says where the file is and how far it goes; the server keeps that under a token,
   read like a bundle with ``chunk``;
+- ``exec``: a command of the agent's to run on the source, on the snapshot plus what the agent changed so
+  far, in a checkout of the source's own (not the user's working tree): tests and builds run where the
+  code's environment is. Commands risk_policy rates danger or critical are refused;
 - ``apply``: what the agent changed, as a patch for the source to apply to its working tree, plus
   the commits it made (a bundle) for the source to put on its branch, and push when the agent
   pushed: the executor holds no credentials, the source does.
@@ -30,6 +33,8 @@ from typing import Any
 
 from ..db.session import async_session_factory
 from .cluster import cluster
+from .device_reports import device_has_feature
+from .risk_policy import classify_shell_command
 from .user_filter import find_machine_by_id_or_hash
 from .ws_manager import ws_manager
 
@@ -45,6 +50,9 @@ APPLY_TIMEOUT = 150.0
 # The source pushes too (and may first rebase onto what the remote got meanwhile)
 PUSH_TIMEOUT = 300.0
 CHUNK_TIMEOUT = 60.0
+# A command on the source: at most this long (the source stops it then), plus time to send it and its output
+EXEC_MAX_MS = 30 * 60 * 1000
+EXEC_SLACK = 90.0
 SESSION_TIMEOUT = 30.0
 CHUNK_MAX = 8 * 1024 * 1024
 # gzip+base64 of a patch, as the executor caps it
@@ -53,8 +61,9 @@ PATCH_MAX = 10 * 1024 * 1024 + 1024
 CARRY_MAX = PATCH_MAX * 3 // 2
 
 
-async def _source_device(source_id: str, user_id: Any) -> tuple[str | None, str | None]:
-    """The source's connection id when it belongs to the same account as the executor; else (None, why)."""
+async def _source_device(source_id: str, user_id: Any, feature: str | None = None) -> tuple[str | None, str | None]:
+    """The source's connection id when it belongs to the same account as the executor (and reported
+    feature, when given); else (None, why)."""
     async with async_session_factory() as db:
         m = await find_machine_by_id_or_hash(db, source_id)
     if not m or not m.collector_token_hash:
@@ -65,6 +74,8 @@ async def _source_device(source_id: str, user_id: Any) -> tuple[str | None, str 
         return None, "代码所在的设备已解除关联"
     if not ws_manager.is_online(m.collector_token_hash):
         return None, f"{m.name or '代码所在的设备'} 不在线，打开它上面的 Memento 后再试"
+    if feature and not device_has_feature(m.name, feature):
+        return None, f"{m.name or '代码所在的设备'} 上的 Memento 版本太旧，升级到 1.0.121 及以上后再试"
     return m.collector_token_hash, None
 
 
@@ -162,6 +173,34 @@ async def _chunk(data: dict[str, Any], user_id: Any) -> dict[str, Any]:
     return {"data_b64": base64.b64encode(chunk).decode("ascii"), "bytes_read": len(chunk)}
 
 
+async def _exec(data: dict[str, Any], user_id: Any) -> dict[str, Any]:
+    command = str(data.get("command") or "").strip()
+    if not command:
+        return {"error": "没有要执行的命令"}
+    risk = classify_shell_command(command)
+    if risk and risk.level in ("danger", "critical"):
+        return {"error": f"这条命令有风险（{risk.label}），不在代码所在的设备上执行；需要的话请用户自己在那台设备上执行", "code": "refused"}
+    source, why = await _source_device(str(data.get("source_device_id") or ""), user_id, "source_exec")
+    if not source:
+        return {"error": why, "code": "source_unavailable"}
+    patch = str(data.get("patch_b64") or "")
+    if len(patch) > PATCH_MAX:
+        return {"error": "改动太大", "code": "too_big"}
+    timeout_ms = max(10_000, min(int(data.get("timeout_ms") or EXEC_MAX_MS), EXEC_MAX_MS))
+    res = await ws_manager.request_device(source, {
+        "type": "workspace_exec_req",
+        "path": str(data.get("path") or ""),
+        "snapshot": str(data.get("snapshot") or ""),
+        "rel": str(data.get("rel") or ""),
+        "patch_b64": patch,
+        "command": command,
+        "timeout_ms": timeout_ms,
+    }, timeout_ms / 1000 + EXEC_SLACK)
+    if res.get("error"):
+        return {"error": res["error"], "code": res.get("code") or "failed"}
+    return {k: res[k] for k in ("exit_code", "stdout", "stderr", "timed_out", "seconds") if k in res}
+
+
 async def _apply(data: dict[str, Any], user_id: Any) -> dict[str, Any]:
     source, why = await _source_device(str(data.get("source_device_id") or ""), user_id)
     if not source:
@@ -209,7 +248,7 @@ def _commits(raw: Any) -> dict[str, Any] | None:
     }
 
 
-_OPS = {"export": _export, "chunk": _chunk, "p2p": _p2p, "session": _session, "apply": _apply}
+_OPS = {"export": _export, "chunk": _chunk, "p2p": _p2p, "session": _session, "exec": _exec, "apply": _apply}
 
 
 async def handle(data: dict[str, Any], executor_id: str, user_id: Any) -> None:

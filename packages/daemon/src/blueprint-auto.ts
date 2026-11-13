@@ -92,16 +92,22 @@ export async function blueprintStatusReport(gitRoots: Iterable<string>): Promise
   };
 }
 
-const versionCache = new Map<string, { mtimeMs: number; version: number }>();
+const versionCache = new Map<string, { mtimeMs: number; size: number; readAt: number; version: number }>();
+/**
+ * A file rewritten within the filesystem's timestamp resolution (a kernel tick, a few ms on Linux) keeps
+ * its mtime: a cached version is trusted only when the file was already this old when it was read.
+ */
+const RACY_MS = 2_000;
 
-/** BLUEPRINT_SCRIPT_VERSION of a generator script, cached until the file changes. */
+/** BLUEPRINT_SCRIPT_VERSION of a generator script, cached until the file changes (see RACY_MS). */
 async function generatorVersion(script: string): Promise<number> {
   try {
-    const { mtimeMs } = await stat(script);
+    const { mtimeMs, size } = await stat(script);
     const hit = versionCache.get(script);
-    if (hit && hit.mtimeMs === mtimeMs) return hit.version;
+    if (hit && hit.mtimeMs === mtimeMs && hit.size === size && hit.readAt - mtimeMs > RACY_MS) return hit.version;
+    const readAt = Date.now();
     const { version } = parseBlueprintScriptMeta(await readFile(script, "utf8"));
-    versionCache.set(script, { mtimeMs, version });
+    versionCache.set(script, { mtimeMs, size, readAt, version });
     return version;
   } catch {
     return 0;

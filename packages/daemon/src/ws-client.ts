@@ -11,6 +11,7 @@ import { P2PHost } from "./p2p.js";
 import { probeAllQuotas } from "./quotas.js";
 import type { ServerRoute } from "./server-route.js";
 import { exportClaudeSession } from "./session-sync.js";
+import { execOnSource } from "./source-exec.js";
 import { computeBackoffWithJitter, parseTaskDispatch, TaskRunner } from "./task-runner.js";
 import { applyWorkspaceRequest, exportWorkspace, WorkspaceError } from "./workspace.js";
 import { flushPendingPatches, type Relay } from "./workspace-sync.js";
@@ -284,6 +285,9 @@ export class WsTaskClient {
         case "workspace_apply_req":
           void this.handleWorkspaceApply(data);
           break;
+        case "workspace_exec_req":
+          void this.handleWorkspaceExec(data);
+          break;
         case "session_export_req":
           void this.handleSessionExport(data);
           break;
@@ -479,6 +483,20 @@ export class WsTaskClient {
         user_name: r.userName ?? "",
         user_email: r.userEmail ?? "",
       });
+    } catch (e) {
+      this.sendJson({ type: "workspace_resp", req_id: reqId, error: e instanceof Error ? e.message : String(e), code: e instanceof WorkspaceError ? e.code : "failed" });
+    }
+  }
+
+  /** An agent on another device runs a command here, on its changes to code in a directory here (in a checkout of its own). */
+  private async handleWorkspaceExec(data: Record<string, unknown>): Promise<void> {
+    const reqId = String(data.req_id ?? "");
+    const path = String(data.path ?? "");
+    try {
+      this.log(`Running a command for an agent on another device in ${path}: ${String(data.command ?? "").slice(0, 200)}`);
+      const r = await execOnSource(deviceFilePath(path), data);
+      this.log(`Command for the agent on another device exited ${r.exit_code} after ${r.seconds}s`);
+      this.sendJson({ type: "workspace_resp", req_id: reqId, ...r });
     } catch (e) {
       this.sendJson({ type: "workspace_resp", req_id: reqId, error: e instanceof Error ? e.message : String(e), code: e instanceof WorkspaceError ? e.code : "failed" });
     }

@@ -41,6 +41,7 @@ import {
 } from "./workbuddy.js";
 import { IdleCompactor, matchingBuild } from "./claude-cache.js";
 import { fetchClaudeSession, findClaudeSession } from "./session-sync.js";
+import { SourceExecBridge, sourceExecHint } from "./source-exec.js";
 import { TaskWorktree } from "./worktree.js";
 import { finishWorkspace, parseWorkspaceSpec, prepareWorkspace, toSourcePaths, type Relay, type WorkspaceRun } from "./workspace-sync.js";
 
@@ -548,6 +549,8 @@ export class TaskRunner {
   private readonly taskLogBuffer = new Map<string, TaskChunkMessage[]>();
   private readonly MAX_TASK_LOG_BUFFER = 2000;
   private hookBridge: HookBridge | undefined;
+  /** The agent's `memento-source`: its commands run on the device the code is on. */
+  private sourceExec: SourceExecBridge | undefined;
   /** Compacts the Claude sessions memento ran once they sit idle, before their cache runs out (as Claude Code's terminal does). */
   private readonly idleCompactor = new IdleCompactor((m) => this.log(m), { findSession: (id) => findClaudeSession(id) });
   /** Requests to the server over this device's connection: fetching code that lives on another device. */
@@ -748,6 +751,8 @@ export class TaskRunner {
     this.outputs.clear();
     void this.hookBridge?.stop();
     this.hookBridge = undefined;
+    this.sourceExec?.dispose();
+    this.sourceExec = undefined;
     this.idleCompactor.dispose();
   }
 
@@ -1044,6 +1049,16 @@ export class TaskRunner {
       if (existsSync(bpFile) && !sysAppend.includes("PROJECT_BLUEPRINT.md")) {
         const bpHint = `[架构心智指引] 当前项目根目录有随提交更新的活体代码蓝图 (${bpFile})。新会话或跨模块排查前先读它开头的「0. 速览与章节索引」，再按索引里的行号只读需要的章节，不要整份读入。`;
         sysAppend = sysAppend ? `${sysAppend}\n\n${bpHint}` : bpHint;
+      }
+    }
+    // The code is on another device: the agent can run its tests and builds there, on its changes
+    if (wsRun && action === "agent") {
+      this.sourceExec ??= new SourceExecBridge(() => this.relay, (tid, e) => this.emitEvent(tid, e));
+      const cli = await this.sourceExec.register(taskId, wsRun);
+      if (cli) {
+        env0.MEMENTO_SOURCE_URL = cli.url;
+        const hint = sourceExecHint(cli.command, wsRun.spec.sourceName);
+        sysAppend = sysAppend ? `${sysAppend}\n\n${hint}` : hint;
       }
     }
 
@@ -1608,6 +1623,7 @@ export class TaskRunner {
       this.steerInputs.delete(taskId);
       this.running.delete(taskId);
       this.taskPids.delete(taskId);
+      this.sourceExec?.unregister(taskId);
       const gatewayFile = this.taskSessions.get(taskId)?.gatewayFile;
       this.taskSessions.delete(taskId);
       // Its idle time starts now.

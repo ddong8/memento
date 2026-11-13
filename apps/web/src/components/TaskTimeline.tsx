@@ -397,6 +397,15 @@ export default function TaskTimeline({
         const text = pre > 0 ? fmt(tl.compacted, { n: formatTokenCount(pre) }) : tl.compactedPlain;
         return <div key={i}>{plain("sparkles", text, null, "#10B981")}</div>;
       }
+      case "source_exec": {
+        // Shown once it's over; the running one only while nothing came back yet
+        const later = visible.slice(i + 1).some((e) => e.kind === "source_exec" && (e as { command?: string }).command === ev.command && e.status !== "running");
+        if (ev.status === "running" && later) return null;
+        const where = fmt(tl.onSource, { source: str(ev.source) || tl.sourceDevice });
+        const note = ev.status === "failed" ? str(ev.error) : ev.status === "done" ? [`exit ${Number(ev.exit_code)}`, Number(ev.seconds) > 0 ? `${ev.seconds}s` : ""].filter(Boolean).join(" · ") : tl.running;
+        const color = ev.status === "failed" || (ev.status === "done" && Number(ev.exit_code) !== 0) ? "#D97706" : undefined;
+        return <div key={i}>{plain("terminal", `${where}: ${str(ev.command)}`, note || null, color)}</div>;
+      }
       case "session_sync": {
         const bytes = Number(ev.bytes);
         const size = bytes > 0 ? (bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`) : "";

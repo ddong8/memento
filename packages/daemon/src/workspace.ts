@@ -139,7 +139,7 @@ function toPosix(p: string): string {
   return p.split(sep).join("/");
 }
 
-async function repoOf(dir: string, env?: NodeJS.ProcessEnv): Promise<{ root: string; rel: string }> {
+export async function repoOf(dir: string, env?: NodeJS.ProcessEnv): Promise<{ root: string; rel: string }> {
   if (!dir || !existsSync(dir)) throw new WorkspaceError(`目录不存在：${dir}`, "not_found");
   const top = await git(["rev-parse", "--show-toplevel"], dir, env);
   if (top.code !== 0) throw new WorkspaceError(`${dir} 不是 git 仓库。在另一台设备上改代码需要项目是 git 仓库（git init 并提交一次即可）`, "not_git");

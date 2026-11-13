@@ -240,3 +240,36 @@ async def test_the_executor_can_pull_the_bundle_directly_with_the_sources_answer
         assert (await wr._p2p({"token": out["token"], "sdp": "x"}, USER))["code"] == "no_direct"
 
     await _run(patches, go)
+
+
+@pytest.mark.asyncio
+async def test_an_agents_command_runs_on_the_source_and_its_result_comes_back():
+    answer = {"exit_code": 1, "stdout": "2 failed", "stderr": "", "seconds": 4.2}
+    patches, ws = _env(_machine(), answer=answer)
+    patches.append(patch.object(wr, "device_has_feature", lambda name, feature, user=None: feature == "source_exec"))
+
+    async def go():
+        out = await wr._exec({"source_device_id": "mac", "path": "/Users/me/repo", "snapshot": "s" * 40, "rel": "app",
+                              "patch_b64": "cGF0Y2g=", "command": "npm test", "timeout_ms": 99 * 60 * 1000}, USER)
+        sent, timeout = ws.request_device.await_args.args[1], ws.request_device.await_args.args[2]
+        assert sent["type"] == "workspace_exec_req" and sent["command"] == "npm test" and sent["rel"] == "app"
+        # Never longer than the cap, plus time to carry the output back
+        assert sent["timeout_ms"] == wr.EXEC_MAX_MS and timeout == wr.EXEC_MAX_MS / 1000 + wr.EXEC_SLACK
+        assert out == answer
+
+    await _run(patches, go)
+
+
+@pytest.mark.asyncio
+async def test_a_risky_command_or_an_old_source_is_refused_without_asking_it():
+    patches, ws = _env(_machine())
+    patches.append(patch.object(wr, "device_has_feature", lambda *a, **k: False))
+
+    async def go():
+        out = await wr._exec({"source_device_id": "mac", "command": "rm -rf ~"}, USER)
+        assert out["code"] == "refused"
+        out = await wr._exec({"source_device_id": "mac", "command": "npm test"}, USER)
+        assert out["code"] == "source_unavailable" and "版本太旧" in out["error"]
+        ws.request_device.assert_not_awaited()
+
+    await _run(patches, go)

@@ -4,22 +4,22 @@
   "release_notes": "1. 界面去掉渐变色：按钮、标签、图标和背景统一改为纯色，更简洁\n2. 字体按系统选用最合适的中文字体：苹果设备用苹方，Windows 用微软雅黑，安卓优先用华为、小米等手机自带字体，Linux 用思源黑体；代码里的中文不再显示成宋体\n3. 工作台里上传的截图不再找不到或显示成别的图片：每条消息的图片单独命名，并在服务器长期保存\n4. 手机端版本号与客户端统一为 1.0.125",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.124-win-x64.zip",
-      "size": 158270551,
-      "sha256": "ca71218b1ca1e1839b4475db94c96bf028bf342d09eb02844349f095e343a840",
-      "sha512": "dNamFV38Npwv/b03yVggKv6c2MuoE0cdCAz5nmO3ki7GqXE5Tqaa6v+3mI6vvlXxM4VmXSS4wGAQU1MqszIEkQ=="
+      "asset_name": "Memento-1.0.125-win-x64.zip",
+      "size": 158276073,
+      "sha256": "2701433b731152bd8e4a49891e894996e9507e1bc7b5724465619169754418a8",
+      "sha512": "Sg1wjwoCKceXhOBcgdRPMTKtN5CpONR8gJRSFGy4ZFBIN4EHjLEqzypViNYAzmXSvm9Vxtr9NfT4yQp62lCqVw=="
     },
     "macos": {
-      "asset_name": "Memento-1.0.124-mac-arm64.zip",
-      "size": 132757778,
-      "sha256": "46cd17447fe24a8985984b49cfadee953ccba739a263c0ea8f5fc4c699328ea6",
-      "sha512": "/yCm3Kaz00ryO8rrJ6Akh7w3NR88Cq4DyesTPDTALJy3m3SgovAMbe5veZeHdW8wbGukJrYmGgJRWC90/MV/pA=="
+      "asset_name": "Memento-1.0.125-mac-arm64.zip",
+      "size": 132763750,
+      "sha256": "801a3066d5db06d808a72de056d062989469659d83551f776e31ca88c50a4d46",
+      "sha512": "u3xlQJ8Z1BsBu2kbz486p/MAyoaklJmd1V1eCY52B5aSstgf2vrZLhiVaE512uvxuESU5KRlxI9EcIPiacka9w=="
     },
     "linux": {
-      "asset_name": "Memento-1.0.124-linux-x64.tar.gz",
-      "size": 132036195,
-      "sha256": "6a086ed3be7070861cbbb28bbfbee8b192588368108121a0b198db20e490f537",
-      "sha512": "XF9jISgjABUCYjSYBU7k7iyaoSrkr0kmYH2Mu3WpEX/Gm9vP/6FGIEfRIGeOBIJF11hnkIkDHHGUxMbDIvg1Rg=="
+      "asset_name": "Memento-1.0.125-linux-x64.tar.gz",
+      "size": 132043277,
+      "sha256": "785fbfee74229c7acf0aa318cc965f5e5e4d5a0b9c3bfd1df56c57393341bd81",
+      "sha512": "wjxm0/xslYIERdPlpLFpd6eoFrg4RR2V1aih00tORljnom4sRj5iNp+QGOHEPR7LD9cgzqUChLlg7aXuJKMGIQ=="
     }
   }
 }

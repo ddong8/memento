@@ -132,8 +132,19 @@ describe("Antigravity quota", () => {
   });
 
   it("says the service isn't running when there is no language server", async () => {
-    const quota = await probeAntigravityQuota(async () => undefined);
+    const quota = await probeAntigravityQuota(async () => undefined, async () => undefined);
     expect(quota).toMatchObject({ available: false, error: "Antigravity 本地服务未运行" });
+  });
+
+  it("reads quotas through the agy CLI's login when the app isn't running", async () => {
+    const quota = await probeAntigravityQuota(async () => undefined, async () => ({
+      tool: "antigravity",
+      name: "Google Antigravity",
+      available: true,
+      remaining_percent: 100,
+      probe_source: "agy 命令行登录",
+    }));
+    expect(quota).toMatchObject({ available: true, remaining_percent: 100, probe_source: "agy 命令行登录" });
   });
 });
 

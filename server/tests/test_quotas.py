@@ -6,6 +6,7 @@ import uuid
 from server.api.quotas import _make_fallback_report
 from server.db.models import User
 from server.services.device_reports import (
+    claude_plan_tier,
     get_cached_device_capabilities,
     get_cached_device_quotas,
     record_owner,
@@ -24,6 +25,15 @@ class QuotasCoordinatorTests(unittest.TestCase):
         self.assertIn("codex", report["tools"])
         self.assertFalse(report["tools"]["antigravity"]["available"])
         self.assertIsNone(report["tools"]["antigravity"]["remaining_percent"])
+
+    def test_claude_rate_tier_reads_as_plan(self) -> None:
+        self.assertEqual(claude_plan_tier("DEFAULT_CLAUDE_AI"), "PRO")
+        self.assertEqual(claude_plan_tier("default_claude_max_5x"), "MAX 5X")
+        self.assertEqual(claude_plan_tier("DEFAULT_CLAUDE_MAX_20X"), "MAX 20X")
+        self.assertEqual(claude_plan_tier("API_KEY"), "API_KEY")
+        self.assertIsNone(claude_plan_tier(None))
+        set_cached_device_quotas("tier-dev", {"tools": {"claude_code": {"tier": "DEFAULT_CLAUDE_AI"}}}, machine_name="tier-dev")
+        self.assertEqual(get_cached_device_quotas("tier-dev")["tools"]["claude_code"]["tier"], "PRO")
 
     def test_cache_and_lookup(self) -> None:
         sample_report = {

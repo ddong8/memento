@@ -3,6 +3,9 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  agedClaudeUsage,
+  agyCliModels,
+  claudePlanTier,
   claudeCredentialAccount,
   claudeCredentialService,
   probeClaudeCodeQuota,
@@ -194,5 +197,42 @@ describe("usageLimitMessage", () => {
     expect(usageLimitMessage("Individual quota reached. Resets in 58h12m23s.")).toBeUndefined();
     expect(usageLimitMessage("Prompt is too long")).toBeUndefined();
     expect(usageLimitMessage("")).toBeUndefined();
+  });
+});
+
+describe("quota reads that stay readable", () => {
+  it("names the Claude plan, not its rate tier", () => {
+    expect(claudePlanTier("pro", "default_claude_ai")).toBe("PRO");
+    expect(claudePlanTier(undefined, "default_claude_ai")).toBe("PRO");
+    expect(claudePlanTier(undefined, "default_claude_max_5x")).toBe("MAX 5X");
+    expect(claudePlanTier("max", "default_claude_max_20x")).toBe("MAX");
+  });
+
+  it("starts a remembered usage window over once its reset time has passed", () => {
+    const now = Date.UTC(2026, 10, 13, 12);
+    const usage = {
+      five_hour: { utilization: 80, resets_at: new Date(now - 1000).toISOString() },
+      seven_day: { utilization: 60, resets_at: new Date(now + 86_400_000).toISOString() },
+    };
+    const aged = agedClaudeUsage(usage, now);
+    expect(aged.five_hour).toEqual({ utilization: 0, resets_at: null });
+    expect(aged.seven_day.utilization).toBe(60);
+  });
+
+  it("lists the agy CLI's named models once each, the agent's own first", () => {
+    const { models, defaultId } = agyCliModels({
+      defaultAgentModelId: "claude-opus-low",
+      agentModelSorts: [{ groups: [{ modelIds: ["claude-opus-low"] }] }],
+      models: {
+        "gemini-flash": { displayName: "Gemini Flash", quotaInfo: { resetTime: "2026-11-14T01:00:00Z" } },
+        "gemini-flash-alias": { displayName: "Gemini Flash", quotaInfo: { remainingFraction: 0.5 } },
+        chat_1: { isInternal: true, quotaInfo: { remainingFraction: 1 } },
+        tab_x: { quotaInfo: { remainingFraction: 1 } },
+        "claude-opus-low": { displayName: "Claude Opus (Low)", quotaInfo: { remainingFraction: 1, resetTime: "2026-11-13T21:00:00Z" } },
+      },
+    });
+    expect(defaultId).toBe("claude-opus-low");
+    expect(models.map((m) => m.model_id)).toEqual(["claude-opus-low", "gemini-flash"]);
+    expect(models[1]!.remaining_percent).toBe(0);
   });
 });

@@ -10,6 +10,7 @@ those of their own devices.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 from datetime import datetime, timezone
 from typing import Any
@@ -106,6 +107,19 @@ def get_device_environment_summary(device_id: str | None = None, user: User | No
 
 
 # ── quotas ────────────────────────────────────────────────────────────────
+def claude_plan_tier(tier: Any) -> Any:
+    """Claude Code's rate tier name as the plan people know (clients before v1.0.124 report the raw name)."""
+    if not isinstance(tier, str):
+        return tier
+    t = tier.lower()
+    if not t.startswith("default_claude"):
+        return tier
+    m = re.search(r"max_(\d+x)", t)
+    if m:
+        return f"MAX {m.group(1).upper()}"
+    return "MAX" if "max" in t else "PRO"
+
+
 def set_cached_device_quotas(
     device_id: str,
     report: dict[str, Any],
@@ -116,6 +130,10 @@ def set_cached_device_quotas(
     if not isinstance(report, dict):
         return
 
+    tools = report.get("tools")
+    claude = tools.get("claude_code") if isinstance(tools, dict) else None
+    if isinstance(claude, dict) and "tier" in claude:
+        report = {**report, "tools": {**tools, "claude_code": {**claude, "tier": claude_plan_tier(claude["tier"])}}}
     report_with_meta = {
         **report,
         "device_id": device_id,

@@ -1,12 +1,12 @@
 import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { userInfo } from "node:os";
 import { join } from "node:path";
 import https from "node:https";
 
-import { type AntigravityLanguageServer, findAntigravityLanguageServer } from "./antigravity.js";
+import { type AntigravityLanguageServer, findAntigravityLanguageServer, officialAgyCli } from "./antigravity.js";
 import { homeDir } from "./config.js";
 import { clearModelLimit, defaultModel, limitedModels, modelFamily, noteModelLimit, type LimitAgent, type LimitedModel } from "./model-limits.js";
 import { executionEnvironment, findExecutable } from "./exec-env.js";
@@ -87,10 +87,14 @@ async function antigravityUserStatus(ls: AntigravityLanguageServer): Promise<any
  */
 export async function probeAntigravityQuota(
   locate: typeof findAntigravityLanguageServer = findAntigravityLanguageServer,
+  viaCli: () => Promise<ToolQuotaInfo | undefined> = () => probeAntigravityCliQuota(),
 ): Promise<ToolQuotaInfo> {
   try {
     let ls = await locate();
     if (!ls) {
+      // No app running (a server without a desktop): Google's agy CLI keeps a login of its own
+      const cli = await viaCli();
+      if (cli) return cli;
       return {
         tool: "antigravity",
         name: "Google Antigravity",
@@ -197,6 +201,131 @@ export async function probeAntigravityQuota(
   }
 }
 
+/** Google's Code Assist API, the one Antigravity reads its model quotas from. */
+const CLOUDCODE_API = "https://cloudcode-pa.googleapis.com/v1internal";
+
+interface AgyCliToken {
+  access_token?: string;
+  expiry?: string;
+}
+
+async function readAgyCliToken(home: string): Promise<{ token?: AgyCliToken; email?: string } | undefined> {
+  try {
+    const raw = JSON.parse(await readFile(join(home, ".gemini", "antigravity-cli", "antigravity-oauth-token"), "utf8"));
+    return { token: raw?.token, email: typeof raw?.id_token_email === "string" ? raw.id_token_email : undefined };
+  } catch {
+    return undefined;
+  }
+}
+
+function agyTokenUsable(token: AgyCliToken | undefined, now = Date.now()): token is AgyCliToken & { access_token: string } {
+  if (!token?.access_token) return false;
+  const exp = token.expiry ? Date.parse(token.expiry) : NaN;
+  return !Number.isFinite(exp) || exp - 60_000 > now;
+}
+
+let agyCliRefreshAt = 0;
+
+/**
+ * The agy CLI's access token, while valid. An expired one is renewed by the CLI itself: `agy models`
+ * signs in with its stored login and saves the new token (at most every 10 minutes); memento never
+ * redeems the refresh token.
+ */
+async function agyCliAccessToken(home: string): Promise<{ token: string; email?: string } | undefined> {
+  let saved = await readAgyCliToken(home);
+  if (!saved) return undefined;
+  if (!agyTokenUsable(saved.token) && Date.now() - agyCliRefreshAt > 10 * 60_000) {
+    agyCliRefreshAt = Date.now();
+    const bin = await officialAgyCli(home);
+    if (bin) {
+      await run(bin, ["models"], 30_000);
+      saved = await readAgyCliToken(home);
+    }
+  }
+  return saved && agyTokenUsable(saved.token) ? { token: saved.token.access_token, email: saved.email } : undefined;
+}
+
+async function cloudcode(method: string, token: string, body: unknown): Promise<any> {
+  try {
+    const res = await fetch(`${CLOUDCODE_API}:${method}`, {
+      method: "POST",
+      // The API turns away requests that don't name a client
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", "User-Agent": "antigravity" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(8000),
+    });
+    return res.ok ? await res.json() : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Turns fetchAvailableModels' answer into the quota list: named models only, one per name, the agent's own first. */
+export function agyCliModels(data: any): { models: QuotaModelItem[]; defaultId: string } {
+  const all: Record<string, any> = data?.models || {};
+  const sorted: string[] = [];
+  for (const sort of data?.agentModelSorts || []) for (const g of sort?.groups || []) for (const id of g?.modelIds || []) sorted.push(id);
+  const ids = [...new Set([...sorted, ...Object.keys(all)])];
+  const seen = new Set<string>();
+  const models: QuotaModelItem[] = [];
+  for (const id of ids) {
+    const m = all[id];
+    if (!m?.displayName || m.isInternal || seen.has(m.displayName)) continue;
+    seen.add(m.displayName);
+    const qi = m.quotaInfo;
+    if (qi && (typeof qi.remainingFraction === "number" || qi.resetTime)) {
+      const fraction = Math.max(0, Math.min(1, typeof qi.remainingFraction === "number" ? qi.remainingFraction : 0));
+      const pct = Math.round(fraction * 1000) / 10;
+      models.push({
+        label: m.displayName,
+        model_id: id,
+        remaining_fraction: fraction,
+        remaining_percent: pct,
+        status_text: pct === 100 ? "满额 (未消耗)" : `${pct}% 剩余`,
+        reset_time: qi.resetTime,
+      });
+    } else {
+      models.push({ label: m.displayName, model_id: id, remaining_fraction: null, remaining_percent: null, status_text: "无配额限制" });
+    }
+  }
+  return { models, defaultId: typeof data?.defaultAgentModelId === "string" ? data.defaultAgentModelId : "" };
+}
+
+/** Antigravity quotas through Google's agy CLI login, for a machine without the app; undefined when it isn't signed in. */
+export async function probeAntigravityCliQuota(home = homeDir()): Promise<ToolQuotaInfo | undefined> {
+  const login = await agyCliAccessToken(home);
+  if (!login) return undefined;
+  const [assist, available] = await Promise.all([
+    cloudcode("loadCodeAssist", login.token, { metadata: { ideType: "ANTIGRAVITY" } }),
+    cloudcode("fetchAvailableModels", login.token, {}),
+  ]);
+  if (!available) {
+    return { tool: "antigravity", name: "Google Antigravity", available: false, error: "无法读取 Antigravity 额度（agy 命令行）" };
+  }
+  const { models, defaultId } = agyCliModels(available);
+  const def = models.find((m) => m.model_id === defaultId);
+  let primary = def && typeof def.remaining_percent === "number" ? def : models.find((m) => typeof m.remaining_percent === "number") || models[0];
+  if (primary?.remaining_percent === 0) primary = models.find((m) => (m.remaining_percent ?? 0) > 0) || primary;
+  const tier = assist?.paidTier || assist?.currentTier || {};
+  return {
+    tool: "antigravity",
+    name: "Google Antigravity",
+    available: true,
+    logged_in: true,
+    account_name: login.email || "Google 用户",
+    account_email: login.email || "",
+    plan_name: tier.name || "Antigravity",
+    tier: /pro/i.test(tier.id || "") ? "PRO" : /ultra/i.test(tier.id || "") ? "ULTRA" : String(tier.id || "FREE").toUpperCase(),
+    quota_type: "percentage",
+    quota_desc: `${tier.name || "Antigravity"} 按模型计费`,
+    probe_source: "agy 命令行登录",
+    remaining_percent: primary?.remaining_percent ?? null,
+    reset_time: primary?.reset_time ?? null,
+    models,
+    details: { default_model_id: defaultId, default_model_label: def?.label || "", via_cli: true },
+  };
+}
+
 /**
  * The keychain item Claude Code keeps its login in. A custom CLAUDE_CONFIG_DIR gets an item of its
  * own, suffixed with the first 8 hex chars of the dir's sha256 (as Claude Code itself names it).
@@ -256,8 +385,68 @@ async function readClaudeCredentials(env: NodeJS.ProcessEnv): Promise<unknown> {
   }
 }
 
-async function getClaudeOAuthToken(): Promise<string | undefined> {
-  return usableClaudeAccessToken(await readClaudeCredentials(await executionEnvironment()));
+async function getClaudeLogin(): Promise<{ token?: string; subscription?: string }> {
+  const creds = await readClaudeCredentials(await executionEnvironment());
+  const sub = (creds as { claudeAiOauth?: { subscriptionType?: unknown } } | undefined)?.claudeAiOauth?.subscriptionType;
+  return { token: usableClaudeAccessToken(creds), subscription: typeof sub === "string" && sub ? sub : undefined };
+}
+
+/**
+ * The plan as people know it. Claude Code's own rate tier names (default_claude_ai,
+ * default_claude_max_5x) say little; the login's subscription type says it plainly.
+ */
+export function claudePlanTier(subscription?: string, rateTier?: string): string {
+  if (subscription) return subscription.toUpperCase();
+  const t = (rateTier || "").toLowerCase();
+  const max = /max_(\d+x)/.exec(t);
+  if (max) return `MAX ${max[1]!.toUpperCase()}`;
+  if (t.includes("max")) return "MAX";
+  if (t.includes("team")) return "TEAM";
+  if (t.includes("enterprise")) return "ENTERPRISE";
+  return "PRO";
+}
+
+type ClaudeUsage = Record<string, any>;
+
+/** The last live usage read, kept so a failed read (an expired token, a slow network) still shows it. */
+let lastClaudeUsage: { usage: ClaudeUsage; at: number; account?: string } | undefined;
+const CLAUDE_USAGE_TTL = 60_000;
+
+function claudeUsageFile(): string {
+  return join(homeDir(), ".memento", "claude-usage.json");
+}
+
+async function rememberClaudeUsage(usage: ClaudeUsage, account?: string): Promise<void> {
+  lastClaudeUsage = { usage, at: Date.now(), account };
+  try {
+    await mkdir(join(homeDir(), ".memento"), { recursive: true });
+    await writeFile(claudeUsageFile(), JSON.stringify(lastClaudeUsage));
+  } catch {}
+}
+
+async function rememberedClaudeUsage(account?: string): Promise<{ usage: ClaudeUsage; at: number } | undefined> {
+  if (!lastClaudeUsage) {
+    try {
+      lastClaudeUsage = JSON.parse(await readFile(claudeUsageFile(), "utf8"));
+    } catch {
+      return undefined;
+    }
+  }
+  const saved = lastClaudeUsage;
+  if (!saved?.usage || (account && saved.account && saved.account !== account)) return undefined;
+  return saved;
+}
+
+/** A remembered read brought up to now: a window whose reset time has passed starts over at 0. */
+export function agedClaudeUsage(usage: ClaudeUsage, now = Date.now()): ClaudeUsage {
+  const out: ClaudeUsage = { ...usage };
+  for (const key of ["five_hour", "seven_day"]) {
+    const w = usage[key];
+    const reset = w?.resets_at ? Date.parse(w.resets_at) : NaN;
+    if (w && Number.isFinite(reset) && reset <= now) out[key] = { utilization: 0, resets_at: null };
+  }
+  out.limits = (usage.limits || []).filter((l: any) => !(l?.resets_at && Date.parse(l.resets_at) <= now));
+  return out;
 }
 
 function fetchAnthropicLiveUsage(token: string): Promise<Record<string, any> | undefined> {
@@ -332,12 +521,20 @@ export async function probeClaudeCodeQuota(home = homeDir()): Promise<ToolQuotaI
     }
 
     const oauth = d.oauthAccount || {};
-    const token = home === homeDir() ? await getClaudeOAuthToken() : undefined;
+    const own = home === homeDir();
+    const login = own ? await getClaudeLogin() : {};
+    const token = login.token;
+    const account: string | undefined = oauth.accountUuid || undefined;
 
-    // 1. 优先尝试直接调用 Anthropic 官方实时 /api/oauth/usage 端点获取 100% 鲜活数据
+    // 1. 优先尝试直接调用 Anthropic 官方实时 /api/oauth/usage 端点获取 100% 鲜活数据（一分钟内复用上次结果）
     let liveUsage: Record<string, any> | undefined;
-    if (token) {
+    let rememberedAt: number | undefined;
+    const recent = own ? await rememberedClaudeUsage(account) : undefined;
+    if (recent && Date.now() - recent.at < CLAUDE_USAGE_TTL) {
+      liveUsage = recent.usage;
+    } else if (token) {
       liveUsage = await fetchAnthropicLiveUsage(token);
+      if (liveUsage && (liveUsage.seven_day || liveUsage.five_hour)) await rememberClaudeUsage(liveUsage, account);
       if (liveUsage && (liveUsage.error === "unauthorized" || liveUsage.statusCode === 401)) {
         return {
           tool: "claude_code",
@@ -355,6 +552,11 @@ export async function probeClaudeCodeQuota(home = homeDir()): Promise<ToolQuotaI
 
     if (liveUsage && (liveUsage.seven_day || liveUsage.five_hour)) {
       ut = liveUsage;
+    } else if (recent) {
+      // 实时接口这次没读到（令牌过期待 Claude Code 自己刷新、网络超时、限流）：用上次读到的，已过重置时间的窗口归零
+      liveUsage = undefined;
+      ut = agedClaudeUsage(recent.usage);
+      rememberedAt = recent.at;
     } else {
       // 2. 官方接口不可用时，降级读取 ~/.claude.json 中的缓存，但做严密的过期检查
       const cachedUsage = d.cachedUsageUtilization || {};
@@ -409,18 +611,20 @@ export async function probeClaudeCodeQuota(home = homeDir()): Promise<ToolQuotaI
 
     const sEnv = sJson.env || {};
     const hasApiKey = Boolean(process.env.ANTHROPIC_API_KEY || sEnv.ANTHROPIC_API_KEY || sEnv.ANTHROPIC_AUTH_TOKEN);
+    const planTier = claudePlanTier(login.subscription, oauth.organizationRateLimitTier || oauth.organizationType);
+    const planWord = planTier.charAt(0) + planTier.slice(1).toLowerCase();
     const planName = hasApiKey
       ? (sEnv.ANTHROPIC_BASE_URL ? "Claude (网关/API 模式)" : "Claude (API Key 模式)")
       : oauth.billingType === "apple_subscription"
-        ? "Claude Pro (Apple 订阅)"
+        ? `Claude ${planWord} (Apple 订阅)`
         : oauth.billingType === "stripe_subscription"
-          ? "Claude Pro (Stripe 订阅)"
-          : oauth.organizationType === "claude_pro"
-            ? "Claude Pro"
+          ? `Claude ${planWord} (Stripe 订阅)`
+          : oauth.organizationType === "claude_pro" || login.subscription
+            ? `Claude ${planWord}`
             : oauth.organizationType
               ? `Claude ${oauth.organizationType}`
               : "Claude 订阅";
-    const tier = hasApiKey ? "API_KEY" : (oauth.organizationRateLimitTier || "PRO").toUpperCase();
+    const tier = hasApiKey ? "API_KEY" : planTier;
     const remainingFraction = remainingPercent != null ? remainingPercent / 100 : null;
 
     // 真实的 Claude Code 模型体系（全模型共享同一订阅配额）
@@ -501,6 +705,8 @@ export async function probeClaudeCodeQuota(home = homeDir()): Promise<ToolQuotaI
               : "Anthropic 滑动窗口 (根据使用频次与官方队列动态重置)"),
         probe_source: liveUsage
           ? "Anthropic OAuth 实时用量 API"
+          : rememberedAt
+            ? `Anthropic 用量 API（${new Date(rememberedAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false })} 读取）`
           : (hasApiKey ? (sEnv.ANTHROPIC_BASE_URL ? `反向网关 (${sEnv.ANTHROPIC_BASE_URL})` : "环境变量 ANTHROPIC_API_KEY") : "~/.claude.json 本地授权凭据"),
         remaining_percent: remainingPercent,
         reset_time: resetTime,

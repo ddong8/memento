@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `ea7f2e9d` · Updated: `2026-11-14`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `65be5009` · Updated: `2026-11-14`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,8 +16,8 @@
 - 规模 (Scale): 9 个子系统 · 35 组 API 路由 / 237 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 210 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `ea7f2e9d` (2026-11-14): fix(问答): 追问送达后从输入区移到回答里显示
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 34（✅ 34 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `T-FOLLOWUP`, `F-FOLLOWUP`, `R-FOLLOWUP-NOT-LOST`, `S-FOLLOWUPS`, `R-REPLY-VISIBLE`
+- 最近改动 (Latest): `65be5009` (2026-11-14): feat(蓝图): 新增业务蓝图，把用户定的规则挂到代码和测试上并随提交核对；修复微信扫码登录在多副本下最多 15 秒读到旧状态；升级客户端版本至 v1.0.133
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 49（✅ 47 · ⚠️ 2 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `T-BLUEPRINT`, `F-BLUEPRINT`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `R-BUSINESS-CHECKED`, `S-CLIENT-VERSION`, `T-FOLLOWUP`, `F-FOLLOWUP`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -31,7 +31,7 @@
 | 8. Development & Verification Commands | L624-L641 |
 | 9. Recent Architectural Evolutions | L643-L650 |
 | 10. Key Environment Variables & Configuration | L652-L664 |
-| 11. 业务蓝图核对 (Business Blueprint Check) | L666-L677 |
+| 11. 业务蓝图核对 (Business Blueprint Check) | L666-L682 |
 
 ## 1. Project Overview & Tech Stack
 
@@ -611,15 +611,15 @@ erDiagram
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
 - [`packages/daemon/assets/workbuddy_cli.mjs`](packages/daemon/assets/workbuddy_cli.mjs) (20 commits)
-- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (16 commits)
+- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (15 commits)
 - [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (9 commits)
 - [`apps/desktop/src/main.ts`](apps/desktop/src/main.ts) (6 commits)
 - [`apps/web/src/app/globals.css`](apps/web/src/app/globals.css) (6 commits)
-- [`apps/web/src/components/ExecutionCard.tsx`](apps/web/src/components/ExecutionCard.tsx) (6 commits)
-- [`apps/web/src/components/TaskTimeline.tsx`](apps/web/src/components/TaskTimeline.tsx) (6 commits)
 - [`apps/web/src/components/viewers/MediaInspectorPanel.tsx`](apps/web/src/components/viewers/MediaInspectorPanel.tsx) (6 commits)
-- [`apps/web/src/lib/i18n/en-US.ts`](apps/web/src/lib/i18n/en-US.ts) (5 commits)
-- [`apps/web/src/lib/i18n/zh-CN.ts`](apps/web/src/lib/i18n/zh-CN.ts) (5 commits)
+- [`apps/web/src/components/ExecutionCard.tsx`](apps/web/src/components/ExecutionCard.tsx) (5 commits)
+- [`apps/web/src/components/TaskTimeline.tsx`](apps/web/src/components/TaskTimeline.tsx) (5 commits)
+- [`packages/core/src/events.ts`](packages/core/src/events.ts) (5 commits)
+- [`apps/desktop/src/preload.ts`](apps/desktop/src/preload.ts) (4 commits)
 
 ## 8. Development & Verification Commands
 
@@ -642,12 +642,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `65be5009` (2026-11-14): feat(蓝图): 新增业务蓝图，把用户定的规则挂到代码和测试上并随提交核对；修复微信扫码登录在多副本下最多 15 秒读到旧状态；升级客户端版本至 v1.0.133
 - `ea7f2e9d` (2026-11-14): fix(问答): 追问送达后从输入区移到回答里显示
 - `10ccd5ef` (2026-11-14): fix(问答): 回答时稳定跟到最底部
 - `119ba986` (2026-11-14): fix(问答): 配置面板和会话上下文限高内部滚动，不再把回答区挤成一条
 - `0692a6ae` (2026-11-14): fix(问答): 输入区变高时回答底部不再被遮住
 - `8053fdb3` (2026-11-14): feat(额度): 额度按当前对话用的模型显示，Antigravity 各模型分开算
-- `875afd56` (2026-11-14): fix: 删除对话后不再从另一副本的缓存里回来；对话自己建的会话不再标成“续”；手机端模型名显示完整
 
 ## 10. Key Environment Variables & Configuration
 
@@ -665,16 +665,21 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 11. 业务蓝图核对 (Business Blueprint Check)
 
-- 业务蓝图：[BUSINESS_BLUEPRINT.md](BUSINESS_BLUEPRINT.md) · 规则 34（✅ 34 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
-- 结论：✅ 没有失效或违规
+- 业务蓝图：[BUSINESS_BLUEPRINT.md](BUSINESS_BLUEPRINT.md) · 规则 49（✅ 47 · ⚠️ 2 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
+- 结论：✅ 没有失效或违规 · ⚠️ 2 条缺测试 / 代码位置 / 来源
+
+### 需要处理
+
+- ⚠️ `R-THINKING-FULL` 思考过程始终铺满显示，回答正文字号统一（L356）：没有测试或检查保证
+- ⚠️ `R-PERSONA-ONBOARD` 个人画像首次进入引导设性别和卡通形象，可上传照片生成，默认全屏动画、3D 默认不选，手机端完整显示（L377）：没有测试或检查保证
 
 ### 最近提交碰到的业务条目（改动后复查它们还成不成立）
 
-- `ea7f2e9d` fix(问答): 追问送达后从输入区移到回答里显示 → `T-FOLLOWUP`, `F-FOLLOWUP`, `R-FOLLOWUP-NOT-LOST`, `S-FOLLOWUPS`
+- `65be5009` feat(蓝图): 新增业务蓝图，把用户定的规则挂到代码和测试上并随提交核对；修复微信扫码登录在多副本下最多 15 秒读到旧状态；升级客户端版本至 v1.0.1 → `T-BLUEPRINT`, `F-BLUEPRINT`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `R-BUSINESS-CHECKED`, `S-CLIENT-VERSION`
+- `ea7f2e9d` fix(问答): 追问送达后从输入区移到回答里显示 → `T-FOLLOWUP`, `F-FOLLOWUP`, `R-FOLLOWUP-NOT-LOST`, `R-THINKING-FULL`, `S-FOLLOWUPS`
 - `10ccd5ef` fix(问答): 回答时稳定跟到最底部 → `R-REPLY-VISIBLE`
 - `119ba986` fix(问答): 配置面板和会话上下文限高内部滚动，不再把回答区挤成一条 → `R-REPLY-VISIBLE`
 - `0692a6ae` fix(问答): 输入区变高时回答底部不再被遮住 → `R-REPLY-VISIBLE`
-- `8053fdb3` feat(额度): 额度按当前对话用的模型显示，Antigravity 各模型分开算 → `T-QUOTA`, `R-QUOTA-PER-MODEL`, `S-MODEL-CHOICE`
 
 ---
-_Auto-maintained by `scripts/project_blueprint.mjs` (v20261122) & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._
+_Auto-maintained by `scripts/project_blueprint.mjs` (v20261123) & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._

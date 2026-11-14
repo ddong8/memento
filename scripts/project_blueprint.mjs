@@ -6126,7 +6126,7 @@ function detectVerificationCommands(root) {
 }
 
 // packages/daemon/src/blueprint/meta.ts
-var BLUEPRINT_SCRIPT_VERSION = 20261122;
+var BLUEPRINT_SCRIPT_VERSION = 20261123;
 var BLUEPRINT_FILE = "PROJECT_BLUEPRINT.md";
 var BUSINESS_FILE = "BUSINESS_BLUEPRINT.md";
 var SCRIPT_NAME = "project_blueprint.mjs";
@@ -6151,7 +6151,7 @@ var INDEX_END = "<!-- memento:business-index:end -->";
 var CHECK_START = "<!-- memento:business-check:start (自动生成，勿手改) -->";
 var CHECK_END = "<!-- memento:business-check:end -->";
 var ENTRY_RE = /^###\s+([TFRS]-[A-Z0-9][A-Z0-9-]*)\s+(.+?)\s*$/;
-var FIELD_RE = /^\s*[-*]\s*(来源|代码|测试|禁止|要求|事实源|副本|同步|定义|说明)\s*[:：]\s*(.*)$/;
+var FIELD_RE = /^\s*[-*]\s*(来源|代码|测试|禁止|要求|事实源|副本|同步|定义|说明|类型)\s*[:：]\s*(.*)$/;
 var STEP_RE = /^\s*\d+[.)、]\s+(.*)$/;
 var TICKED_RE = /`([^`\n]+)`/g;
 var ANCHOR_FIELDS = /* @__PURE__ */ new Set(["代码", "事实源", "副本", "同步"]);
@@ -6202,7 +6202,7 @@ function parseBusinessBlueprint(text) {
     if (inFence) return;
     const head = line.match(ENTRY_RE);
     if (head) {
-      cur = { id: head[1], kind: KIND_OF[head[1][0]], title: head[2], line: i + 1, sources: [], anchors: [], tests: [], forbidden: [], required: [] };
+      cur = { id: head[1], kind: KIND_OF[head[1][0]], title: head[2], line: i + 1, sources: [], anchors: [], tests: [], forbidden: [], required: [], convention: false };
       entries.push(cur);
       return;
     }
@@ -6216,6 +6216,7 @@ function parseBusinessBlueprint(text) {
     if (field) {
       const [, name, value] = field;
       if (name === "来源") e.sources.push(value.trim());
+      else if (name === "类型") e.convention = /约定/.test(value);
       else if (ANCHOR_FIELDS.has(name)) for (const ref of anchorsIn(value)) e.anchors.push(blankAnchor(ref));
       else if (name === "测试") for (const ref of anchorsIn(value)) e.tests.push(blankAnchor(ref));
       else if (name === "禁止") for (const c of patternClauses(value)) e.forbidden.push({ ...c, hits: [], ok: true });
@@ -6364,8 +6365,8 @@ function checkEntries(root, entries) {
     }
     let verdict = problems.length ? "fail" : "ok";
     if (verdict === "ok") {
-      if (e.kind === "rule" && !anchors.length) problems.push("没有挂代码位置");
-      if (e.kind === "rule" && !tests.length && !forbidden.length && !required.length) problems.push("没有测试或检查保证");
+      if (e.kind === "rule" && !e.convention && !anchors.length) problems.push("没有挂代码位置");
+      if (e.kind === "rule" && !e.convention && !tests.length && !forbidden.length && !required.length) problems.push("没有测试或检查保证");
       if (e.kind === "rule" && !e.sources.length) problems.push("没有写来源");
       if (e.kind !== "rule" && !anchors.length) problems.push("没有挂代码位置");
       if (problems.length) verdict = "warn";
@@ -6534,7 +6535,7 @@ function renderCheckRegion(r) {
     const checks = e.forbidden.length + e.required.length;
     const okC = e.forbidden.filter((c) => c.ok).length + e.required.filter((c) => c.ok).length;
     const frac = (ok, all) => all ? `${ok}/${all}` : "—";
-    lines.push(`| \`${e.id}\` | ${e.title.replace(/\|/g, "\\|")} | ${frac(okA, e.anchors.length)} | ${frac(okT, e.tests.length)} | ${frac(okC, checks)} | ${MARK[e.verdict]} |`);
+    lines.push(`| \`${e.id}\` | ${e.title.replace(/\|/g, "\\|")} | ${frac(okA, e.anchors.length)} | ${frac(okT, e.tests.length)} | ${frac(okC, checks)} | ${MARK[e.verdict]}${e.convention ? " 约定" : ""} |`);
   }
   const problems = problemLines(r);
   lines.push("", "### 需要处理", "", ...problems.length ? problems : ["- 没有。"], CHECK_END);
@@ -7583,6 +7584,7 @@ var BUSINESS_HELP = [
   "  - 禁止: `text` @ `dir/`; `/regex/` @ `f`    must not appear there (how the bug looked)",
   "  - 要求: `text` @ `path`                     must appear there (what keeps it fixed)",
   "  - 事实源 / 副本 / 同步: …                    (states) their `path#symbol` are checked too",
+  "  - 类型: 协作约定                              a rule about how work is done (no code or test asked of it)",
   "The generator keeps an index after the title and the check results at the end (between memento markers)."
 ].join("\n");
 var UsageError = class extends Error {

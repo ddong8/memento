@@ -40,6 +40,7 @@ const BUSINESS_HELP = [
   "  - 禁止: `text` @ `dir/`; `/regex/` @ `f`    must not appear there (how the bug looked)",
   "  - 要求: `text` @ `path`                     must appear there (what keeps it fixed)",
   "  - 事实源 / 副本 / 同步: …                    (states) their `path#symbol` are checked too",
+  "  - 类型: 协作约定                              a rule about how work is done (no code or test asked of it)",
   "The generator keeps an index after the title and the check results at the end (between memento markers).",
 ].join("\n");
 

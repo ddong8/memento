@@ -246,3 +246,12 @@ describe("the generator", () => {
     expect(hook).toContain("git add BUSINESS_BLUEPRINT.md");
   });
 });
+
+describe("conventions", () => {
+  it("asks no code or test of a rule about how the work is done", () => {
+    write("BUSINESS_BLUEPRINT.md", BLUEPRINT + "\n### R-COMMITS 提交规范\n- 来源: 用户\n- 类型: 协作约定\n");
+    const r = checkBusinessBlueprint(root)!;
+    const e = r.entries.find((x) => x.id === "R-COMMITS")!;
+    expect([e.convention, e.verdict, e.problems]).toEqual([true, "ok", []]);
+  });
+});

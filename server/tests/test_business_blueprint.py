@@ -59,8 +59,12 @@ class TestCoverage(unittest.TestCase):
             "- 手机端切换设备只拉该设备的项目和对话",
         ]
         missing = biz.uncovered_rules(TEXT, rules)
-        # A term's wording doesn't cover a rule; the two rules with entries are covered
-        self.assertEqual(missing, ["必须能停止 Antigravity、Claude Code、Codex 运行中的任务", "手机端切换设备只拉该设备的项目和对话"])
+        # Each "；" clause on its own; a term's wording doesn't cover a rule
+        self.assertEqual(
+            missing,
+            ["新建对话用最新配置并保证成功", "必须能停止 Antigravity、Claude Code、Codex 运行中的任务", "手机端切换设备只拉该设备的项目和对话"],
+        )
+        self.assertEqual(biz.rules_total(rules), 5)
 
     def test_the_prompt_carries_the_rules_and_the_format(self):
         p = biz.generation_prompt("chem-search", ["- 逆合成实验条件统一使用英文"], has_file=False)
@@ -72,6 +76,21 @@ class TestCoverage(unittest.TestCase):
 
 
 class TestCopies(unittest.IsolatedAsyncioTestCase):
+    async def test_only_a_file_named_exactly_business_blueprint_counts(self):
+        """2026-11-14: an agent's memory note project_business_blueprint.md was shown as the blueprint."""
+        from sqlalchemy.dialects import postgresql
+
+        from server.db.models import Project
+
+        res = MagicMock()
+        res.all.return_value = []
+        db = AsyncMock()
+        db.execute.return_value = res
+        await biz.resolve_business_blueprint(db, Project(id=uuid.uuid4(), title="memento", slug="memento"), None)
+        sql = str(db.execute.call_args[0][0].compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}))
+        self.assertIn("LIKE '%%/BUSINESS_BLUEPRINT.md'", sql)
+        self.assertNotIn("ILIKE", sql)
+
     async def test_the_copy_from_the_same_checkout_as_the_code_blueprint_wins(self):
         from server.db.models import Project
 

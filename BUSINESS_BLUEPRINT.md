@@ -3,16 +3,16 @@
 <!-- memento:business-index:start (自动生成，勿手改) -->
 > 先读这一段定位；要细节时按下表行号只读对应章节。改了「代码位置」里的文件，先看对应条目还成不成立。
 
-- 汇总：规则 34（✅ 34 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
-- 核对：全部通过（详见末尾「自动核对」）
+- 汇总：规则 49（✅ 47 · ⚠️ 2 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
+- 核对：全部通过 · ⚠️ 2 条待补（详见末尾「自动核对」）
 
 | 章节 | 行号 |
 | :--- | :--- |
 | 1. 业务对象与术语 | L21-L65 |
 | 2. 关键流程 | L67-L124 |
-| 3. 业务规则 | L126-L317 |
-| 4. 状态归属 | L319-L364 |
-| 自动核对 (Auto Check) | L367-L441 |
+| 3. 业务规则 | L126-L398 |
+| 4. 状态归属 | L400-L445 |
+| 自动核对 (Auto Check) | L448-L538 |
 <!-- memento:business-index:end -->
 > 业务蓝图：memento 应该做成什么样，每一条落在哪段代码、由哪个测试或检查保证。和 [PROJECT_BLUEPRINT.md](PROJECT_BLUEPRINT.md)（代码长什么样）配合看：代码蓝图回答"在哪里"，这份回答"应该怎样、为什么"。
 > 规则来自用户的原话和纠正（CLAUDE.md、长期记忆、每晚复盘），不是从代码里反推的；代码和这里对不上，先当成代码的问题查。
@@ -309,6 +309,87 @@
 - 代码: `.github/workflows/deploy.yml`
 - 禁止: `/^\s*[^#\s].*install_kustomize\.sh/` @ `.github/workflows/`
 
+### R-COMMIT-CONVENTION 提交用中文 Conventional Commits，不加 Claude 共同作者尾注，历史保持线性
+- 来源: CLAUDE.md（memento）「提交用中文 Conventional Commits，不加 Claude 共同作者尾注；历史保持线性，用 git rebase 不用 merge commit」
+- 类型: 协作约定
+- 说明: 推送前 `git pull --rebase`，不产生 merge commit；提交说明（含正文）里不写会让 GitHub 跳过流水线的那几个字。
+
+### R-DEPLOY-AFTER-CI 部署流水线必须等 CI 通过
+- 来源: CLAUDE.md（memento）「部署流水线必须等 CI 通过」
+- 类型: 协作约定
+- 说明: 镜像和 CI 同时构建，但回写镜像 tag（真正上线）的 bump 任务等 wait-ci 通过才跑。
+- 代码: `.github/workflows/deploy.yml`
+- 要求: `needs: [changes, wait-ci, build]` @ `.github/workflows/deploy.yml`
+
+### R-ALL-TYPESCRIPT 客户端全 TypeScript，Electron + React，不混入 Flutter、Tauri 等框架
+- 来源: CLAUDE.md（memento）「全 TypeScript，Electron + React（参考 Paseo），不要混入 Flutter、Tauri 等框架」；记忆「客户端迁移 TypeScript」（阶段 5 起设备上不要 Python）
+- 代码: `apps/desktop/package.json`, `packages/daemon/src/index.ts`
+- 禁止: `/"@tauri-apps\//` @ `apps/desktop/package.json`, `apps/web/package.json`, `apps/mobile/package.json`, `packages/daemon/package.json`; `/^\s*flutter:/` @ `apps/`
+
+### R-SELF-EVOLVE 越用越了解用户、能自进化
+- 来源: CLAUDE.md（memento）「希望工具越用越了解用户、能自进化」；记忆「越用越聪明核查（10-27）」
+- 说明: 纠正当场学习并跟踪是否学会，每晚复盘（dreaming）沉淀规则、避坑和技能，检索评测集每周回归。
+- 代码: `server/server/services/correction_service.py`, `server/server/services/dreaming_service.py`, `server/server/services/eval_service.py`, `server/server/services/guidance_service.py`
+- 测试: `server/tests/test_title_healing.py`
+
+### R-PLAN-THEN-FINISH 规划周全后一次性全部完成，追求好用，界面高级精致
+- 来源: CLAUDE.md（memento）「规划周全后一次性全部完成，追求好用；界面高级精致」
+- 类型: 协作约定
+- 说明: 做之前先把范围、改动点和验证方式想清楚，做完逐项验证再交付；界面字体只用系统字体（技能 system-ui-fonts）。
+
+### R-LOGIN-PERSIST 客户端登录永久记住
+- 来源: CLAUDE.md（memento）「客户端登录永久记住」
+- 说明: 网页和桌面端把登录凭据存在持久的 localStorage，过期前自动续期；桌面端窗口用持久分区，重启不丢。
+- 代码: `apps/web/src/lib/auth-context.tsx#AuthProvider`, `apps/web/src/lib/api-client.ts#getApiBase`, `apps/desktop/src/main.ts#webToken`
+- 要求: `/api/auth/refresh` @ `apps/web/src/lib/api-client.ts`
+
+### R-MENU-KEEPALIVE 记住上次菜单状态，切换菜单不重新加载
+- 来源: CLAUDE.md（memento）「记住上次菜单状态，切换不重新加载」
+- 代码: `apps/web/src/components/layout/RouteKeepAlive.tsx`, `apps/web/src/app/client-layout.tsx`
+- 测试: `apps/web/test/route-keepalive.test.tsx#keep a hidden page on the route it was left at, and tell it when it's back`, `apps/web/test/route-keepalive.test.tsx#pause hidden pages other than the ask page, keeping their state`
+
+### R-MAC-TRAY Mac 客户端支持最小化到托盘，关窗口不退出
+- 来源: CLAUDE.md（memento）「Mac 支持最小化到托盘」
+- 代码: `apps/desktop/src/main.ts#refreshTray`
+- 要求: `win.on("minimize"` @ `apps/desktop/src/main.ts`; `event.preventDefault();` @ `apps/desktop/src/main.ts`
+
+### R-THINKING-FULL 思考过程始终铺满显示，回答正文字号统一
+- 来源: CLAUDE.md（memento）「思考过程始终铺满全屏」「回答正文字号统一」
+- 说明: 还没有测试或可检查的写法守着（纯样式），改气泡和 Markdown 样式时要截图看。
+- 代码: `apps/web/src/components/ask/bubbles.tsx#ThinkingBlock`, `apps/web/src/components/ask/bubbles.tsx#AssistantBubble`, `apps/web/src/components/viewers/MarkdownViewer.tsx`
+
+### R-PASTE-IMAGE-ONCE 粘贴图片不重复
+- 来源: CLAUDE.md（memento）「粘贴图片不重复」
+- 说明: 输入框自己的粘贴处理和窗口级粘贴只走一个；同一张图（同 dataUrl）只附一次。
+- 代码: `apps/web/src/app/ask/page.tsx#handlePaste`
+- 要求: `!existingUrls.has(img.dataUrl)` @ `apps/web/src/app/ask/page.tsx`
+
+### R-MEDIA-VIEW 图片可点击放大；视频可预览、全屏、播放后缓存；工作台能看图片和 ppt/excel/word/md 等产物
+- 来源: CLAUDE.md（memento）「图片可点击放大；视频可预览、可全屏、播放后缓存；工作台能查看图片和 ppt/excel/word/md 等产物」
+- 代码: `apps/web/src/components/viewers/ImageViewerModal.tsx#ImageViewerModal`, `apps/web/src/components/viewers/MediaPreview.tsx`, `apps/web/src/components/viewers/OfficePreview.tsx`, `apps/web/src/lib/office-preview.ts`, `apps/web/src/components/viewers/MediaInspectorPanel.tsx`
+- 测试: `apps/web/test/video-player-fullscreen.test.tsx#clicking center '点击放大全屏播放' badge triggers fullscreen toggle and playback`, `apps/web/test/office-preview.test.ts#places shapes on the slide`, `apps/web/test/office-preview.test.ts#reads sheets with shared strings`, `apps/web/test/markdown-viewer.test.ts`, `apps/web/test/workbench-links.test.ts`
+
+### R-LLM-IN-PROFILE 大模型配置放在个人设置里
+- 来源: CLAUDE.md（memento）「大模型配置放在个人设置里」
+- 代码: `apps/web/src/components/profile/LLMSettingsView.tsx#LLMSettingsView`, `apps/web/src/app/profile/page.tsx`
+- 要求: `LLMSettingsView` @ `apps/web/src/app/profile/page.tsx`
+
+### R-PERSONA-ONBOARD 个人画像首次进入引导设性别和卡通形象，可上传照片生成，默认全屏动画、3D 默认不选，手机端完整显示
+- 来源: CLAUDE.md（memento）「个人画像首次进入引导设置性别和卡通形象，可上传照片生成，默认全屏动画，3D 默认不选中，手机端自动缩放完整显示」
+- 说明: 还没有测试守着；改画像页和形象引导时要在手机宽度截图看。
+- 代码: `apps/web/src/components/persona/AvatarOnboardingModal.tsx#AvatarOnboardingModal`, `apps/web/src/components/persona/avatarPresets.ts`, `apps/web/src/app/memory/persona/page.tsx`
+
+### R-ASK-INSTANT AI 执事区域刷新尽量零延迟
+- 来源: CLAUDE.md（memento）「AI 执事区域刷新尽量零延迟」；全局技术偏好「要求交互零延迟」
+- 说明: 打开页面先用本地快照和内存缓存立刻画出上次的对话，服务端结果到了再对齐（带 ETag）。
+- 代码: `apps/web/src/lib/ask/cache.ts#getLocalConvSnapshot`, `apps/web/src/lib/ask/cache.ts#saveLocalConvSnapshot`, `apps/web/src/lib/api-client.ts#seedApiEtagCache`
+- 测试: `apps/web/test/cache-writes.test.ts#reads back a snapshot that is still waiting to be written`, `apps/web/test/cache-writes.test.ts#writes the snapshot later, once, with long tool output cut`
+
+### R-WECHAT-DRAFT 工作台文本可多次润色，确认后推到公众号草稿，文章带官网链接
+- 来源: CLAUDE.md（memento）「工作台文本支持多次编辑润色，确认无误后再推送到公众号草稿；文章带上官网链接」
+- 代码: `apps/web/src/components/viewers/WeChatPublishModal.tsx#WeChatPublishModal`, `apps/web/src/components/viewers/MediaInspectorPanel.tsx`
+- 要求: `/api/wechat/draft` @ `apps/web/src/components/viewers/WeChatPublishModal.tsx`; `官方网址` @ `apps/web/src/components/viewers/WeChatPublishModal.tsx`
+
 ### R-BUSINESS-CHECKED 业务规则挂到代码和测试上，每次提交自动核对
 - 来源: 用户 2026-11-14「是不是也要增加业务类似的蓝图才能更加准确的反映业务和代码之间的联系，甚至是否有bug，是否有优化的空间也可以从这两个之间找」「做详细，做到完美，一次性做完」
 - 说明: 本文件就是它。生成器随提交核对并写回结果，代码蓝图第 11 节列出最近提交碰到的条目，CI 有 ❌ 不部署；设备上传后项目页显示核对结果和还没写进来的项目规则，可以派智能体去写。
@@ -368,7 +449,7 @@
 
 > 生成器随每次提交核对：代码位置还在不在、测试还在不在、禁止 / 要求的写法满不满足。✅ 通过 · ⚠️ 缺代码位置、测试或来源 · ❌ 位置失效或违反规则（CI 会拦下）。
 
-- 汇总：规则 34（✅ 34 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
+- 汇总：规则 49（✅ 47 · ⚠️ 2 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
 
 | 编号 | 名称 | 代码位置 | 测试 | 检查 | 结论 |
 | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -425,6 +506,21 @@
 | `R-PUBLIC-REPO-CLEAN` | 公开仓库里没有内网地址和密钥 | 2/2 | — | 2/2 | ✅ |
 | `R-NO-CONFIGMAP-HOTFIX` | 不用 ConfigMap 挂载覆盖镜像里的代码 | 1/1 | — | 1/1 | ✅ |
 | `R-CI-KUSTOMIZE-PINNED` | CI 装 kustomize 用固定版直链，不用 install_kustomize.sh | 1/1 | — | 1/1 | ✅ |
+| `R-COMMIT-CONVENTION` | 提交用中文 Conventional Commits，不加 Claude 共同作者尾注，历史保持线性 | — | — | — | ✅ 约定 |
+| `R-DEPLOY-AFTER-CI` | 部署流水线必须等 CI 通过 | 1/1 | — | 1/1 | ✅ 约定 |
+| `R-ALL-TYPESCRIPT` | 客户端全 TypeScript，Electron + React，不混入 Flutter、Tauri 等框架 | 2/2 | — | 2/2 | ✅ |
+| `R-SELF-EVOLVE` | 越用越了解用户、能自进化 | 4/4 | 1/1 | — | ✅ |
+| `R-PLAN-THEN-FINISH` | 规划周全后一次性全部完成，追求好用，界面高级精致 | — | — | — | ✅ 约定 |
+| `R-LOGIN-PERSIST` | 客户端登录永久记住 | 3/3 | — | 1/1 | ✅ |
+| `R-MENU-KEEPALIVE` | 记住上次菜单状态，切换菜单不重新加载 | 2/2 | 2/2 | — | ✅ |
+| `R-MAC-TRAY` | Mac 客户端支持最小化到托盘，关窗口不退出 | 1/1 | — | 1/1 | ✅ |
+| `R-THINKING-FULL` | 思考过程始终铺满显示，回答正文字号统一 | 3/3 | — | — | ⚠️ |
+| `R-PASTE-IMAGE-ONCE` | 粘贴图片不重复 | 1/1 | — | 1/1 | ✅ |
+| `R-MEDIA-VIEW` | 图片可点击放大；视频可预览、全屏、播放后缓存；工作台能看图片和 ppt/excel/word/md 等产物 | 5/5 | 5/5 | — | ✅ |
+| `R-LLM-IN-PROFILE` | 大模型配置放在个人设置里 | 2/2 | — | 1/1 | ✅ |
+| `R-PERSONA-ONBOARD` | 个人画像首次进入引导设性别和卡通形象，可上传照片生成，默认全屏动画、3D 默认不选，手机端完整显示 | 3/3 | — | — | ⚠️ |
+| `R-ASK-INSTANT` | AI 执事区域刷新尽量零延迟 | 3/3 | 2/2 | — | ✅ |
+| `R-WECHAT-DRAFT` | 工作台文本可多次润色，确认后推到公众号草稿，文章带官网链接 | 2/2 | — | 2/2 | ✅ |
 | `R-BUSINESS-CHECKED` | 业务规则挂到代码和测试上，每次提交自动核对 | 6/6 | 4/4 | 1/1 | ✅ |
 | `S-CONV-LIST` | 对话列表 | 6/6 | — | — | ✅ |
 | `S-RUN-STATE` | 运行状态与灵动岛 | 5/5 | — | — | ✅ |
@@ -438,5 +534,6 @@
 
 ### 需要处理
 
-- 没有。
+- ⚠️ `R-THINKING-FULL` 思考过程始终铺满显示，回答正文字号统一（L356）：没有测试或检查保证
+- ⚠️ `R-PERSONA-ONBOARD` 个人画像首次进入引导设性别和卡通形象，可上传照片生成，默认全屏动画、3D 默认不选，手机端完整显示（L377）：没有测试或检查保证
 <!-- memento:business-check:end -->

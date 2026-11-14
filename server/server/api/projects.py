@@ -512,8 +512,8 @@ async def _business_blueprint_fields(db: AsyncSession, project: Project, mids, u
             rules = await biz.project_rules(db, user, project)
         except Exception:
             rules = []
-        out["business_rules_total"] = len(rules)
-        out["business_uncovered_rules"] = biz.uncovered_rules(text, rules) if text else [r.lstrip("-* ").strip() for r in rules]
+        out["business_rules_total"] = biz.rules_total(rules)
+        out["business_uncovered_rules"] = biz.uncovered_rules(text or "", rules)
     return out
 
 
@@ -2007,7 +2007,7 @@ async def get_project_blueprint(
             Document.project_id == project_id,
             Document.category.in_(CURATED),
             ~Document.relative_path.ilike("%PROJECT_BLUEPRINT.md"),
-            ~Document.relative_path.ilike("%BUSINESS_BLUEPRINT.md"),
+            ~Document.relative_path.like("%/BUSINESS_BLUEPRINT.md"),
         )
         .order_by(Document.synced_at.desc())
         .limit(100)

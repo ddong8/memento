@@ -106,10 +106,26 @@ def rule_covered(rule: str, entries: list[BusinessEntry]) -> bool:
     return False
 
 
+def rule_clauses(rule: str) -> list[str]:
+    """One profile line often holds several rules joined by "；": each is checked on its own."""
+    body = re.sub(r"^\s*[-*]\s*", "", rule or "").strip().rstrip("。.")
+    return [c.strip().rstrip("。.") for c in re.split(r"[；;]", body) if len(_norm(c)) >= 4]
+
+
 def uncovered_rules(text: str, rules: list[str]) -> list[str]:
-    """The user's rules for the project that no rule entry of the business blueprint names."""
+    """The user's rules for the project (each clause of a profile line) that no rule entry of the business
+    blueprint names, in the profile's order."""
     entries = [e for e in parse_entries(text) if e.kind == "rule"]
-    return [re.sub(r"^\s*[-*]\s*", "", r).strip() for r in rules if r.strip() and not rule_covered(r, entries)]
+    out: list[str] = []
+    for r in rules:
+        for clause in rule_clauses(r):
+            if not rule_covered(clause, entries) and clause not in out:
+                out.append(clause)
+    return out
+
+
+def rules_total(rules: list[str]) -> int:
+    return sum(len(rule_clauses(r)) for r in rules)
 
 
 async def resolve_business_blueprint(
@@ -124,10 +140,12 @@ async def resolve_business_blueprint(
     for key in (project.title, project.slug):
         if key:
             leaf = key.rsplit("/", 1)[-1]
-            conds.append(Document.relative_path.ilike(f"{leaf}/{BUSINESS_FILE}"))
+            conds.append(Document.relative_path == f"{leaf}/{BUSINESS_FILE}")
+    # Case-sensitive and the whole file name: an agent's memory note "project_business_blueprint.md" (collected
+    # like any other document) matched ilike '%BUSINESS_BLUEPRINT.md' and was shown as the blueprint (2026-11-14)
     q = (
         select(Document.content, Document.synced_at, Document.project_id, Document.machine_id)
-        .where(Document.relative_path.ilike(f"%{BUSINESS_FILE}"), or_(*conds))
+        .where(or_(Document.relative_path == BUSINESS_FILE, Document.relative_path.like(f"%/{BUSINESS_FILE}")), or_(*conds))
         .order_by(Document.synced_at.desc())
         .limit(20)
     )
@@ -179,6 +197,7 @@ def generation_prompt(project_name: str, rules: list[str], has_file: bool) -> st
   - `- 要求: \\`文本\\` @ \\`文件\\``（这里必须出现的写法，即修复靠的东西）
   - 状态条目用 `- 事实源:`、`- 副本:`、`- 同步:`，里面的 \\`路径#符号\\` 同样会被核对
   - `- 说明:` / `- 定义:` 写背景
+  - `- 类型: 协作约定`：规则管的是怎么干活（提交规范、流程），不是代码做什么时加上，这类可以不挂代码和测试
 - 流程条目用编号步骤：`1. 做什么 — \\`路径#符号\\``。
 
 内容要求：

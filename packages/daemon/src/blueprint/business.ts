@@ -21,6 +21,8 @@
 //   - 禁止: `text` @ `path`; `/regex/` @ `dir/`       must not appear there: how the bug looked
 //   - 要求: `text` @ `path`                           must appear there: what keeps it fixed
 //   - 事实源 / 副本 / 同步: …                          (states) anchors in them are checked too
+//   - 类型: 协作约定                                   a rule about how the work is done (commits, process), not
+//                                                      something the code does: no code or test asked of it
 // Flow steps are numbered lines; backticked `path#symbol` in them are anchors.
 import { BUSINESS_FILE } from "./meta.js";
 import { atomicWrite, exists, isDir, isFile, iterdir, pjoin, pname, readTextIgnore, relTo, runGit, toPosix } from "./files.js";
@@ -37,7 +39,7 @@ export const CHECK_START = "<!-- memento:business-check:start (自动生成，�
 export const CHECK_END = "<!-- memento:business-check:end -->";
 
 const ENTRY_RE = /^###\s+([TFRS]-[A-Z0-9][A-Z0-9-]*)\s+(.+?)\s*$/;
-const FIELD_RE = /^\s*[-*]\s*(来源|代码|测试|禁止|要求|事实源|副本|同步|定义|说明)\s*[:：]\s*(.*)$/;
+const FIELD_RE = /^\s*[-*]\s*(来源|代码|测试|禁止|要求|事实源|副本|同步|定义|说明|类型)\s*[:：]\s*(.*)$/;
 const STEP_RE = /^\s*\d+[.)、]\s+(.*)$/;
 const TICKED_RE = /`([^`\n]+)`/g;
 /** Fields whose backticked paths are code anchors */
@@ -72,6 +74,8 @@ export interface Entry {
   tests: Anchor[];
   forbidden: PatternCheck[];
   required: PatternCheck[];
+  /** 类型: 协作约定 — how the work is done, not what the code does */
+  convention: boolean;
 }
 export type Verdict = "ok" | "warn" | "fail";
 export interface EntryResult extends Entry {
@@ -148,7 +152,7 @@ export function parseBusinessBlueprint(text: string): Entry[] {
     if (inFence) return;
     const head = line.match(ENTRY_RE);
     if (head) {
-      cur = { id: head[1]!, kind: KIND_OF[head[1]![0]!]!, title: head[2]!, line: i + 1, sources: [], anchors: [], tests: [], forbidden: [], required: [] };
+      cur = { id: head[1]!, kind: KIND_OF[head[1]![0]!]!, title: head[2]!, line: i + 1, sources: [], anchors: [], tests: [], forbidden: [], required: [], convention: false };
       entries.push(cur);
       return;
     }
@@ -162,6 +166,7 @@ export function parseBusinessBlueprint(text: string): Entry[] {
     if (field) {
       const [, name, value] = field as unknown as [string, string, string];
       if (name === "来源") e.sources.push(value.trim());
+      else if (name === "类型") e.convention = /约定/.test(value);
       else if (ANCHOR_FIELDS.has(name)) for (const ref of anchorsIn(value)) e.anchors.push(blankAnchor(ref));
       else if (name === "测试") for (const ref of anchorsIn(value)) e.tests.push(blankAnchor(ref));
       else if (name === "禁止") for (const c of patternClauses(value)) e.forbidden.push({ ...c, hits: [], ok: true });
@@ -332,8 +337,8 @@ export function checkEntries(root: string, entries: Entry[]): EntryResult[] {
     }
     let verdict: Verdict = problems.length ? "fail" : "ok";
     if (verdict === "ok") {
-      if (e.kind === "rule" && !anchors.length) problems.push("没有挂代码位置");
-      if (e.kind === "rule" && !tests.length && !forbidden.length && !required.length) problems.push("没有测试或检查保证");
+      if (e.kind === "rule" && !e.convention && !anchors.length) problems.push("没有挂代码位置");
+      if (e.kind === "rule" && !e.convention && !tests.length && !forbidden.length && !required.length) problems.push("没有测试或检查保证");
       if (e.kind === "rule" && !e.sources.length) problems.push("没有写来源");
       if (e.kind !== "rule" && !anchors.length) problems.push("没有挂代码位置");
       if (problems.length) verdict = "warn";
@@ -544,7 +549,7 @@ export function renderCheckRegion(r: BusinessReport): string[] {
     const checks = e.forbidden.length + e.required.length;
     const okC = e.forbidden.filter((c) => c.ok).length + e.required.filter((c) => c.ok).length;
     const frac = (ok: number, all: number) => (all ? `${ok}/${all}` : "—");
-    lines.push(`| \`${e.id}\` | ${e.title.replace(/\|/g, "\\|")} | ${frac(okA, e.anchors.length)} | ${frac(okT, e.tests.length)} | ${frac(okC, checks)} | ${MARK[e.verdict]} |`);
+    lines.push(`| \`${e.id}\` | ${e.title.replace(/\|/g, "\\|")} | ${frac(okA, e.anchors.length)} | ${frac(okT, e.tests.length)} | ${frac(okC, checks)} | ${MARK[e.verdict]}${e.convention ? " 约定" : ""} |`);
   }
   const problems = problemLines(r);
   lines.push("", "### 需要处理", "", ...(problems.length ? problems : ["- 没有。"]), CHECK_END);

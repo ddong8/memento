@@ -5145,6 +5145,10 @@ function AskPageContent() {
               <span>{isZh ? "释放鼠标以附加图片至提问" : "Drop image to attach to prompt"}</span>
             </div>
           )}
+            {/* Settings and the session context above the input: capped and scrolled inside, so they don't
+                squeeze the reply above down to a strip (expanded, they took 500px of a 900px window). Background
+                tasks, follow-ups and the input box come after, always in view. Tighter with the phone keyboard up. */}
+            <div className="ask-footer-extras" style={{ maxHeight: viewportBottomOffset > 0 ? "22dvh" : "min(36dvh, 400px)", overflowY: "auto", overscrollBehavior: "contain", minWidth: 0 }}>
               {isConfigCollapsed ? (
                 /* Collapsed Summary Pill Bar */
                 <div
@@ -6257,6 +6261,8 @@ function AskPageContent() {
             )}
           </div>
         )}
+
+            </div>
 
             {/* Voice Recording Active Banner */}
             {isRecordingVoice && (

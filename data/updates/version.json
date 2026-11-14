@@ -1,7 +1,7 @@
 {
-  "version": "1.0.131",
-  "title": "Memento v1.0.131",
-  "release_notes": "1. 用 Antigravity 新建任务时，按配置里选的项目目录找到（没有就新建）对应的 Antigravity 项目，不再落到 Antigravity 最后新建的那个项目里（之前选 easywork-copilot 却在 chem-vision 里干活）\n2. 手机端版本号与客户端统一为 1.0.131",
+  "version": "1.0.132",
+  "title": "Memento v1.0.132",
+  "release_notes": "1. Antigravity 设了定时复查（比如“4 分钟后再看流水线”）时，memento 会等到点、接着收它醒来后做的事和最终结果，不再提前结束并挂出“还有后台任务没跑完”\n2. 新建 Antigravity 会话按所选项目目录找对应的 Antigravity 项目（1.0.131）\n3. 手机端版本号与客户端统一为 1.0.132",
   "platforms": {
     "windows": {
       "asset_name": "Memento-1.0.131-win-x64.zip",

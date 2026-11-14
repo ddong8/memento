@@ -652,6 +652,31 @@ class TranscriptReader {
 }
 
 /** Whether a background task's log ends with its timer firing or being cancelled. */
+/**
+ * How long an Antigravity timer (its `schedule` tool) waits, in seconds, from the background task's
+ * description ("Timer: 4m", "Timer: 1h30m", "Timer: 45s"); undefined for any other background task.
+ */
+export function timerSeconds(content: string): number | undefined {
+  const m = /Task Description:\s*Timer:\s*((?:\d+(?:\.\d+)?\s*[hms]\s*)+)/i.exec(content);
+  if (!m?.[1]) return undefined;
+  let total = 0;
+  for (const [, n, unit] of m[1].matchAll(/(\d+(?:\.\d+)?)\s*([hms])/gi)) {
+    total += Number(n) * ({ h: 3600, m: 60, s: 1 } as Record<string, number>)[unit!.toLowerCase()]!;
+  }
+  return total > 0 ? total : undefined;
+}
+
+/**
+ * How long past a timer's due time to wait for Antigravity to wake on it and write the next step. Its
+ * log stays empty until it fires, so the quiet limit for background commands ended the run before it
+ * (2026-11-14: a 240 s timer, the run handed over at 180 s quiet, the deployment check that followed
+ * never reached memento).
+ */
+export const TIMER_WAKE_GRACE_MS = 5 * 60_000;
+
+/** How long background commands may stay quiet before the run hands them over (180 s; tests shorten it). */
+const backgroundQuietMs = () => Number(process.env.MEMENTO_AGY_BACKGROUND_QUIET_MS) || 180_000;
+
 function timerEnded(logPath: string, size: number): boolean {
   const fd = openSync(logPath, "r");
   try {
@@ -964,6 +989,8 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
   let completed = false;
   let lastError = "";
   const background = new Set<string>();
+  // Timers among them, with when each is due (ms since epoch)
+  const timerDue = new Map<string, number>();
   const logSizes = new Map<string, number>();
   let lsDeadChecks = 0;
   const tasksDir = join(agyHome(), "brain", cid, ".system_generated", "tasks");
@@ -1024,7 +1051,12 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
           else if (state.inFlight.length) {
             const elapsed = state.toolStart ? Math.trunc((Date.now() - state.toolStart) / 1000) : Math.trunc(idle * 0.2);
             err(`\n\n⏳ [工具 ${state.inFlight.join(", ")} 持续执行中（已运行 ${elapsed}s），请稍候...]\n\n`);
-          } else if (background.size) err(`\n\n⏳ [后台任务 ${backgroundNames()} 执行中，请稍候...]\n\n`);
+          } else if (background.size) {
+            const nextDue = Math.min(...[...timerDue].filter(([t]) => background.has(t)).map(([, due]) => due));
+            if (Number.isFinite(nextDue) && nextDue > Date.now())
+              err(`\n\n⏳ [等 Antigravity 的定时复查到点（还有 ${Math.ceil((nextDue - Date.now()) / 1000)}s），到点后它会接着做...]\n\n`);
+            else err(`\n\n⏳ [后台任务 ${backgroundNames()} 执行中，请稍候...]\n\n`);
+          }
           else err(`\n\n${thinkingHeartbeat(Math.trunc(idle * 0.2), await lsRunningCommands())}\n\n`);
         }
 
@@ -1065,9 +1097,13 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
           continue;
         }
 
-        // 3. Background tasks: after 180 s quiet, hand them over to background monitoring
+        // 3. Background tasks: a timer not yet due (plus the time to wake on it) keeps the run; otherwise
+        //    after 180 s quiet, hand them over to background monitoring
         if (background.size) {
-          if (idle > 900) {
+          for (const t of timerDue.keys()) if (!background.has(t)) timerDue.delete(t);
+          const timerPending = [...timerDue.values()].some((due) => Date.now() < due + TIMER_WAKE_GRACE_MS);
+          if (timerPending) continue;
+          if (idle * 200 > backgroundQuietMs()) {
             err(`\n[STATUS_STILL_RUNNING: tasks=${backgroundNames()}]\n`);
             err(`\n⏳ [后台任务（${backgroundNames()}）持续运行中，达到单次轮询等待上限（180s），已安全转入后台监控]\n`);
             completed = true;
@@ -1113,7 +1149,14 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
           const tid = m[1]!.trim();
           startedTask = tid;
           background.add(tid);
-          err(`\n⏳ [后台任务启动: ${short(tid)}，持续追踪执行进度...]\n\n`);
+          const secs = timerSeconds(content);
+          if (secs !== undefined) {
+            const at = Date.parse(str(data.created_at));
+            timerDue.set(tid, (Number.isFinite(at) ? at : Date.now()) + secs * 1000);
+            err(`\n⏳ [Antigravity 设了 ${Math.round(secs)} 秒后的定时复查（${short(tid)}），等它到点继续...]\n\n`);
+          } else {
+            err(`\n⏳ [后台任务启动: ${short(tid)}，持续追踪执行进度...]\n\n`);
+          }
           idle = 0;
         }
       }

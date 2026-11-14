@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `2599957c` · Updated: `2026-11-14`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `02930730` · Updated: `2026-11-14`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,7 +16,7 @@
 - 规模 (Scale): 9 个子系统 · 35 组 API 路由 / 236 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 206 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `2599957c` (2026-11-14): fix(web): 选已有对话的会话时不再把会话预览叠在对话回合上方，Antigravity 工具卡片不再显示原始参数字典
+- 最近改动 (Latest): `2a58d678` (2026-11-14): fix(antigravity): 新建会话按任务目录选 Antigravity 项目，不再落进最后新建的项目；升级客户端版本至 v1.0.131
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -608,7 +608,7 @@ erDiagram
 
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
-- [`packages/daemon/assets/workbuddy_cli.mjs`](packages/daemon/assets/workbuddy_cli.mjs) (19 commits)
+- [`packages/daemon/assets/workbuddy_cli.mjs`](packages/daemon/assets/workbuddy_cli.mjs) (20 commits)
 - [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (13 commits)
 - [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (9 commits)
 - [`apps/desktop/src/main.ts`](apps/desktop/src/main.ts) (6 commits)
@@ -640,12 +640,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `2a58d678` (2026-11-14): fix(antigravity): 新建会话按任务目录选 Antigravity 项目，不再落进最后新建的项目；升级客户端版本至 v1.0.131
 - `2599957c` (2026-11-14): fix(web): 选已有对话的会话时不再把会话预览叠在对话回合上方，Antigravity 工具卡片不再显示原始参数字典
 - `b491477c` (2026-11-14): chore(release): 升级客户端版本至 v1.0.130，更正上一提交误把更新元数据写回 1.0.125
 - `c0fa1b3d` (2026-11-14): chore(release): 升级客户端版本至 v1.0.125，执行机 Antigravity 额度补全模型并按真实额度池计算，执行机自动升级
 - `106d00c7` (2026-11-14): fix(quota): 执行机上 Antigravity 额度补全所有可用模型，剩余额度按真实额度池计算
 - `6a651a0b` (2026-11-14): fix(web): Mac 客户端进出全屏时侧栏顶部留白立即跟着变
-- `219cc3e7` (2026-11-14): fix(web): Mac 客户端全屏时去掉侧栏顶部给窗口按钮留的空白
 
 ## 10. Key Environment Variables & Configuration
 

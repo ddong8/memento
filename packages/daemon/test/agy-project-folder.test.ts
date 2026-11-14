@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { agyFolderUri, projectForFolder, sameAgyFolder } from "../src/agy-runner/runner.js";
+import { agyFolderUri, projectForFolder, sameAgyFolder, timerSeconds } from "../src/agy-runner/runner.js";
 
 describe("Antigravity project folders", () => {
   it("writes folder URIs as the app does", () => {
@@ -75,5 +75,14 @@ describe("projectForFolder", () => {
     const { homedir } = await import("node:os");
     expect(await projectForFolder(homedir())).toBeUndefined();
     expect(calls).toHaveLength(0);
+  });
+});
+
+describe("timerSeconds", () => {
+  it("reads how long a schedule timer waits from its task description", () => {
+    expect(timerSeconds("Created At: x\nTool is running as a background task with task id: c/task-87\nTask Description: Timer: 4m, Prompt: 再次检查")).toBe(240);
+    expect(timerSeconds("Task Description: Timer: 1h30m, Prompt: x")).toBe(5400);
+    expect(timerSeconds("Task Description: Timer: 45s, Prompt: x")).toBe(45);
+    expect(timerSeconds("Task Description: kubectl rollout status deployment/copilot")).toBeUndefined();
   });
 });

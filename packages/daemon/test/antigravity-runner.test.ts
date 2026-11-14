@@ -310,6 +310,22 @@ if (sub === "new-conversation") {
     { source: "MODEL", type: "PLANNER_RESPONSE", content: "  最终答案：完成  " },
   );
   if (scenario === "ask") write({ source: "MODEL", type: "PLANNER_RESPONSE", content: "", tool_calls: [{ name: "ask_question", id: "tc1", args: { questions: [{ question: "选哪个？", options: ["A", "B"] }] } }] });
+  if (scenario === "timer") {
+    // Antigravity's schedule tool: a timer task, a reply meanwhile, then (once it fires) a system message
+    // from the task and the work it woke up for, in a process of its own as the app does it later
+    write(
+      { step_index: 1, source: "MODEL", type: "PLANNER_RESPONSE", content: "", tool_calls: [{ name: "schedule", args: { DurationSeconds: 3, Prompt: "复查流水线" } }] },
+      { step_index: 2, source: "MODEL", type: "GENERIC", status: "RUNNING", created_at: new Date().toISOString(), content: "Created At: 2026-11-14T14:29:51+08:00\\nTool is running as a background task with task id: acb4c02e-913a-4f95-bac8-4f7d586f4584/task-2\\nTask Description: Timer: 3s, Prompt: 复查流水线" },
+      { step_index: 3, source: "MODEL", type: "PLANNER_RESPONSE", content: "已设置 3 秒后的后台复查。" },
+    );
+    const later = [
+      { step_index: 4, source: "SYSTEM", type: "SYSTEM_MESSAGE", content: "<SYSTEM_MESSAGE>\\n[Message] timestamp=x sender=acb4c02e-913a-4f95-bac8-4f7d586f4584/task-2 priority=normal\\nTimer fired.\\n</SYSTEM_MESSAGE>" },
+      { step_index: 5, source: "MODEL", type: "PLANNER_RESPONSE", content: "部署已完成，服务正常。" },
+    ];
+    const { spawn } = await import("node:child_process");
+    const code = "setTimeout(() => require('node:fs').appendFileSync(" + JSON.stringify(join(log, "transcript_full.jsonl")) + ", " + JSON.stringify(later.map((s) => JSON.stringify(s) + "\\n").join("")) + "), 3000)";
+    spawn(process.execPath, ["-e", code], { detached: true, stdio: "ignore", env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" } }).unref();
+  }
   if (scenario === "hang") write({ step_index: 1, source: "MODEL", type: "PLANNER_RESPONSE", content: "", tool_calls: [{ name: "run_command", args: { CommandLine: "npm test" } }] });
   console.log(JSON.stringify({ response: { newConversation: { conversationId: cid } } }));
 } else if (sub === "send-message") {
@@ -456,6 +472,18 @@ if (sub === "new-conversation") {
     const sent = { conversation: null, electron: null, project: "proj-easy" };
     expect(envs).toEqual([sent, sent]);
   });
+
+  it("waits for a timer Antigravity set and ends on the work it wakes up for, not at the quiet limit", async () => {
+    // Background commands may be quiet for 1 s here; the timer is due in 3 s (2026-11-14: a 240 s timer
+    // outlasted the 180 s limit and the deployment report that followed never reached memento)
+    const run = start(["-p", "发布并跟踪"], { FAKE_AGY: "timer", MEMENTO_AGY_BACKGROUND_QUIET_MS: "1000" });
+    expect(await run.done).toBe(0);
+    expect(run.out.stderr).not.toContain("STATUS_STILL_RUNNING");
+    expect(run.out.stderr).toContain("Antigravity 设了 3 秒后的定时复查");
+    expect(reply(run.out.stdout)).toContain("已设置 3 秒后的后台复查。");
+    expect(reply(run.out.stdout)).toContain("部署已完成，服务正常。");
+    expect(events(run.out.stdout).filter((e) => e.kind === "tool" && e.status !== "running").map((e) => e.status)).toContain("done");
+  }, 20_000);
 
   it("shows a question Antigravity holds and sends the answer back the way the app does", async () => {
     let answered = false;

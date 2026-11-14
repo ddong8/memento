@@ -184,6 +184,11 @@ function AskPageContent() {
   // A session's latest messages, shown while the conversation continuing it has none of its own yet. Kept
   // apart from turns: those go out as the next question's history and read as this conversation's own.
   const [sessionPreview, setSessionPreview] = useState<{ convId: string; sid: string; turns: Turn[] } | null>(null);
+  // The conversation the server said has no turns of its own, on its latest load. The session preview
+  // only goes on such a conversation: picking a session opens its conversation before its turns arrive,
+  // and the preview (its messages already fetched by the pick, so served from cache) landed first and
+  // stayed above the conversation's own turns (seen 2026-11-14: 12 preview turns over 20 real ones).
+  const [emptyConvId, setEmptyConvId] = useState<string | null>(null);
 
   const [input, setInput] = useState(() => askCache?.input || "");
   const [streaming, setStreaming] = useState<boolean>(() => Boolean(askCache?.streaming || askCache?.activeRun));
@@ -1451,6 +1456,7 @@ function AskPageContent() {
       } catch {}
 
       const loadedTurns = data.turns || [];
+      setEmptyConvId(loadedTurns.length === 0 ? data.id : null);
       setHasMoreTurns(Boolean(data.has_more));
       setTotalTurns(data.total_turns ?? loadedTurns.length);
 
@@ -1575,6 +1581,7 @@ function AskPageContent() {
     turnsRef.current = [];
     streamingTurnStoreRef.current.set(null);
     setTurns([]);
+    setEmptyConvId(null);
     setInput("");
 
     // 采用当前系统与用户最新偏好配置，清除历史会话的私有绑定
@@ -4412,6 +4419,7 @@ function AskPageContent() {
             setSelectedDevice(normalizeDeviceId(detail.device_id));
           }
           if (detail?.turns && detail.turns.length > 0) {
+            setEmptyConvId(null);
             setTurns(detail.turns);
             return;
           }
@@ -4433,6 +4441,7 @@ function AskPageContent() {
               setSelectedDevice(normalizeDeviceId(ensured.device_id));
             }
             if (ensured.turns && ensured.turns.length > 0) {
+              setEmptyConvId(null);
               setTurns(ensured.turns);
               return;
             }
@@ -4444,6 +4453,7 @@ function AskPageContent() {
       if (superseded()) return;
       turnsRef.current = [];
       setTurns([]);
+      setEmptyConvId(activeConversationIdRef.current || null);
       setSessionPreview({ convId: activeConversationIdRef.current || "", sid, turns: loadedTurns });
     },
     [conversations, normalizeDeviceId, sessions, startNewChat, takeOverCascade]
@@ -4458,7 +4468,7 @@ function AskPageContent() {
     const run = ++sessionPreviewRunRef.current;
     const convId = activeConversationId;
     const sid = selectedSessionId;
-    if (!convId || !sid || streaming || turns.length > 0) return;
+    if (!convId || !sid || streaming || turns.length > 0 || emptyConvId !== convId) return;
     if (sessionPreview?.convId === convId && sessionPreview.sid === sid) return;
     if (conversations.find((c) => c.id === convId)?.config?.session_id !== sid) return;
     const documentId = sessions.find((s) => s.session_id === sid)?.conversation_id;
@@ -4470,11 +4480,14 @@ function AskPageContent() {
         setSessionPreview({ convId, sid, turns: preview });
       })
       .catch(() => {});
-  }, [activeConversationId, selectedSessionId, streaming, turns.length, conversations, sessions, sessionPreview]);
+  }, [activeConversationId, selectedSessionId, streaming, turns.length, conversations, sessions, sessionPreview, emptyConvId]);
 
   // Only the open conversation's, for the session it continues
   const previewTurns =
-    sessionPreview && sessionPreview.convId === (activeConversationId || "") && sessionPreview.sid === selectedSessionId
+    sessionPreview &&
+    sessionPreview.convId === (activeConversationId || "") &&
+    sessionPreview.convId === emptyConvId &&
+    sessionPreview.sid === selectedSessionId
       ? sessionPreview.turns
       : NO_TURNS;
   const renderedPreview = useMemo(

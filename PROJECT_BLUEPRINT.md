@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `bc9fda43` · Updated: `2026-11-14`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `b491477c` · Updated: `2026-11-14`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -13,10 +13,10 @@
 - 类型 (Type): Monorepo (Workspaces)
 - 技术栈 (Stack): TypeScript/JavaScript, Python, Shell / Bash · React, Electron, Next.js, TailwindCSS, Model Context Protocol (MCP), FastAPI, SQLAlchemy, Celery
 - 基础设施 (Infra): PostgreSQL, pgvector (Vector DB), Redis, MinIO / S3 Object Storage, Celery Task Queue
-- 规模 (Scale): 9 个子系统 · 35 组 API 路由 / 236 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 204 个测试文件
+- 规模 (Scale): 9 个子系统 · 35 组 API 路由 / 236 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 205 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `bc9fda43` (2026-11-14): chore(release): 升级客户端版本至 v1.0.125，执行机 Antigravity 额度补全模型并按真实额度池计算，执行机自动升级
+- 最近改动 (Latest): `b491477c` (2026-11-14): chore(release): 升级客户端版本至 v1.0.130，更正上一提交误把更新元数据写回 1.0.125
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -600,7 +600,7 @@ erDiagram
 | :--- | :--- | :--- | :--- |
 | server/tests (pytest) | [`server/tests`](server/tests) | 111 | `test_agent_limits.py`, `test_agent_login.py`, `test_agent_run_states.py`, `test_ai_provider.py`, `test_artifact_media_stream.py` |
 | packages/daemon/test (vitest / jest) | [`packages/daemon/test`](packages/daemon/test) | 55 | `agent-args.test.ts`, `agent-login.test.ts`, `agent-stream.test.ts`, `agy-models.test.ts`, `antigravity-app-quota.test.ts` |
-| apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 32 | `api-client.test.ts`, `ask-top-bar.test.tsx`, `auth-fetch.test.ts`, `build-update.test.ts`, `cache-writes.test.ts` |
+| apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 33 | `api-client.test.ts`, `ask-top-bar.test.tsx`, `auth-fetch.test.ts`, `build-update.test.ts`, `cache-writes.test.ts` |
 | apps/mobile/test (vitest / jest) | [`apps/mobile/test`](apps/mobile/test) | 2 | `deeplink.test.ts`, `webview-props.test.ts` |
 | packages/core/test (vitest / jest) | [`packages/core/test`](packages/core/test) | 2 | `ask-stream.test.ts`, `task-events.test.ts` |
 | apps/desktop/test (vitest / jest) | [`apps/desktop/test`](apps/desktop/test) | 1 | `helpers.test.ts` |
@@ -608,8 +608,8 @@ erDiagram
 
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
-- [`packages/daemon/assets/workbuddy_cli.mjs`](packages/daemon/assets/workbuddy_cli.mjs) (18 commits)
-- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (14 commits)
+- [`packages/daemon/assets/workbuddy_cli.mjs`](packages/daemon/assets/workbuddy_cli.mjs) (19 commits)
+- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (13 commits)
 - [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (9 commits)
 - [`apps/desktop/src/main.ts`](apps/desktop/src/main.ts) (6 commits)
 - [`apps/web/src/components/ExecutionCard.tsx`](apps/web/src/components/ExecutionCard.tsx) (6 commits)
@@ -640,12 +640,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
-- `bc9fda43` (2026-11-14): chore(release): 升级客户端版本至 v1.0.125，执行机 Antigravity 额度补全模型并按真实额度池计算，执行机自动升级
-- `0cc01715` (2026-11-14): fix(quota): 执行机上 Antigravity 额度补全所有可用模型，剩余额度按真实额度池计算
+- `b491477c` (2026-11-14): chore(release): 升级客户端版本至 v1.0.130，更正上一提交误把更新元数据写回 1.0.125
+- `c0fa1b3d` (2026-11-14): chore(release): 升级客户端版本至 v1.0.125，执行机 Antigravity 额度补全模型并按真实额度池计算，执行机自动升级
+- `106d00c7` (2026-11-14): fix(quota): 执行机上 Antigravity 额度补全所有可用模型，剩余额度按真实额度池计算
 - `6a651a0b` (2026-11-14): fix(web): Mac 客户端进出全屏时侧栏顶部留白立即跟着变
 - `219cc3e7` (2026-11-14): fix(web): Mac 客户端全屏时去掉侧栏顶部给窗口按钮留的空白
 - `a9c59776` (2026-11-14): style(web): 默认主题恢复渐变色，Mac 侧栏不再发灰，工作台文本预览跟随主题
-- `ca227715` (2026-11-14): chore(release): 升级客户端版本至 v1.0.129，升级等任务结束、被重启甩掉的任务及时收尾
 
 ## 10. Key Environment Variables & Configuration
 

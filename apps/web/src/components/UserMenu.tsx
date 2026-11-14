@@ -2,12 +2,13 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { useI18n } from "@/lib/i18n";
 import { Icon } from "@/components/aurora/Icon";
 import { desktop } from "@/lib/desktop";
 import { openServerSwitchModal } from "@/lib/api-client";
+import { hasNativeMenu, popupNativeMenu, type NativeMenuItem } from "@/lib/native-menu";
 
 type IconName = Parameters<typeof Icon>[0]["name"];
 
@@ -54,6 +55,45 @@ export function UserMenu({ variant = "sidebar", collapsed = false, onNavClick }:
   const handleItemClick = () => {
     setOpen(false);
     onNavClick?.();
+  };
+
+  const router = useRouter();
+  // The desktop app shows this menu as the system's own menu; a browser and the mobile app get the page's
+  const toggleMenu = async (anchor: Element) => {
+    if (!user || !hasNativeMenu()) {
+      setOpen((v) => !v);
+      return;
+    }
+    const admin = user.role === "admin" || user.role === "owner";
+    const links: [string, string][] = [
+      ["/profile?tab=proactive", "AI 执事"],
+      ["/profile?tab=life", "作息与时间"],
+      ["/profile", t.profile.title || "个人设置"],
+      ["/profile?tab=devices", t.profile.tabs?.devices || "我的设备"],
+      ["/profile?tab=health", t.profile.tabs?.health || "系统健康"],
+      ...(isDesktop ? ([["/profile?tab=collector", t.profile.tabs?.collector || "本机采集"]] as [string, string][]) : []),
+    ];
+    const items: NativeMenuItem[] = [
+      { id: "me", label: `${user.name || user.email} · ${user.role}`, enabled: false },
+      { type: "separator" },
+      ...links.map(([href, label]) => ({ id: href, label })),
+      ...(admin ? ([{ type: "separator" }, { id: "/admin", label: t.nav.admin || "管理后台" }] as NativeMenuItem[]) : []),
+      { type: "separator" },
+      { id: "server", label: t.serverSwitch?.title || "切换服务器" },
+      { id: "logout", label: t.profile.logout },
+    ];
+    const id = await popupNativeMenu(items, anchor);
+    if (id === undefined) {
+      setOpen((v) => !v);
+      return;
+    }
+    if (!id) return;
+    if (id === "server") openServerSwitchModal();
+    else if (id === "logout") logout();
+    else if (id.startsWith("/")) {
+      router.push(id);
+      onNavClick?.();
+    }
   };
 
   if (!user) {
@@ -103,7 +143,7 @@ export function UserMenu({ variant = "sidebar", collapsed = false, onNavClick }:
         /* Sidebar User Card Trigger */
         <button
           type="button"
-          onClick={() => setOpen((v) => !v)}
+          onClick={(e) => void toggleMenu(e.currentTarget)}
           onMouseEnter={() => setHovered(true)}
           onMouseLeave={() => setHovered(false)}
           aria-label={t.profile.title}
@@ -259,7 +299,7 @@ export function UserMenu({ variant = "sidebar", collapsed = false, onNavClick }:
         /* Header Compact Avatar Trigger */
         <button
           type="button"
-          onClick={() => setOpen((v) => !v)}
+          onClick={(e) => void toggleMenu(e.currentTarget)}
           aria-label={t.profile.title}
           aria-expanded={open}
           aria-haspopup="menu"

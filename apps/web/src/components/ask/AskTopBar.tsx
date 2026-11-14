@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { api, type AgentQuotasResponse } from "@/lib/api-client";
 import { Icon } from "@/components/aurora/Icon";
 import { BrandMark } from "@/components/aurora/BrandMark";
@@ -9,6 +9,7 @@ import { useMediaInspector } from "@/components/viewers/MediaInspectorContext";
 import { resolveConversationAgent } from "@/components/ask/HistoryDrawer";
 import { useI18n } from "@/lib/i18n";
 import { useTheme } from "@/lib/theme-context";
+import { hasNativeMenu, popupNativeMenu, type NativeMenuItem } from "@/lib/native-menu";
 import type { ExecutionMode } from "@/lib/ask/turns";
 
 /**
@@ -56,6 +57,42 @@ export function AskTopBar({
   const inspector = useMediaInspector();
   const { theme, toggleTheme } = useTheme();
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
+  const moreRef = useRef<HTMLDivElement>(null);
+
+  // The desktop app shows this menu as the system's own menu; a browser and the mobile app get the page's
+  const openMoreMenu = async () => {
+    if (!hasNativeMenu()) {
+      setMoreMenuOpen((v) => !v);
+      return;
+    }
+    const narrow = window.innerWidth < 640; // the bar's own buttons are hidden then (sm)
+    const items: NativeMenuItem[] = [];
+    if (narrow) {
+      if (inspector && inspector.mediaList.length > 0) {
+        items.push({ id: "workbench", label: inspector.isOpen ? (isZh ? "折叠工作台视窗" : "Close Workbench") : (isZh ? "展开工作台视窗" : "Open Workbench") });
+      }
+      items.push({ id: "quota", label: isZh ? "AI 额度监控" : "AI Quotas" });
+      items.push({ id: "theme", label: isZh ? "外观主题切换" : "Toggle Theme" });
+      items.push({ type: "separator" });
+    }
+    if (activeConversationId) {
+      items.push({ id: "select", label: isZh ? "批量多选消息" : "Select messages", checked: selecting });
+      items.push({ id: "export", label: isZh ? "导出 Markdown" : "Export Markdown" });
+      items.push({ id: "share", label: isZh ? "分享完整会话" : "Share conversation" });
+    }
+    if (!items.some((it) => !("type" in it))) return;
+    const id = await popupNativeMenu(items, moreRef.current);
+    if (id === undefined) {
+      setMoreMenuOpen((v) => !v);
+      return;
+    }
+    if (id === "workbench") inspector?.toggleInspector();
+    else if (id === "quota") onOpenQuota();
+    else if (id === "theme") toggleTheme();
+    else if (id === "select") onToggleSelectTurns();
+    else if (id === "export") onExportMarkdown();
+    else if (id === "share") onShare();
+  };
 
   return (
     <header className="px-2 sm:px-4 py-0 sm:py-2.5 border-b border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/95 sm:bg-[var(--aurora-surface-solid)]/75 sm:backdrop-blur-md flex items-center justify-between gap-1 sm:gap-2.5 shrink-0 select-none relative z-20 min-h-[34px] sm:min-h-[46px]">
@@ -271,12 +308,12 @@ export function AskTopBar({
           </div>
         )}
         {/* 更多菜单：移动端常驻，大屏收纳 */}
-        <div className={`relative shrink-0 ${inspector?.isOpen ? "block" : "block xl:hidden"}`}>
+        <div ref={moreRef} className={`relative shrink-0 ${inspector?.isOpen ? "block" : "block xl:hidden"}`}>
           <Btn
             variant={selecting ? "primary" : "glass"}
             size="sm"
             icon="more"
-            onClick={() => setMoreMenuOpen(!moreMenuOpen)}
+            onClick={() => void openMoreMenu()}
             title={isZh ? "更多会话操作" : "More actions"}
             className="shrink-0"
           />

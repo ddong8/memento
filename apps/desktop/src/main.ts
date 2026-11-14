@@ -26,6 +26,7 @@ import {
   getTodayKey,
   mediaRemoteUrl,
   normalizeDesktopAppName,
+  normalizeMenuItems,
   parseByteRange,
   parseMementoMediaFilePath,
 } from "./helpers";
@@ -1331,6 +1332,36 @@ function setupIpc(): void {
     nativeTheme.themeSource = theme === "dark" || theme === "light" ? theme : "system";
     updateTitleBarOverlay();
     return nativeTheme.themeSource;
+  });
+  // The page's action menus as the system's own menu (macOS / Windows look, keyboard, accessibility):
+  // resolves with the chosen item's id, null when the menu closed without one.
+  handle("app:popup-menu", (e, rawItems: unknown, rawPos: unknown) => {
+    const items = normalizeMenuItems(rawItems);
+    const owner = BrowserWindow.fromWebContents(e.sender);
+    if (!items.length || !owner) return null;
+    const pos = (rawPos ?? {}) as { x?: unknown; y?: unknown };
+    return new Promise<string | null>((resolve) => {
+      const menu = Menu.buildFromTemplate(
+        items.map((it) =>
+          it.type === "separator"
+            ? { type: "separator" as const }
+            : {
+                label: it.label,
+                type: it.checked === undefined ? ("normal" as const) : ("checkbox" as const),
+                checked: it.checked,
+                enabled: it.enabled !== false,
+                click: () => resolve(it.id),
+              },
+        ),
+      );
+      menu.popup({
+        window: owner,
+        ...(Number.isFinite(pos.x) && Number.isFinite(pos.y) ? { x: Math.round(Number(pos.x)), y: Math.round(Number(pos.y)) } : {}),
+        // Closed: the click handler can still come right after this (the order differs between systems),
+        // so "nothing chosen" only a moment later; a promise settles once, the click wins
+        callback: () => setTimeout(() => resolve(null), 200),
+      });
+    });
   });
   handle("app:set-open-at-login", (_e, on: unknown) => {
     return setOpenAtLogin(on === true);

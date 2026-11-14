@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  normalizeMenuItems,
   createNotificationDeduper,
   getMediaMimeType,
   getTodayKey,
@@ -85,5 +86,34 @@ describe("app usage", () => {
 
   it("keys a day by local date", () => {
     expect(getTodayKey(new Date(2026, 9, 7, 23, 59))).toBe("2026-10-07");
+  });
+});
+
+describe("page menus shown as system menus", () => {
+  it("keeps plain labelled items and tidy separators", () => {
+    expect(
+      normalizeMenuItems([
+        { type: "separator" },
+        { id: "export", label: "  导出 Markdown " },
+        { type: "separator" },
+        { type: "separator" },
+        { id: "select", label: "多选", checked: true },
+        { id: "x", label: "" },
+        null,
+        { id: "off", label: "不可用", enabled: false },
+        { type: "separator" },
+      ]),
+    ).toEqual([
+      { id: "export", label: "导出 Markdown" },
+      { id: "", label: "", type: "separator" },
+      { id: "select", label: "多选", checked: true },
+      { id: "off", label: "不可用", enabled: false },
+    ]);
+  });
+
+  it("rejects what isn't a list and caps its size", () => {
+    expect(normalizeMenuItems("x")).toEqual([]);
+    expect(normalizeMenuItems(Array.from({ length: 100 }, (_, i) => ({ id: String(i), label: `项 ${i}` }))).length).toBe(40);
+    expect(normalizeMenuItems([{ label: "a".repeat(500) }])[0]?.label.length).toBe(120);
   });
 });

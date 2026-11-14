@@ -82,6 +82,8 @@ export interface MementoDesktop {
   setOpenAtLogin(on: boolean): Promise<boolean>;
   /** v1.0.126+: what the system draws (title bar, scroll bars, menus) follows the page's light/dark. */
   setTheme?(theme: "light" | "dark" | "system"): Promise<string>;
+  /** v1.0.128+: an action menu as the system's menu; the chosen item's id, null when closed without one. */
+  popupMenu?(items: unknown[], pos?: { x: number; y: number }): Promise<string | null>;
   checkForUpdates(): Promise<void>;
   notify?(options: { title: string; body: string; url?: string }): Promise<boolean>;
   openExternal?(url: string): Promise<void>;

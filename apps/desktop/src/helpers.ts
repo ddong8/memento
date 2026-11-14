@@ -187,3 +187,35 @@ export function parseByteRange(header: string | null | undefined, size: number):
   if (start >= size || start > end) return "unsatisfiable";
   return { start, end };
 }
+
+export interface PageMenuItem {
+  id: string;
+  label: string;
+  type?: "separator";
+  checked?: boolean;
+  enabled?: boolean;
+}
+
+/** The menu items a page asked for, kept to plain labels (at most 40, 120 characters each). */
+export function normalizeMenuItems(raw: unknown): PageMenuItem[] {
+  if (!Array.isArray(raw)) return [];
+  const out: PageMenuItem[] = [];
+  for (const r of raw.slice(0, 40)) {
+    if (!r || typeof r !== "object") continue;
+    const it = r as Record<string, unknown>;
+    if (it.type === "separator") {
+      if (out.length && out[out.length - 1]?.type !== "separator") out.push({ id: "", label: "", type: "separator" });
+      continue;
+    }
+    const label = typeof it.label === "string" ? it.label.trim().slice(0, 120) : "";
+    if (!label) continue;
+    out.push({
+      id: typeof it.id === "string" ? it.id.slice(0, 80) : label,
+      label,
+      ...(typeof it.checked === "boolean" ? { checked: it.checked } : {}),
+      ...(it.enabled === false ? { enabled: false } : {}),
+    });
+  }
+  while (out.length && out[out.length - 1]?.type === "separator") out.pop();
+  return out;
+}

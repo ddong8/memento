@@ -4,22 +4,22 @@
   "release_notes": "1. Antigravity 设了定时复查（比如“4 分钟后再看流水线”）时，memento 会等到点、接着收它醒来后做的事和最终结果，不再提前结束并挂出“还有后台任务没跑完”\n2. 新建 Antigravity 会话按所选项目目录找对应的 Antigravity 项目（1.0.131）\n3. 手机端版本号与客户端统一为 1.0.132",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.131-win-x64.zip",
-      "size": 158287221,
-      "sha256": "46858444e1c1be733e4f209a04cd5d08958d39f6fa65586f2d420b8b2af567b3",
-      "sha512": "hkAdKkc+xA1QQjkegJjpPIBGY4MwNTHd0W8AEp1gyWzffD9V8k63JBME7cYMv0RTmev+wYoUSuJcNBLvFKUSzg=="
+      "asset_name": "Memento-1.0.132-win-x64.zip",
+      "size": 158289651,
+      "sha256": "b6b9fe71be1181eccf4feae46e110c68e639b9bcb2b9f86b09bdb2e5e86fd9fa",
+      "sha512": "fATUOhZijI7dU3q9L4PBl2XMqV4bqJmOA9InvOGdKHZdfZMwiJ7caKndRJyAu7Sy13JLPrxbGaL9uYN491w1JQ=="
     },
     "macos": {
-      "asset_name": "Memento-1.0.131-mac-arm64.zip",
-      "size": 132775892,
-      "sha256": "1491b84685d05a880bd28a3cf419650bd342d2e47d34d1bb1dc165a178c7c39b",
-      "sha512": "IJDiSVa51i5dZ3JE6qEF9MUmeW6qIrsOXxFDhnHZSRBi32WhrmblbvLvEq6JsnDM/gaXxb98Dir/EObXes4cvw=="
+      "asset_name": "Memento-1.0.132-mac-arm64.zip",
+      "size": 132776438,
+      "sha256": "623d9c0f05be4a7214ffd8bdddfe0b9eb0c871354cbd0094de59b622769f3d67",
+      "sha512": "znT3IrYfnGeYyddEj56o/gF3/dcNgBa4+o/fNCk6d4BB8Ejx24+GXC1oYAkBENmcbwiC0hz8MMJ0IYz7yUqviw=="
     },
     "linux": {
-      "asset_name": "Memento-1.0.131-linux-x64.tar.gz",
-      "size": 132053599,
-      "sha256": "cd7738cca18fe10fada4ce4be0f3a78d7d87c2d7f32ca2cb9abb0fea435d2fe1",
-      "sha512": "bM3oZvbCZMUC/c8/sBdvKfguUxr4dq2FjFfw14kJ2epp+sWXKeDdwzZPsXtgwyCI07UoR3J4z8UCFzsKE52E8Q=="
+      "asset_name": "Memento-1.0.132-linux-x64.tar.gz",
+      "size": 132053613,
+      "sha256": "3711d42c81f55c668c6d8a5b6c58178ad66d5c66300597555696fc911ed3c57a",
+      "sha512": "X7Da62ng83wpsvrlQ5lwQQvy/aX3q/rDLTBq1UEoXK4MeODLpmlS7JLGrPDttkap4qziQkda0XgKn/FcIlE4BQ=="
     }
   }
 }

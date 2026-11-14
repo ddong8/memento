@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `0cc01715` · Updated: `2026-11-14`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `bc9fda43` · Updated: `2026-11-14`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,7 +16,7 @@
 - 规模 (Scale): 9 个子系统 · 35 组 API 路由 / 236 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 204 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `0cc01715` (2026-11-14): fix(quota): 执行机上 Antigravity 额度补全所有可用模型，剩余额度按真实额度池计算
+- 最近改动 (Latest): `bc9fda43` (2026-11-14): chore(release): 升级客户端版本至 v1.0.125，执行机 Antigravity 额度补全模型并按真实额度池计算，执行机自动升级
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -608,7 +608,7 @@ erDiagram
 
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
-- [`packages/daemon/assets/workbuddy_cli.mjs`](packages/daemon/assets/workbuddy_cli.mjs) (19 commits)
+- [`packages/daemon/assets/workbuddy_cli.mjs`](packages/daemon/assets/workbuddy_cli.mjs) (18 commits)
 - [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (14 commits)
 - [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (9 commits)
 - [`apps/desktop/src/main.ts`](apps/desktop/src/main.ts) (6 commits)
@@ -640,12 +640,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `bc9fda43` (2026-11-14): chore(release): 升级客户端版本至 v1.0.125，执行机 Antigravity 额度补全模型并按真实额度池计算，执行机自动升级
 - `0cc01715` (2026-11-14): fix(quota): 执行机上 Antigravity 额度补全所有可用模型，剩余额度按真实额度池计算
 - `6a651a0b` (2026-11-14): fix(web): Mac 客户端进出全屏时侧栏顶部留白立即跟着变
 - `219cc3e7` (2026-11-14): fix(web): Mac 客户端全屏时去掉侧栏顶部给窗口按钮留的空白
 - `a9c59776` (2026-11-14): style(web): 默认主题恢复渐变色，Mac 侧栏不再发灰，工作台文本预览跟随主题
 - `ca227715` (2026-11-14): chore(release): 升级客户端版本至 v1.0.129，升级等任务结束、被重启甩掉的任务及时收尾
-- `8e61aded` (2026-11-14): chore(release): 升级客户端版本至 v1.0.129，升级不再打断运行中的任务
 
 ## 10. Key Environment Variables & Configuration
 

@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `b96d55b9` · Updated: `2026-11-14`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `a9c59776` · Updated: `2026-11-14`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,7 +16,7 @@
 - 规模 (Scale): 9 个子系统 · 35 组 API 路由 / 236 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 204 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `ca227715` (2026-11-14): chore(release): 升级客户端版本至 v1.0.129，升级等任务结束、被重启甩掉的任务及时收尾
+- 最近改动 (Latest): `a9c59776` (2026-11-14): style(web): 默认主题恢复渐变色，Mac 侧栏不再发灰，工作台文本预览跟随主题
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -609,15 +609,15 @@ erDiagram
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
 - [`packages/daemon/assets/workbuddy_cli.mjs`](packages/daemon/assets/workbuddy_cli.mjs) (20 commits)
-- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (13 commits)
-- [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (10 commits)
+- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (14 commits)
+- [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (9 commits)
+- [`apps/desktop/src/main.ts`](apps/desktop/src/main.ts) (6 commits)
+- [`apps/web/src/components/ExecutionCard.tsx`](apps/web/src/components/ExecutionCard.tsx) (6 commits)
 - [`apps/web/src/components/TaskTimeline.tsx`](apps/web/src/components/TaskTimeline.tsx) (6 commits)
-- [`apps/desktop/src/main.ts`](apps/desktop/src/main.ts) (5 commits)
-- [`apps/web/src/components/ExecutionCard.tsx`](apps/web/src/components/ExecutionCard.tsx) (5 commits)
-- [`apps/web/src/components/viewers/MediaInspectorPanel.tsx`](apps/web/src/components/viewers/MediaInspectorPanel.tsx) (5 commits)
+- [`apps/web/src/components/viewers/MediaInspectorPanel.tsx`](apps/web/src/components/viewers/MediaInspectorPanel.tsx) (6 commits)
+- [`apps/web/src/app/globals.css`](apps/web/src/app/globals.css) (5 commits)
 - [`apps/web/src/lib/api-client.ts`](apps/web/src/lib/api-client.ts) (5 commits)
 - [`apps/web/src/lib/i18n/en-US.ts`](apps/web/src/lib/i18n/en-US.ts) (5 commits)
-- [`apps/web/src/lib/i18n/zh-CN.ts`](apps/web/src/lib/i18n/zh-CN.ts) (5 commits)
 
 ## 8. Development & Verification Commands
 
@@ -640,12 +640,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `a9c59776` (2026-11-14): style(web): 默认主题恢复渐变色，Mac 侧栏不再发灰，工作台文本预览跟随主题
 - `ca227715` (2026-11-14): chore(release): 升级客户端版本至 v1.0.129，升级等任务结束、被重启甩掉的任务及时收尾
 - `8e61aded` (2026-11-14): chore(release): 升级客户端版本至 v1.0.129，升级不再打断运行中的任务
 - `307dea09` (2026-11-14): fix(tasks): 客户端升级或重启不再把运行中的任务甩掉，被甩掉的任务及时结束并说明原因
 - `12e3520d` (2026-11-14): chore(release): 升级客户端版本至 v1.0.128，桌面端操作菜单改用系统原生菜单
 - `317a187c` (2026-11-14): feat(native): 桌面端的操作菜单改用系统原生菜单
-- `822271ba` (2026-11-14): chore(release): 升级客户端版本至 v1.0.127，Windows 标题栏合并、Mac 侧栏毛玻璃
 
 ## 10. Key Environment Variables & Configuration
 

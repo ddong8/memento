@@ -49,6 +49,17 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
     }
   }, []);
 
+  // macOS full screen hides the traffic lights, so the room kept for them above the brand goes too. A full-screen
+  // window's page fills the whole screen (a zoomed window still has the menu bar above it).
+  const [macFullScreen, setMacFullScreen] = useState(false);
+  useEffect(() => {
+    if (!isMacDesktop) return;
+    const check = () => setMacFullScreen(window.outerWidth >= window.screen.width && window.outerHeight >= window.screen.height);
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, [isMacDesktop]);
+
   // Fetch online devices
   useEffect(() => {
     const token = typeof window !== "undefined" ? localStorage.getItem("dr_token") : null;
@@ -269,7 +280,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
         {/* Brand & Collapse Header */}
         <div
           className={`px-3.5 pb-2.5 flex items-center justify-between ${
-            isMacDesktop ? "pt-12 app-region-drag" : isDesktopApp ? "pt-4 app-region-drag" : "pt-4"
+            isMacDesktop && !macFullScreen ? "pt-12 app-region-drag" : isDesktopApp ? "pt-4 app-region-drag" : "pt-4"
           }`}
         >
           <Link

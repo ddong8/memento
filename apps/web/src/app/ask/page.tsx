@@ -118,6 +118,7 @@ const ActiveStreamingTurnBubble = memo(function ActiveStreamingTurnBubble({
   onSourcesClick,
   onSmartCompactAndRetry,
   onShareTurn,
+  pendingFollowUps,
   t,
 }: {
   store: ActiveStreamingTurnStore;
@@ -127,6 +128,7 @@ const ActiveStreamingTurnBubble = memo(function ActiveStreamingTurnBubble({
   onSourcesClick: (sources: Source[]) => void;
   onSmartCompactAndRetry: (sid?: string) => void;
   onShareTurn?: (index: number) => void;
+  pendingFollowUps?: readonly string[];
   t: any;
 }) {
   const [turn, setTurn] = useState<Turn | null>(() => store.get());
@@ -151,6 +153,7 @@ const ActiveStreamingTurnBubble = memo(function ActiveStreamingTurnBubble({
         onSourcesClick={onSourcesClick}
         onSmartCompactAndRetry={onSmartCompactAndRetry}
         onShareTurn={onShareTurn}
+        pendingFollowUps={pendingFollowUps}
         t={t}
       />
     </div>
@@ -200,6 +203,8 @@ function AskPageContent() {
   /** Taking the queued follow-ups out once the reply ended (the server's included) is under way. */
   const flushingFollowUpsRef = useRef(false);
   const followUpConvRef = useRef<string | null>(null);
+  const waitingFollowUps = useMemo(() => followUps.filter((f) => f.status !== "sent"), [followUps]);
+  const sentFollowUpTexts = useMemo(() => followUps.filter((f) => f.status === "sent").map((f) => f.text), [followUps]);
   const updateFollowUps = useCallback((fn: (items: FollowUp[]) => FollowUp[]) => {
     followUpsRef.current = fn(followUpsRef.current);
     setFollowUps(followUpsRef.current);
@@ -4999,6 +5004,7 @@ function AskPageContent() {
           onSourcesClick={handleSourcesClick}
           onSmartCompactAndRetry={handleSmartCompactAndRetry}
           onShareTurn={handleShareAssistantTurn}
+          pendingFollowUps={sentFollowUpTexts}
           t={t}
         />
         <div ref={bottomRef} style={{ height: 1, minHeight: 1, overflow: "hidden", pointerEvents: "none" }} />
@@ -6382,9 +6388,10 @@ function AskPageContent() {
             )}
 
             {/* Follow-ups sent while the reply runs */}
-            {followUps.length > 0 && (
+            {/* Delivered ones show in the reply instead (AssistantBubble), not here */}
+            {waitingFollowUps.length > 0 && (
               <div style={{ display: "flex", flexDirection: "column", gap: 6, padding: "2px 2px 10px 2px" }}>
-                {followUps.map((f) => (
+                {waitingFollowUps.map((f) => (
                   <div
                     key={f.id}
                     style={{

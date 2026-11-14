@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type FollowUp, nextMessage, requeue, steerableTaskId } from "../src/lib/ask/followups";
+import { deliveredFollowUps, type FollowUp, nextMessage, requeue, steerableTaskId } from "../src/lib/ask/followups";
 import type { Turn } from "../src/lib/ask/turns";
 
 const agentCall = (task_id: string, status: string, binary = "claude") => ({
@@ -63,5 +63,24 @@ describe("follow-ups while a reply runs", () => {
     expect(once[0].held).toBe(true);
     expect(requeue(once, "补一句").map((f) => f.status)).toEqual(["queued", "queued"]);
     expect(requeue(items, "别的")).toBe(items);
+  });
+});
+
+describe("deliveredFollowUps", () => {
+  it("lists what the agent took, from its steer events, then what's delivered but not reported yet", () => {
+    const turn = {
+      role: "assistant",
+      content: "",
+      toolCalls: [
+        { id: "a", name: "run_on_device", args: {}, result: { task_id: "t1", events: [
+          { kind: "text", text: "x" },
+          { kind: "steer", text: "也看看 README", status: "sent" },
+          { kind: "steer", text: "太晚了", status: "late" },
+        ] } },
+      ],
+    } as unknown as Turn;
+    expect(deliveredFollowUps(turn)).toEqual(["也看看 README"]);
+    expect(deliveredFollowUps(turn, ["也看看 README", "再跑一下测试"])).toEqual(["也看看 README", "再跑一下测试"]);
+    expect(deliveredFollowUps(undefined)).toEqual([]);
   });
 });

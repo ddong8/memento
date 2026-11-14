@@ -77,3 +77,27 @@ export function requeue(items: readonly FollowUp[], text: string): FollowUp[] {
   if (i < 0) return items as FollowUp[];
   return items.map((f, k) => (k === i ? { ...f, status: "queued", held: true } : f));
 }
+
+/**
+ * What the user added while this reply ran and the agent took: the device reports each as a steer event
+ * ("sent") in the task's events, saved with the turn. Then `pending` (delivered by the server, the event not
+ * in yet), each text once, in order.
+ */
+export function deliveredFollowUps(turn: Turn | null | undefined, pending: readonly string[] = []): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const add = (t: unknown) => {
+    const text = String(t ?? "").trim();
+    if (text && !seen.has(text)) {
+      seen.add(text);
+      out.push(text);
+    }
+  };
+  for (const c of turn?.toolCalls ?? []) {
+    for (const e of (c.result?.events ?? []) as Array<{ kind?: string; status?: string; text?: unknown }>) {
+      if (e?.kind === "steer" && e.status === "sent") add(e.text);
+    }
+  }
+  for (const t of pending) add(t);
+  return out;
+}

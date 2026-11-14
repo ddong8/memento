@@ -1,5 +1,6 @@
 "use client";
 
+import { deliveredFollowUps } from "@/lib/ask/followups";
 import { memo,useEffect,useMemo,useRef,useState } from "react";
 import { useI18n } from "@/lib/i18n";
 import { Icon } from "@/components/aurora/Icon";
@@ -324,6 +325,8 @@ export interface AssistantBubbleProps {
   onSmartCompactAndRetry: (sid?: string) => void;
   onRetry?: () => void;
   onShareTurn?: (index: number) => void;
+  /** Follow-ups the running agent was given whose steer event hasn't come in yet (the live turn only). */
+  pendingFollowUps?: readonly string[];
   t: any;
 }
 
@@ -334,6 +337,7 @@ function areAssistantPropsEqual(prev: AssistantBubbleProps, next: AssistantBubbl
   if (prev.index !== next.index) return false;
   if (prev.prevUserCreatedAt !== next.prevUserCreatedAt) return false;
   if (prev.t !== next.t) return false;
+  if (prev.pendingFollowUps !== next.pendingFollowUps) return false;
   if (prev.turn !== next.turn) {
     if (prev.turn.content !== next.turn.content) return false;
     if (prev.turn.thinking !== next.turn.thinking) return false;
@@ -356,8 +360,10 @@ export const AssistantBubble = memo(function AssistantBubble({
   onSmartCompactAndRetry,
   onRetry,
   onShareTurn,
+  pendingFollowUps,
   t,
 }: AssistantBubbleProps) {
+  const followUps = useMemo(() => deliveredFollowUps(turn, pendingFollowUps), [turn, pendingFollowUps]);
   const liveAgentStdout = useMemo(() => {
     if (turn.content && turn.content.trim().length > 0) return "";
     if (!turn.toolCalls || turn.toolCalls.length === 0) return "";
@@ -558,6 +564,24 @@ export const AssistantBubble = memo(function AssistantBubble({
               <span>重试本轮</span>
             </button>
           )}
+        </div>
+      )}
+      {/* Added while it ran and taken by the agent: in the conversation, no longer in the input area */}
+      {followUps.length > 0 && (
+        <div className="not-prose mt-2.5 flex flex-col items-end gap-1.5">
+          {followUps.map((text, i) => (
+            <div
+              key={`${i}-${text.slice(0, 24)}`}
+              className="max-w-[85%] px-2.5 py-1.5 rounded-xl text-[12.5px] leading-relaxed bg-[var(--aurora-accent-soft)] border border-[var(--aurora-accent)]/25 text-[var(--aurora-fg1)] whitespace-pre-wrap break-words"
+              title="回答过程中追问，智能体已收到"
+            >
+              <span className="inline-flex items-center gap-1 mr-1.5 text-[10.5px] font-semibold text-[var(--aurora-accent)] align-middle">
+                <Icon name="check" size={10} />
+                追问
+              </span>
+              {text}
+            </div>
+          ))}
         </div>
       )}
       {isCurrentlyStreaming && (

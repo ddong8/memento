@@ -4,22 +4,22 @@
   "release_notes": "1. 代码蓝图改名为 CODE_BLUEPRINT.md，和业务蓝图 BUSINESS_BLUEPRINT.md 成对；各仓库里原来的 PROJECT_BLUEPRINT.md 会自动挪成新名字（已提交的在下次提交时一起改名，手写的同名文件不动）\n2. 个人蓝图读取各项目的业务蓝图：业务版图按业务蓝图里的术语和流程判断，并列出每个项目的业务蓝图核对结果\n3. 手机端版本号与客户端统一为 1.0.134",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.133-win-x64.zip",
-      "size": 158300891,
-      "sha256": "bea70e8e754e0383465d1ee39c39668a20b482811bbd32893feb8f66f8023e8e",
-      "sha512": "+lnhZxIT0svvj9gVjVQ/3A0BTXqERlVn5okc+YxOHg1Fhy3XH5ZWhISebd9J2typKhI11zZX9DVvNepVpfbJUQ=="
+      "asset_name": "Memento-1.0.134-win-x64.zip",
+      "size": 158300313,
+      "sha256": "3348aeca7a6f50121f70abd300f202b7f89e68a1012670624bb91cc4eedafd7d",
+      "sha512": "EYVeiAcNnPCg9pbZXhMOMCPatju54EjxNBV6Qs8GJHisoQEMdKrZ1CFP+WXMBaFQQeCsotyeKH4I4GjGwIU58w=="
     },
     "macos": {
-      "asset_name": "Memento-1.0.133-mac-arm64.zip",
-      "size": 132788191,
-      "sha256": "88ce0ae8d28149910c343fc9013ee5dd91b55fe7a01f955a190abc2c34ae01ba",
-      "sha512": "bfL/1Pgn741QaX2YgvC0hwGzanluPhPQSDe/GETTss9a8rRyMom1D11blWg+SZ+Hk+xxPkq2d+mFy+VG6/QVzQ=="
+      "asset_name": "Memento-1.0.134-mac-arm64.zip",
+      "size": 132789483,
+      "sha256": "670f387a8273d65eb25a70f6f1297ddde3fce6513b0f8763f0a1288afa23ff3b",
+      "sha512": "ago38l589KJbZ/rU3UFp/jP4ZZIzsyxfONebGbYZbwDseuD+PwMAI+dj2WptAhMsJwpc3beGud3K/znBCXlG3w=="
     },
     "linux": {
-      "asset_name": "Memento-1.0.133-linux-x64.tar.gz",
-      "size": 132065788,
-      "sha256": "fc699e3cd17d60de6f260477e113367f47d6649a04dd01aa2b6a9ce0f9d5dd52",
-      "sha512": "XxRx2CqoCyh66BGPJMs1gqbJ4y5sGPLhK/ImHl5VG6hJZ7vr08KrkLxz8AxktcvB9lA0zz3WJtUebrIm6LCO1A=="
+      "asset_name": "Memento-1.0.134-linux-x64.tar.gz",
+      "size": 132066397,
+      "sha256": "db49be75b8322ccc5947fa2d3a750ccf0f45f46da635c044f5ded10be2672929",
+      "sha512": "9qG8m8kQeMfYkkfnmCpdcze3gO1mF0gIeE7aV9lPiG9/5uPNJkHntT/SUuFi1cpd8Qv9Zue6Zw3pbWKqk2Z7Bg=="
     }
   }
 }

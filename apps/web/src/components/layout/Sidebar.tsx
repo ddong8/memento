@@ -50,14 +50,27 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
   }, []);
 
   // macOS full screen hides the traffic lights, so the room kept for them above the brand goes too. A full-screen
-  // window's page fills the whole screen (a zoomed window still has the menu bar above it).
+  // window fills the whole screen (a zoomed window still has the menu bar above it). On the resize that enters or
+  // leaves full screen only the page size is new: the window's outer size still reads the old one until the
+  // animation ends (measured in Electron 44), so the page size answers at once and the outer size, which page
+  // zoom doesn't skew, settles it a moment later.
   const [macFullScreen, setMacFullScreen] = useState(false);
   useEffect(() => {
     if (!isMacDesktop) return;
-    const check = () => setMacFullScreen(window.outerWidth >= window.screen.width && window.outerHeight >= window.screen.height);
-    check();
-    window.addEventListener("resize", check);
-    return () => window.removeEventListener("resize", check);
+    const fills = (w: number, h: number) => w >= window.screen.width && h >= window.screen.height;
+    const settle = () => setMacFullScreen(fills(window.outerWidth, window.outerHeight));
+    const timers: number[] = [];
+    const onResize = () => {
+      setMacFullScreen(fills(window.innerWidth, window.innerHeight));
+      timers.splice(0).forEach((t) => window.clearTimeout(t));
+      timers.push(window.setTimeout(settle, 800), window.setTimeout(settle, 1600));
+    };
+    settle();
+    window.addEventListener("resize", onResize);
+    return () => {
+      window.removeEventListener("resize", onResize);
+      timers.forEach((t) => window.clearTimeout(t));
+    };
   }, [isMacDesktop]);
 
   // Fetch online devices

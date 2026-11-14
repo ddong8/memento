@@ -11,6 +11,7 @@ import { useI18n } from "@/lib/i18n";
 import { useTheme } from "@/lib/theme-context";
 import { hasNativeMenu, popupNativeMenu, type NativeMenuItem } from "@/lib/native-menu";
 import type { ExecutionMode } from "@/lib/ask/turns";
+import type { ModelQuota } from "@/lib/ask/model-limits";
 
 /**
  * The bar over the conversation: history, which agent it runs on and the title, the workbench and quota
@@ -26,6 +27,7 @@ export function AskTopBar({
   executionMode,
   selectedDevice,
   quotasData,
+  modelQuota,
   selecting,
   onOpenHistory,
   onOpenQuota,
@@ -43,6 +45,8 @@ export function AskTopBar({
   executionMode: ExecutionMode;
   selectedDevice: string;
   quotasData: AgentQuotasResponse | null;
+  /** Quota of the model this conversation runs on (Antigravity counts each model on its own). */
+  modelQuota?: ModelQuota;
   /** Picking turns to share or export */
   selecting: boolean;
   onOpenHistory: () => void;
@@ -185,7 +189,11 @@ export function AskTopBar({
               void api.getAgentQuotas(selectedDevice);
             }}
             onClick={() => onOpenQuota()}
-            title={isZh ? "查看各个 AI 订阅工具额度 (Antigravity/Claude/Codex/WorkBuddy)" : "View AI Subscriptions & Quotas"}
+            title={
+              modelQuota?.perModel && modelQuota.percent != null
+                ? `${isZh ? "当前对话模型" : "This conversation's model"} ${modelQuota.label}: ${Math.round(modelQuota.percent)}%`
+                : isZh ? "查看各个 AI 订阅工具额度 (Antigravity/Claude/Codex/WorkBuddy)" : "View AI Subscriptions & Quotas"
+            }
           >
             <span className="flex items-center gap-1">
               <span className="hidden 2xl:inline-block w-1.5 h-1.5 rounded-full bg-cyan-400" />
@@ -198,7 +206,7 @@ export function AskTopBar({
                   : executionMode === "workbuddy"
                   ? quotasData?.tools?.workbuddy
                   : quotasData?.tools?.antigravity;
-                const percent = targetTool?.remaining_percent;
+                const percent = modelQuota?.percent ?? targetTool?.remaining_percent;
                 if (percent != null) {
                   return (
                     <span
@@ -368,7 +376,7 @@ export function AskTopBar({
                       : executionMode === "workbuddy"
                       ? quotasData?.tools?.workbuddy
                       : quotasData?.tools?.antigravity;
-                    const percent = targetTool?.remaining_percent;
+                    const percent = modelQuota?.percent ?? targetTool?.remaining_percent;
                     if (percent != null) {
                       return (
                         <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full quota-badge-teal">

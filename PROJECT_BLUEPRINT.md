@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `994868d4` · Updated: `2026-11-14`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `875afd56` · Updated: `2026-11-14`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,7 +16,7 @@
 - 规模 (Scale): 9 个子系统 · 35 组 API 路由 / 236 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 207 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `994868d4` (2026-11-14): fix(antigravity): 等 Antigravity 的定时复查到点再收尾，不再提前挂出后台任务没跑完；升级客户端版本至 v1.0.132
+- 最近改动 (Latest): `875afd56` (2026-11-14): fix: 删除对话后不再从另一副本的缓存里回来；对话自己建的会话不再标成“续”；手机端模型名显示完整
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -608,14 +608,14 @@ erDiagram
 
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
-- [`packages/daemon/assets/workbuddy_cli.mjs`](packages/daemon/assets/workbuddy_cli.mjs) (21 commits)
-- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (13 commits)
+- [`packages/daemon/assets/workbuddy_cli.mjs`](packages/daemon/assets/workbuddy_cli.mjs) (20 commits)
+- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (14 commits)
 - [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (9 commits)
 - [`apps/desktop/src/main.ts`](apps/desktop/src/main.ts) (6 commits)
+- [`apps/web/src/app/globals.css`](apps/web/src/app/globals.css) (6 commits)
 - [`apps/web/src/components/ExecutionCard.tsx`](apps/web/src/components/ExecutionCard.tsx) (6 commits)
 - [`apps/web/src/components/TaskTimeline.tsx`](apps/web/src/components/TaskTimeline.tsx) (6 commits)
 - [`apps/web/src/components/viewers/MediaInspectorPanel.tsx`](apps/web/src/components/viewers/MediaInspectorPanel.tsx) (6 commits)
-- [`apps/web/src/app/globals.css`](apps/web/src/app/globals.css) (5 commits)
 - [`apps/web/src/lib/i18n/en-US.ts`](apps/web/src/lib/i18n/en-US.ts) (5 commits)
 - [`apps/web/src/lib/i18n/zh-CN.ts`](apps/web/src/lib/i18n/zh-CN.ts) (5 commits)
 
@@ -640,12 +640,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `875afd56` (2026-11-14): fix: 删除对话后不再从另一副本的缓存里回来；对话自己建的会话不再标成“续”；手机端模型名显示完整
 - `994868d4` (2026-11-14): fix(antigravity): 等 Antigravity 的定时复查到点再收尾，不再提前挂出后台任务没跑完；升级客户端版本至 v1.0.132
 - `2a58d678` (2026-11-14): fix(antigravity): 新建会话按任务目录选 Antigravity 项目，不再落进最后新建的项目；升级客户端版本至 v1.0.131
 - `2599957c` (2026-11-14): fix(web): 选已有对话的会话时不再把会话预览叠在对话回合上方，Antigravity 工具卡片不再显示原始参数字典
 - `b491477c` (2026-11-14): chore(release): 升级客户端版本至 v1.0.130，更正上一提交误把更新元数据写回 1.0.125
 - `c0fa1b3d` (2026-11-14): chore(release): 升级客户端版本至 v1.0.125，执行机 Antigravity 额度补全模型并按真实额度池计算，执行机自动升级
-- `106d00c7` (2026-11-14): fix(quota): 执行机上 Antigravity 额度补全所有可用模型，剩余额度按真实额度池计算
 
 ## 10. Key Environment Variables & Configuration
 

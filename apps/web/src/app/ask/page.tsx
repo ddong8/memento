@@ -44,7 +44,7 @@ import {
   type AgentSessionItem,
 } from "@/lib/ask/sessions";
 import { CONVERSATIONS_CACHE_KEY, CachedAskState, FALLBACK_AGENT_MODELS, LocalConvSnapshot, QUOTAS_CACHE_KEY, conversationTurnsCache, getCachedConversations, getCachedProjects, getCachedSessions, getImmediateCapabilities, getLocalCachedQuotas, getLocalConvSnapshot, isUuidOrHash, prefetchConversationTurns, resolveSafeProjectName, saveCachedProjects, saveCachedSessions, saveCapabilitiesCache, saveLocalConvSnapshot, saveToRecentConvTurnsCache, clearLocalConvSnapshot } from "@/lib/ask/cache";
-import { modelLimitLabel, modelLimitOf } from "@/lib/ask/model-limits";
+import { modelLimitLabel, modelLimitOf, modelQuotaOf } from "@/lib/ask/model-limits";
 import { cleanProjectPath, homeDeviceOf, isConcreteDevice, isDeviceOnline, pathWithin, projectPathOn } from "@/lib/ask/devices";
 import { isLiveConnected, onLiveEvent } from "@/lib/live-events";
 import { AGENT_TOOL_ID, type Cascade, cascadeOf, configHas, usableDevice } from "@/lib/ask/cascade";
@@ -646,7 +646,22 @@ function AskPageContent() {
     };
   }, [selectedDevice]);
 
+  // The model this conversation runs on, for its quota: the one picked, else the one its last turn ran
+  // (Antigravity reports what it used), else the agent's default (modelQuotaOf falls back to that).
+  const quotaModelId = useMemo(() => {
+    if (selectedModel) return selectedModel;
+    for (let i = turns.length - 1; i >= 0; i--) {
+      const t = turns[i];
+      if (t.model && (!t.execution_mode || t.execution_mode === executionMode)) return t.model;
+    }
+    return "";
+  }, [selectedModel, turns, executionMode]);
+  const currentModelQuota = useMemo(() => modelQuotaOf(quotasData, executionMode, quotaModelId), [quotasData, executionMode, quotaModelId]);
+
   const getModeQuotaSummary = (mode: ExecutionMode): { label: string; percent?: number; isPro?: boolean } | null => {
+    if (mode === executionMode && currentModelQuota?.perModel && currentModelQuota.percent != null) {
+      return { label: `${Math.round(currentModelQuota.percent)}%`, percent: currentModelQuota.percent, isPro: true };
+    }
     if (mode === "antigravity") {
       const agy = quotasData?.tools?.antigravity;
       return {
@@ -4816,6 +4831,7 @@ function AskPageContent() {
           executionMode={executionMode}
           selectedDevice={selectedDevice}
           quotasData={quotasData}
+          modelQuota={currentModelQuota}
           selecting={selectTurnsMode}
           onOpenHistory={() => {
             setHistoryOpen(true);
@@ -6748,6 +6764,7 @@ function AskPageContent() {
         onDataChange={setQuotasData}
         activeTool={conversationActiveTool}
         recentTools={conversationRecentTools}
+        activeModelId={currentModelQuota?.perModel ? currentModelQuota.modelId : quotaModelId}
       />
 
       {/* Conversation Share Modal (Single & Multiple with Multi-Platform Publishing Hub) */}

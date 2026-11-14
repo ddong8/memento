@@ -6,6 +6,7 @@ import { Glass } from "@/components/aurora/primitives";
 import { Icon } from "@/components/aurora/Icon";
 import { BrandMark } from "@/components/aurora/BrandMark";
 import { showInAppToast } from "@/lib/native-notify";
+import { modelQuotaOf } from "@/lib/ask/model-limits";
 
 export type QuotaToolKey = "antigravity" | "claude_code" | "codex" | "workbuddy";
 
@@ -63,6 +64,8 @@ export interface AgentQuotaPopoverProps {
   onDataChange?: (data: AgentQuotasResponse) => void;
   activeTool?: string;
   recentTools?: string[];
+  /** Model the open conversation runs on: Antigravity's bar shows that model's own quota. */
+  activeModelId?: string;
 }
 
 function formatRelativeReset(isoStr?: string | null): string {
@@ -130,6 +133,7 @@ export function AgentQuotaPopover({
   onDataChange,
   activeTool,
   recentTools,
+  activeModelId,
 }: AgentQuotaPopoverProps) {
   const [data, setData] = useState<AgentQuotasResponse | null>(() => initialData || getCachedQuotas(deviceId));
   const [loading, setLoading] = useState(false);
@@ -231,6 +235,7 @@ export function AgentQuotaPopover({
 
   const tools = data?.tools || {};
   const agy = tools.antigravity;
+  const agyModelQuota = normalizeToolKey(activeTool) === "antigravity" ? modelQuotaOf(data, "antigravity", activeModelId || "") : undefined;
   const claude = tools.claude_code;
   const codex = tools.codex;
   const workbuddy = tools.workbuddy;
@@ -340,17 +345,21 @@ export function AgentQuotaPopover({
       )}
 
       {/* Quota Progress Bar */}
-      {agy?.available && agy?.remaining_percent != null && (() => {
-        const quotaColor = getQuotaColor(agy.remaining_percent);
-        const primaryModel = agy?.models?.find((m) => m.remaining_percent != null) || agy?.models?.[0];
+      {agy?.available && (agyModelQuota?.perModel ? agyModelQuota.percent : agy?.remaining_percent) != null && (() => {
+        // The open conversation's model when it has its own figure; else the default model's (the tool's figure).
+        const own = agyModelQuota?.perModel ? agyModelQuota : undefined;
+        const pct = (own ? own.percent : agy.remaining_percent) as number;
+        const resetTime = own ? own.resetTime : agy.reset_time;
+        const quotaColor = getQuotaColor(pct);
+        const primaryModel = agy?.models?.find((m) => m.model_id && m.model_id === agy.default_model) || agy?.models?.find((m) => m.remaining_percent === agy.remaining_percent) || agy?.models?.[0];
         return (
           <div>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 12, marginBottom: 6 }}>
               <span style={{ color: "var(--aurora-fg3)" }}>
-                主力模型配额 ({primaryModel?.label || "Gemini 3.8 Flash"})
+                {own ? `当前对话模型配额 (${own.label})` : `默认模型配额 (${primaryModel?.label || "Antigravity"})`}
               </span>
               <span style={{ fontWeight: 600, color: quotaColor.text }}>
-                {agy.remaining_percent}% 剩余
+                {Math.round(pct)}% 剩余
               </span>
             </div>
             <div
@@ -365,16 +374,16 @@ export function AgentQuotaPopover({
               <div
                 style={{
                   height: "100%",
-                  width: `${Math.min(100, Math.max(0, agy.remaining_percent))}%`,
+                  width: `${Math.min(100, Math.max(0, pct))}%`,
                   borderRadius: 999,
                   background: quotaColor.gradient,
                   transition: "width 0.4s ease",
                 }}
               />
             </div>
-            {agy.reset_time && (
+            {resetTime && (
               <div style={{ fontSize: 11, color: "var(--aurora-fg4)", marginTop: 5, textAlign: "right" }}>
-                ⏳ {formatRelativeReset(agy.reset_time)}
+                ⏳ {formatRelativeReset(resetTime)}
               </div>
             )}
           </div>
@@ -447,6 +456,7 @@ export function AgentQuotaPopover({
               }}
             >
               {agy.models.map((m, idx) => {
+                const current = Boolean(agyModelQuota?.perModel && m.model_id && m.model_id === agyModelQuota.modelId);
                 return (
                   <div
                     key={idx}
@@ -458,8 +468,8 @@ export function AgentQuotaPopover({
                       padding: "3px 0",
                     }}
                   >
-                    <span style={{ color: "var(--aurora-fg1)", fontWeight: 500, textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap", maxWidth: "260px" }}>
-                      {m.label}
+                    <span style={{ color: current ? "var(--aurora-accent)" : "var(--aurora-fg1)", fontWeight: current ? 700 : 500, textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap", maxWidth: "260px" }}>
+                      {m.label}{current ? " · 当前对话" : ""}
                     </span>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       {m.remaining_percent != null ? (

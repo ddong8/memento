@@ -34,3 +34,40 @@ export function modelLimitLabel(limit: LimitedModelInfo, isZh: boolean, now = Da
   const span = mins < 60 ? (isZh ? `${mins} 分钟` : `${mins}m`) : mins < 48 * 60 ? (isZh ? `${Math.round(mins / 60)} 小时` : `${Math.round(mins / 60)}h`) : isZh ? `${Math.round(mins / 1440)} 天` : `${Math.round(mins / 1440)}d`;
   return isZh ? `额度用完·约 ${span}后恢复` : `out of quota · ~${span}`;
 }
+
+const QUOTA_TOOL_KEY: Record<string, "antigravity" | "claude_code" | "codex" | "workbuddy"> = { ...TOOL_KEY, workbuddy: "workbuddy" };
+
+export interface ModelQuota {
+  /** Remaining percent for this model, null when the tool doesn't say. */
+  percent: number | null;
+  /** The model it's about ("" when the tool's own figure stands for it). */
+  modelId: string;
+  label: string;
+  resetTime?: string | null;
+  statusText?: string;
+  /** True when the figure is this model's own; false when it's the tool's (shared quota, or the model wasn't listed). */
+  perModel: boolean;
+}
+
+/**
+ * Quota left for the model a conversation runs (`id`, "" for the agent's default). Antigravity counts each
+ * model on its own (Gemini 4 Argon resets weekly, Hydrogen/Flash/Claude every few hours), so the tool's
+ * figure, which is the default model's, says nothing about a conversation on another model. Claude Code
+ * and Codex share one quota across models: their figure is the tool's.
+ */
+export function modelQuotaOf(quotas: AgentQuotasResponse | null | undefined, mode: string, id: string, now = Date.now()): ModelQuota | undefined {
+  const key = QUOTA_TOOL_KEY[mode];
+  const tool = key ? quotas?.tools?.[key] : undefined;
+  if (!tool) return undefined;
+  const want = (id || tool.default_model || "").trim().toLowerCase();
+  const models = tool.models ?? [];
+  const exact = want ? models.find((m) => m.model_id?.toLowerCase() === want) : undefined;
+  const family = want ? modelFamily(mode, want) : "";
+  const kin = exact ?? (mode === "antigravity" && family ? models.find((m) => m.model_id && modelFamily(mode, m.model_id) === family && m.remaining_percent != null) : undefined);
+  const limit = want ? modelLimitOf(quotas, mode, want, now) : undefined;
+  if (kin && kin.remaining_percent != null) {
+    return { percent: limit ? 0 : kin.remaining_percent, modelId: kin.model_id, label: exact?.label || kin.label || kin.model_id, resetTime: limit?.until ?? kin.reset_time, statusText: limit ? "额度用完" : kin.status_text, perModel: true };
+  }
+  if (limit) return { percent: 0, modelId: want, label: exact?.label || want, resetTime: limit.until, statusText: "额度用完", perModel: true };
+  return { percent: tool.remaining_percent ?? null, modelId: "", label: exact?.label || tool.name, resetTime: tool.reset_time, statusText: undefined, perModel: false };
+}

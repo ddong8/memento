@@ -4,22 +4,22 @@
   "release_notes": "1. 桌面端的“更多”菜单和用户菜单改用系统原生菜单：Mac 上是 macOS 菜单，Windows 上是 Windows 菜单，支持键盘上下选择\n2. 手机端版本号与客户端统一为 1.0.128",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.127-win-x64.zip",
-      "size": 158278477,
-      "sha256": "20b721b7a7d2b972521979996edda7250c6c0bfc32c62409a527e2b39bf77b08",
-      "sha512": "zNhjYCdiFnOfnKfiULVBK410CX6oDD8PAr5xOFL4vbKsephjcbIEjOBDfD+mmPMZGGEXkkHrANm5DakrmJGSaA=="
+      "asset_name": "Memento-1.0.128-win-x64.zip",
+      "size": 158280144,
+      "sha256": "2943f09fcc8e913dd4b8a5b9b6eecf7d547aa972c3c10e8105c0d2a36a368983",
+      "sha512": "0p0rLErNp0UM1uwLYp/UhGUpskWC2gQsPV2yAmhfF9MS74O/o+Uo/lA8go4toB1FN3BUeK/D8mKRsCnV+ClxMw=="
     },
     "macos": {
-      "asset_name": "Memento-1.0.127-mac-arm64.zip",
-      "size": 132765824,
-      "sha256": "b8cdffb0afb5158de55af604969cbc46f9b2da31b88d6a6f201d6d90517397cb",
-      "sha512": "dl/A26deY7qFbdv1xWRXWe44k+M1xJGoJbb6bDFNrAyYcFu3n5BviH0j3Sbnf1+8uGNc+jCh2T6VFXKblN+wkw=="
+      "asset_name": "Memento-1.0.128-mac-arm64.zip",
+      "size": 132768160,
+      "sha256": "94e720980883777282413e03a82b295d80ed9883dcc829450facbb151026f3ef",
+      "sha512": "oU9rM5QBN2LQNhXAdwToG6lT/Ta1imq58Q+LI/5vzjpj1+qwm8tcwSNh82WayQ7AOKCkGHXnTVtiUbupxLU2Zg=="
     },
     "linux": {
-      "asset_name": "Memento-1.0.127-linux-x64.tar.gz",
-      "size": 132043288,
-      "sha256": "d3256adbd9cb20afb047586c0b766864393106fa153c0ad8496d4410a50d0e08",
-      "sha512": "bJWhr+/Dn7+GUwGEsq30wz04UQkYMten7DqGTCdXVMdhmtknr5uZbYAkeBVXA4PTA2118QY0tviz/8VQSoPmfg=="
+      "asset_name": "Memento-1.0.128-linux-x64.tar.gz",
+      "size": 132046987,
+      "sha256": "047a5d3677cc12bfcf7559c6e614701160db604483cd2ae8f5d1eb4825169a50",
+      "sha512": "0QLIEm4+HoynmQlV6sU717aysBJvgjH2leLS/XDUhQK0qyicUeKOJUpN6Ud3b3Cy/MsnO6hESMm4krM0kbMbJQ=="
     }
   }
 }

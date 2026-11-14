@@ -42,3 +42,33 @@ describe("which workbench files are tried straight from their device", () => {
     expect(viaRelay({ playUrl: "https://example.com/a.pdf" })).toBe(false);
   });
 });
+
+describe("links that name nothing the workbench can open", () => {
+  it("leaves out patterns and the site-root pictures of fetched web pages", async () => {
+    const { extractMediaFromMarkdown } = await import("../src/components/viewers/MediaInspectorContext");
+    const text = [
+      "![Azure Logo](/assets/third-parties/azure.png) ![logo](/img/logo_dark.svg)",
+      "icons: /favicon.png /apple-touch-icon.png, pictures under assets/memento_*.png and /article/*.png",
+      "real: /tmp/winshot/full2_s.png and /Users/me/Desktop/shot.jpg and /data2/memento/images/c1/image_1.webp",
+      "C:/Users/Admin/Pictures/a.png and C:/logs/*.log",
+    ].join("\n");
+    const urls = extractMediaFromMarkdown(text).map((m) => m.url);
+    expect(urls).toEqual([
+      "/tmp/winshot/full2_s.png",
+      "/Users/me/Desktop/shot.jpg",
+      "/data2/memento/images/c1/image_1.webp",
+      "C:/Users/Admin/Pictures/a.png",
+    ]);
+  });
+
+  it("knows a device path from a site path", async () => {
+    const { isLocalFilePath, hasWildcard } = await import("../src/components/viewers/MediaPreview");
+    expect(isLocalFilePath("/assets/third-parties/heroku_dark.png")).toBe(false);
+    expect(isLocalFilePath("/favicon.png")).toBe(false);
+    expect(isLocalFilePath("/tmp/a/*.png")).toBe(false);
+    expect(isLocalFilePath("/tmp/a/b.png")).toBe(true);
+    expect(isLocalFilePath("/srv/app/out/chart.png")).toBe(true);
+    expect(isLocalFilePath("/workspace/proj/shot.png")).toBe(true);
+    expect(hasWildcard("/x/a.png?v=2")).toBe(false);
+  });
+});

@@ -14,8 +14,6 @@ const subscribe = (channel: string) => (cb: (payload: unknown) => void) => {
 
 contextBridge.exposeInMainWorld("mementoDesktop", {
   isDesktop: true,
-  // The window's system material behind the page's sidebar (macOS: the sidebar vibrancy, as in Finder)
-  windowMaterial: process.platform === "darwin" ? "sidebar" : undefined,
   info: () => ipcRenderer.invoke("app:info"),
   setOpenAtLogin: (on: boolean) => ipcRenderer.invoke("app:set-open-at-login", on),
   setTheme: (theme: "light" | "dark" | "system") => ipcRenderer.invoke("app:set-theme", theme),

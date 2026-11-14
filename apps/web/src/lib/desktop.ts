@@ -76,8 +76,6 @@ export interface ServerTestResult {
 
 export interface MementoDesktop {
   isDesktop: true;
-  /** v1.0.127+ on macOS: "sidebar" — the window shows the system's sidebar material where the page is transparent. */
-  windowMaterial?: string;
   info(): Promise<DesktopInfo>;
   setOpenAtLogin(on: boolean): Promise<boolean>;
   /** v1.0.126+: what the system draws (title bar, scroll bars, menus) follows the page's light/dark. */

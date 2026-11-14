@@ -32,10 +32,4 @@ describe("platform markers before the first paint", () => {
     expect(run("Mozilla/5.0 (Linux; Android 12; HarmonyOS; NOH-AN00) AppleWebKit/537.36 Chrome/114 Mobile Safari/537.36")["data-os"]).toBe("harmony");
     expect(run("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Version/26.0 Safari/605.1.15", {}, 5)["data-os"]).toBe("ios");
   });
-
-  it("marks the window material only for a desktop client that has one (macOS 1.0.127+)", () => {
-    expect(run(MAC, { mementoDesktop: { isDesktop: true, windowMaterial: "sidebar" } })["data-window-material"]).toBe("sidebar");
-    expect(run(MAC, { mementoDesktop: { isDesktop: true } })["data-window-material"]).toBeUndefined(); // an older client: opaque as before
-    expect(run(WIN, { mementoDesktop: { isDesktop: true } })["data-window-material"]).toBeUndefined();
-  });
 });

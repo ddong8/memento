@@ -181,10 +181,22 @@ export interface ResolvedMedia {
   relayUrl?: string;
 }
 
+/** A pattern (`assets/memento_*.png`, `C:\\logs\\*.log`), not one file: nothing to open. */
+export function hasWildcard(path: string): boolean {
+  return /[*?]/.test(path.replace(/^file:\/\//, "").split(/[?#]/)[0] ?? "");
+}
+
+/**
+ * Site-root paths of web pages (a fetched page's `/assets/third-parties/azure.png`, `/img/logo.svg`,
+ * `/favicon.png`): pictures of that site, not files on any of the user's devices.
+ */
+const WEB_ASSET_ROOT = /^\/(assets|img|images|static|public|media-assets|article|uploads|wp-content|_next|favicon|apple-touch-icon|logo)[/.\-_]/i;
+
 /** Check if a given string represents a local file path */
 export function isLocalFilePath(url: string | null | undefined): boolean {
   if (!url) return false;
   const decoded = safeDecodePath(url.trim());
+  if (hasWildcard(decoded)) return false;
   if (decoded.startsWith("file://")) return true;
   // Windows absolute path: e.g. C:\... or C:/...
   if (/^[a-zA-Z]:[/\\]/.test(decoded)) return true;
@@ -203,9 +215,10 @@ export function isLocalFilePath(url: string | null | undefined): boolean {
     ) {
       return false;
     }
-    if (/^\/(Users|home|private|var|tmp|Volumes|data|mnt|root|opt|etc|Library|dev|System|usr)\//i.test(decoded)) {
+    if (/^\/(Users|home|private|var|tmp|Volumes|data|data\d+|mnt|root|opt|etc|Library|Applications|dev|System|usr|srv|workspace)\//i.test(decoded)) {
       return true;
     }
+    if (WEB_ASSET_ROOT.test(decoded)) return false;
     const lastSlash = decoded.lastIndexOf("/");
     const lastPart = decoded.slice(lastSlash + 1);
     if (lastSlash > 0 && /\.[a-zA-Z0-9]{2,5}$/.test(lastPart)) {

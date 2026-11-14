@@ -189,12 +189,9 @@ function createWindow(show: boolean): void {
     show,
     title: "Memento",
     icon: getWindowIcon(),
-    // Matches the page while it loads, so there's no dark flash in light mode. macOS: the sidebar
-    // material, as in Finder and Notes; the page is transparent over it only in its sidebar (globals.css,
-    // data-window-material), its own background everywhere else.
-    ...(process.platform === "darwin"
-      ? { vibrancy: "sidebar" as const, visualEffectState: "followWindow" as const, backgroundColor: "#00000000" }
-      : { backgroundColor: nativeTheme.shouldUseDarkColors ? "#0b0b12" : "#f6f5fb" }),
+    // Matches the page while it loads, so there's no dark flash in light mode. (No sidebar vibrancy on
+    // macOS: tried in 1.0.127, its grey didn't match the rest of the window.)
+    backgroundColor: nativeTheme.shouldUseDarkColors ? "#0b0b12" : "#f6f5fb",
     titleBarStyle: process.platform === "darwin" ? "hiddenInset" : MERGED_TITLE_BAR ? "hidden" : "default",
     ...(MERGED_TITLE_BAR ? { titleBarOverlay: titleBarOverlay(1280) } : {}),
     trafficLightPosition: process.platform === "darwin" ? { x: 18, y: 18 } : undefined,

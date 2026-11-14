@@ -19,7 +19,7 @@ export default function PrivacyPolicyPage() {
               </span>
               <span className="text-xs text-[var(--aurora-fg4,#9CA3AF)]">生效日期：2026年10月</span>
             </div>
-            <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight text-[var(--aurora-fg1)]">
+            <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight bg-gradient-to-r from-purple-400 via-indigo-300 to-pink-300 bg-clip-text text-transparent">
               Memento 隐私政策 (Privacy Policy)
             </h1>
           </div>

@@ -147,7 +147,7 @@ export default function Dashboard() {
               width: 340,
               height: 340,
               borderRadius: "50%",
-              background: "transparent",
+              background: "radial-gradient(circle, color-mix(in srgb, var(--aurora-accent) 32%, transparent), transparent 70%)",
               filter: "blur(40px)",
               pointerEvents: "none",
             }}
@@ -285,7 +285,7 @@ export default function Dashboard() {
               position: "absolute",
               top: -120, right: -80,
               width: 320, height: 320, borderRadius: "50%",
-              background: "transparent",
+              background: "radial-gradient(circle, color-mix(in srgb, var(--aurora-accent) 35%, transparent), transparent 70%)",
               filter: "blur(40px)",
               pointerEvents: "none",
             }}
@@ -354,7 +354,7 @@ export default function Dashboard() {
                         width: "100%",
                         height: `${h}%`,
                         borderRadius: "6px 6px 2px 2px",
-                        background: "var(--aurora-accent)",
+                        background: "linear-gradient(180deg, color-mix(in srgb, var(--aurora-accent) 60%, white), var(--aurora-accent))",
                         boxShadow: "0 4px 12px -4px color-mix(in srgb, var(--aurora-accent) 45%, transparent)",
                       }}
                     />

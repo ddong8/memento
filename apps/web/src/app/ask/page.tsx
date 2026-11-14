@@ -6437,7 +6437,7 @@ function AskPageContent() {
                   margin: "0 0 8px 0",
                   padding: "7px 12px",
                   borderRadius: 10,
-                  background: "rgba(245,158,11,0.12)",
+                  background: "linear-gradient(90deg, rgba(245,158,11,0.18), rgba(245,158,11,0.08))",
                   border: "1px solid rgba(245,158,11,0.4)",
                   display: "flex",
                   alignItems: "center",

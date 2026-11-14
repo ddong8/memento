@@ -88,24 +88,24 @@ function getQuotaColor(percent?: number | null): { text: string; gradient: strin
   if (percent == null) {
     return {
       text: "var(--aurora-fg2)",
-      gradient: "#64748B",
+      gradient: "linear-gradient(90deg, #64748B, #94A3B8)",
     };
   }
   if (percent <= 15) {
     return {
       text: "#DC2626",
-      gradient: "#DC2626",
+      gradient: "linear-gradient(90deg, #EF4444, #DC2626)",
     };
   }
   if (percent <= 35) {
     return {
       text: "#D97706",
-      gradient: "#D97706",
+      gradient: "linear-gradient(90deg, #F59E0B, #D97706)",
     };
   }
   return {
     text: "var(--aurora-accent, #6D28D9)",
-    gradient: "#38BDF8",
+    gradient: "linear-gradient(90deg, #38BDF8, #818CF8)",
   };
 }
 
@@ -1146,7 +1146,7 @@ export function AgentQuotaPopover({
                 width: 32,
                 height: 32,
                 borderRadius: 10,
-                background: "rgba(56, 189, 248, 0.16)",
+                background: "linear-gradient(135deg, rgba(56, 189, 248, 0.2), rgba(168, 85, 247, 0.2))",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",

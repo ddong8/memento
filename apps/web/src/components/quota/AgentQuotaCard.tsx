@@ -179,8 +179,8 @@ export function AgentQuotaCard({ deviceId, activeTool, recentTools }: AgentQuota
                 width: `${Math.min(100, Math.max(0, agy.remaining_percent))}%`,
                 borderRadius: 999,
                 background: agy.remaining_percent > 30
-                  ? "#38BDF8"
-                  : "#F59E0B",
+                  ? "linear-gradient(90deg, #38BDF8, #818CF8)"
+                  : "linear-gradient(90deg, #F59E0B, #EF4444)",
                 transition: "width 0.4s ease",
               }}
             />
@@ -299,7 +299,7 @@ export function AgentQuotaCard({ deviceId, activeTool, recentTools }: AgentQuota
                   height: "100%",
                   width: `${Math.min(100, Math.max(0, claude.remaining_percent))}%`,
                   borderRadius: 999,
-                  background: claude.remaining_percent > 30 ? "#D97706" : "#DC2626",
+                  background: claude.remaining_percent > 30 ? "linear-gradient(90deg, #D97706, #F59E0B)" : "linear-gradient(90deg, #EF4444, #DC2626)",
                 }}
               />
             </div>
@@ -499,7 +499,7 @@ export function AgentQuotaCard({ deviceId, activeTool, recentTools }: AgentQuota
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5 pb-4 border-b border-[var(--aurora-border)]">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-[var(--aurora-accent-soft)] flex items-center justify-center text-[var(--aurora-accent)] shadow-sm">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-500/20 to-purple-500/20 flex items-center justify-center text-[var(--aurora-accent)] shadow-sm">
             <Icon name="activity" size={20} />
           </div>
           <div>

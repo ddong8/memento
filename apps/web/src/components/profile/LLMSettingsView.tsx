@@ -180,7 +180,7 @@ export function LLMSettingsView() {
                 height: 48,
                 borderRadius: 16,
                 background: enabled
-                  ? "var(--aurora-accent)"
+                  ? "linear-gradient(135deg, #8B5CF6 0%, #3B82F6 100%)"
                   : "var(--aurora-chip)",
                 display: "flex",
                 alignItems: "center",

@@ -115,16 +115,16 @@ export function Icon({ name, size = 16, strokeWidth = 1.6, style, ...rest }: Ico
 
 /** Tool id → gradient accent + icon */
 export const TOOL_HUE: Record<string, { h: number; bg: string }> = {
-  claude_code: { h: 22,  bg: "#D97757" },
-  openclaw:    { h: 0,   bg: "#DC2626" },
-  codex:       { h: 160, bg: "#10A37F" },
-  antigravity: { h: 220, bg: "#0F172A" },
-  workbuddy:   { h: 165, bg: "#00B386" },
-  obsidian:    { h: 260, bg: "#7C3AED" },
-  cursor:      { h: 220, bg: "#0F172A" },
-  windsurf:    { h: 170, bg: "#0D9488" },
-  vscode:      { h: 210, bg: "#0284C7" },
-  hermes:      { h: 200, bg: "#0EA5E9" },
+  claude_code: { h: 22,  bg: "linear-gradient(135deg,#FB923C,#D97757)" },
+  openclaw:    { h: 0,   bg: "linear-gradient(135deg,#FF5E5E,#DC2626)" },
+  codex:       { h: 160, bg: "linear-gradient(135deg,#34D399,#10A37F)" },
+  antigravity: { h: 220, bg: "linear-gradient(135deg,#1E293B,#0F172A)" },
+  workbuddy:   { h: 165, bg: "linear-gradient(135deg,#0EC7A8,#00C885)" },
+  obsidian:    { h: 260, bg: "linear-gradient(135deg,#A78BFA,#7C3AED)" },
+  cursor:      { h: 220, bg: "linear-gradient(135deg,#1E293B,#090D16)" },
+  windsurf:    { h: 170, bg: "linear-gradient(135deg,#2DD4BF,#0D9488)" },
+  vscode:      { h: 210, bg: "linear-gradient(135deg,#38BDF8,#0284C7)" },
+  hermes:      { h: 200, bg: "linear-gradient(135deg,#38BDF8,#0EA5E9)" },
 };
 
 const PLATFORM_ICON_NAME: Record<string, IconName> = {
@@ -176,7 +176,9 @@ export function ToolGlyph({ id, size = 36 }: { id: string; size?: number }) {
           style={{
             position: "absolute",
             inset: 0,
-            background: "transparent",
+            background: isDarkTile
+              ? "radial-gradient(120% 80% at 30% 0%, rgba(255,255,255,0.15), transparent 60%)"
+              : "radial-gradient(120% 80% at 30% 0%, rgba(255,255,255,0.3), transparent 60%)",
             pointerEvents: "none",
           }}
         />
@@ -192,14 +194,16 @@ export function ToolGlyph({ id, size = 36 }: { id: string; size?: number }) {
 
   // Arc / Baseline: subtle brand-tinted tile + colored brand mark
   const pad = size >= 18;
-  const tintPct = theme === "dark" ? 12 : 6;
+  const tint = pad ? brandColor + (theme === "dark" ? "20" : "10") : "transparent";
   return (
     <div
       style={{
         width: size,
         height: size,
         borderRadius: radius,
-        background: pad ? `color-mix(in srgb, ${brandColor} ${tintPct}%, var(--aurora-surface-solid))` : "transparent",
+        background: pad
+          ? `linear-gradient(180deg, ${tint}, transparent 70%), var(--aurora-surface-solid)`
+          : "transparent",
         border: pad ? "1px solid var(--aurora-border)" : "none",
         display: "flex",
         alignItems: "center",
@@ -221,7 +225,7 @@ export function PlatformGlyph({ name, size = 32 }: { name: string; size?: number
         width: size,
         height: size,
         borderRadius: size * 0.3,
-        background: "#1F1B3A",
+        background: "linear-gradient(135deg,#1F1B3A,#2A1F4F)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",

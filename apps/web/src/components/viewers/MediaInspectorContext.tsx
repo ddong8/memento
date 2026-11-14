@@ -3,7 +3,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { desktop } from "@/lib/desktop";
 import { deviceOfCall, rememberFileDevice, setLocalDeviceName, type FileDevice } from "@/lib/file-devices";
-import { detectMediaType, dirOfPath, getFilenameFromUrl, isLocalFilePath, resolveRelativeLink, safeDecodePath, type MediaType } from "./MediaPreview";
+import { detectMediaType, dirOfPath, getFilenameFromUrl, hasWildcard, isLocalFilePath, resolveRelativeLink, safeDecodePath, type MediaType } from "./MediaPreview";
 
 /** The device a local path in a chat belongs to, so the workbench opens it from there. */
 function rememberPathDevice(url: string, device: FileDevice | undefined) {
@@ -44,6 +44,18 @@ const MediaInspectorContext = createContext<MediaInspectorContextType | null>(nu
  * `baseDir`: the folder of the file the text is from, for its relative links; without it they are left
  * out (they'd open nothing).
  */
+/**
+ * Whether a link found in a reply names something the workbench can open: not a pattern (`*.png`) and not
+ * a site-root path of some web page the agent read (`/assets/third-parties/azure.png`), which is neither a
+ * file on the user's devices nor on memento's server. Those showed as "file missing or offline".
+ */
+export function openableMediaLink(url: string): boolean {
+  const u = safeDecodePath(url.trim());
+  if (hasWildcard(u)) return false;
+  if (u.startsWith("/") && !u.startsWith("//") && !isLocalFilePath(u) && !/^\/(api|artifacts|documents|article)\//.test(u)) return false;
+  return true;
+}
+
 export function extractMediaFromMarkdown(text: string, baseDir?: string | null): Array<{ url: string; title: string; type: MediaType }> {
   const list: Array<{ url: string; title: string; type: MediaType }> = [];
   if (!text) return list;
@@ -58,7 +70,7 @@ export function extractMediaFromMarkdown(text: string, baseDir?: string | null):
     const rawUrl = match[2]?.trim();
     if (!rawUrl) continue;
     const cleanUrl = resolveRelativeLink(rawUrl.split(" ")[0], baseDir); // handle possible markdown titles like (url "title")
-    if (!cleanUrl) continue;
+    if (!cleanUrl || !openableMediaLink(cleanUrl)) continue;
     const type = detectMediaType(cleanUrl);
     if (type !== "unknown" && !seenUrls.has(cleanUrl)) {
       seenUrls.add(cleanUrl);
@@ -71,7 +83,7 @@ export function extractMediaFromMarkdown(text: string, baseDir?: string | null):
   const pathRegex = /(?:^|[\s`"'\(<\[])((\/|file:\/\/|[a-zA-Z]:[/\\])[^\s"'`>\)\]]+\.(mp4|webm|mov|mkv|m4v|mp3|wav|m4a|png|jpg|jpeg|gif|webp|pdf|md|markdown|srt|vtt|pptx|ppt|key|potx|xlsx|xls|csv|tsv|ods|docx|doc|rtf|txt|log))(?=[\s`"'\)>\]]|$)/gi;
   while ((match = pathRegex.exec(text)) !== null) {
     const rawUrl = match[1]?.trim();
-    if (rawUrl && !seenUrls.has(rawUrl)) {
+    if (rawUrl && !seenUrls.has(rawUrl) && openableMediaLink(rawUrl)) {
       const type = detectMediaType(rawUrl);
       if (type !== "unknown") {
         seenUrls.add(rawUrl);

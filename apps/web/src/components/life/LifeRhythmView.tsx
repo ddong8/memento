@@ -146,7 +146,7 @@ export function LifeRhythmView() {
                 width: 44,
                 height: 44,
                 borderRadius: 14,
-                background: "#3B82F6",
+                background: "linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%)",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
@@ -333,14 +333,14 @@ export function LifeRhythmView() {
                   <div
                     style={{
                       width: `${(currentDay.productive_minutes / currentDay.total_screen_minutes) * 100}%`,
-                      background: "#3B82F6",
+                      background: "linear-gradient(90deg, #3B82F6, #6366F1)",
                     }}
                     title="工作专注时长"
                   />
                   <div
                     style={{
                       width: `${(currentDay.distraction_minutes / currentDay.total_screen_minutes) * 100}%`,
-                      background: "#F59E0B",
+                      background: "linear-gradient(90deg, #F59E0B, #EF4444)",
                     }}
                     title="娱乐与分心时长"
                   />

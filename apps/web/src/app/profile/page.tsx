@@ -130,7 +130,7 @@ function ProfileContent() {
                 className="flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-medium transition-all duration-200 whitespace-nowrap cursor-pointer select-none"
                 style={{
                   background: active
-                    ? "var(--aurora-accent-soft)"
+                    ? "linear-gradient(135deg, rgba(124, 58, 237, 0.12) 0%, rgba(99, 102, 241, 0.08) 100%)"
                     : "transparent",
                   color: active ? "var(--aurora-accent)" : "var(--aurora-fg3)",
                   border: active

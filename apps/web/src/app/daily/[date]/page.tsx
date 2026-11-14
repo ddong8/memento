@@ -118,7 +118,7 @@ export default function DailyDetailPage() {
             aria-hidden
             style={{
               position: "absolute", top: -80, right: -60, width: 240, height: 240, borderRadius: "50%",
-              background: "transparent",
+              background: "radial-gradient(circle, rgba(124,58,237,0.25), transparent 70%)",
               filter: "blur(40px)", pointerEvents: "none",
             }}
           />

@@ -98,7 +98,7 @@ function AppShellInner({
   return (
     <div className={`min-h-screen ${isAskRoute ? "h-[100dvh] overflow-hidden" : ""}`}>
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-      <div data-app-main className={`transition-[margin-left] duration-200 ease-in-out ${collapsed ? "lg:ml-[68px]" : "lg:ml-60"} relative z-0 ${isAskRoute ? "h-full overflow-hidden" : ""}`}>
+      <div className={`transition-[margin-left] duration-200 ease-in-out ${collapsed ? "lg:ml-[68px]" : "lg:ml-60"} relative z-0 ${isAskRoute ? "h-full overflow-hidden" : ""}`}>
         <Header onMenuToggle={() => setSidebarOpen((v) => !v)} className={isAskRoute ? "hidden sm:flex" : "flex"} />
         <main
           className={

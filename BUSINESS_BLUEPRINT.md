@@ -290,9 +290,9 @@
 
 ### R-CODE-BLUEPRINT-NAME 代码蓝图叫 CODE_BLUEPRINT.md，和业务蓝图成对；旧名字照常能读，旧客户端不被打断
 - 来源: 用户 2026-11-15「project blueprint 改为code blueprint吧」
-- 说明: 读取方（服务端、MCP、个人蓝图、心领神会）两个名字都认，同一项目两份时取代码最新的；1.0.134 之前的客户端只认旧名字，服务端按 X-Collector-Version 给它们最后一版写旧名字的生成器（scripts/legacy/），否则它们的守护进程每轮都找不到蓝图、反复重建、也不再上传。新生成器把自己以前写的 PROJECT_BLUEPRINT.md 挪成新名字（手写的不动），已入库的在下次提交时由钩子一起提交。
-- 代码: `packages/daemon/src/blueprint/meta.ts#BLUEPRINT_FILE`, `packages/daemon/src/blueprint/repo.ts#writeBlueprint`, `server/server/services/blueprint_pick.py#code_blueprint_path`, `server/server/api/profile.py#_wants_legacy_generator`, `packages/mcp/src/server.ts#isCodeBlueprintPath`
-- 测试: `server/tests/test_code_blueprint_rename.py#test_clients_before_1_0_134_keep_the_generator_that_writes_the_old_name`, `server/tests/test_code_blueprint_rename.py#test_both_names_by_the_whole_file_name`, `packages/daemon/test/blueprint-auto.test.ts#moves a committed PROJECT_BLUEPRINT.md to CODE_BLUEPRINT.md in the next commit`, `packages/daemon/test/blueprint-generator.test.ts#moves its own untracked PROJECT_BLUEPRINT.md to CODE_BLUEPRINT.md`
+- 说明: 读取方（服务端、MCP、个人蓝图、心领神会）两个名字都认，同一项目两份时取代码最新的；1.0.134 之前的客户端只认旧名字，服务端按 X-Collector-Version 给它们最后一版写旧名字的生成器（scripts/legacy/），否则它们的守护进程每轮都找不到蓝图、反复重建、也不再上传。新生成器把自己以前写的 PROJECT_BLUEPRINT.md 挪成新名字（手写的不动），已入库的在下次提交时由钩子一起提交。由旧客户端的守护进程（MEMENTO_DESKTOP_VERSION < 1.0.134）启动时，新生成器按旧方式写旧名字、不往 ~/.memento/scripts 同步：memento 仓库自带的新生成器曾借着旧守护进程把整台设备换成新名字，旧守护进程随即反复重建、停止上传。
+- 代码: `packages/daemon/src/blueprint/meta.ts#BLUEPRINT_FILE`, `packages/daemon/src/blueprint/meta.ts#drivenByOldDaemon`, `packages/daemon/src/blueprint/repo.ts#writeBlueprint`, `server/server/services/blueprint_pick.py#code_blueprint_path`, `server/server/api/profile.py#_wants_legacy_generator`, `packages/mcp/src/server.ts#isCodeBlueprintPath`
+- 测试: `server/tests/test_code_blueprint_rename.py#test_clients_before_1_0_134_keep_the_generator_that_writes_the_old_name`, `server/tests/test_code_blueprint_rename.py#test_both_names_by_the_whole_file_name`, `packages/daemon/test/blueprint-auto.test.ts#moves a committed PROJECT_BLUEPRINT.md to CODE_BLUEPRINT.md in the next commit`, `packages/daemon/test/blueprint-generator.test.ts#moves its own untracked PROJECT_BLUEPRINT.md to CODE_BLUEPRINT.md`, `packages/daemon/test/blueprint-generator.test.ts#run by an old client's daemon, writes the old name and title and leaves ~/.memento/scripts alone`
 - 禁止: `/ilike\("%PROJECT_BLUEPRINT\.md"\)/` @ `server/server/`
 - 要求: `COPY scripts/legacy/` @ `server/Dockerfile`
 
@@ -516,7 +516,7 @@
 | `R-APP-NAME` | 客户端名称不带 desktop 后缀 | 2/2 | — | 1/1 | ✅ |
 | `R-MOBILE-DEVICE-SCOPED` | 手机端切换设备只拉该设备的项目和对话 | 1/1 | 1/1 | — | ✅ |
 | `R-BLUEPRINT-NEWEST` | 蓝图只来自设备上传，多份设备副本取代码最新的那份 | 2/2 | 2/2 | — | ✅ |
-| `R-CODE-BLUEPRINT-NAME` | 代码蓝图叫 CODE_BLUEPRINT.md，和业务蓝图成对；旧名字照常能读，旧客户端不被打断 | 5/5 | 4/4 | 2/2 | ✅ |
+| `R-CODE-BLUEPRINT-NAME` | 代码蓝图叫 CODE_BLUEPRINT.md，和业务蓝图成对；旧名字照常能读，旧客户端不被打断 | 6/6 | 5/5 | 2/2 | ✅ |
 | `R-USER-BLUEPRINT-BUSINESS` | 个人蓝图读各项目的业务蓝图 | 2/2 | 1/1 | — | ✅ |
 | `R-DOCS-WRITE-LIGHT` | documents 表上不加大的 GIN / 表达式索引 | 3/3 | — | 2/2 | ✅ |
 | `R-PUBLIC-REPO-CLEAN` | 公开仓库里没有内网地址和密钥 | 2/2 | — | 2/2 | ✅ |

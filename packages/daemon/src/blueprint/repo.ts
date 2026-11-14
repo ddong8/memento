@@ -36,6 +36,7 @@ import { refreshBusinessBlueprint } from "./business.js";
 import {
   BLUEPRINT_FILE,
   BLUEPRINT_TITLE,
+  drivenByOldDaemon,
   CODE_BLUEPRINT_FILES,
   LEGACY_BLUEPRINT_FILE,
   LEGACY_BLUEPRINT_TITLE,
@@ -244,6 +245,22 @@ function ensureExcluded(root: string): boolean {
   }
 }
 
+/** For an old client's daemon (drivenByOldDaemon): its PROJECT_BLUEPRINT.md kept out of git status, as it did. */
+function ensureExcludedLegacy(root: string): void {
+  const common = gitPath(root, "--git-common-dir");
+  if (!common) return;
+  const exclude = pjoin(common, "info", "exclude");
+  try {
+    const text = exists(exclude) ? readTextStrict(exclude) : "";
+    if (text.includes(`/${LEGACY_BLUEPRINT_FILE}\n`) || gitOk(["check-ignore", "-q", "--", LEGACY_BLUEPRINT_FILE], root)) return;
+    fs.mkdirSync(toNative(pparent(exclude)), { recursive: true });
+    const sep = !text || text.endsWith("\n") ? "" : "\n";
+    atomicWrite(exclude, `${text}${sep}${EXCLUDE_MARK}\n/${LEGACY_BLUEPRINT_FILE}\n`);
+  } catch {
+    // the file shows in git status: harmless
+  }
+}
+
 function removeExcluded(root: string): void {
   const common = gitPath(root, "--git-common-dir");
   const exclude = common ? pjoin(common, "info", "exclude") : null;
@@ -266,6 +283,15 @@ function removeExcluded(root: string): void {
  * A hand-written CODE_BLUEPRINT.md of the same name is left as it is. `root` is resolved.
  */
 export function writeBlueprint(root: string, outPath: string | null = null): [string, boolean] {
+  if (outPath === null && drivenByOldDaemon()) {
+    // The old name and title, as the daemon running this expects (see drivenByOldDaemon)
+    const legacy = pjoin(root, LEGACY_BLUEPRINT_FILE);
+    if (isFile(legacy) && !isGenerated(legacy)) return [legacy, false];
+    const changed = atomicWrite(legacy, buildBlueprintContent(root).replace(BLUEPRINT_TITLE, LEGACY_BLUEPRINT_TITLE));
+    recordBlueprintHead(root);
+    if (!tracked(root, LEGACY_BLUEPRINT_FILE)) ensureExcludedLegacy(root);
+    return [legacy, changed];
+  }
   const target = outPath ?? pjoin(root, BLUEPRINT_FILE);
   if (outPath === null && isFile(target) && !isGenerated(target)) return [target, false];
   const changed = atomicWrite(target, buildBlueprintContent(root));
@@ -410,6 +436,8 @@ function currentScript(): string | null {
 
 /** Mirror this script to ~/.memento/scripts for hooks in repos that don't carry it (never downgrading). */
 function syncGlobalScript(): void {
+  // An old client's daemon runs the generator the server gave it for its version: not ours to replace
+  if (drivenByOldDaemon()) return;
   try {
     const current = currentScript();
     const globalScript = pjoin(homeDir(), ".memento", "scripts", SCRIPT_NAME);

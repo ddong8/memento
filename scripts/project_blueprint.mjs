@@ -6126,10 +6126,16 @@ function detectVerificationCommands(root) {
 }
 
 // packages/daemon/src/blueprint/meta.ts
-var BLUEPRINT_SCRIPT_VERSION = 20261124;
+var BLUEPRINT_SCRIPT_VERSION = 20261125;
 var BLUEPRINT_FILE = "CODE_BLUEPRINT.md";
 var LEGACY_BLUEPRINT_FILE = "PROJECT_BLUEPRINT.md";
 var CODE_BLUEPRINT_FILES = [BLUEPRINT_FILE, LEGACY_BLUEPRINT_FILE];
+function drivenByOldDaemon(env = process.env) {
+  const m = (env.MEMENTO_DESKTOP_VERSION ?? "").trim().match(/^v?(\d+)\.(\d+)\.(\d+)/);
+  if (!m) return false;
+  const [a, b, c] = m.slice(1).map(Number);
+  return a < 1 || a === 1 && (b < 0 || b === 0 && c < 134);
+}
 var BLUEPRINT_TITLE = "# Code Blueprint:";
 var LEGACY_BLUEPRINT_TITLE = "# Project Blueprint:";
 var BUSINESS_FILE = "BUSINESS_BLUEPRINT.md";
@@ -7212,6 +7218,22 @@ function ensureExcluded(root) {
     return false;
   }
 }
+function ensureExcludedLegacy(root) {
+  const common = gitPath(root, "--git-common-dir");
+  if (!common) return;
+  const exclude = pjoin(common, "info", "exclude");
+  try {
+    const text = exists(exclude) ? readTextStrict(exclude) : "";
+    if (text.includes(`/${LEGACY_BLUEPRINT_FILE}
+`) || gitOk(["check-ignore", "-q", "--", LEGACY_BLUEPRINT_FILE], root)) return;
+    fs2.mkdirSync(toNative(pparent(exclude)), { recursive: true });
+    const sep = !text || text.endsWith("\n") ? "" : "\n";
+    atomicWrite(exclude, `${text}${sep}${EXCLUDE_MARK}
+/${LEGACY_BLUEPRINT_FILE}
+`);
+  } catch {
+  }
+}
 function removeExcluded(root) {
   const common = gitPath(root, "--git-common-dir");
   const exclude = common ? pjoin(common, "info", "exclude") : null;
@@ -7227,6 +7249,14 @@ function removeExcluded(root) {
   }
 }
 function writeBlueprint(root, outPath = null) {
+  if (outPath === null && drivenByOldDaemon()) {
+    const legacy = pjoin(root, LEGACY_BLUEPRINT_FILE);
+    if (isFile(legacy) && !isGenerated(legacy)) return [legacy, false];
+    const changed2 = atomicWrite(legacy, buildBlueprintContent(root).replace(BLUEPRINT_TITLE, LEGACY_BLUEPRINT_TITLE));
+    recordBlueprintHead(root);
+    if (!tracked(root, LEGACY_BLUEPRINT_FILE)) ensureExcludedLegacy(root);
+    return [legacy, changed2];
+  }
   const target = outPath ?? pjoin(root, BLUEPRINT_FILE);
   if (outPath === null && isFile(target) && !isGenerated(target)) return [target, false];
   const changed = atomicWrite(target, buildBlueprintContent(root));
@@ -7345,6 +7375,7 @@ function currentScript() {
   }
 }
 function syncGlobalScript() {
+  if (drivenByOldDaemon()) return;
   try {
     const current = currentScript();
     const globalScript = pjoin(homeDir(), ".memento", "scripts", SCRIPT_NAME);

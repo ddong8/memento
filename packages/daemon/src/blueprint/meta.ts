@@ -3,7 +3,7 @@
 
 // Monotonically increasing generator version for cross-device OTA synchronization. Bump it with
 // every change to what the generator writes: the daemon regenerates blueprints from older versions.
-export const BLUEPRINT_SCRIPT_VERSION = 20261124;
+export const BLUEPRINT_SCRIPT_VERSION = 20261125;
 
 /** The code blueprint (named PROJECT_BLUEPRINT.md until 20261124; the generator moves its own old copy over) */
 export const BLUEPRINT_FILE = "CODE_BLUEPRINT.md";
@@ -11,6 +11,19 @@ export const BLUEPRINT_FILE = "CODE_BLUEPRINT.md";
 export const LEGACY_BLUEPRINT_FILE = "PROJECT_BLUEPRINT.md";
 /** Either name, as a file name: readers accept both while devices move over */
 export const CODE_BLUEPRINT_FILES = [BLUEPRINT_FILE, LEGACY_BLUEPRINT_FILE] as const;
+/**
+ * Run by the daemon of a client before 1.0.134 (it passes MEMENTO_DESKTOP_VERSION down): that daemon only knows
+ * PROJECT_BLUEPRINT.md, so the generator writes that name and leaves ~/.memento/scripts alone. Otherwise the
+ * memento repo's own copy of this generator, run there, spread itself over the device and the old daemon found
+ * no blueprint after every run, regenerating and no longer uploading (2026-11-15, Mac mini on 1.0.133).
+ */
+export function drivenByOldDaemon(env: NodeJS.ProcessEnv = process.env): boolean {
+  const m = (env.MEMENTO_DESKTOP_VERSION ?? "").trim().match(/^v?(\d+)\.(\d+)\.(\d+)/);
+  if (!m) return false;
+  const [a, b, c] = m.slice(1).map(Number) as [number, number, number];
+  return a < 1 || (a === 1 && (b < 0 || (b === 0 && c < 134)));
+}
+
 /** First line of a generated code blueprint, and the one before 20261124 */
 export const BLUEPRINT_TITLE = "# Code Blueprint:";
 export const LEGACY_BLUEPRINT_TITLE = "# Project Blueprint:";

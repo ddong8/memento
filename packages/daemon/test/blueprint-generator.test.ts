@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { buildBlueprintContent, generateMermaidDiagram } from "../src/blueprint/content.js";
 import { toPosix } from "../src/blueprint/files.js";
-import { BLUEPRINT_SCRIPT_VERSION, HEAD_MARKER, HOOK_MARKER_START, MANAGED_GIT_HOOKS } from "../src/blueprint/meta.js";
+import { BLUEPRINT_SCRIPT_VERSION, HEAD_MARKER, HOOK_MARKER_START, MANAGED_GIT_HOOKS, drivenByOldDaemon } from "../src/blueprint/meta.js";
 import {
   EXCLUDE_MARK,
   ensureAgentGuidanceAnchor,
@@ -305,6 +305,26 @@ describe("hooks, exclude entry and records", () => {
     expect(readFileSync(join(root, "CLAUDE.md"), "utf8")).toContain("「0. 速览与章节索引」");
     uninstallRepo(r());
     expect(readFileSync(join(root, "CLAUDE.md"), "utf8")).toBe(original);
+  });
+
+  it("run by an old client's daemon, writes the old name and title and leaves ~/.memento/scripts alone", () => {
+    const saved = process.env.MEMENTO_DESKTOP_VERSION;
+    process.env.MEMENTO_DESKTOP_VERSION = "1.0.133";
+    try {
+      expect(drivenByOldDaemon()).toBe(true);
+      const [target] = writeBlueprint(root);
+      expect(target.endsWith("PROJECT_BLUEPRINT.md")).toBe(true);
+      expect(readFileSync(join(root, "PROJECT_BLUEPRINT.md"), "utf8")).toMatch(/^# Project Blueprint: /);
+      expect(existsSync(join(root, "CODE_BLUEPRINT.md"))).toBe(false);
+      expect(git(root, "status", "--porcelain")).not.toContain("BLUEPRINT");
+      installGitHook(root);
+      expect(existsSync(join(home, ".memento", "scripts", "project_blueprint.mjs"))).toBe(false);
+    } finally {
+      if (saved === undefined) delete process.env.MEMENTO_DESKTOP_VERSION;
+      else process.env.MEMENTO_DESKTOP_VERSION = saved;
+    }
+    expect(drivenByOldDaemon({ MEMENTO_DESKTOP_VERSION: "1.0.134" })).toBe(false);
+    expect(drivenByOldDaemon({})).toBe(false);
   });
 
   it("brings its old anchor hint (naming PROJECT_BLUEPRINT.md) up to date in place", () => {

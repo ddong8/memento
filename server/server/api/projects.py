@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..services import cache
 from ..services.cache import cache_get, cache_set
-from ..services.blueprint_pick import pick_freshest
+from ..services.blueprint_pick import code_blueprint_path, is_code_blueprint_path, pick_freshest
 from ..services.cluster import cluster
 
 from ..db.models import (
@@ -455,7 +455,7 @@ async def _resolve_codebase_blueprint(
     project: Project,
     mids: list[uuid.UUID] | None,
 ) -> str | None:
-    """PROJECT_BLUEPRINT.md as the user's devices uploaded it (see _codebase_blueprint_copy)."""
+    """The code blueprint as the user's devices uploaded it (see _codebase_blueprint_copy)."""
     copy = await _codebase_blueprint_copy(db, project, mids)
     return copy[0] if copy else None
 
@@ -465,7 +465,8 @@ async def _codebase_blueprint_copy(
     project: Project,
     mids: list[uuid.UUID] | None,
 ) -> tuple[str, uuid.UUID | None, dict] | None:
-    """PROJECT_BLUEPRINT.md as the user's devices uploaded it: of the copies (one per device checkout)
+    """The code blueprint (CODE_BLUEPRINT.md, PROJECT_BLUEPRINT.md from older clients) as the user's devices
+    uploaded it: of the copies (one per device checkout)
     the one describing the newest code, not the one synced last. The project's own copies come before
     same-named ones. The project's source_path is a path on the user's device, never read on the server.
     (content, the device it came from, its metadata: project_path is where the checkout is there)."""
@@ -474,11 +475,11 @@ async def _codebase_blueprint_copy(
         for key in (project.title, project.slug):
             if key:
                 leaf = key.rsplit("/", 1)[-1]
-                conds.append(Document.relative_path.ilike(f"{leaf}/PROJECT_BLUEPRINT.md"))
+                conds.append(code_blueprint_path(Document.relative_path, leaf))
         bp_q = (
             select(Document.content, Document.synced_at, Document.project_id, Document.machine_id, Document.metadata_)
             .where(
-                Document.relative_path.ilike("%PROJECT_BLUEPRINT.md"),
+                code_blueprint_path(Document.relative_path),
                 or_(*conds),
             )
             .order_by(Document.synced_at.desc())
@@ -1851,10 +1852,10 @@ async def export_project_markdown(
         lines.append("---")
         lines.append("")
 
-    # Group docs by category. The devices' copies of PROJECT_BLUEPRINT.md are in export_bp already
+    # Group docs by category. The devices' copies of the code blueprint are in export_bp already
     by_cat: dict[str, list[Document]] = {}
     for d in docs:
-        if export_bp and (d.relative_path or "").endswith("PROJECT_BLUEPRINT.md"):
+        if export_bp and is_code_blueprint_path(d.relative_path):
             continue
         by_cat.setdefault(d.category or "other", []).append(d)
 
@@ -1998,7 +1999,7 @@ async def get_project_blueprint(
         raise HTTPException(status_code=404)
 
     # 1. Curated docs full content (identity / memory / plan / learning). Not the devices' copies of
-    # PROJECT_BLUEPRINT.md: codebase_blueprint below is the newest of them (three copies came to 135K characters)
+    # code blueprint: codebase_blueprint below is the newest of them (three copies came to 135K characters)
     CURATED = ("identity", "memory", "plan", "learning")
     curated_q = (
         select(Document)
@@ -2006,7 +2007,7 @@ async def get_project_blueprint(
         .where(
             Document.project_id == project_id,
             Document.category.in_(CURATED),
-            ~Document.relative_path.ilike("%PROJECT_BLUEPRINT.md"),
+            ~code_blueprint_path(Document.relative_path),
             ~Document.relative_path.like("%/BUSINESS_BLUEPRINT.md"),
         )
         .order_by(Document.synced_at.desc())
@@ -2083,7 +2084,7 @@ async def get_project_blueprint(
                 "target_type": target.entity_type,
             })
 
-    # Codebase Living Architecture Blueprint (PROJECT_BLUEPRINT.md)
+    # Code blueprint (CODE_BLUEPRINT.md; PROJECT_BLUEPRINT.md from older clients)
     codebase_blueprint = await _resolve_codebase_blueprint(db, project, mids)
 
     payload = {

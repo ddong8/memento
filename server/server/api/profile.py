@@ -99,12 +99,12 @@ async def _bust_user_profile_cache(user_id) -> None:
         await cache_delete_prefix(f"profile:summary:{user_id}")
         await cache_delete_prefix(f"profile_injection:{user_id}")
         await cache_delete_prefix(f"skills_injection:{user_id}")
-        await cache_delete_prefix(f"user:blueprint:v3:{user_id}")
+        await cache_delete_prefix(f"user:blueprint:v4:{user_id}")
     except Exception:
         pass
 
 
-# users.proactive_settings key: devices keep their repos' PROJECT_BLUEPRINT.md and git hooks (default on)
+# users.proactive_settings key: devices keep their repos' code blueprint (CODE_BLUEPRINT.md) and git hooks (default on)
 BLUEPRINT_AUTO_SETTING = "blueprint_auto"
 
 
@@ -694,31 +694,53 @@ async def delete_account(
 # Collector (X-Collector-Token + X-Device-Id)
 # ---------------------------------------------------------------------------
 
-_BP_GENERATOR_CACHE: dict[str, object] = {"mtime": 0.0, "bundle": None}
+_BP_GENERATOR_CACHE: dict[str, object] = {}  # path -> (mtime, bundle)
 _BP_GENERATOR_VERSION_RE = re.compile(r"^(?:(?:export\s+)?(?:const|let|var)\s+)?BLUEPRINT_SCRIPT_VERSION\s*=\s*(\d+)", re.MULTILINE)
 
 
-def _get_blueprint_generator_bundle() -> dict[str, object] | None:
-    """scripts/project_blueprint.mjs (bundled from packages/daemon/src/blueprint), handed to devices whose copy is older."""
+# Clients from this version on look for CODE_BLUEPRINT.md; older ones only know PROJECT_BLUEPRINT.md, so they get
+# the last generator that writes that name (scripts/legacy/): with the new one their daemon would find no blueprint
+# after every run and regenerate it endlessly, and stop uploading it.
+CODE_BLUEPRINT_CLIENT = (1, 0, 134)
+_LEGACY_GENERATOR = "project_blueprint.v20261123.mjs"
+
+
+def _client_version(header: str | None) -> tuple[int, ...] | None:
+    m = re.match(r"^v?(\d+)\.(\d+)\.(\d+)", (header or "").strip())
+    return tuple(int(x) for x in m.groups()) if m else None
+
+
+def _wants_legacy_generator(collector_version: str | None) -> bool:
+    """A client before 1.0.134, or one that doesn't say (dart-/node- builds report no release version)."""
+    v = _client_version(collector_version)
+    return v is None or v < CODE_BLUEPRINT_CLIENT
+
+
+def _get_blueprint_generator_bundle(legacy: bool = False) -> dict[str, object] | None:
+    """scripts/project_blueprint.mjs (bundled from packages/daemon/src/blueprint), handed to devices whose copy is
+    older; with legacy, the last one writing PROJECT_BLUEPRINT.md, for clients before 1.0.134."""
+    name = f"legacy/{_LEGACY_GENERATOR}" if legacy else "project_blueprint.mjs"
     candidates = [
-        Path(__file__).resolve().parents[3] / "scripts" / "project_blueprint.mjs",
-        Path("/app/scripts/project_blueprint.mjs"),
-        Path.home() / ".memento" / "scripts" / "project_blueprint.mjs",
+        Path(__file__).resolve().parents[3] / "scripts" / name,
+        Path("/app/scripts") / name,
     ]
+    if not legacy:
+        candidates.append(Path.home() / ".memento" / "scripts" / "project_blueprint.mjs")
     script_path = next((p for p in candidates if p.is_file()), None)
     if not script_path:
         return None
+    key = str(script_path)
     try:
         st = script_path.stat()
-        if _BP_GENERATOR_CACHE["bundle"] is not None and _BP_GENERATOR_CACHE["mtime"] == st.st_mtime:
-            return _BP_GENERATOR_CACHE["bundle"]  # type: ignore[return-value]
+        hit = _BP_GENERATOR_CACHE.get(key)
+        if isinstance(hit, tuple) and hit[0] == st.st_mtime:
+            return hit[1]
         content = script_path.read_text(encoding="utf-8")
         digest = hashlib.sha256(content.encode("utf-8")).hexdigest()[:16]
         m = _BP_GENERATOR_VERSION_RE.search(content)
         version = int(m.group(1)) if m else 1
         bundle: dict[str, object] = {"version": version, "hash": digest, "content": content}
-        _BP_GENERATOR_CACHE["mtime"] = st.st_mtime
-        _BP_GENERATOR_CACHE["bundle"] = bundle
+        _BP_GENERATOR_CACHE[key] = (st.st_mtime, bundle)
         return bundle
     except Exception:
         return None
@@ -726,10 +748,12 @@ def _get_blueprint_generator_bundle() -> dict[str, object] | None:
 
 @router.get("/blueprint-generator")
 async def get_blueprint_generator(
+    x_collector_version: str | None = Header(None, alias="X-Collector-Version"),
     _user: User = Depends(verify_collector_token),
 ) -> dict:
-    """The canonical project_blueprint.mjs generator, for OTA sync to devices (v1.0.99 and later)."""
-    bundle = _get_blueprint_generator_bundle()
+    """The canonical project_blueprint.mjs generator, for OTA sync to devices (v1.0.99 and later); the legacy one
+    (PROJECT_BLUEPRINT.md) for clients before 1.0.134."""
+    bundle = _get_blueprint_generator_bundle(_wants_legacy_generator(x_collector_version if isinstance(x_collector_version, str) else None))
     if not bundle:
         raise HTTPException(status_code=404, detail="Blueprint generator not found on server")
     return bundle
@@ -738,6 +762,7 @@ async def get_blueprint_generator(
 @router.get("/injection")
 async def get_injection(
     x_device_id: str = Header(..., alias="X-Device-Id"),
+    x_collector_version: str | None = Header(None, alias="X-Collector-Version"),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(verify_collector_token),
 ) -> dict:
@@ -746,7 +771,10 @@ async def get_injection(
     An empty target list tells the collector to remove any block it wrote earlier,
     so turning a tool off in the web UI cleans up on the next poll.
     """
-    cache_key = f"profile_injection:{user.id}:{x_device_id}"
+    # Called directly (tests, other endpoints) the header parameter is its FastAPI default, not a string
+    if not isinstance(x_collector_version, str):
+        x_collector_version = None
+    cache_key = f"profile_injection:{user.id}:{x_device_id}:{x_collector_version or ''}"
     try:
         cached = await cache_get(cache_key)
         if isinstance(cached, dict):
@@ -755,6 +783,7 @@ async def get_injection(
         pass
 
     machine = await _owned_machine(db, user, x_device_id)
+    legacy_bp = _wants_legacy_generator(x_collector_version or machine.collector_version)
     published = await get_published_profile(db, user)
     block = None
     if published:
@@ -762,7 +791,7 @@ async def get_injection(
         pitfalls = [p["content"] for p in (await _device_pitfalls(db, user)).get(str(machine.id), [])]
         content = render_device_profile(published.content, machine.name, projects_here, pitfalls)
         block = render_profile_block(published.version, content)
-    bp_bundle = _get_blueprint_generator_bundle()
+    bp_bundle = _get_blueprint_generator_bundle(legacy_bp)
     res = {
         "version": published.version if published else None,
         "block": block,

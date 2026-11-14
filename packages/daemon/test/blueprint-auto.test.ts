@@ -99,15 +99,15 @@ describe("blueprint-auto", () => {
     initRepo(tmpDir);
     expect(await isBlueprintReady(tmpDir)).toBe(false);
 
-    const bpPath = join(tmpDir, "PROJECT_BLUEPRINT.md");
+    const bpPath = join(tmpDir, "CODE_BLUEPRINT.md");
     writeFileSync(bpPath, "# Our architecture notes\n\nWritten by hand.\n");
     expect(await isBlueprintReady(tmpDir)).toBe(true);
 
     const head = git(tmpDir, "rev-parse", "--short", "HEAD");
-    writeFileSync(bpPath, "# Project Blueprint: proj\n\n_Auto-maintained by `scripts/project_blueprint.mjs` (v20261120)._\n");
+    writeFileSync(bpPath, "# Code Blueprint: proj\n\n_Auto-maintained by `scripts/project_blueprint.mjs` (v20261120)._\n");
     expect(await isBlueprintReady(tmpDir)).toBe(false); // no marker yet
     // The Python generator's are ours as well
-    writeFileSync(bpPath, "# Project Blueprint: proj\n\n_Auto-maintained by `scripts/project_blueprint.py` (v20261120)._\n");
+    writeFileSync(bpPath, "# Code Blueprint: proj\n\n_Auto-maintained by `scripts/project_blueprint.py` (v20261120)._\n");
     expect(await isBlueprintReady(tmpDir)).toBe(false);
     writeFileSync(join(tmpDir, ".git", ".memento_blueprint_head"), `${head}\n`);
     expect(await isBlueprintReady(tmpDir)).toBe(true);
@@ -115,9 +115,9 @@ describe("blueprint-auto", () => {
     expect(await isBlueprintReady(tmpDir)).toBe(false);
   });
 
-  it("leaves a hand-written PROJECT_BLUEPRINT.md and the repo's hooks untouched", async () => {
+  it("leaves a hand-written CODE_BLUEPRINT.md and the repo's hooks untouched", async () => {
     initRepo(tmpDir);
-    const bpPath = join(tmpDir, "PROJECT_BLUEPRINT.md");
+    const bpPath = join(tmpDir, "CODE_BLUEPRINT.md");
     writeFileSync(bpPath, "# Our architecture notes\n");
     expect(await ensureProjectBlueprint(tmpDir)).toBe(true);
     expect(readFileSync(bpPath, "utf8")).toBe("# Our architecture notes\n");
@@ -128,7 +128,7 @@ describe("blueprint-auto", () => {
     initRepo(tmpDir);
     setBlueprintAutoEnabled(false);
     expect(await ensureProjectBlueprint(tmpDir, { force: true })).toBe(false);
-    expect(existsSync(join(tmpDir, "PROJECT_BLUEPRINT.md"))).toBe(false);
+    expect(existsSync(join(tmpDir, "CODE_BLUEPRINT.md"))).toBe(false);
     expect(existsSync(join(homeTmp, ".memento"))).toBe(false);
   });
 
@@ -140,11 +140,11 @@ describe("blueprint-auto", () => {
     expect(existsSync(join(homeTmp, ".memento", "blueprint_repos"))).toBe(true);
 
     expect(await removeAllProjectBlueprints()).toBe(true);
-    expect(existsSync(join(tmpDir, "PROJECT_BLUEPRINT.md"))).toBe(false);
+    expect(existsSync(join(tmpDir, "CODE_BLUEPRINT.md"))).toBe(false);
     expect(existsSync(join(tmpDir, ".git", ".memento_blueprint_head"))).toBe(false);
     expect(existsSync(join(tmpDir, ".git", "hooks", "post-commit"))).toBe(false);
     expect(readFileSync(join(tmpDir, ".git", "hooks", "post-merge"), "utf8")).toBe("#!/bin/sh\necho mine\n");
-    expect(readFileSync(join(tmpDir, ".git", "info", "exclude"), "utf8")).not.toContain("PROJECT_BLUEPRINT.md");
+    expect(readFileSync(join(tmpDir, ".git", "info", "exclude"), "utf8")).not.toContain("CODE_BLUEPRINT.md");
     expect(existsSync(join(homeTmp, ".memento", "blueprint_repos"))).toBe(false);
     expect(git(tmpDir, "status", "--porcelain")).toBe("");
   });
@@ -192,7 +192,7 @@ describe("blueprint-auto", () => {
       ].join("\n"),
     );
     expect(await ensureProjectBlueprint(tmpDir, { force: true })).toBe(true);
-    const bp = readFileSync(join(tmpDir, "PROJECT_BLUEPRINT.md"), "utf8");
+    const bp = readFileSync(join(tmpDir, "CODE_BLUEPRINT.md"), "utf8");
     const section0 = bp.slice(bp.indexOf("## 0."), bp.indexOf("## 1."));
     expect(section0).toContain("- 简介 (About): 给团队用的化合物检索平台。本地化部署，支持名称、结构和属性检索。");
     expect(section0).not.toContain("列表项");
@@ -202,7 +202,7 @@ describe("blueprint-auto", () => {
   it("rebuilds a generated blueprint written by an older generator, once", async () => {
     initRepo(tmpDir);
     expect(await ensureProjectBlueprint(tmpDir, { force: true })).toBe(true);
-    const bpPath = join(tmpDir, "PROJECT_BLUEPRINT.md");
+    const bpPath = join(tmpDir, "CODE_BLUEPRINT.md");
     const current = blueprintGeneratorVersion(readFileSync(bpPath, "utf8"));
     expect(current).toBeGreaterThan(0);
 
@@ -261,17 +261,17 @@ describe("blueprint-auto", () => {
     const ok = await ensureProjectBlueprint(tmpDir, { force: true, log: (msg) => logs.push(msg) });
     expect(ok).toBe(true);
 
-    const bpPath = join(tmpDir, "PROJECT_BLUEPRINT.md");
+    const bpPath = join(tmpDir, "CODE_BLUEPRINT.md");
     const hookPath = join(tmpDir, ".git", "hooks", "post-commit");
     const bpContent = readFileSync(bpPath, "utf8");
     const hookContent = readFileSync(hookPath, "utf8");
 
-    expect(bpContent).toContain("# Project Blueprint: demo-auto-bp");
+    expect(bpContent).toContain("# Code Blueprint: demo-auto-bp");
     expect(bpContent).toContain("## 0. 速览与章节索引");
     expect(bpContent).toContain("## 1. Project Overview & Tech Stack");
     expect(hookContent).toContain("Memento Blueprint Hook Start");
     // Untracked: kept out of git status, and the HEAD it matches is recorded
-    expect(git(tmpDir, "status", "--porcelain")).not.toContain("PROJECT_BLUEPRINT.md");
+    expect(git(tmpDir, "status", "--porcelain")).not.toContain("CODE_BLUEPRINT.md");
     expect(readFileSync(join(tmpDir, ".git", ".memento_blueprint_head"), "utf8").trim()).toBe(
       git(tmpDir, "rev-parse", "--short", "HEAD"),
     );
@@ -304,7 +304,7 @@ describe("blueprint-auto", () => {
 
     const ok = await ensureProjectBlueprint(tmpDir, { force: true });
     expect(ok).toBe(true);
-    const bpContent = readFileSync(join(tmpDir, "PROJECT_BLUEPRINT.md"), "utf8");
+    const bpContent = readFileSync(join(tmpDir, "CODE_BLUEPRINT.md"), "utf8");
     expect(bpContent).toContain("`Post.authorId` ➔ `Account.id`");
     expect(bpContent).toContain("`comments.postId` ➔ `posts.id`");
     expect(bpContent).toContain("`Invoice.CustomerID` ➔ `Customer.ID`");
@@ -329,7 +329,7 @@ describe("blueprint-auto", () => {
 
     const ok = await ensureProjectBlueprint(tmpDir, { force: true });
     expect(ok).toBe(true);
-    const bpContent = readFileSync(join(tmpDir, "PROJECT_BLUEPRINT.md"), "utf8");
+    const bpContent = readFileSync(join(tmpDir, "CODE_BLUEPRINT.md"), "utf8");
     expect(bpContent).toContain("`GET /orders/:id`");
     expect(bpContent).toContain("syncNightlyOrders");
     expect(bpContent).toContain("gRPC `PaymentService.ChargeCard(ChargeRequest) ➔ ChargeReply`");
@@ -377,7 +377,7 @@ describe("blueprint-auto", () => {
 
     const ok = await ensureProjectBlueprint(tmpDir, { force: true });
     expect(ok).toBe(true);
-    const bpContent = readFileSync(join(tmpDir, "PROJECT_BLUEPRINT.md"), "utf8");
+    const bpContent = readFileSync(join(tmpDir, "CODE_BLUEPRINT.md"), "utf8");
     // External infra detected in Mermaid architecture diagram
     expect(bpContent).toContain("PostgreSQL");
     expect(bpContent).toContain("Redis");
@@ -407,7 +407,7 @@ describe("blueprint-auto", () => {
 
     // Without force: the HEAD change alone must trigger a regeneration
     expect(await ensureProjectBlueprint(tmpDir)).toBe(true);
-    expect(readFileSync(join(tmpDir, "PROJECT_BLUEPRINT.md"), "utf8")).toContain("`GET /live/ping`");
+    expect(readFileSync(join(tmpDir, "CODE_BLUEPRINT.md"), "utf8")).toContain("`GET /live/ping`");
     expect(await isBlueprintReady(tmpDir)).toBe(true);
   });
 
@@ -460,7 +460,7 @@ describe("blueprint-auto", () => {
     return (async () => {
       expect(await ensureProjectBlueprint(tmpDir, { force: true })).toBe(true);
       expect(readFileSync(join(scripts, "runtime"), "utf8")).toBe(hookRuntimeScript());
-      git(tmpDir, "add", "-f", "PROJECT_BLUEPRINT.md");
+      git(tmpDir, "add", "-f", "CODE_BLUEPRINT.md");
       git(tmpDir, "commit", "-q", "-m", "track blueprint");
       mkdirSync(join(tmpDir, "src", "controllers"), { recursive: true });
       writeFileSync(join(tmpDir, "src", "controllers", "hook.controller.ts"), `@Controller('hook')\nexport class H {\n  @Get('ran')\n  ran() {}\n}\n`);
@@ -471,7 +471,32 @@ describe("blueprint-auto", () => {
         env: { ...process.env, HOME: homeTmp, MEMENTO_HOME: "" },
         stdio: "ignore",
       });
-      expect(git(tmpDir, "show", "HEAD:PROJECT_BLUEPRINT.md")).toContain("`GET /hook/ran`");
+      expect(git(tmpDir, "show", "HEAD:CODE_BLUEPRINT.md")).toContain("`GET /hook/ran`");
+      expect(git(tmpDir, "status", "--porcelain")).toBe("");
+    })();
+  });
+
+  it.skipIf(process.platform === "win32")("moves a committed PROJECT_BLUEPRINT.md to CODE_BLUEPRINT.md in the next commit", () => {
+    initRepo(tmpDir);
+    return (async () => {
+      // A repo set up before the rename: the old file committed
+      writeFileSync(join(tmpDir, "PROJECT_BLUEPRINT.md"), "# Project Blueprint: proj\n\n_Auto-maintained by `scripts/project_blueprint.mjs` (v20261123)._\n");
+      git(tmpDir, "add", "-f", "PROJECT_BLUEPRINT.md");
+      git(tmpDir, "commit", "-q", "-m", "old blueprint");
+      expect(await ensureProjectBlueprint(tmpDir, { force: true })).toBe(true);
+      expect(existsSync(join(tmpDir, "CODE_BLUEPRINT.md"))).toBe(true);
+      expect(existsSync(join(tmpDir, "PROJECT_BLUEPRINT.md"))).toBe(false);
+      writeFileSync(join(tmpDir, "x.ts"), "export const x = 1;\n");
+      git(tmpDir, "add", "x.ts");
+      execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "next"], {
+        cwd: tmpDir,
+        env: { ...process.env, HOME: homeTmp, MEMENTO_HOME: "" },
+        stdio: "ignore",
+      });
+      const files = git(tmpDir, "ls-files");
+      expect(files).toContain("CODE_BLUEPRINT.md");
+      expect(files).not.toContain("PROJECT_BLUEPRINT.md");
+      expect(git(tmpDir, "show", "HEAD:CODE_BLUEPRINT.md")).toMatch(/^# Code Blueprint: /);
       expect(git(tmpDir, "status", "--porcelain")).toBe("");
     })();
   });

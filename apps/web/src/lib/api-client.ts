@@ -687,7 +687,7 @@ export interface UserBlueprintData {
     routes_count: number;
     subsystems_preview: string[];
     branch: string;
-    /** False when no device has uploaded a PROJECT_BLUEPRINT.md for it: the counts are unknown, not 0. */
+    /** False when no device has uploaded a code blueprint (CODE_BLUEPRINT.md, PROJECT_BLUEPRINT.md before) for it: the counts are unknown, not 0. */
     has_blueprint?: boolean;
   }[];
   tech_radar: Record<string, { label: string; items: string[] }>;
@@ -704,7 +704,7 @@ export interface ProfileState {
   targets: string[];
   devices: ProfileDevice[];
   user_blueprint?: UserBlueprintData | null;
-  /** Devices keep PROJECT_BLUEPRINT.md and its git hooks in local repos (default on). */
+  /** Devices keep the code blueprint (CODE_BLUEPRINT.md) and its git hooks in local repos (default on). */
   blueprint_auto?: boolean;
   /** Each device's profile lists the pitfalls hit again on it in the last 30 days (default on). */
   pitfalls_auto?: boolean;

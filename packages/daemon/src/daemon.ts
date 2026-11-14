@@ -325,7 +325,7 @@ export class Daemon extends EventEmitter {
       const gitRoot = findGitRoot(proj.path) || proj.path;
       // The code blueprint, and the business blueprint next to it when the repo has one (written by people
       // and agents, its check refreshed by the same generator run)
-      for (const file of ["PROJECT_BLUEPRINT.md", "BUSINESS_BLUEPRINT.md"]) {
+      for (const file of ["CODE_BLUEPRINT.md", "BUSINESS_BLUEPRINT.md"]) {
         const bpFile = join(gitRoot, file);
         if (!existsSync(bpFile)) continue;
         const content = await readFile(bpFile, "utf8");

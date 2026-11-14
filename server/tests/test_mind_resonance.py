@@ -707,7 +707,7 @@ class TestLiveRulesAcrossReplicas(unittest.IsolatedAsyncioTestCase):
             "mindset": "一次做到位",
             "blueprint_summary": summary,
         })
-        self.assertIn("【目标项目活体代码架构快照 (PROJECT_BLUEPRINT.md)】", rendered)
+        self.assertIn("【目标项目代码蓝图快照 (CODE_BLUEPRINT.md)】", rendered)
         self.assertIn("FastAPI, Next.js", rendered)
 
 

@@ -36,7 +36,7 @@ async def test_profile_injection_hits_cache():
     with patch("server.api.profile.cache_get", AsyncMock(return_value=cached_resp)) as mock_get:
         res = await get_profile_injection(x_device_id=device_id, db=mock_db, user=user)
         assert res == cached_resp
-        mock_get.assert_awaited_once_with(f"profile_injection:{user.id}:{device_id}")
+        mock_get.assert_awaited_once_with(f"profile_injection:{user.id}:{device_id}:")
         mock_db.execute.assert_not_called()
 
 

@@ -1298,11 +1298,11 @@ async def ingest_file(
                 await cache_delete_prefix(f"project:blueprint:{user_id}:{doc.project_id}:")
                 await cache_delete_prefix(f"project:detail:{user_id}:{doc.project_id}:")
                 await cache_delete_prefix(f"project:timeline:{user_id}:{doc.project_id}:")
-            if (relative_path or "").endswith(("PROJECT_BLUEPRINT.md", "BUSINESS_BLUEPRINT.md")):
+            if (relative_path or "").endswith(("CODE_BLUEPRINT.md", "PROJECT_BLUEPRINT.md", "BUSINESS_BLUEPRINT.md")):
                 await cache_delete_prefix(f"project:blueprint:{user_id}:")
                 await cache_delete_prefix(f"project:conv:v3:{user_id}:")
                 await cache_delete_prefix(f"project:detail:{user_id}:")
-                await cache_delete_prefix(f"user:blueprint:v3:{user_id}")
+                await cache_delete_prefix(f"user:blueprint:v4:{user_id}")
             await cache_delete_prefix(f"projects:list:{user_id}:")
             await cache_delete_prefix(f"projects:list:v2:{user_id}:")
             await cache_delete_prefix(f"search:{user_id}:")

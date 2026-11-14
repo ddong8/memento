@@ -2,7 +2,7 @@
 rules for the project it doesn't carry yet.
 
 The file lives in each repo (packages/daemon/src/blueprint/business.ts writes its generated regions and checks
-it against the code on every commit); devices upload it next to PROJECT_BLUEPRINT.md. The server never reads
+it against the code on every commit); devices upload it next to the code blueprint (CODE_BLUEPRINT.md). The server never reads
 a device's disk: it picks among the uploaded copies, reads the summary the generator wrote, and compares the
 entries' sources with the project rules in the user's published profile ("## 项目：<name>" sections). A rule
 the user set for the project that no entry names is one the code isn't checked against.
@@ -184,7 +184,7 @@ def generation_prompt(project_name: str, rules: list[str], has_file: bool) -> st
     action = "更新仓库根目录已有的 BUSINESS_BLUEPRINT.md：保留已有条目，修好失效的代码位置，补上缺的规则" if has_file else "在仓库根目录新建 BUSINESS_BLUEPRINT.md"
     return f"""请为项目 {project_name} {action}。这是业务蓝图：项目应该做成什么样，每一条落在哪段代码、由哪个测试或检查保证，用来发现"用户定的规则和代码实现对不上"这类问题。
 
-先读根目录 PROJECT_BLUEPRINT.md 开头的「0. 速览与章节索引」了解代码结构。
+先读根目录代码蓝图 CODE_BLUEPRINT.md（旧版客户端生成的叫 PROJECT_BLUEPRINT.md）开头的「0. 速览与章节索引」了解代码结构。
 
 格式（生成器按这个格式解析，必须照写）：
 - 一级标题 `# Business Blueprint: {project_name}`，下面四个二级章节：`## 1. 业务对象与术语`、`## 2. 关键流程`、`## 3. 业务规则`、`## 4. 状态归属`。

@@ -35,6 +35,10 @@ import { buildBlueprintContent } from "./content.js";
 import { refreshBusinessBlueprint } from "./business.js";
 import {
   BLUEPRINT_FILE,
+  BLUEPRINT_TITLE,
+  CODE_BLUEPRINT_FILES,
+  LEGACY_BLUEPRINT_FILE,
+  LEGACY_BLUEPRINT_TITLE,
   BLUEPRINT_SCRIPT_VERSION,
   GENERATED_MARK,
   HEAD_MARKER,
@@ -65,8 +69,13 @@ function gitPath(root: string, flag: string): string | null {
   return isDir(dotGit) ? dotGit : null;
 }
 
+function tracked(root: string, file: string): boolean {
+  return gitOk(["ls-files", "--error-unmatch", "--", file], root);
+}
+
+/** The code blueprint is committed in this repo: under its name, or under the old one it's moving from. */
 function isTracked(root: string): boolean {
-  return gitOk(["ls-files", "--error-unmatch", "--", BLUEPRINT_FILE], root);
+  return tracked(root, BLUEPRINT_FILE) || tracked(root, LEGACY_BLUEPRINT_FILE);
 }
 
 /** A blueprint this generator (or the Python one before it) wrote, not a hand-written file of the same name. */
@@ -77,7 +86,7 @@ export function isGenerated(p: string): boolean {
   } catch {
     return false;
   }
-  return text.startsWith("# Project Blueprint:") && (text.includes(GENERATED_MARK) || text.includes(LEGACY_GENERATED_MARK));
+  return (text.startsWith(BLUEPRINT_TITLE) || text.startsWith(LEGACY_BLUEPRINT_TITLE)) && (text.includes(GENERATED_MARK) || text.includes(LEGACY_GENERATED_MARK));
 }
 
 // ---------------------------------------------------------------- per-repo state
@@ -141,7 +150,7 @@ export function ensureAgentGuidanceAnchor(root: string): string[] {
   const anchorSnippet =
     `${ANCHOR_MARKER}\n` +
     "> [!TIP]\n" +
-    "> **架构心智指引**：新会话或全局重构前，先读根目录活体代码蓝图 [PROJECT_BLUEPRINT.md](PROJECT_BLUEPRINT.md) 开头的「0. 速览与章节索引」，再按行号只读需要的章节，避免重复 grep 扫描。\n" +
+    "> **架构心智指引**：新会话或全局重构前，先读根目录代码蓝图 [CODE_BLUEPRINT.md](CODE_BLUEPRINT.md) 开头的「0. 速览与章节索引」，再按行号只读需要的章节，避免重复 grep 扫描；有业务蓝图 BUSINESS_BLUEPRINT.md 时，改动前先看相关的业务规则。\n" +
     `${ANCHOR_MARKER}\n\n`;
 
   const modified: string[] = [];
@@ -150,7 +159,17 @@ export function ensureAgentGuidanceAnchor(root: string): string[] {
     if (!exists(gf)) continue;
     try {
       const text = readTextIgnore(gf);
-      if (text.includes(BLUEPRINT_FILE)) continue;
+      // Our block already there: brought up to date in place (it named PROJECT_BLUEPRINT.md before 20261124)
+      const block = new RegExp(String.raw`${reEscape(ANCHOR_MARKER)}\n[\s\S]*?${reEscape(ANCHOR_MARKER)}\n\n?`);
+      const m = text.match(block);
+      if (m) {
+        if (m[0] !== anchorSnippet) {
+          atomicWrite(gf, text.replace(block, anchorSnippet));
+          modified.push(rel);
+        }
+        continue;
+      }
+      if (text.includes(BLUEPRINT_FILE) || text.includes(LEGACY_BLUEPRINT_FILE)) continue;
       const lines = pySplitlines(text, true);
       const newText = lines.length && lines[0]!.startsWith("#") ? lines[0]! + "\n" + anchorSnippet + lines.slice(1).join("") : anchorSnippet + text;
       atomicWrite(gf, newText);
@@ -206,12 +225,18 @@ function ensureExcluded(root: string): boolean {
   if (!common) return false;
   const exclude = pjoin(common, "info", "exclude");
   try {
-    const text = exists(exclude) ? readTextStrict(exclude) : "";
-    if (text.includes(EXCLUDE_MARK)) return true;
+    let text = exists(exclude) ? readTextStrict(exclude) : "";
+    if (text.includes(EXCLUDE_MARK)) {
+      // Written for the old name: now for the new one
+      const legacy = `${EXCLUDE_MARK}\n/${LEGACY_BLUEPRINT_FILE}\n`;
+      if (text.includes(legacy)) atomicWrite(exclude, text.replace(legacy, `${EXCLUDE_MARK}\n/${BLUEPRINT_FILE}\n`));
+      return true;
+    }
     if (gitOk(["check-ignore", "-q", "--", BLUEPRINT_FILE], root)) return false;
     fs.mkdirSync(toNative(pparent(exclude)), { recursive: true });
     const sep = !text || text.endsWith("\n") ? "" : "\n";
-    atomicWrite(exclude, `${text}${sep}${EXCLUDE_MARK}\n/${BLUEPRINT_FILE}\n`);
+    text = `${text}${sep}${EXCLUDE_MARK}\n/${BLUEPRINT_FILE}\n`;
+    atomicWrite(exclude, text);
     return true;
   } catch (e) {
     if (!isOSError(e)) throw e; // a non-UTF-8 exclude file fails the run, as in Python
@@ -230,7 +255,7 @@ function removeExcluded(root: string): void {
     return;
   }
   if (text.includes(EXCLUDE_MARK)) {
-    atomicWrite(exclude, reSub(String.raw`(?m)^${reEscape(EXCLUDE_MARK)}\n(?:/${reEscape(BLUEPRINT_FILE)}\n?)?`, "", text));
+    atomicWrite(exclude, reSub(String.raw`(?m)^${reEscape(EXCLUDE_MARK)}\n(?:/(?:${reEscape(BLUEPRINT_FILE)}|${reEscape(LEGACY_BLUEPRINT_FILE)})\n?)?`, "", text));
   }
 }
 
@@ -238,13 +263,23 @@ function removeExcluded(root: string): void {
 
 /**
  * Generate the blueprint and write it (atomically, only when it changed). Returns [path, changed].
- * A hand-written PROJECT_BLUEPRINT.md of the same name is left as it is. `root` is resolved.
+ * A hand-written CODE_BLUEPRINT.md of the same name is left as it is. `root` is resolved.
  */
 export function writeBlueprint(root: string, outPath: string | null = null): [string, boolean] {
   const target = outPath ?? pjoin(root, BLUEPRINT_FILE);
   if (outPath === null && isFile(target) && !isGenerated(target)) return [target, false];
   const changed = atomicWrite(target, buildBlueprintContent(root));
   if (samePath(resolvePath(target), resolvePath(pjoin(root, BLUEPRINT_FILE)))) {
+    // The copy this generator wrote under the old name goes (a hand-written PROJECT_BLUEPRINT.md stays). A
+    // committed one is then a deletion the commit hook stages along with the new file.
+    const legacy = pjoin(root, LEGACY_BLUEPRINT_FILE);
+    if (isFile(legacy) && isGenerated(legacy)) {
+      try {
+        fs.unlinkSync(toNative(legacy));
+      } catch {
+        // read-only or locked: it goes on the next run
+      }
+    }
     // The business blueprint's generated regions (index, check results) follow the same code
     try {
       refreshBusinessBlueprint(root);
@@ -277,7 +312,7 @@ const scriptCandidates = [
  */
 export const HOOK_TEMPLATE = [
   HOOK_MARKER_START,
-  "# Keeps PROJECT_BLUEPRINT.md current on commit, merge, rebase and branch switch (managed by Memento)",
+  "# Keeps CODE_BLUEPRINT.md current on commit, merge, rebase and branch switch (managed by Memento)",
   "__memento_rc=$?",
   "(",
   "    GIT_DIR_PATH=$(git rev-parse --git-dir 2>/dev/null) || exit 0",
@@ -304,13 +339,13 @@ export const HOOK_TEMPLATE = [
   "        fi",
   "    done",
   '    [ -n "$BP_NODE" ] || BP_NODE=$(command -v node 2>/dev/null) || exit 0',
-  "    if git ls-files --error-unmatch PROJECT_BLUEPRINT.md >/dev/null 2>&1; then",
+  "    if git ls-files --error-unmatch CODE_BLUEPRINT.md >/dev/null 2>&1 || git ls-files --error-unmatch PROJECT_BLUEPRINT.md >/dev/null 2>&1; then",
   "        # Tracked: regenerated into the commit itself; afterwards only the HEAD it matches is recorded",
   '        if [ "$HOOK_NAME" = "pre-commit" ]; then',
   "            # BUSINESS_BLUEPRINT.md is staged with its refreshed check only when it has no unstaged edits of its own",
   '            BP_BIZ=""',
   '            if git ls-files --error-unmatch BUSINESS_BLUEPRINT.md >/dev/null 2>&1 && git diff --quiet -- BUSINESS_BLUEPRINT.md 2>/dev/null; then BP_BIZ=1; fi',
-  '            ELECTRON_RUN_AS_NODE=1 "$BP_NODE" "$BP_SCRIPT" --root . --quiet >/dev/null 2>&1 && git add PROJECT_BLUEPRINT.md >/dev/null 2>&1 && { [ -z "$BP_BIZ" ] || git add BUSINESS_BLUEPRINT.md >/dev/null 2>&1; }',
+  '            ELECTRON_RUN_AS_NODE=1 "$BP_NODE" "$BP_SCRIPT" --root . --quiet >/dev/null 2>&1 && git add CODE_BLUEPRINT.md >/dev/null 2>&1 && { [ -f PROJECT_BLUEPRINT.md ] || git rm -q --cached --ignore-unmatch PROJECT_BLUEPRINT.md >/dev/null 2>&1; } && { [ -z "$BP_BIZ" ] || git add BUSINESS_BLUEPRINT.md >/dev/null 2>&1; }',
   "        else",
   '            git rev-parse --short HEAD > "$GIT_DIR_PATH/.memento_blueprint_head" 2>/dev/null',
   "        fi",
@@ -510,12 +545,14 @@ export function uninstallRepo(root: string): boolean {
   removeExcluded(root);
   const anchors = pyGet(state, "anchors");
   removeAgentGuidanceAnchor(root, pyIter(truthy(anchors) ? anchors : []).map((f) => pyStr(f)));
-  const bp = pjoin(root, BLUEPRINT_FILE);
-  if (isFile(bp) && !isTracked(root) && isGenerated(bp)) {
-    try {
-      fs.unlinkSync(toNative(bp));
-    } catch {
-      ok = false;
+  for (const name of CODE_BLUEPRINT_FILES) {
+    const bp = pjoin(root, name);
+    if (isFile(bp) && !tracked(root, name) && isGenerated(bp)) {
+      try {
+        fs.unlinkSync(toNative(bp));
+      } catch {
+        ok = false;
+      }
     }
   }
   try {

@@ -35,6 +35,8 @@ RUN pip install --no-cache-dir --no-deps .
 COPY deploy/bootstrap/ /app/bootstrap/
 COPY data/updates/ /app/data/updates/
 COPY scripts/project_blueprint.mjs /app/scripts/project_blueprint.mjs
+# The last generator that writes PROJECT_BLUEPRINT.md: for clients before 1.0.134 (see api/profile.py)
+COPY scripts/legacy/ /app/scripts/legacy/
 
 # Embeddings come from an OpenAI-compatible API or the self-hosted BGE-M3
 # service in embedding/ (MEMENTO_EMBEDDING_PROVIDER), not from this image.

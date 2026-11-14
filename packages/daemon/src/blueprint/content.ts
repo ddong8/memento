@@ -1,4 +1,4 @@
-// Assembling PROJECT_BLUEPRINT.md from the scans: the architecture diagram, every section in order,
+// Assembling CODE_BLUEPRINT.md (the code blueprint; PROJECT_BLUEPRINT.md before 20261124) from the scans: the architecture diagram, every section in order,
 // and section 0 (the quick summary with a line-numbered index) put in front.
 import { clearRepoFileCache, exists, pjoin, pname, readTextIgnore, runGit } from "./files.js";
 import { isDict, pyGet, pyLstrip, pySlice, pySplitlines, pyStrip, reMatch, reSub } from "./py.js";
@@ -29,7 +29,7 @@ import {
   type TechStack,
   type TestSuite,
 } from "./scan.js";
-import { BLUEPRINT_FILE, BLUEPRINT_SCRIPT_VERSION, BUSINESS_FILE, GENERATED_MARK } from "./meta.js";
+import { BLUEPRINT_FILE, BLUEPRINT_SCRIPT_VERSION, BLUEPRINT_TITLE, BUSINESS_FILE, GENERATED_MARK } from "./meta.js";
 import { checkBusinessBlueprint, projectBlueprintSection, summaryLine, type BusinessReport } from "./business.js";
 
 export { BLUEPRINT_FILE, BLUEPRINT_SCRIPT_VERSION, GENERATED_MARK };
@@ -177,7 +177,7 @@ function gitBranch(root: string): string {
   return branch;
 }
 
-/** The complete PROJECT_BLUEPRINT.md document. `root` is resolved. */
+/** The complete CODE_BLUEPRINT.md document. `root` is resolved. */
 export function buildBlueprintContent(root: string): string {
   clearRepoFileCache(root);
   const name = repoName(root);
@@ -205,7 +205,7 @@ export function buildBlueprintContent(root: string): string {
   const evolutionList = getGitEvolution(root, 6);
 
   const doc: string[] = [
-    `# Project Blueprint: ${name}`,
+    `${BLUEPRINT_TITLE} ${name}`,
     "",
     "> [!NOTE]",
     `> **Living Blueprint Auto-Generated** · Branch: \`${branch}\` · Commit: \`${commit}\` · Updated: \`${date}\``,
@@ -470,7 +470,7 @@ function withSummaryAndIndex(docLines: string[], summary: string[]): string {
   const block = [
     "## 0. 速览与章节索引 (Quick Summary & Section Index)",
     "",
-    "> 先读这一节定位全局；要细节时按下表行号只读对应章节（Read 的 offset/limit，或 `sed -n 'A,Bp' PROJECT_BLUEPRINT.md`），不必整份读入。",
+    "> 先读这一节定位全局；要细节时按下表行号只读对应章节（Read 的 offset/limit，或 `sed -n 'A,Bp' CODE_BLUEPRINT.md`），不必整份读入。",
     "",
     ...summary,
     "",

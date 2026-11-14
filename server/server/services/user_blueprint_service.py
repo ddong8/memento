@@ -1,14 +1,14 @@
 """User Living Blueprint Service (个人全域认知与能力蓝图生成器)
 
-Applies the same idea as `PROJECT_BLUEPRINT.md` to the USER: synthesizes the user's project
-blueprints (synced from their devices), projects, published resident profile, long-term memories,
-knowledge graph and devices into `USER_BLUEPRINT.md`:
+Applies the same idea as the code blueprint (`CODE_BLUEPRINT.md`) to the USER: synthesizes the user's code
+blueprints and business blueprints (`BUSINESS_BLUEPRINT.md`, both synced from their devices), projects, published
+resident profile, long-term memories, knowledge graph and devices into `USER_BLUEPRINT.md`:
 
   0. 速览 (Quick Summary)
   1. 个人全域认知拓扑图 (Mermaid Flowchart Topology)
   2. 学科交叉与专业背景 (Academic & Scientific Disciplines)
   3. 核心业务版图与场景 (Business Domains & Scenarios)
-  4. 跨项目架构蓝图矩阵 (Project Blueprint Portfolio)
+  4. 跨项目代码蓝图矩阵 (Code Blueprint Portfolio)
   5. 全域技术栈与工程底座雷达 (Technology & Infrastructure Radar)
   6. 工程哲学与核心准则摘要 (Engineering Philosophy & Tenets)
   7. 算力终端 (Active Compute Nodes)
@@ -30,7 +30,7 @@ import logging
 import re
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import (
@@ -43,7 +43,8 @@ from ..db.models import (
     User,
     UserMemory,
 )
-from .blueprint_pick import BlueprintCopy, blueprint_copy, is_fresher
+from .blueprint_pick import CODE_BLUEPRINT_TITLES, BlueprintCopy, blueprint_copy, code_blueprint_path, code_blueprint_title, is_fresher
+from .business_blueprint import BUSINESS_FILE
 from .cache import cache_get, cache_set
 from .profile_service import get_published_profile, split_profile_scopes
 
@@ -51,7 +52,7 @@ logger = logging.getLogger("server.user_blueprint_service")
 
 # Busted where profile, memories, entities or blueprint documents change (profile.py, memory.py,
 # dreaming_service.py, ingest_service.py, projects.py); the TTL only bounds staleness otherwise.
-CACHE_PREFIX = "user:blueprint:v3:"
+CACHE_PREFIX = "user:blueprint:v4:"
 # Busted when a blueprint, the profile, memories or the graph change; the TTL only bounds count drift
 CACHE_TTL_SECONDS = 3600
 
@@ -435,7 +436,7 @@ def _truncate_clean(text: str, max_len: int = 68) -> str:
 
 
 def _parse_project_blueprint_markdown(md: str) -> dict[str, Any]:
-    """Extract structured summary metrics from a PROJECT_BLUEPRINT.md document."""
+    """Extract structured summary metrics from a code blueprint (CODE_BLUEPRINT.md / PROJECT_BLUEPRINT.md)."""
     info: dict[str, Any] = {
         "tech_stack": [],
         "subsystems_count": 0,
@@ -726,7 +727,7 @@ def _build_user_mermaid_topology(
             lines.append(f"    {src_id} --> {bid}")
 
     if projects:
-        lines.append('    subgraph PROJ["核心工程项目 (Project Blueprints)"]')
+        lines.append('    subgraph PROJ["核心工程项目 (Code Blueprints)"]')
         for p in projects[:8]:
             pid = _sanitize_mermaid_id(p["name"], "P")
             stack_hint = ", ".join(p.get("tech_stack", [])[:2])
@@ -816,7 +817,7 @@ def _render_user_blueprint_markdown(
         f"# User Cognitive & Domain Blueprint: {user_name}",
         "",
         f"> **Auto-Generated Living User Blueprint** · **Updated**: `{now_str}` · **Projects Indexed**: `{len(projects)}` · **Disciplines**: `{len(disciplines)}` · **Business Domains**: `{len(domains)}`",
-        "> *Synthesized from the user's own projects and their `PROJECT_BLUEPRINT.md`, knowledge graph, long-term memories and resident profile. Read section 0 first.*",
+        "> *Synthesized from the user's own projects and their code and business blueprints (`CODE_BLUEPRINT.md`, `BUSINESS_BLUEPRINT.md`), knowledge graph, long-term memories and resident profile. Read section 0 first.*",
         "",
         "---",
         "",
@@ -853,9 +854,15 @@ def _render_user_blueprint_markdown(
         projs = ", ".join(f"`{p}`" for p in b.get("projects", [])[:6]) or "-"
         lines.append(f'| **{b["name"]}** | {b["scenarios"]} | {projs} |')
 
+    # Each project's own business blueprint: its terms and flows say what the business is better than the
+    # domain table above, which matches project descriptions against a general taxonomy
+    biz_lines = _business_portfolio_lines(projects)
+    if biz_lines:
+        lines.extend(["", "### 各项目业务蓝图 (Per-project Business Blueprints)", "", *biz_lines])
+
     lines.extend([
         "",
-        "## 4. 跨项目架构蓝图矩阵 (Project Blueprint Portfolio)",
+        "## 4. 跨项目代码蓝图矩阵 (Code Blueprint Portfolio)",
         "",
         "| 项目名称 (Project) | 核心技术栈 (Tech Stack) | 架构规模 (Subsystems / Models / Routes) | 核心子系统与职责摘要 (Architecture Summary) |",
         "| :--- | :--- | :--- | :--- |",
@@ -915,6 +922,44 @@ def _render_user_blueprint_markdown(
 
 
 
+def _business_digest(text: str) -> dict[str, Any]:
+    """What the user blueprint takes from a BUSINESS_BLUEPRINT.md: term and flow names, rule count, check result,
+    and the words (titles, definitions) the domain matching reads."""
+    from .business_blueprint import check_summary, parse_entries
+
+    entries = parse_entries(text)
+    terms = [e.title for e in entries if e.kind == "term"]
+    flows = [e.title for e in entries if e.kind == "flow"]
+    words = " ".join([e.title for e in entries if e.kind in ("term", "flow")] + [t for e in entries if e.kind == "term" for t in e.texts])
+    return {
+        "terms": terms[:12],
+        "flows": flows[:8],
+        "rules": sum(1 for e in entries if e.kind == "rule"),
+        "check": check_summary(text),
+        "text": words[:4000],
+    }
+
+
+def _business_portfolio_lines(projects: list[dict[str, Any]]) -> list[str]:
+    """Section 3's per-project lines: a project with a business blueprint, its rules' standing and what its terms
+    and flows are; a project with rules in the profile but no business blueprint yet, how many wait for one."""
+    out: list[str] = []
+    for p in projects:
+        biz = p.get("business")
+        if biz:
+            chk = biz.get("check") or {}
+            status = f'规则 {chk.get("rules", biz.get("rules", 0))}（✅ {chk.get("ok", 0)} · ⚠️ {chk.get("warn", 0)} · ❌ {chk.get("fail", 0)}）' if chk else f'规则 {biz.get("rules", 0)}'
+            parts = [status]
+            if biz.get("terms"):
+                parts.append("术语：" + "、".join(biz["terms"][:8]))
+            if biz.get("flows"):
+                parts.append("流程：" + "、".join(biz["flows"][:5]))
+            out.append(f'- **`{p["name"]}`**：' + "；".join(parts).replace("|", "/"))
+        elif p.get("scoped_rules"):
+            out.append(f'- `{p["name"]}`：画像里有 {p["scoped_rules"]} 条项目规则，还没有业务蓝图')
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Loading: every query is limited to the user's own rows
 # ---------------------------------------------------------------------------
@@ -923,10 +968,12 @@ def _render_user_blueprint_markdown(
 @dataclass
 class BlueprintSources:
     devices: list[dict[str, Any]] = field(default_factory=list)
-    # (project_id, title, source_path, document_count, last_synced_at), not counting PROJECT_BLUEPRINT.md
+    # (project_id, title, source_path, document_count, last_synced_at), not counting the blueprints
     project_rows: list[tuple[Any, str, str | None, int, datetime | None]] = field(default_factory=list)
     # (project_id, relative_path, content, synced_at), newest first; one per device checkout
     blueprint_docs: list[tuple[Any, str, str | None, datetime | None]] = field(default_factory=list)
+    # BUSINESS_BLUEPRINT.md the same way: (project_id, relative_path, content, synced_at), newest first
+    business_docs: list[tuple[Any, str, str | None, datetime | None]] = field(default_factory=list)
     memories: list[str] = field(default_factory=list)
     # (name, entity_type, observation_count), most observed first
     entities: list[tuple[str, str, int]] = field(default_factory=list)
@@ -969,7 +1016,7 @@ async def _load_sources(db: AsyncSession, user: User) -> BlueprintSources:
     if machine_ids:
         try:
             # Devices re-upload their blueprints on every sync: that is neither work nor recent activity
-            work = ~Document.relative_path.ilike("%PROJECT_BLUEPRINT.md")
+            work = ~or_(code_blueprint_path(Document.relative_path), Document.relative_path.like(f"%/{BUSINESS_FILE}"))
             src.project_rows = [tuple(r) for r in (await db.execute(
                 select(
                     Project.id, Project.title, Project.source_path,
@@ -986,7 +1033,7 @@ async def _load_sources(db: AsyncSession, user: User) -> BlueprintSources:
                 select(Document.project_id, Document.relative_path, Document.content, Document.synced_at)
                 .where(
                     Document.machine_id.in_(machine_ids),
-                    Document.relative_path.ilike("%PROJECT_BLUEPRINT.md"),
+                    code_blueprint_path(Document.relative_path),
                 )
                 .order_by(Document.synced_at.desc())
                 # All of them: 60 kept only the device synced last (a laptop's 73 old clones, 2026-11-09)
@@ -994,6 +1041,15 @@ async def _load_sources(db: AsyncSession, user: User) -> BlueprintSources:
             )).all()]
         except Exception as e:
             logger.warning("user blueprint: blueprint documents failed for %s: %s", user.id, e)
+        try:
+            src.business_docs = [tuple(r) for r in (await db.execute(
+                select(Document.project_id, Document.relative_path, Document.content, Document.synced_at)
+                .where(Document.machine_id.in_(machine_ids), Document.relative_path.like(f"%/{BUSINESS_FILE}"))
+                .order_by(Document.synced_at.desc())
+                .limit(500)
+            )).all()]
+        except Exception as e:
+            logger.warning("user blueprint: business blueprints failed for %s: %s", user.id, e)
 
     try:
         src.memories = [c for c in (await db.execute(
@@ -1133,14 +1189,13 @@ def _collect_projects(src: BlueprintSources, now: datetime) -> list[dict[str, An
     # date is how recent a project is that has nothing but its blueprint uploaded (none without commits).
     chosen: dict[str, BlueprintCopy] = {}
     for pid, rel, content, _synced in src.blueprint_docs:
-        if not isinstance(content, str) or "# Project Blueprint" not in content:
+        if not isinstance(content, str) or not any(t in content for t in CODE_BLUEPRINT_TITLES):
             continue
         key = id_to_key.get(pid) or (_project_key(rel.split("/", 1)[0]) if isinstance(rel, str) and "/" in rel else "")
         if not key:
             continue
         if key not in projects:
-            m = re.search(r"^# Project Blueprint:\s*(.+)$", content, re.MULTILINE)
-            name = (m.group(1).strip() if m else rel.split("/", 1)[0]).strip()
+            name = (code_blueprint_title(content) or rel.split("/", 1)[0]).strip()
             if _is_noise_project(name, ""):
                 continue
             projects[key] = {"name": name, "docs": 0, "last": None, "paths": {}, "pinned": False, "blueprint": None, "scoped": []}
@@ -1154,6 +1209,16 @@ def _collect_projects(src: BlueprintSources, now: datetime) -> list[dict[str, An
             "quick": _blueprint_quick_summary(content),
             "about": _blueprint_about(content),
         }
+
+    # BUSINESS_BLUEPRINT.md: what each project is for, in the words of its terms, flows and rules, and how its
+    # check stands. Newest upload per project (no commit header to compare, unlike the code blueprint).
+    for pid, rel, content, _synced in src.business_docs:
+        if not isinstance(content, str):
+            continue
+        key = id_to_key.get(pid) or (_project_key(rel.split("/", 1)[0]) if isinstance(rel, str) and "/" in rel else "")
+        if not key or key not in projects or projects[key].get("business"):
+            continue
+        projects[key]["business"] = _business_digest(content)
 
     if src.profile_text:
         for scoped_name, scoped_lines in split_profile_scopes(src.profile_text).projects.items():
@@ -1188,10 +1253,14 @@ def _collect_projects(src: BlueprintSources, now: datetime) -> list[dict[str, An
         # Working rules ("polish drafts before pushing to WeChat") only break ties: they say how the
         # user works on a project, not what it is
         rules = " ".join(p["scoped"]).lower()
+        # The business blueprint's terms and flows say what the project does, as plainly as its README
+        biz = p.get("business") or {}
+        business_text = biz.get("text", "").lower()
         hits_about, hits_stack, hits_rules = _field_hits(about), _field_hits(stack), _field_hits(rules)
+        hits_biz = _field_hits(business_text) if business_text else {}
         weights: dict[str, float] = {}
-        for fid in set(hits_about) | set(hits_stack) | set(hits_rules):
-            w = 2 * len(hits_about.get(fid, [])) + len(hits_stack.get(fid, [])) + 0.5 * len(hits_rules.get(fid, []))
+        for fid in set(hits_about) | set(hits_stack) | set(hits_rules) | set(hits_biz):
+            w = 2 * len(hits_about.get(fid, [])) + len(hits_stack.get(fid, [])) + 0.5 * len(hits_rules.get(fid, [])) + 1.5 * len(hits_biz.get(fid, []))
             weights[fid] = w * (0.5 if fid in _GENERIC_FIELDS else 1.0)
         primary = max(weights, key=lambda f: (weights[f], -list(_FIELD_BY_ID).index(f))) if weights else ""
         rank = (p["docs"] + (400 if bp else 0) + (300 if p["pinned"] else 0)) * (1.0 if recent or not last else 0.5)
@@ -1213,7 +1282,9 @@ def _collect_projects(src: BlueprintSources, now: datetime) -> list[dict[str, An
             "field_weights": weights,
             "field_hits": {fid: sorted(set(hits_about.get(fid, [])) | set(hits_stack.get(fid, []))) for fid in weights},
             "primary_field": primary,
-            "text": f"{about}\n{stack}",
+            "business": {k: v for k, v in biz.items() if k != "text"} if biz else None,
+            "scoped_rules": len(p["scoped"]),
+            "text": f"{about}\n{stack}\n{business_text}",
         })
     out.sort(key=lambda x: (x["rank"], x["documents"]), reverse=True)
     return out[:40]
@@ -1346,6 +1417,8 @@ def synthesize_user_blueprint(user_name: str, src: BlueprintSources, now: dateti
             "subsystems_preview": p["subsystems_preview"],
             "branch": p["branch"],
             "has_blueprint": p["has_blueprint"],
+            "business": p.get("business"),
+            "scoped_rules": p.get("scoped_rules", 0),
         }
         for p in all_projects[:15]
     ]

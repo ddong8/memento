@@ -114,7 +114,9 @@ class TestReaders(unittest.IsolatedAsyncioTestCase):
             out = await get_project_blueprint(project.id, recent_convs=0, db=db, _user=user)
         self.assertIs(out["codebase_blueprint"], MINI)
         curated_sql = next(s for s in statements if "documents.category IN" in s)
-        self.assertIn("relative_path) NOT LIKE", curated_sql)
+        # Code blueprints (either name) are left out by the whole file name, not ilike on its end
+        self.assertIn("NOT (documents.relative_path = ", curated_sql)
+        self.assertNotIn("ILIKE", curated_sql.upper().replace("NOT LIKE", ""))
 
 
 class TestUserBlueprintProjects(unittest.TestCase):

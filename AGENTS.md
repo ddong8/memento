@@ -2,7 +2,7 @@
 
 <!-- memento:blueprint-anchor -->
 > [!TIP]
-> **架构心智指引**：新会话或全局重构前，先读根目录活体代码蓝图 [PROJECT_BLUEPRINT.md](PROJECT_BLUEPRINT.md) 开头的「0. 速览与章节索引」，再按行号只读需要的章节，避免重复 grep 扫描。
+> **架构心智指引**：新会话或全局重构前，先读根目录代码蓝图 [CODE_BLUEPRINT.md](CODE_BLUEPRINT.md) 开头的「0. 速览与章节索引」，再按行号只读需要的章节，避免重复 grep 扫描；有业务蓝图 BUSINESS_BLUEPRINT.md 时，改动前先看相关的业务规则。
 <!-- memento:blueprint-anchor -->
 
 

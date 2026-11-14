@@ -7,7 +7,7 @@ import type { Json, RemoteClient } from "./remote.js";
 
 export const INSTRUCTIONS =
   "Personal AI memory — search conversations, recall knowledge, explore project context from your Memento data. " +
-  "At the start of a session or before architectural changes, read the opening section \"0. 速览与章节索引\" of PROJECT_BLUEPRINT.md in the project root and then only the sections you need by its line numbers (or call memory_blueprint, which returns that summary; pass section for more); pass project_name='me' (or read ~/.memento/USER_BLUEPRINT.md) for the user's cross-project, technical, business, and disciplinary blueprint. " +
+  "At the start of a session or before architectural changes, read the opening section \"0. 速览与章节索引\" of CODE_BLUEPRINT.md (the code blueprint; PROJECT_BLUEPRINT.md from older clients) in the project root and then only the sections you need by its line numbers (or call memory_blueprint, which returns that summary; pass section for more); pass project_name='me' (or read ~/.memento/USER_BLUEPRINT.md) for the user's cross-project, technical, business, and disciplinary blueprint. " +
   "For instant mental alignment (心领神会) with the user's implicit intent, domain mindset, scenario iron rules, active graph entities, and pitfalls, call mind_resonance. " +
   "Before deploying, releasing, migrating a database, deleting or changing data, pushing, or changing config, " +
   "call memory_check_rule: it returns the user's iron rules, pitfalls hit before on similar work, and skills to follow. " +
@@ -35,10 +35,26 @@ async function findProject(remote: RemoteClient, name: string): Promise<Json | u
   return projects.find((p) => s(p.title).toLowerCase().includes(q));
 }
 
+/** The code blueprint is CODE_BLUEPRINT.md; clients before 1.0.134 wrote PROJECT_BLUEPRINT.md. */
+const CODE_BLUEPRINT_FILES = ["CODE_BLUEPRINT.md", "PROJECT_BLUEPRINT.md"];
+
+export function isCodeBlueprintPath(path: string): boolean {
+  return CODE_BLUEPRINT_FILES.some((name) => path === name || path.endsWith(`/${name}`));
+}
+
+/** The repo's own code blueprint on this machine, under either name (the new one first). */
+function localCodeBlueprint(root: string): string | null {
+  for (const name of CODE_BLUEPRINT_FILES) {
+    const file = join(root, name);
+    if (existsSync(file)) return file;
+  }
+  return null;
+}
+
 const sectionNumber = (heading: string) => heading.match(/^##\s+(\d+(?:\.\d+)?)\./)?.[1];
 
 /**
- * Part of a blueprint (PROJECT_BLUEPRINT.md / USER_BLUEPRINT.md): "summary" is everything through
+ * Part of a blueprint (CODE_BLUEPRINT.md / USER_BLUEPRINT.md): "summary" is everything through
  * the "## 0." quick summary and section index; "all" the whole file; or section numbers ("3", "4,6.5").
  * A blueprint from before the summary section gets its opening lines and the list of sections.
  */
@@ -154,10 +170,8 @@ export async function projectContext(remote: RemoteClient, projectName: string):
   let codebaseBp = s(project.codebase_blueprint);
   if (localSourcePath) {
     try {
-      const localBpFile = join(localSourcePath, "PROJECT_BLUEPRINT.md");
-      if (existsSync(localBpFile)) {
-        codebaseBp = readFileSync(localBpFile, "utf8");
-      }
+      const localBpFile = localCodeBlueprint(localSourcePath);
+      if (localBpFile) codebaseBp = readFileSync(localBpFile, "utf8");
     } catch {
       // fallback to remote codebase_blueprint
     }
@@ -170,7 +184,7 @@ export async function projectContext(remote: RemoteClient, projectName: string):
     );
   }
 
-  const docs = arr(project.documents).filter((d) => !isNoise(d.relative_path) && !(codebaseBp && s(d.relative_path).endsWith("PROJECT_BLUEPRINT.md")));
+  const docs = arr(project.documents).filter((d) => !isNoise(d.relative_path) && !(codebaseBp && isCodeBlueprintPath(s(d.relative_path))));
   const inlined = docs.filter((d) => d.content);
   const listed = docs.filter((d) => !d.content);
   if (inlined.length) {
@@ -362,10 +376,8 @@ export function createServer(remote: RemoteClient, version = "0.1.0"): McpServer
       const localSourcePath = s(proj.source_path);
       if (localSourcePath) {
         try {
-          const localBpFile = join(localSourcePath, "PROJECT_BLUEPRINT.md");
-          if (existsSync(localBpFile)) {
-            codebaseBp = readFileSync(localBpFile, "utf8");
-          }
+          const localBpFile = localCodeBlueprint(localSourcePath);
+          if (localBpFile) codebaseBp = readFileSync(localBpFile, "utf8");
         } catch {
           // fallback to remote codebase_blueprint
         }
@@ -403,9 +415,9 @@ export function createServer(remote: RemoteClient, version = "0.1.0"): McpServer
       }
       // The summary keeps within a tool result: whole documents only with section="all"
       const brief = !["all", "full"].includes(section.trim().toLowerCase());
-      // Not each device's copy of PROJECT_BLUEPRINT.md: the newest one is above (three copies were 135K characters)
+      // Not each device's copy of the code blueprint: the newest one is above (three copies were 135K characters)
       const curated = arr(bp.curated_docs).filter(
-        (d) => !(codebaseBp && s(d.relative_path).endsWith("PROJECT_BLUEPRINT.md")) && !s(d.relative_path).endsWith("BUSINESS_BLUEPRINT.md"),
+        (d) => !(codebaseBp && isCodeBlueprintPath(s(d.relative_path))) && !s(d.relative_path).endsWith("/BUSINESS_BLUEPRINT.md"),
       );
       if (curated.length) {
         out.push("## Curated documents");

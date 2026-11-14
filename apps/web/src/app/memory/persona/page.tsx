@@ -431,7 +431,7 @@ export default function PersonaPage() {
   const [avatarSettings, setAvatarSettings] = useState<AvatarSettings | null>(() => cachedPersonaData?.avatarSettings ?? null);
   const [userBlueprint, setUserBlueprint] = useState<UserBlueprintData | null>(() => cachedPersonaData?.userBlueprint ?? null);
   const [blueprintRefreshing, setBlueprintRefreshing] = useState(false);
-  // 各设备自动维护本地仓库的 PROJECT_BLUEPRINT.md 与 git 钩子（null：还没读到）
+  // 各设备自动维护本地仓库的 代码蓝图 CODE_BLUEPRINT.md 与 git 钩子（null：还没读到）
   const [blueprintAuto, setBlueprintAuto] = useState<boolean | null>(null);
   const [blueprintAutoBusy, setBlueprintAutoBusy] = useState(false);
   // 各设备画像带上近 30 天在这台设备上又踩过的坑（null：还没读到）
@@ -2097,7 +2097,7 @@ export default function PersonaPage() {
                       </span>
                     </div>
                     <p className="text-[11px] text-[var(--aurora-fg3)] mt-1 leading-relaxed">
-                      自动聚合全设备项目的 PROJECT_BLUEPRINT.md、长期记忆、知识图谱与常驻准则，提炼您的跨学科背景、业务版图、技术雷达与项目架构矩阵，并实时同步至各终端 ~/.memento/USER_BLUEPRINT.md。
+                      自动聚合全设备项目的代码蓝图 CODE_BLUEPRINT.md、业务蓝图 BUSINESS_BLUEPRINT.md、长期记忆、知识图谱与常驻准则，提炼您的跨学科背景、业务版图、技术雷达与项目架构矩阵，并实时同步至各终端 ~/.memento/USER_BLUEPRINT.md。
                     </p>
                     {blueprintAuto !== null && (
                       <div className="mt-2 flex items-center gap-2.5">
@@ -2113,7 +2113,7 @@ export default function PersonaPage() {
                               setBlueprintAuto(res.auto);
                               setNotice(
                                 res.auto
-                                  ? "已开启：各设备下次同步时为本地 git 仓库生成并维护 PROJECT_BLUEPRINT.md"
+                                  ? "已开启：各设备下次同步时为本地 git 仓库生成并维护代码蓝图 CODE_BLUEPRINT.md"
                                   : "已关闭：各设备下次同步时撤回 git 钩子与未纳入版本库的蓝图文件",
                               );
                             } catch (e) {
@@ -2127,7 +2127,7 @@ export default function PersonaPage() {
                         <div className="min-w-0">
                           <div className="text-[11px] font-bold text-[var(--aurora-fg1)]">自动维护项目蓝图</div>
                           <div className="text-[10px] text-[var(--aurora-fg4)] leading-snug">
-                            在各设备的本地 git 仓库生成 PROJECT_BLUEPRINT.md，提交、拉取、切分支后自动更新；关闭后撤回钩子与未纳入版本库的蓝图文件，手写的同名文件始终不动
+                            在各设备的本地 git 仓库生成代码蓝图 CODE_BLUEPRINT.md，提交、拉取、切分支后自动更新；关闭后撤回钩子与未纳入版本库的蓝图文件，手写的同名文件始终不动
                           </div>
                         </div>
                       </div>
@@ -2295,7 +2295,7 @@ export default function PersonaPage() {
                               <span className="text-xs font-bold font-mono text-[var(--aurora-fg1)] truncate">{p.name}</span>
                               <span
                                 className="text-[9px] font-mono text-[var(--aurora-fg4)] shrink-0"
-                                title={p.has_blueprint === false ? "还没有设备上传这个项目的 PROJECT_BLUEPRINT.md" : undefined}
+                                title={p.has_blueprint === false ? "还没有设备上传这个项目的代码蓝图" : undefined}
                               >
                                 {p.has_blueprint === false
                                   ? "— 暂无蓝图"

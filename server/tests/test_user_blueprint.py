@@ -76,7 +76,7 @@ class TestUserBlueprintService(unittest.IsolatedAsyncioTestCase):
         md = res["markdown"]
         self.assertTrue(md.splitlines()[0].startswith("# User Cognitive & Domain Blueprint: Haixing Dong"))
         self.assertIn("## 0. 速览 (Quick Summary)", md)
-        for heading in ("## 2. 学科交叉与专业领域", "## 3. 核心业务版图与应用场景", "## 4. 跨项目架构蓝图矩阵", "## 5. 全域技术栈与基础设施雷达"):
+        for heading in ("## 2. 学科交叉与专业领域", "## 3. 核心业务版图与应用场景", "## 4. 跨项目代码蓝图矩阵", "## 5. 全域技术栈与基础设施雷达"):
             self.assertIn(heading, md)
         self.assertIn("flowchart LR", res["mermaid_topology"])
         # A project without a blueprint has no known size, not "0 模块"
@@ -174,7 +174,7 @@ class TestUserBlueprintService(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(res["user_name"], "Haixing Dong")
         cache_set.assert_awaited_once()
-        self.assertEqual(cache_set.await_args.args[0], f"user:blueprint:v3:{user.id}")
+        self.assertEqual(cache_set.await_args.args[0], f"user:blueprint:v4:{user.id}")
         # Even an owner gets their own devices only: the machines query is filtered by user id
         self.assertIn("machines.user_id", statements[0])
 

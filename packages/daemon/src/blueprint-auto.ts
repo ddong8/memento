@@ -7,6 +7,8 @@ import { fileURLToPath } from "node:url";
 
 import {
   BLUEPRINT_FILE,
+  BLUEPRINT_TITLE,
+  LEGACY_BLUEPRINT_TITLE,
   GENERATED_FOOTER_RE,
   GENERATED_MARK,
   HEAD_MARKER,
@@ -246,7 +248,7 @@ export async function readGitHeadShort(gitRoot: string): Promise<string | null> 
 
 /** Footer of a generated blueprint (the Python generator's too); a file without it is hand-written and left alone. */
 export function isGeneratedBlueprint(text: string): boolean {
-  return text.startsWith("# Project Blueprint:") && (text.includes(GENERATED_MARK) || text.includes(LEGACY_GENERATED_MARK));
+  return (text.startsWith(BLUEPRINT_TITLE) || text.startsWith(LEGACY_BLUEPRINT_TITLE)) && (text.includes(GENERATED_MARK) || text.includes(LEGACY_GENERATED_MARK));
 }
 
 /**
@@ -264,7 +266,8 @@ async function hasLegacyHooks(gitRoot: string): Promise<boolean> {
 }
 
 /**
- * Whether the repo's PROJECT_BLUEPRINT.md is current: a hand-written one always is (never ours to
+ * Whether the repo's CODE_BLUEPRINT.md is current (missing while the repo still has the old PROJECT_BLUEPRINT.md: the
+ * generator then moves it over): a hand-written one always is (never ours to
  * touch); a generated one when the HEAD recorded at generation is still HEAD and the generator that
  * wrote it is not older than `minGeneratorVersion`. Hooks are not required:
  * repos with core.hooksPath or non-shell hooks get none, and are kept current from here instead.
@@ -530,7 +533,7 @@ export function generatorFailureReason(res: GeneratorResult): string {
 }
 
 /**
- * Ensure PROJECT_BLUEPRINT.md and its git hooks for a project directory. Non-blocking for callers
+ * Ensure CODE_BLUEPRINT.md and its git hooks for a project directory. Non-blocking for callers
  * that don't await it, idempotent, one generator run per repo at a time, and a no-op while the
  * user has automatic blueprints off.
  */

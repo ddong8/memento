@@ -17,7 +17,7 @@ const check = process.argv.includes("--check");
 const RUNNERS = [
   {
     entry: "src/blueprint/main.ts",
-    banner: "Memento living blueprint generator: writes and maintains PROJECT_BLUEPRINT.md for AI agents. Run with --help.",
+    banner: "Memento living blueprint generator: writes and maintains the code blueprint CODE_BLUEPRINT.md and checks BUSINESS_BLUEPRINT.md, for AI agents. Run with --help.",
     outputs: [join(repo, "scripts/project_blueprint.mjs"), join(pkg, "assets/project_blueprint.mjs")],
     committed: join(repo, "scripts/project_blueprint.mjs"),
   },

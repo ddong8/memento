@@ -110,7 +110,7 @@ export default function ProjectDetailPage() {
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <Icon name="sparkles" size={16} style={{ color: "var(--aurora-accent)" }} />
               <SectionLabel style={{ margin: 0 }}>
-                {isZh ? "活体代码架构蓝图 (PROJECT_BLUEPRINT.md)" : "Living Codebase Blueprint (PROJECT_BLUEPRINT.md)"}
+                {isZh ? "代码蓝图 (CODE_BLUEPRINT.md)" : "Code Blueprint (CODE_BLUEPRINT.md)"}
               </SectionLabel>
             </div>
             <Btn

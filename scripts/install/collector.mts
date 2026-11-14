@@ -354,7 +354,7 @@ export function blueprintScriptVersion(path: string): number {
 }
 
 /**
- * The git hooks, HEAD markers, exclude lines, anchors and untracked PROJECT_BLUEPRINT.md the daemon
+ * The git hooks, HEAD markers, exclude lines, anchors and untracked CODE_BLUEPRINT.md (PROJECT_BLUEPRINT.md before 1.0.134) the daemon
  * set up in local repos (recorded in ~/.memento/blueprint_repos): the generator's own --uninstall-all,
  * from whichever copy is newer (the daemon may have an OTA one). It runs on this installer's runtime.
  */

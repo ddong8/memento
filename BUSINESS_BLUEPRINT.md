@@ -3,20 +3,20 @@
 <!-- memento:business-index:start (自动生成，勿手改) -->
 > 先读这一段定位；要细节时按下表行号只读对应章节。改了「代码位置」里的文件，先看对应条目还成不成立。
 
-- 汇总：规则 49（✅ 47 · ⚠️ 2 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
+- 汇总：规则 51（✅ 49 · ⚠️ 2 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
 - 核对：全部通过 · ⚠️ 2 条待补（详见末尾「自动核对」）
 
 | 章节 | 行号 |
 | :--- | :--- |
 | 1. 业务对象与术语 | L21-L65 |
 | 2. 关键流程 | L67-L124 |
-| 3. 业务规则 | L126-L398 |
-| 4. 状态归属 | L400-L445 |
-| 自动核对 (Auto Check) | L448-L538 |
+| 3. 业务规则 | L126-L412 |
+| 4. 状态归属 | L414-L459 |
+| 自动核对 (Auto Check) | L462-L554 |
 <!-- memento:business-index:end -->
-> 业务蓝图：memento 应该做成什么样，每一条落在哪段代码、由哪个测试或检查保证。和 [PROJECT_BLUEPRINT.md](PROJECT_BLUEPRINT.md)（代码长什么样）配合看：代码蓝图回答"在哪里"，这份回答"应该怎样、为什么"。
+> 业务蓝图：memento 应该做成什么样，每一条落在哪段代码、由哪个测试或检查保证。和代码蓝图 [CODE_BLUEPRINT.md](CODE_BLUEPRINT.md)（代码长什么样）配合看：代码蓝图回答"在哪里"，这份回答"应该怎样、为什么"。
 > 规则来自用户的原话和纠正（CLAUDE.md、长期记忆、每晚复盘），不是从代码里反推的；代码和这里对不上，先当成代码的问题查。
-> 维护方式：改了某条「代码」里列的文件，看一眼这条还成不成立；新增一条用户定下的规则，按下面的格式加进来并挂上代码和测试。生成器（`scripts/project_blueprint.mjs`）每次提交都核对一遍，结果写在末尾「自动核对」，PROJECT_BLUEPRINT.md 第 11 节列出最近提交碰到了哪些条目；CI 遇到 ❌ 会拦下部署。
+> 维护方式：改了某条「代码」里列的文件，看一眼这条还成不成立；新增一条用户定下的规则，按下面的格式加进来并挂上代码和测试。生成器（`scripts/project_blueprint.mjs`）每次提交都核对一遍，结果写在末尾「自动核对」，CODE_BLUEPRINT.md 第 11 节列出最近提交碰到了哪些条目；CI 遇到 ❌ 会拦下部署。
 
 ## 1. 业务对象与术语
 
@@ -61,7 +61,7 @@
 - 代码: `server/server/services/plan_service.py#normalize_steps`, `server/server/services/plan_service.py#model_roster`
 
 ### T-BLUEPRINT 蓝图
-- 定义: 三种。代码蓝图 PROJECT_BLUEPRINT.md（生成器扫代码得来）；业务蓝图 BUSINESS_BLUEPRINT.md（本文件，人和智能体写、生成器核对）；个人蓝图 USER_BLUEPRINT.md（服务端综合用户所有项目得来）。前两种只来自设备上传，服务端从多份设备副本里挑最新的。
+- 定义: 三种。代码蓝图 CODE_BLUEPRINT.md（生成器扫代码得来；1.0.134 之前叫 PROJECT_BLUEPRINT.md）；业务蓝图 BUSINESS_BLUEPRINT.md（本文件，人和智能体写、生成器核对）；个人蓝图 USER_BLUEPRINT.md（服务端综合用户所有项目的代码蓝图、业务蓝图、画像和记忆得来）。前两种只来自设备上传，服务端从多份设备副本里挑最新的。
 - 代码: `packages/daemon/src/blueprint/content.ts#buildBlueprintContent`, `packages/daemon/src/blueprint/business.ts#checkBusinessBlueprint`, `server/server/services/blueprint_pick.py#pick_freshest`
 
 ## 2. 关键流程
@@ -288,6 +288,20 @@
 - 代码: `server/server/services/blueprint_pick.py#pick_freshest`, `server/server/services/blueprint_pick.py#is_fresher`
 - 测试: `server/tests/test_blueprint_pick.py#test_newest_code_wins_over_last_synced`, `server/tests/test_blueprint_pick.py#test_project_api_takes_the_newest_of_its_own_copies`
 
+### R-CODE-BLUEPRINT-NAME 代码蓝图叫 CODE_BLUEPRINT.md，和业务蓝图成对；旧名字照常能读，旧客户端不被打断
+- 来源: 用户 2026-11-15「project blueprint 改为code blueprint吧」
+- 说明: 读取方（服务端、MCP、个人蓝图、心领神会）两个名字都认，同一项目两份时取代码最新的；1.0.134 之前的客户端只认旧名字，服务端按 X-Collector-Version 给它们最后一版写旧名字的生成器（scripts/legacy/），否则它们的守护进程每轮都找不到蓝图、反复重建、也不再上传。新生成器把自己以前写的 PROJECT_BLUEPRINT.md 挪成新名字（手写的不动），已入库的在下次提交时由钩子一起提交。
+- 代码: `packages/daemon/src/blueprint/meta.ts#BLUEPRINT_FILE`, `packages/daemon/src/blueprint/repo.ts#writeBlueprint`, `server/server/services/blueprint_pick.py#code_blueprint_path`, `server/server/api/profile.py#_wants_legacy_generator`, `packages/mcp/src/server.ts#isCodeBlueprintPath`
+- 测试: `server/tests/test_code_blueprint_rename.py#test_clients_before_1_0_134_keep_the_generator_that_writes_the_old_name`, `server/tests/test_code_blueprint_rename.py#test_both_names_by_the_whole_file_name`, `packages/daemon/test/blueprint-auto.test.ts#moves a committed PROJECT_BLUEPRINT.md to CODE_BLUEPRINT.md in the next commit`, `packages/daemon/test/blueprint-generator.test.ts#moves its own untracked PROJECT_BLUEPRINT.md to CODE_BLUEPRINT.md`
+- 禁止: `/ilike\("%PROJECT_BLUEPRINT\.md"\)/` @ `server/server/`
+- 要求: `COPY scripts/legacy/` @ `server/Dockerfile`
+
+### R-USER-BLUEPRINT-BUSINESS 个人蓝图读各项目的业务蓝图
+- 来源: 用户 2026-11-15「做吧」（接上文：个人蓝图的核心业务版图要用业务蓝图里的术语和流程，比按项目简介套通用分类准）
+- 说明: 业务蓝图的术语、流程参与主领域判断（权重 1.5，介于项目简介 2 和技术栈 1 之间），第 3 节列出每个项目的业务蓝图核对结果、术语和流程，画像里有规则但还没有业务蓝图的项目也列出来。
+- 代码: `server/server/services/user_blueprint_service.py#_business_digest`, `server/server/services/user_blueprint_service.py#_business_portfolio_lines`
+- 测试: `server/tests/test_code_blueprint_rename.py#test_per_project_business_lines_and_the_new_code_blueprint_name`
+
 ### R-DOCS-WRITE-LIGHT documents 表上不加大的 GIN / 表达式索引
 - 来源: CLAUDE.md（memento）「不要往 documents 上加大的 GIN / 表达式索引……要索引文档内容就放到单独的表里」
 - 说明: documents 每次同步都改 synced_at，更新做不了 HOT，每个索引都要写。全文索引在 document_search 表；documents 上只留标题、路径两个短字段的三元组 GIN（启动 SQL 里建）。
@@ -449,7 +463,7 @@
 
 > 生成器随每次提交核对：代码位置还在不在、测试还在不在、禁止 / 要求的写法满不满足。✅ 通过 · ⚠️ 缺代码位置、测试或来源 · ❌ 位置失效或违反规则（CI 会拦下）。
 
-- 汇总：规则 49（✅ 47 · ⚠️ 2 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
+- 汇总：规则 51（✅ 49 · ⚠️ 2 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
 
 | 编号 | 名称 | 代码位置 | 测试 | 检查 | 结论 |
 | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -502,6 +516,8 @@
 | `R-APP-NAME` | 客户端名称不带 desktop 后缀 | 2/2 | — | 1/1 | ✅ |
 | `R-MOBILE-DEVICE-SCOPED` | 手机端切换设备只拉该设备的项目和对话 | 1/1 | 1/1 | — | ✅ |
 | `R-BLUEPRINT-NEWEST` | 蓝图只来自设备上传，多份设备副本取代码最新的那份 | 2/2 | 2/2 | — | ✅ |
+| `R-CODE-BLUEPRINT-NAME` | 代码蓝图叫 CODE_BLUEPRINT.md，和业务蓝图成对；旧名字照常能读，旧客户端不被打断 | 5/5 | 4/4 | 2/2 | ✅ |
+| `R-USER-BLUEPRINT-BUSINESS` | 个人蓝图读各项目的业务蓝图 | 2/2 | 1/1 | — | ✅ |
 | `R-DOCS-WRITE-LIGHT` | documents 表上不加大的 GIN / 表达式索引 | 3/3 | — | 2/2 | ✅ |
 | `R-PUBLIC-REPO-CLEAN` | 公开仓库里没有内网地址和密钥 | 2/2 | — | 2/2 | ✅ |
 | `R-NO-CONFIGMAP-HOTFIX` | 不用 ConfigMap 挂载覆盖镜像里的代码 | 1/1 | — | 1/1 | ✅ |
@@ -534,6 +550,6 @@
 
 ### 需要处理
 
-- ⚠️ `R-THINKING-FULL` 思考过程始终铺满显示，回答正文字号统一（L356）：没有测试或检查保证
-- ⚠️ `R-PERSONA-ONBOARD` 个人画像首次进入引导设性别和卡通形象，可上传照片生成，默认全屏动画、3D 默认不选，手机端完整显示（L377）：没有测试或检查保证
+- ⚠️ `R-THINKING-FULL` 思考过程始终铺满显示，回答正文字号统一（L370）：没有测试或检查保证
+- ⚠️ `R-PERSONA-ONBOARD` 个人画像首次进入引导设性别和卡通形象，可上传照片生成，默认全屏动画、3D 默认不选，手机端完整显示（L391）：没有测试或检查保证
 <!-- memento:business-check:end -->

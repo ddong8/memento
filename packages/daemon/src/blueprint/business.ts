@@ -1,5 +1,5 @@
 // BUSINESS_BLUEPRINT.md: what the project is supposed to do, tied to the code that does it, checked on
-// every commit. PROJECT_BLUEPRINT.md maps the code; it can't say the code does the wrong thing, because
+// every commit. CODE_BLUEPRINT.md maps the code; it can't say the code does the wrong thing, because
 // the code is all it reads. Most bugs fixed in memento on 2026-11-14 were of that kind: the user's rule
 // was clear ("the agent works in the folder I picked"), the code did something else (it took the
 // project made last), and nothing in the code looked wrong. This file holds the rules, the terms, the
@@ -382,7 +382,7 @@ function recentDiffs(root: string, n: number): CommitDiff[] {
       const d = line.match(/^diff --git a\/(.+?) b\/(.+)$/);
       if (d) {
         const file = d[2]!;
-        cur = file === BUSINESS_FILE || file === "PROJECT_BLUEPRINT.md" ? null : { changed: "", ranges: [] };
+        cur = file === BUSINESS_FILE || file === "CODE_BLUEPRINT.md" || file === "PROJECT_BLUEPRINT.md" ? null : { changed: "", ranges: [] };
         if (cur) files.set(file, cur);
         continue;
       }
@@ -629,7 +629,7 @@ export function refreshBusinessBlueprint(root: string): BusinessReport | null {
   return res.report;
 }
 
-/** Section 11 of PROJECT_BLUEPRINT.md: how the business blueprint holds against this code, and what recent commits touched. */
+/** Section 11 of CODE_BLUEPRINT.md: how the business blueprint holds against this code, and what recent commits touched. */
 export function projectBlueprintSection(r: BusinessReport): string[] {
   const lines = [
     "## 11. 业务蓝图核对 (Business Blueprint Check)",
@@ -663,7 +663,7 @@ export function businessSkeleton(name: string): string {
   return [
     `# Business Blueprint: ${name}`,
     "",
-    "> 业务蓝图：这个项目应该做成什么样，以及每一条落在哪段代码、由哪个测试保证。和 PROJECT_BLUEPRINT.md（代码长什么样）配合看。",
+    "> 业务蓝图：这个项目应该做成什么样，以及每一条落在哪段代码、由哪个测试保证。和 CODE_BLUEPRINT.md（代码蓝图：代码长什么样）配合看。",
     "> 条目格式见 `scripts/project_blueprint.mjs --help` 的业务蓝图说明；`### ` 开头的编号 T-/F-/R-/S- 分别是术语、流程、规则、状态。",
     "",
     "## 1. 业务对象与术语",

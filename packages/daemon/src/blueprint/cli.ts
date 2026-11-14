@@ -17,19 +17,19 @@ interface Option {
 
 const OPTIONS: Option[] = [
   { flag: "--root", dest: "root", value: "ROOT", help: "Project root directory (default: current directory)" },
-  { flag: "--output", dest: "output", value: "OUTPUT", help: "Output markdown path (default: <root>/PROJECT_BLUEPRINT.md)" },
+  { flag: "--output", dest: "output", value: "OUTPUT", help: "Output markdown path (default: <root>/CODE_BLUEPRINT.md)" },
   { flag: "--install-hook", dest: "install_hook", help: "Install the git hooks that keep the blueprint current" },
   { flag: "--uninstall-hook", dest: "uninstall_hook", help: "Remove the git hooks only" },
   { flag: "--uninstall", dest: "uninstall", help: "Take back everything done in --root (hooks, markers, generated file)" },
   { flag: "--uninstall-all", dest: "uninstall_all", help: "--uninstall for every repo this script touched" },
   { flag: "--anchor", dest: "anchor", help: "Also add a read-the-blueprint hint to the repo's CLAUDE.md / AGENTS.md / ..." },
   { flag: "--bootstrap-discovered", dest: "bootstrap_discovered", help: "Discover and install blueprint & hooks across all local git projects" },
-  { flag: "--check", dest: "check", help: "Check if current PROJECT_BLUEPRINT.md is up-to-date" },
+  { flag: "--check", dest: "check", help: "Check if current CODE_BLUEPRINT.md is up-to-date" },
   { flag: "--business", dest: "business", help: "Check BUSINESS_BLUEPRINT.md against the code, refresh its generated regions, exit 1 on broken anchors or broken rules" },
   { flag: "--business-init", dest: "business_init", help: "Write a starting BUSINESS_BLUEPRINT.md (layout and one example of each entry kind) when there is none" },
   { flag: "--quiet", dest: "quiet", help: "Suppress stdout messages" },
 ];
-const DESCRIPTION = "Generate and maintain living PROJECT_BLUEPRINT.md for AI agents.";
+const DESCRIPTION = "Generate and maintain the living code blueprint CODE_BLUEPRINT.md (PROJECT_BLUEPRINT.md before) and check BUSINESS_BLUEPRINT.md, for AI agents.";
 const BUSINESS_HELP = [
   "BUSINESS_BLUEPRINT.md (业务蓝图) entries are `### <ID> <title>` headings; the ID's letter is the kind:",
   "  T- term (术语)  F- flow (流程, numbered steps)  R- rule (规则)  S- state (状态归属)",

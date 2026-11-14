@@ -646,7 +646,7 @@ export function scanSubsystems(root: string): Subsystem[] {
   if (!subsystems.length) {
     for (const f of sortedPaths(iterdir(root))) {
       const fn = pname(f);
-      if (isFile(f) && !fn.startsWith(".") && !["PROJECT_BLUEPRINT.md", "package-lock.json", "pnpm-lock.yaml", "yarn.lock"].includes(fn)) {
+      if (isFile(f) && !fn.startsWith(".") && !["CODE_BLUEPRINT.md", "PROJECT_BLUEPRINT.md", "BUSINESS_BLUEPRINT.md", "package-lock.json", "pnpm-lock.yaml", "yarn.lock"].includes(fn)) {
         const role = fn.toLowerCase().startsWith("readme") ? "Documentation" : "Data / Config Asset";
         subsystems.push({ name: fn, path: fn, type: role, description: `Repository ${role.toLowerCase()} (${fn})` });
       }
@@ -1436,7 +1436,7 @@ export function scanHotspotsAndTests(root: string): { hotspots: Hotspot[]; test_
     const counts = new Map<string, number>();
     for (const line of pySplitlines(out)) {
       const p = pyStrip(line);
-      if (!p || p === "PROJECT_BLUEPRINT.md" || p === "deploy/k8s/kustomization.yaml" || endsWithAny(p, HOTSPOT_SKIP_SUFFIXES)) continue;
+      if (!p || p === "CODE_BLUEPRINT.md" || p === "PROJECT_BLUEPRINT.md" || p === "BUSINESS_BLUEPRINT.md" || p === "deploy/k8s/kustomization.yaml" || endsWithAny(p, HOTSPOT_SKIP_SUFFIXES)) continue;
       if (pparts(p).some((part) => IGNORED_DIRS.has(part))) continue;
       if (!isFile(pjoin(root, p))) continue;
       counts.set(p, (counts.get(p) ?? 0) + 1);

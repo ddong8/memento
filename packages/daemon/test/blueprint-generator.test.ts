@@ -143,7 +143,7 @@ describe("what the generator finds", () => {
     write("package.json", '{"name": "sample", "dependencies": {"react": "18"}}');
     const content = buildBlueprintContent(r());
     for (const heading of [
-      "# Project Blueprint: ",
+      "# Code Blueprint: ",
       "## 1. Project Overview & Tech Stack",
       "## 2. High-Level Architecture Topology",
       "## 3. Subsystem Breakdown & Responsibilities",
@@ -262,10 +262,10 @@ describe("hooks, exclude entry and records", () => {
     const [bp, changed] = writeBlueprint(r());
     expect(changed).toBe(true);
     const text = readFileSync(bp, "utf8");
-    expect(text.startsWith("# Project Blueprint:")).toBe(true);
+    expect(text.startsWith("# Code Blueprint:")).toBe(true);
     expect(text).toContain("## 0. 速览与章节索引");
     // Kept out of `git status` without touching the repo's .gitignore
-    expect(git(root, "status", "--porcelain")).not.toContain("PROJECT_BLUEPRINT.md");
+    expect(git(root, "status", "--porcelain")).not.toContain("CODE_BLUEPRINT.md");
     expect(existsSync(join(root, ".gitignore"))).toBe(false);
     expect(existsSync(join(root, ".git", HEAD_MARKER))).toBe(true);
     expect(existsSync(join(home, ".memento", "blueprint_repos"))).toBe(true);
@@ -283,14 +283,14 @@ describe("hooks, exclude entry and records", () => {
 
   it("never overwrites a hand-written blueprint", () => {
     const own = "# Our architecture notes\n\nwritten by hand\n";
-    write("PROJECT_BLUEPRINT.md", own);
+    write("CODE_BLUEPRINT.md", own);
     expect(writeBlueprint(r())[1]).toBe(false);
     uninstallRepo(r());
-    expect(readFileSync(join(root, "PROJECT_BLUEPRINT.md"), "utf8")).toBe(own);
+    expect(readFileSync(join(root, "CODE_BLUEPRINT.md"), "utf8")).toBe(own);
   });
 
   it("updates a blueprint the Python generator wrote", () => {
-    write("PROJECT_BLUEPRINT.md", "# Project Blueprint: repo\n\n_Auto-maintained by `scripts/project_blueprint.py` (v20261120)._\n");
+    write("CODE_BLUEPRINT.md", "# Code Blueprint: repo\n\n_Auto-maintained by `scripts/project_blueprint.py` (v20261120)._\n");
     const [bp, changed] = writeBlueprint(r());
     expect(changed).toBe(true);
     expect(readFileSync(bp, "utf8")).toContain("`scripts/project_blueprint.mjs`");
@@ -307,12 +307,39 @@ describe("hooks, exclude entry and records", () => {
     expect(readFileSync(join(root, "CLAUDE.md"), "utf8")).toBe(original);
   });
 
+  it("brings its old anchor hint (naming PROJECT_BLUEPRINT.md) up to date in place", () => {
+    const old = "# Rules\n<!-- memento:blueprint-anchor -->\n> [!TIP]\n> 先读 [PROJECT_BLUEPRINT.md](PROJECT_BLUEPRINT.md)\n<!-- memento:blueprint-anchor -->\n\n- be brief\n";
+    write("CLAUDE.md", old);
+    expect(ensureAgentGuidanceAnchor(r())).toEqual(["CLAUDE.md"]);
+    const text = readFileSync(join(root, "CLAUDE.md"), "utf8");
+    expect(text).toContain("[CODE_BLUEPRINT.md](CODE_BLUEPRINT.md)");
+    expect(text).not.toContain("PROJECT_BLUEPRINT.md");
+    expect(text.endsWith("- be brief\n")).toBe(true);
+    expect(ensureAgentGuidanceAnchor(r())).toEqual([]); // already current
+  });
+
+  it("moves its own untracked PROJECT_BLUEPRINT.md to CODE_BLUEPRINT.md, exclude line included; a hand-written one stays", () => {
+    const old = "# Project Blueprint: x\n\n_Auto-maintained by `scripts/project_blueprint.mjs` (v20261123)._\n";
+    write("PROJECT_BLUEPRINT.md", old);
+    const exclude = join(root, ".git", "info", "exclude");
+    writeFileSync(exclude, `# local\n${EXCLUDE_MARK}\n/PROJECT_BLUEPRINT.md\n`);
+    writeBlueprint(root);
+    expect(existsSync(join(root, "PROJECT_BLUEPRINT.md"))).toBe(false);
+    expect(readFileSync(join(root, "CODE_BLUEPRINT.md"), "utf8")).toMatch(/^# Code Blueprint: /);
+    expect(readFileSync(exclude, "utf8")).toBe(`# local\n${EXCLUDE_MARK}\n/CODE_BLUEPRINT.md\n`);
+    expect(git(root, "status", "--porcelain")).not.toContain("BLUEPRINT");
+
+    write("PROJECT_BLUEPRINT.md", "# Our own notes, written by hand\n");
+    writeBlueprint(root);
+    expect(readFileSync(join(root, "PROJECT_BLUEPRINT.md"), "utf8")).toBe("# Our own notes, written by hand\n");
+  });
+
   it("a tracked blueprint survives uninstall", () => {
     writeBlueprint(r());
-    git(root, "add", "-f", "PROJECT_BLUEPRINT.md");
+    git(root, "add", "-f", "CODE_BLUEPRINT.md");
     git(root, "commit", "-qm", "bp", "--no-verify");
     installGitHook(r());
     uninstallRepo(r());
-    expect(existsSync(join(root, "PROJECT_BLUEPRINT.md"))).toBe(true);
+    expect(existsSync(join(root, "CODE_BLUEPRINT.md"))).toBe(true);
   });
 });

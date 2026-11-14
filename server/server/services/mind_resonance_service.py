@@ -42,7 +42,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..db.models import (
     Document, KnowledgeEntity, KnowledgeObservation, KnowledgeRelation, Machine, Project, User, UserMemory,
 )
-from .blueprint_pick import pick_freshest
+from .blueprint_pick import CODE_BLUEPRINT_TITLES, code_blueprint_path, pick_freshest
 from .guidance_service import score, terms_for
 from .profile_service import get_published_profile, split_profile_scopes
 
@@ -673,12 +673,12 @@ def _quick_summary(raw: str, max_chars: int) -> str:
 
 
 def _summarize_blueprint_markdown(raw: str, max_chars: int = 1200) -> str:
-    """Extract a high-signal architectural digest from PROJECT_BLUEPRINT.md."""
-    if not raw or "# Project Blueprint" not in raw:
+    """Extract a high-signal architectural digest from a code blueprint (CODE_BLUEPRINT.md / PROJECT_BLUEPRINT.md)."""
+    if not raw or not any(t in raw for t in CODE_BLUEPRINT_TITLES):
         return ""
     quick = _quick_summary(raw, max_chars)
     if quick:
-        title = next((s.strip() for s in raw.splitlines() if s.startswith("# Project Blueprint:")), "")
+        title = next((s.strip() for s in raw.splitlines() if s.startswith(CODE_BLUEPRINT_TITLES)), "")
         return f"{title}\n{quick}" if title else quick
     keep_lines: list[str] = []
     in_mermaid = False
@@ -696,7 +696,7 @@ def _summarize_blueprint_markdown(raw: str, max_chars: int = 1200) -> str:
         if any(
             sline.startswith(p)
             for p in (
-                "# Project Blueprint:",
+                *CODE_BLUEPRINT_TITLES,
                 "- **Project Type**:",
                 "- **Core Languages**:",
                 "- **Key Frameworks**:",
@@ -720,7 +720,7 @@ async def _fetch_project_blueprint_summary(
     project_name: str | None,
     raw_project_arg: str | None = None,
 ) -> str:
-    """Summarize the project's PROJECT_BLUEPRINT.md as the user's own devices uploaded it. Paths are
+    """Summarize the project's code blueprint as the user's own devices uploaded it. Paths are
     on the user's device: only their last segment names the project, nothing is read on the server."""
     names: list[str] = []
     for cand in (project_name, raw_project_arg):
@@ -738,13 +738,13 @@ async def _fetch_project_blueprint_summary(
                 Project.title.ilike(name),
                 Project.slug.ilike(name),
                 Project.slug.ilike(f"%/{name}"),
-                Document.relative_path.ilike(f"{name}/PROJECT_BLUEPRINT.md"),
+                code_blueprint_path(Document.relative_path, name),
             ]
         # One copy per device checkout: the newest code wins, not the device that synced last
         doc_q = (
             select(Document.content, Document.synced_at)
             .outerjoin(Project, Document.project_id == Project.id)
-            .where(or_(*conds), Document.relative_path.ilike("%PROJECT_BLUEPRINT.md"))
+            .where(or_(*conds), code_blueprint_path(Document.relative_path))
             .order_by(Document.synced_at.desc())
             .limit(20)
         )
@@ -941,7 +941,7 @@ def render_mind_resonance_markdown(res: dict[str, Any], live_rules: list[str] | 
     # Living Codebase Blueprint Digest
     bp_summary = (res.get("blueprint_summary") or "").strip()
     if bp_summary:
-        lines.append("\n【目标项目活体代码架构快照 (PROJECT_BLUEPRINT.md)】：")
+        lines.append("\n【目标项目代码蓝图快照 (CODE_BLUEPRINT.md)】：")
         lines.append(bp_summary)
 
     ubp_summary = (res.get("user_blueprint_summary") or "").strip()
@@ -1361,7 +1361,7 @@ def enrich_check_rules_result(guidance_md: str, resonance: dict[str, Any]) -> st
 
     bp_summary = (resonance.get("blueprint_summary") or "").strip()
     if bp_summary:
-        mind_lines.append("\n【目标项目活体代码架构快照 (PROJECT_BLUEPRINT.md)】：")
+        mind_lines.append("\n【目标项目代码蓝图快照 (CODE_BLUEPRINT.md)】：")
         mind_lines.append(bp_summary)
 
     ubp_summary = (resonance.get("user_blueprint_summary") or "").strip()

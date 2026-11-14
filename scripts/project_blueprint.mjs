@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Memento living blueprint generator: writes and maintains PROJECT_BLUEPRINT.md for AI agents. Run with --help.
+// Memento living blueprint generator: writes and maintains the code blueprint CODE_BLUEPRINT.md and checks BUSINESS_BLUEPRINT.md, for AI agents. Run with --help.
 // Generated from packages/daemon/src/blueprint by packages/daemon/scripts/build-runners.mjs: do not edit.
 
 // packages/daemon/src/blueprint/files.ts
@@ -5091,7 +5091,7 @@ function scanSubsystems(root) {
   if (!subsystems.length) {
     for (const f of sortedPaths(iterdir(root))) {
       const fn = pname(f);
-      if (isFile(f) && !fn.startsWith(".") && !["PROJECT_BLUEPRINT.md", "package-lock.json", "pnpm-lock.yaml", "yarn.lock"].includes(fn)) {
+      if (isFile(f) && !fn.startsWith(".") && !["CODE_BLUEPRINT.md", "PROJECT_BLUEPRINT.md", "BUSINESS_BLUEPRINT.md", "package-lock.json", "pnpm-lock.yaml", "yarn.lock"].includes(fn)) {
         const role = fn.toLowerCase().startsWith("readme") ? "Documentation" : "Data / Config Asset";
         subsystems.push({ name: fn, path: fn, type: role, description: `Repository ${role.toLowerCase()} (${fn})` });
       }
@@ -5723,7 +5723,7 @@ function scanHotspotsAndTests(root) {
     const counts = /* @__PURE__ */ new Map();
     for (const line of pySplitlines(out)) {
       const p = pyStrip(line);
-      if (!p || p === "PROJECT_BLUEPRINT.md" || p === "deploy/k8s/kustomization.yaml" || endsWithAny(p, HOTSPOT_SKIP_SUFFIXES)) continue;
+      if (!p || p === "CODE_BLUEPRINT.md" || p === "PROJECT_BLUEPRINT.md" || p === "BUSINESS_BLUEPRINT.md" || p === "deploy/k8s/kustomization.yaml" || endsWithAny(p, HOTSPOT_SKIP_SUFFIXES)) continue;
       if (pparts(p).some((part) => IGNORED_DIRS.has(part))) continue;
       if (!isFile(pjoin(root, p))) continue;
       counts.set(p, (counts.get(p) ?? 0) + 1);
@@ -6126,8 +6126,12 @@ function detectVerificationCommands(root) {
 }
 
 // packages/daemon/src/blueprint/meta.ts
-var BLUEPRINT_SCRIPT_VERSION = 20261123;
-var BLUEPRINT_FILE = "PROJECT_BLUEPRINT.md";
+var BLUEPRINT_SCRIPT_VERSION = 20261124;
+var BLUEPRINT_FILE = "CODE_BLUEPRINT.md";
+var LEGACY_BLUEPRINT_FILE = "PROJECT_BLUEPRINT.md";
+var CODE_BLUEPRINT_FILES = [BLUEPRINT_FILE, LEGACY_BLUEPRINT_FILE];
+var BLUEPRINT_TITLE = "# Code Blueprint:";
+var LEGACY_BLUEPRINT_TITLE = "# Project Blueprint:";
 var BUSINESS_FILE = "BUSINESS_BLUEPRINT.md";
 var SCRIPT_NAME = "project_blueprint.mjs";
 var LEGACY_SCRIPT_NAME = "project_blueprint.py";
@@ -6398,7 +6402,7 @@ function recentDiffs(root, n) {
       const d = line.match(/^diff --git a\/(.+?) b\/(.+)$/);
       if (d) {
         const file = d[2];
-        cur = file === BUSINESS_FILE || file === "PROJECT_BLUEPRINT.md" ? null : { changed: "", ranges: [] };
+        cur = file === BUSINESS_FILE || file === "CODE_BLUEPRINT.md" || file === "PROJECT_BLUEPRINT.md" ? null : { changed: "", ranges: [] };
         if (cur) files.set(file, cur);
         continue;
       }
@@ -6630,7 +6634,7 @@ function businessSkeleton(name) {
   return [
     `# Business Blueprint: ${name}`,
     "",
-    "> 业务蓝图：这个项目应该做成什么样，以及每一条落在哪段代码、由哪个测试保证。和 PROJECT_BLUEPRINT.md（代码长什么样）配合看。",
+    "> 业务蓝图：这个项目应该做成什么样，以及每一条落在哪段代码、由哪个测试保证。和 CODE_BLUEPRINT.md（代码蓝图：代码长什么样）配合看。",
     "> 条目格式见 `scripts/project_blueprint.mjs --help` 的业务蓝图说明；`### ` 开头的编号 T-/F-/R-/S- 分别是术语、流程、规则、状态。",
     "",
     "## 1. 业务对象与术语",
@@ -6812,7 +6816,7 @@ function buildBlueprintContent(root) {
   const mermaidDiagram = generateMermaidDiagram(subsystems, stack, infraList, pkgEdges);
   const evolutionList = getGitEvolution(root, 6);
   const doc = [
-    `# Project Blueprint: ${name}`,
+    `${BLUEPRINT_TITLE} ${name}`,
     "",
     "> [!NOTE]",
     `> **Living Blueprint Auto-Generated** · Branch: \`${branch}\` · Commit: \`${commit}\` · Updated: \`${date}\``,
@@ -7032,7 +7036,7 @@ function withSummaryAndIndex(docLines, summary) {
   const block = [
     "## 0. 速览与章节索引 (Quick Summary & Section Index)",
     "",
-    "> 先读这一节定位全局；要细节时按下表行号只读对应章节（Read 的 offset/limit，或 `sed -n 'A,Bp' PROJECT_BLUEPRINT.md`），不必整份读入。",
+    "> 先读这一节定位全局；要细节时按下表行号只读对应章节（Read 的 offset/limit，或 `sed -n 'A,Bp' CODE_BLUEPRINT.md`），不必整份读入。",
     "",
     ...summary,
     "",
@@ -7070,8 +7074,11 @@ function gitPath(root, flag) {
   const dotGit = pjoin(root, ".git");
   return isDir(dotGit) ? dotGit : null;
 }
+function tracked(root, file) {
+  return gitOk(["ls-files", "--error-unmatch", "--", file], root);
+}
 function isTracked(root) {
-  return gitOk(["ls-files", "--error-unmatch", "--", BLUEPRINT_FILE], root);
+  return tracked(root, BLUEPRINT_FILE) || tracked(root, LEGACY_BLUEPRINT_FILE);
 }
 function isGenerated(p) {
   let text;
@@ -7080,7 +7087,7 @@ function isGenerated(p) {
   } catch {
     return false;
   }
-  return text.startsWith("# Project Blueprint:") && (text.includes(GENERATED_MARK) || text.includes(LEGACY_GENERATED_MARK));
+  return (text.startsWith(BLUEPRINT_TITLE) || text.startsWith(LEGACY_BLUEPRINT_TITLE)) && (text.includes(GENERATED_MARK) || text.includes(LEGACY_GENERATED_MARK));
 }
 function stateDir() {
   return pjoin(homeDir(), ".memento", "blueprint_repos");
@@ -7121,7 +7128,7 @@ var GUIDANCE_FILES = ["CLAUDE.md", "AGENTS.md", "GEMINI.md", ".cursorrules", ".w
 function ensureAgentGuidanceAnchor(root) {
   const anchorSnippet = `${ANCHOR_MARKER}
 > [!TIP]
-> **架构心智指引**：新会话或全局重构前，先读根目录活体代码蓝图 [PROJECT_BLUEPRINT.md](PROJECT_BLUEPRINT.md) 开头的「0. 速览与章节索引」，再按行号只读需要的章节，避免重复 grep 扫描。
+> **架构心智指引**：新会话或全局重构前，先读根目录代码蓝图 [CODE_BLUEPRINT.md](CODE_BLUEPRINT.md) 开头的「0. 速览与章节索引」，再按行号只读需要的章节，避免重复 grep 扫描；有业务蓝图 BUSINESS_BLUEPRINT.md 时，改动前先看相关的业务规则。
 ${ANCHOR_MARKER}
 
 `;
@@ -7131,7 +7138,16 @@ ${ANCHOR_MARKER}
     if (!exists(gf)) continue;
     try {
       const text = readTextIgnore(gf);
-      if (text.includes(BLUEPRINT_FILE)) continue;
+      const block = new RegExp(String.raw`${reEscape(ANCHOR_MARKER)}\n[\s\S]*?${reEscape(ANCHOR_MARKER)}\n\n?`);
+      const m = text.match(block);
+      if (m) {
+        if (m[0] !== anchorSnippet) {
+          atomicWrite(gf, text.replace(block, anchorSnippet));
+          modified.push(rel2);
+        }
+        continue;
+      }
+      if (text.includes(BLUEPRINT_FILE) || text.includes(LEGACY_BLUEPRINT_FILE)) continue;
       const lines = pySplitlines(text, true);
       const newText = lines.length && lines[0].startsWith("#") ? lines[0] + "\n" + anchorSnippet + lines.slice(1).join("") : anchorSnippet + text;
       atomicWrite(gf, newText);
@@ -7173,14 +7189,23 @@ function ensureExcluded(root) {
   if (!common) return false;
   const exclude = pjoin(common, "info", "exclude");
   try {
-    const text = exists(exclude) ? readTextStrict(exclude) : "";
-    if (text.includes(EXCLUDE_MARK)) return true;
+    let text = exists(exclude) ? readTextStrict(exclude) : "";
+    if (text.includes(EXCLUDE_MARK)) {
+      const legacy = `${EXCLUDE_MARK}
+/${LEGACY_BLUEPRINT_FILE}
+`;
+      if (text.includes(legacy)) atomicWrite(exclude, text.replace(legacy, `${EXCLUDE_MARK}
+/${BLUEPRINT_FILE}
+`));
+      return true;
+    }
     if (gitOk(["check-ignore", "-q", "--", BLUEPRINT_FILE], root)) return false;
     fs2.mkdirSync(toNative(pparent(exclude)), { recursive: true });
     const sep = !text || text.endsWith("\n") ? "" : "\n";
-    atomicWrite(exclude, `${text}${sep}${EXCLUDE_MARK}
+    text = `${text}${sep}${EXCLUDE_MARK}
 /${BLUEPRINT_FILE}
-`);
+`;
+    atomicWrite(exclude, text);
     return true;
   } catch (e) {
     if (!isOSError(e)) throw e;
@@ -7198,7 +7223,7 @@ function removeExcluded(root) {
     return;
   }
   if (text.includes(EXCLUDE_MARK)) {
-    atomicWrite(exclude, reSub(String.raw`(?m)^${reEscape(EXCLUDE_MARK)}\n(?:/${reEscape(BLUEPRINT_FILE)}\n?)?`, "", text));
+    atomicWrite(exclude, reSub(String.raw`(?m)^${reEscape(EXCLUDE_MARK)}\n(?:/(?:${reEscape(BLUEPRINT_FILE)}|${reEscape(LEGACY_BLUEPRINT_FILE)})\n?)?`, "", text));
   }
 }
 function writeBlueprint(root, outPath = null) {
@@ -7206,6 +7231,13 @@ function writeBlueprint(root, outPath = null) {
   if (outPath === null && isFile(target) && !isGenerated(target)) return [target, false];
   const changed = atomicWrite(target, buildBlueprintContent(root));
   if (samePath(resolvePath(target), resolvePath(pjoin(root, BLUEPRINT_FILE)))) {
+    const legacy = pjoin(root, LEGACY_BLUEPRINT_FILE);
+    if (isFile(legacy) && isGenerated(legacy)) {
+      try {
+        fs2.unlinkSync(toNative(legacy));
+      } catch {
+      }
+    }
     try {
       refreshBusinessBlueprint(root);
     } catch {
@@ -7225,7 +7257,7 @@ var scriptCandidates = [
 ];
 var HOOK_TEMPLATE = [
   HOOK_MARKER_START,
-  "# Keeps PROJECT_BLUEPRINT.md current on commit, merge, rebase and branch switch (managed by Memento)",
+  "# Keeps CODE_BLUEPRINT.md current on commit, merge, rebase and branch switch (managed by Memento)",
   "__memento_rc=$?",
   "(",
   "    GIT_DIR_PATH=$(git rev-parse --git-dir 2>/dev/null) || exit 0",
@@ -7253,13 +7285,13 @@ var HOOK_TEMPLATE = [
   "        fi",
   "    done",
   '    [ -n "$BP_NODE" ] || BP_NODE=$(command -v node 2>/dev/null) || exit 0',
-  "    if git ls-files --error-unmatch PROJECT_BLUEPRINT.md >/dev/null 2>&1; then",
+  "    if git ls-files --error-unmatch CODE_BLUEPRINT.md >/dev/null 2>&1 || git ls-files --error-unmatch PROJECT_BLUEPRINT.md >/dev/null 2>&1; then",
   "        # Tracked: regenerated into the commit itself; afterwards only the HEAD it matches is recorded",
   '        if [ "$HOOK_NAME" = "pre-commit" ]; then',
   "            # BUSINESS_BLUEPRINT.md is staged with its refreshed check only when it has no unstaged edits of its own",
   '            BP_BIZ=""',
   "            if git ls-files --error-unmatch BUSINESS_BLUEPRINT.md >/dev/null 2>&1 && git diff --quiet -- BUSINESS_BLUEPRINT.md 2>/dev/null; then BP_BIZ=1; fi",
-  '            ELECTRON_RUN_AS_NODE=1 "$BP_NODE" "$BP_SCRIPT" --root . --quiet >/dev/null 2>&1 && git add PROJECT_BLUEPRINT.md >/dev/null 2>&1 && { [ -z "$BP_BIZ" ] || git add BUSINESS_BLUEPRINT.md >/dev/null 2>&1; }',
+  '            ELECTRON_RUN_AS_NODE=1 "$BP_NODE" "$BP_SCRIPT" --root . --quiet >/dev/null 2>&1 && git add CODE_BLUEPRINT.md >/dev/null 2>&1 && { [ -f PROJECT_BLUEPRINT.md ] || git rm -q --cached --ignore-unmatch PROJECT_BLUEPRINT.md >/dev/null 2>&1; } && { [ -z "$BP_BIZ" ] || git add BUSINESS_BLUEPRINT.md >/dev/null 2>&1; }',
   "        else",
   '            git rev-parse --short HEAD > "$GIT_DIR_PATH/.memento_blueprint_head" 2>/dev/null',
   "        fi",
@@ -7434,12 +7466,14 @@ function uninstallRepo(root) {
   removeExcluded(root);
   const anchors = pyGet(state, "anchors");
   removeAgentGuidanceAnchor(root, pyIter(truthy(anchors) ? anchors : []).map((f) => pyStr(f)));
-  const bp = pjoin(root, BLUEPRINT_FILE);
-  if (isFile(bp) && !isTracked(root) && isGenerated(bp)) {
-    try {
-      fs2.unlinkSync(toNative(bp));
-    } catch {
-      ok = false;
+  for (const name of CODE_BLUEPRINT_FILES) {
+    const bp = pjoin(root, name);
+    if (isFile(bp) && !tracked(root, name) && isGenerated(bp)) {
+      try {
+        fs2.unlinkSync(toNative(bp));
+      } catch {
+        ok = false;
+      }
     }
   }
   try {
@@ -7561,19 +7595,19 @@ function bootstrapDiscoveredProjects(quiet = false, anchor = false) {
 // packages/daemon/src/blueprint/cli.ts
 var OPTIONS = [
   { flag: "--root", dest: "root", value: "ROOT", help: "Project root directory (default: current directory)" },
-  { flag: "--output", dest: "output", value: "OUTPUT", help: "Output markdown path (default: <root>/PROJECT_BLUEPRINT.md)" },
+  { flag: "--output", dest: "output", value: "OUTPUT", help: "Output markdown path (default: <root>/CODE_BLUEPRINT.md)" },
   { flag: "--install-hook", dest: "install_hook", help: "Install the git hooks that keep the blueprint current" },
   { flag: "--uninstall-hook", dest: "uninstall_hook", help: "Remove the git hooks only" },
   { flag: "--uninstall", dest: "uninstall", help: "Take back everything done in --root (hooks, markers, generated file)" },
   { flag: "--uninstall-all", dest: "uninstall_all", help: "--uninstall for every repo this script touched" },
   { flag: "--anchor", dest: "anchor", help: "Also add a read-the-blueprint hint to the repo's CLAUDE.md / AGENTS.md / ..." },
   { flag: "--bootstrap-discovered", dest: "bootstrap_discovered", help: "Discover and install blueprint & hooks across all local git projects" },
-  { flag: "--check", dest: "check", help: "Check if current PROJECT_BLUEPRINT.md is up-to-date" },
+  { flag: "--check", dest: "check", help: "Check if current CODE_BLUEPRINT.md is up-to-date" },
   { flag: "--business", dest: "business", help: "Check BUSINESS_BLUEPRINT.md against the code, refresh its generated regions, exit 1 on broken anchors or broken rules" },
   { flag: "--business-init", dest: "business_init", help: "Write a starting BUSINESS_BLUEPRINT.md (layout and one example of each entry kind) when there is none" },
   { flag: "--quiet", dest: "quiet", help: "Suppress stdout messages" }
 ];
-var DESCRIPTION = "Generate and maintain living PROJECT_BLUEPRINT.md for AI agents.";
+var DESCRIPTION = "Generate and maintain the living code blueprint CODE_BLUEPRINT.md (PROJECT_BLUEPRINT.md before) and check BUSINESS_BLUEPRINT.md, for AI agents.";
 var BUSINESS_HELP = [
   "BUSINESS_BLUEPRINT.md (业务蓝图) entries are `### <ID> <title>` headings; the ID's letter is the kind:",
   "  T- term (术语)  F- flow (流程, numbered steps)  R- rule (规则)  S- state (状态归属)",

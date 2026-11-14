@@ -1,4 +1,9 @@
-"""Which of several devices' copies of a project's PROJECT_BLUEPRINT.md describes the newest code.
+"""Which of several devices' copies of a project's code blueprint describes the newest code.
+
+The code blueprint is CODE_BLUEPRINT.md; clients before 1.0.134 (and their generator) call it PROJECT_BLUEPRINT.md.
+Every reader takes both names (code_blueprint_path), and a device that moved over has both copies on the server
+for a while: the newer code wins either way.
+
 
 Each device uploads the blueprint of its own checkout, and synced_at moves on every sync, so the copy
 synced last can be a checkout weeks behind (2026-11-09: a laptop still at a 10-17 commit kept winning
@@ -15,6 +20,33 @@ import re
 from typing import TypeVar
 
 T = TypeVar("T")
+
+CODE_BLUEPRINT_FILE = "CODE_BLUEPRINT.md"
+LEGACY_CODE_BLUEPRINT_FILE = "PROJECT_BLUEPRINT.md"
+CODE_BLUEPRINT_FILES = (CODE_BLUEPRINT_FILE, LEGACY_CODE_BLUEPRINT_FILE)
+CODE_BLUEPRINT_TITLES = ("# Code Blueprint:", "# Project Blueprint:")
+
+
+def code_blueprint_path(col, leaf: str | None = None):
+    """SQL: the document is a code blueprint (either name, the whole file name, case-sensitive; uploaded as
+    `<repo folder>/<name>`), of the repo folder `leaf` when given. A memory note like
+    project_code_blueprint.md is not one (ilike '%..' took such a note for a blueprint, 2026-11-14)."""
+    from sqlalchemy import or_
+
+    if leaf is not None:
+        return or_(*(col == f"{leaf}/{name}" for name in CODE_BLUEPRINT_FILES))
+    return or_(*(cond for name in CODE_BLUEPRINT_FILES for cond in (col == name, col.like(f"%/{name}"))))
+
+
+def is_code_blueprint_path(path: str | None) -> bool:
+    p = path or ""
+    return any(p == name or p.endswith("/" + name) for name in CODE_BLUEPRINT_FILES)
+
+
+def code_blueprint_title(content: str | None) -> str | None:
+    """The project name in a generated code blueprint's first heading, None when it isn't one."""
+    m = re.search(r"^# (?:Code|Project) Blueprint:\s*(.+)$", content or "", re.MULTILINE)
+    return m.group(1).strip() if m else None
 
 _COMMIT = re.compile(r"Commit: `([0-9a-f]{7,40})`")
 _UPDATED = re.compile(r"Updated: `(\d{4}-\d{2}-\d{2})`")

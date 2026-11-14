@@ -62,6 +62,8 @@ import { ExecutionMode, RunCursor, Source, Turn, compressImageToDataUrl, interru
 // The session picker shows the latest few messages as a preview and loads the full conversation on pick
 const SESSION_PICKER_LIST = { messagesPerSession: 5, artifacts: false };
 const NO_TURNS: Turn[] = [];
+/** Conversations deleted in this page's lifetime: no list fetched later brings them back (see loadConversations). */
+const deletedConversationIds = new Set<string>();
 // Coming back to the page fires several wake events: within this long (or while one check runs) they're one
 const WAKE_COALESCE_MS = 3_000;
 
@@ -937,7 +939,9 @@ function AskPageContent() {
       // 桌面/网页端默认加载全量历史会话 ("all")，由抽屉内置的高性能 filter 进行设备级瞬时切换
       const devToQuery = filterDev !== undefined ? filterDev : "all";
       const list = await api.listAskConversations(devToQuery, 500);
-      const safeList = list || [];
+      // A list fetched around a delete can still carry the deleted one (another api replica's cache, a
+      // request already on its way): it never comes back
+      const safeList = (list || []).filter((c) => !deletedConversationIds.has(c.id));
       setConversations(safeList);
       try {
         localStorage.setItem(CONVERSATIONS_CACHE_KEY, JSON.stringify(safeList.slice(0, 500)));
@@ -1734,17 +1738,25 @@ function AskPageContent() {
     async (e: React.MouseEvent, id: string) => {
       e.stopPropagation();
       if (!window.confirm(t.ask.deleteConfirm)) return;
+      deletedConversationIds.add(id);
       try {
         await api.deleteAskConversation(id);
         setConversations((prev) => prev.filter((c) => c.id !== id));
+        try {
+          const cached = JSON.parse(localStorage.getItem(CONVERSATIONS_CACHE_KEY) || "[]") as AskConversationSummary[];
+          localStorage.setItem(CONVERSATIONS_CACHE_KEY, JSON.stringify(cached.filter((c) => c.id !== id)));
+        } catch {}
+        conversationTurnsCache.delete(id);
         if (activeConversationIdRef.current === id) {
           startNewChat();
         }
       } catch (e) {
+        deletedConversationIds.delete(id);
         console.error("Failed to delete conversation:", e);
+        window.alert(isZh ? `删除失败：${e instanceof Error ? e.message : String(e)}` : `Delete failed: ${e instanceof Error ? e.message : String(e)}`);
       }
     },
-    [startNewChat, t.ask.deleteConfirm]
+    [startNewChat, t.ask.deleteConfirm, isZh]
   );
 
   // The history drawer's callbacks, kept the same between renders: it is memoized so a streaming
@@ -4610,6 +4622,9 @@ function AskPageContent() {
     () => conversations.find((c) => c.id === activeConversationId),
     [conversations, activeConversationId]
   );
+  // "Resuming" only for a session picked from the history (ensure-by-session records it as the
+  // conversation's origin); one this conversation's own first message started is simply its session
+  const sessionPicked = !activeConversationId || activeConversation?.config?.origin_session_id === selectedSessionId;
   const displayConvTitle = useMemo(() => {
     const raw = activeConversation?.title?.trim();
     if (raw && raw.toLowerCase() !== "start" && raw !== t.ask.title) return raw;
@@ -5374,24 +5389,18 @@ function AskPageContent() {
                     >
                       <Icon name="clock" size={11} style={{ flexShrink: 0 }} />
                       <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {isZh ? "续: " : "Resuming: "}
                         {(() => {
                           const s = sessions.find((x) => (x.session_id || x.conversation_id) === selectedSessionId);
-                          const isCurrentActive = Boolean(
-                            activeConversation &&
-                            (activeConversation.config?.session_id === selectedSessionId ||
-                             activeConversation.id === selectedSessionId)
-                          );
-                          const matchedConv = isCurrentActive
-                            ? activeConversation
-                            : conversations.find((c) => c.config?.session_id === selectedSessionId || c.id === selectedSessionId);
-                          const convTitle = isCurrentActive ? displayConvTitle : matchedConv?.title;
-                          const t = (!isJunkSessionTitle(convTitle) ? convTitle : undefined)
+                          // The session picked is always the open conversation's own (picking one opens its
+                          // conversation), so that conversation's title names it, even before the session is
+                          // collected into the list (it showed the raw id: 2026-11-14)
+                          const convTitle = activeConversationId ? displayConvTitle : undefined;
+                          const title = (!isJunkSessionTitle(convTitle) ? convTitle : undefined)
                             || (!isJunkSessionTitle(s?.title) ? s?.title : undefined)
                             || convTitle
                             || s?.title
                             || selectedSessionId;
-                          return t;
+                          return `${sessionPicked ? (isZh ? "续: " : "Resuming: ") : (isZh ? "会话: " : "Session: ")}${title}`;
                         })()}
                       </span>
                     </span>
@@ -6209,6 +6218,8 @@ function AskPageContent() {
                 onToggleContext={() => setShowSessionContext(!showSessionContext)}
                 onExit={() => handleSelectSession("")}
                 executionMode={executionMode}
+                inOpenConversation={Boolean(activeConversationId)}
+                picked={sessionPicked}
               />
             )}
           </div>

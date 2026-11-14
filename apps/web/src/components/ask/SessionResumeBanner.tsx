@@ -25,6 +25,8 @@ export function SessionResumeBanner({
   onToggleContext,
   onExit,
   executionMode,
+  inOpenConversation,
+  picked,
 }: {
   sessionId: string;
   sessions: AgentSessionItem[];
@@ -40,11 +42,15 @@ export function SessionResumeBanner({
   onToggleContext: () => void;
   onExit: () => void;
   executionMode: ExecutionMode;
+  /** A conversation is open: the session is its own (picking a session opens its conversation) */
+  inOpenConversation: boolean;
+  /** Picked from the history, not started by this conversation's own first message */
+  picked: boolean;
 }) {
   const { locale } = useI18n();
   const isZh = locale.startsWith("zh");
   const activeSession = sessions.find((s) => (s.session_id || s.conversation_id) === sessionId);
-  const isCurrentActive = Boolean(
+  const isCurrentActive = inOpenConversation || Boolean(
     activeConversation &&
     (activeConversation.config?.session_id === sessionId ||
      activeConversation.id === sessionId)
@@ -92,7 +98,7 @@ export function SessionResumeBanner({
         <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, overflow: "hidden" }}>
           <Icon name={compactMode ? "sparkles" : "clock"} size={14} style={{ color: compactMode ? "#10b981" : "var(--aurora-accent)", flexShrink: 0 }} />
           <span style={{ fontWeight: 600, color: compactMode ? "#10b981" : "var(--aurora-accent)", flexShrink: 0 }}>
-            {compactMode ? (isZh ? "🌟 智能瘦身续接:" : "🌟 Compact resume:") : (isZh ? "续接历史会话:" : "Resuming session:")}
+            {compactMode ? (isZh ? "🌟 智能瘦身续接:" : "🌟 Compact resume:") : picked ? (isZh ? "续接历史会话:" : "Resuming session:") : (isZh ? "本对话的会话:" : "This conversation's session:")}
           </span>
           <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--aurora-fg2)", fontWeight: 500 }}>
             {sessionTitle}

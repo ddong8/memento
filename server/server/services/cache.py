@@ -115,9 +115,42 @@ async def cache_set(key: str, value: Any, ttl_seconds: int) -> None:
         logger.debug("cache_set(%s) failed: %s", key, e)
 
 
+# The other replicas' L1 copies: each api replica keeps its own, for up to 15 s. Dropping only this
+# one's let the next read on another replica serve the old value (2026-11-14: a deleted conversation
+# came back in the list from the other replica, 33 ms after the delete).
+_L1_BUST_CHANNEL = "memento:cl:cache-l1-bust"
+
+
+def _on_l1_bust(_channel: str, message: dict) -> None:
+    prefix = message.get("prefix")
+    if isinstance(prefix, str) and prefix:
+        l1_cache_delete_prefix(prefix)
+
+
+def _register_l1_bust() -> None:
+    try:
+        from .cluster import cluster
+
+        cluster.on(_L1_BUST_CHANNEL, _on_l1_bust)
+    except Exception as e:  # no cluster (tests, tools): this replica's own L1 is all there is
+        logger.debug("L1 bust channel not registered: %s", e)
+
+
+_register_l1_bust()
+
+
 async def cache_delete_prefix(prefix: str) -> int:
-    """Drop every key matching ``<prefix>*`` in both L1 memory and L2 Redis."""
+    """Drop every key matching ``<prefix>*`` in L1 memory (this replica's and, through the cluster
+    channel, every other one's) and in L2 Redis."""
     l1_cache_delete_prefix(prefix)
+    try:
+        from .cluster import cluster
+
+        cluster.publish(_L1_BUST_CHANNEL, {"prefix": prefix})
+        # Out before the reply, so a read the client sends right after finds the other replicas busted
+        await cluster.flush(timeout=1.0)
+    except Exception as e:
+        logger.debug("L1 bust broadcast for %s failed: %s", prefix, e)
 
     c = redis_client()
     if c is None:

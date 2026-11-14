@@ -1039,14 +1039,6 @@ html[data-theme="dark"] .quota-badge-blue {
   }
 }
 
-/* 当容器极窄 (<= 420px)，例如小屏手机或超窄分屏时，进一步防溢出 */
-@container askbubble (max-width: 420px) {
-  .ask-bar-model-badge {
-    max-width: 90px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-}
+/* 极窄容器（<= 420px，小屏手机、超窄分屏）不再给模型徽章限宽：左侧一组会换行，模型名始终完整显示 */
 
 

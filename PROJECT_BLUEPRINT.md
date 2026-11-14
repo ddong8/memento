@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `875afd56` · Updated: `2026-11-14`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `8053fdb3` · Updated: `2026-11-14`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,7 +16,7 @@
 - 规模 (Scale): 9 个子系统 · 35 组 API 路由 / 236 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 207 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `875afd56` (2026-11-14): fix: 删除对话后不再从另一副本的缓存里回来；对话自己建的会话不再标成“续”；手机端模型名显示完整
+- 最近改动 (Latest): `8053fdb3` (2026-11-14): feat(额度): 额度按当前对话用的模型显示，Antigravity 各模型分开算
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -640,12 +640,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `8053fdb3` (2026-11-14): feat(额度): 额度按当前对话用的模型显示，Antigravity 各模型分开算
 - `875afd56` (2026-11-14): fix: 删除对话后不再从另一副本的缓存里回来；对话自己建的会话不再标成“续”；手机端模型名显示完整
 - `994868d4` (2026-11-14): fix(antigravity): 等 Antigravity 的定时复查到点再收尾，不再提前挂出后台任务没跑完；升级客户端版本至 v1.0.132
 - `2a58d678` (2026-11-14): fix(antigravity): 新建会话按任务目录选 Antigravity 项目，不再落进最后新建的项目；升级客户端版本至 v1.0.131
 - `2599957c` (2026-11-14): fix(web): 选已有对话的会话时不再把会话预览叠在对话回合上方，Antigravity 工具卡片不再显示原始参数字典
 - `b491477c` (2026-11-14): chore(release): 升级客户端版本至 v1.0.130，更正上一提交误把更新元数据写回 1.0.125
-- `c0fa1b3d` (2026-11-14): chore(release): 升级客户端版本至 v1.0.125，执行机 Antigravity 额度补全模型并按真实额度池计算，执行机自动升级
 
 ## 10. Key Environment Variables & Configuration
 

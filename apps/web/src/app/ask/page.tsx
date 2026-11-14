@@ -2222,6 +2222,23 @@ function AskPageContent() {
     };
   }, [loadConversation, scrollConversationToBottom]);
 
+  // The footer grows (background-task strip, follow-ups, the phone keyboard) and the list above gets
+  // shorter: keep the bottom where it was, or the last lines of the reply sit under the input and the
+  // stream-follow below takes the gap for the user scrolling away and stops following.
+  useEffect(() => {
+    const el = chatScrollRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    let prevHeight = el.clientHeight;
+    const ro = new ResizeObserver(() => {
+      const h = el.clientHeight;
+      const shrunk = prevHeight - h;
+      prevHeight = h;
+      if (shrunk > 0) el.scrollTop += shrunk;
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   // Follow the stream as tokens land & handle conversation switching auto-scroll
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isInitialScrollMountRef = useRef<boolean>(true);
@@ -6339,7 +6356,7 @@ function AskPageContent() {
                     ? `还在等 ${backgroundTasks.length} 个后台任务：${backgroundTasks.map((b) => b.description || b.id).join("、")}`
                     : `Waiting on ${backgroundTasks.length} background task(s): ${backgroundTasks.map((b) => b.description || b.id).join(", ")}`}
                 </span>
-                <span style={{ flexShrink: 0, fontSize: 11, color: "var(--aurora-fg3)" }}>
+                <span className="hidden sm:inline" style={{ flexShrink: 0, fontSize: 11, color: "var(--aurora-fg3)" }}>
                   {isZh ? "结束后本轮才完成，点停止会一起结束" : "The reply ends with them; Stop ends them too"}
                 </span>
               </div>

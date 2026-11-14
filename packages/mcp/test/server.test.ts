@@ -6,7 +6,7 @@ import { join } from "node:path";
 
 import { collectorConfigPath } from "../src/cli.js";
 import { RemoteClient } from "../src/remote.js";
-import { bestSkill, blueprintSection, createServer } from "../src/server.js";
+import { bestSkill, blueprintSection, businessSection, createServer } from "../src/server.js";
 
 type Handler = (url: URL, init: RequestInit) => { status?: number; body: unknown } | undefined;
 
@@ -296,3 +296,30 @@ it("picks the skill that matches the most words", () => {
   expect(bestSkill(skills, "switch-model")?.slug).toBe("switch-model");
   expect(bestSkill(skills, "unrelated")).toBeUndefined();
 });
+
+describe("businessSection", () => {
+  const md = [
+    "# Business Blueprint: demo",
+    "",
+    "<!-- memento:business-index:start (自动生成，勿手改) -->",
+    "- 汇总：规则 2（✅ 2 · ⚠️ 0 · ❌ 0）· 流程 1 · 术语 1 · 状态 0",
+    "| 3. 业务规则 | L9-L12 |",
+    "<!-- memento:business-index:end -->",
+    "## 1. 业务对象与术语",
+    "### T-X x",
+    "## 3. 业务规则",
+    "### R-A 规则 A",
+    "- 来源: 用户",
+  ].join("\n");
+
+  it("gives the index and the rules the blueprint doesn't carry yet, or a section, or all", () => {
+    const out = businessSection(md, "business", ["名称不带 desktop 后缀"]);
+    expect(out).toContain("规则 2（✅ 2");
+    expect(out).not.toContain("memento:business-index");
+    expect(out).not.toContain("### R-A");
+    expect(out).toContain("- 名称不带 desktop 后缀");
+    expect(businessSection(md, "business:3")).toContain("### R-A 规则 A");
+    expect(businessSection(md, "business:all")).toBe(md);
+  });
+});
+

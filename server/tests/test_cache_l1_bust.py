@@ -34,3 +34,35 @@ def test_a_bust_from_another_replica_drops_this_ones_copy():
 
     assert cache.l1_cache_get("ask_conv_list:u2:all:500:0") is None
     assert cache.l1_cache_get("ask_conv_list:u3:all:500:0") == [{"id": "kept"}]
+
+
+class _FakeRedis:
+    def __init__(self):
+        self.data = {}
+
+    async def get(self, key):
+        return self.data.get(key)
+
+    async def set(self, key, value, ex=None):
+        self.data[key] = value
+
+
+@pytest.mark.asyncio
+async def test_a_login_ticket_scanned_on_another_replica_is_seen_here_at_once(monkeypatch):
+    """The page polls replica A; WeChat's callback marks the ticket done on replica B (Redis shared, L1 not)."""
+    from server.api import auth
+
+    redis = _FakeRedis()
+    monkeypatch.setattr(cache, "redis_client", lambda: redis)
+    code = await auth._create_wechat_ticket()
+    assert (await auth._get_ticket_data(code))["status"] == "pending"  # replica A reads it once
+
+    # Replica B: its own empty L1, the same Redis
+    import json
+
+    ticket = json.loads(redis.data[f"wechat_ticket:{code}"])
+    ticket["status"] = "success"
+    redis.data[f"wechat_ticket:{code}"] = json.dumps(ticket)
+
+    assert (await auth._get_ticket_data(code))["status"] == "success"
+    assert cache.l1_cache_get(f"wechat_ticket:{code}") is None

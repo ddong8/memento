@@ -6126,8 +6126,9 @@ function detectVerificationCommands(root) {
 }
 
 // packages/daemon/src/blueprint/meta.ts
-var BLUEPRINT_SCRIPT_VERSION = 20261121;
+var BLUEPRINT_SCRIPT_VERSION = 20261122;
 var BLUEPRINT_FILE = "PROJECT_BLUEPRINT.md";
+var BUSINESS_FILE = "BUSINESS_BLUEPRINT.md";
 var SCRIPT_NAME = "project_blueprint.mjs";
 var LEGACY_SCRIPT_NAME = "project_blueprint.py";
 var GENERATED_MARK = "_Auto-maintained by `scripts/project_blueprint.mjs`";
@@ -6141,6 +6142,523 @@ var RUNTIME_NAME = "runtime";
 function scriptVersionOf(content) {
   const m = content.match(SCRIPT_VERSION_RE);
   return m ? Number(m[1]) : 0;
+}
+
+// packages/daemon/src/blueprint/business.ts
+var KIND_OF = { T: "term", F: "flow", R: "rule", S: "state" };
+var INDEX_START = "<!-- memento:business-index:start (自动生成，勿手改) -->";
+var INDEX_END = "<!-- memento:business-index:end -->";
+var CHECK_START = "<!-- memento:business-check:start (自动生成，勿手改) -->";
+var CHECK_END = "<!-- memento:business-check:end -->";
+var ENTRY_RE = /^###\s+([TFRS]-[A-Z0-9][A-Z0-9-]*)\s+(.+?)\s*$/;
+var FIELD_RE = /^\s*[-*]\s*(来源|代码|测试|禁止|要求|事实源|副本|同步|定义|说明)\s*[:：]\s*(.*)$/;
+var STEP_RE = /^\s*\d+[.)、]\s+(.*)$/;
+var TICKED_RE = /`([^`\n]+)`/g;
+var ANCHOR_FIELDS = /* @__PURE__ */ new Set(["代码", "事实源", "副本", "同步"]);
+var SKIP_DIRS = /* @__PURE__ */ new Set(["node_modules", ".git", "dist", "build", ".next", "out", "coverage", "__pycache__", ".venv", "venv", ".turbo", "target"]);
+var MAX_SCAN_FILES = 2e4;
+var MAX_HITS = 5;
+function splitRef(ref) {
+  const at = ref.indexOf("#");
+  const path = (at < 0 ? ref : ref.slice(0, at)).trim().replace(/\\/g, "/").replace(/^\.\//, "");
+  return [path, at < 0 ? "" : ref.slice(at + 1).trim()];
+}
+function looksLikePath(tok) {
+  const [path] = splitRef(tok);
+  if (!path || /\s/.test(path) || /^[a-z]+:\/\//i.test(path)) return false;
+  return path.includes("/") || /\.[A-Za-z0-9]{1,6}$/.test(path);
+}
+function anchorsIn(text) {
+  const out = [];
+  for (const m of text.matchAll(TICKED_RE)) if (looksLikePath(m[1])) out.push(m[1].trim());
+  return out;
+}
+function patternClauses(text) {
+  const out = [];
+  for (const clause of text.split(/[;；]/)) {
+    const at = clause.search(/\s@\s/);
+    if (at < 0) continue;
+    const pat = [...clause.slice(0, at).matchAll(TICKED_RE)].map((m) => m[1])[0];
+    const paths = [...clause.slice(at).matchAll(TICKED_RE)].map((m) => splitRef(m[1])[0]).filter(Boolean);
+    if (pat && paths.length) out.push({ pattern: pat, paths });
+  }
+  return out;
+}
+function parseBusinessBlueprint(text) {
+  const lines = text.split("\n");
+  const entries = [];
+  let cur = null;
+  let inGenerated = false;
+  let inFence = false;
+  lines.forEach((raw, i) => {
+    const line = raw.replace(/\r$/, "");
+    if (line.startsWith(INDEX_START) || line.startsWith(CHECK_START)) inGenerated = true;
+    if (line.startsWith(INDEX_END) || line.startsWith(CHECK_END)) {
+      inGenerated = false;
+      return;
+    }
+    if (inGenerated) return;
+    if (/^\s*```/.test(line)) inFence = !inFence;
+    if (inFence) return;
+    const head = line.match(ENTRY_RE);
+    if (head) {
+      cur = { id: head[1], kind: KIND_OF[head[1][0]], title: head[2], line: i + 1, sources: [], anchors: [], tests: [], forbidden: [], required: [] };
+      entries.push(cur);
+      return;
+    }
+    if (/^#{1,3}\s/.test(line)) {
+      cur = null;
+      return;
+    }
+    if (!cur) return;
+    const e = cur;
+    const field = line.match(FIELD_RE);
+    if (field) {
+      const [, name, value] = field;
+      if (name === "来源") e.sources.push(value.trim());
+      else if (ANCHOR_FIELDS.has(name)) for (const ref of anchorsIn(value)) e.anchors.push(blankAnchor(ref));
+      else if (name === "测试") for (const ref of anchorsIn(value)) e.tests.push(blankAnchor(ref));
+      else if (name === "禁止") for (const c of patternClauses(value)) e.forbidden.push({ ...c, hits: [], ok: true });
+      else if (name === "要求") for (const c of patternClauses(value)) e.required.push({ ...c, hits: [], ok: true });
+      return;
+    }
+    const step = line.match(STEP_RE);
+    if (step && e.kind === "flow") for (const ref of anchorsIn(step[1])) e.anchors.push(blankAnchor(ref));
+  });
+  return entries;
+}
+function blankAnchor(ref) {
+  const [path, symbol] = splitRef(ref);
+  return { ref, path, symbol, ok: true };
+}
+var fileCache = /* @__PURE__ */ new Map();
+function fileText(root, rel2) {
+  const key = `${root}\0${rel2}`;
+  if (!fileCache.has(key)) {
+    const p = pjoin(root, rel2);
+    fileCache.set(key, isFile(p) ? readTextIgnore(p) : null);
+  }
+  return fileCache.get(key);
+}
+function escapeRe(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+function findSymbol(text, symbol) {
+  const lines = text.split("\n");
+  const ident = /^[A-Za-z_$][\w$]*(?:(?:\.|::)[A-Za-z_$][\w$]*)*$/.test(symbol);
+  if (!ident) {
+    const i = lines.findIndex((l) => l.includes(symbol));
+    return i + 1;
+  }
+  const parts = symbol.split(/\.|::/);
+  const last = parts[parts.length - 1];
+  const word = new RegExp(`(?<![\\w$])${escapeRe(last)}(?![\\w$])`);
+  const def = new RegExp(
+    `(?:function\\*?|class|def|interface|type|enum|const|let|var|async\\s+def|async\\s+function)\\s+${escapeRe(last)}(?![\\w$])|(?<![\\w$.])${escapeRe(last)}\\s*[:=]\\s*(?:async\\s*)?(?:\\(|function|\\w+\\s*=>|use[A-Z]\\w*\\()|^\\s*(?:(?:public|private|protected|static|async|export|readonly)\\s+)*${escapeRe(last)}\\s*\\(`
+  );
+  if (parts.length > 1) {
+    const first = new RegExp(`(?<![\\w$])${escapeRe(parts[0])}(?![\\w$])`);
+    if (!lines.some((l) => first.test(l))) return 0;
+  }
+  const d = lines.findIndex((l) => def.test(l));
+  if (d >= 0) return d + 1;
+  return lines.findIndex((l) => word.test(l)) + 1;
+}
+function checkAnchor(root, a) {
+  const abs = pjoin(root, a.path);
+  if (!exists(abs)) return { ...a, ok: false, reason: "文件不存在" };
+  if (!a.symbol) return { ...a, ok: true };
+  if (isDir(abs)) return { ...a, ok: false, reason: "目录不能带符号" };
+  const text = fileText(root, a.path) ?? "";
+  const line = findSymbol(text, a.symbol);
+  return line ? { ...a, ok: true, line } : { ...a, ok: false, reason: `找不到 ${a.symbol}` };
+}
+function checkTest(root, a) {
+  const abs = pjoin(root, a.path);
+  if (!isFile(abs)) return { ...a, ok: false, reason: "测试文件不存在" };
+  if (!a.symbol) return { ...a, ok: true };
+  const text = fileText(root, a.path) ?? "";
+  const i = text.split("\n").findIndex((l) => l.includes(a.symbol));
+  return i >= 0 ? { ...a, ok: true, line: i + 1 } : { ...a, ok: false, reason: `测试里找不到「${a.symbol}」` };
+}
+function filesUnder(root, rel2) {
+  const start = pjoin(root, rel2);
+  if (isFile(start)) return [rel2.replace(/\/+$/, "")];
+  if (!isDir(start)) return [];
+  const out = [];
+  const stack = [start];
+  while (stack.length && out.length < MAX_SCAN_FILES) {
+    const d = stack.pop();
+    let kids;
+    try {
+      kids = iterdir(d).sort();
+    } catch {
+      continue;
+    }
+    for (const k of kids) {
+      const name = pname(k);
+      if (isDir(k)) {
+        if (!SKIP_DIRS.has(name) && !name.startsWith(".")) stack.push(k);
+      } else if (isFile(k)) {
+        out.push(toPosix(relTo(k, root)));
+      }
+    }
+  }
+  return out;
+}
+function patternTester(pattern) {
+  const re = pattern.length > 2 && pattern.startsWith("/") && pattern.lastIndexOf("/") > 0 ? pattern.slice(1, pattern.lastIndexOf("/")) : null;
+  if (re !== null) {
+    try {
+      const flags = pattern.slice(pattern.lastIndexOf("/") + 1).replace(/[^imsu]/g, "");
+      const r = new RegExp(re, flags);
+      return (l) => r.test(l);
+    } catch {
+      return () => false;
+    }
+  }
+  return (l) => l.includes(pattern);
+}
+var CODE_EXT = /\.(?:[cm]?[jt]sx?|py|ya?ml|sh|bash|css|scss|go|rs|java|kt|swift|rb|toml)$/i;
+var COMMENT_LINE = /^\s*(?:\/\/|#(?!!)|\/?\*|<!--)/;
+function scanPattern(root, c, forbid) {
+  const test = patternTester(c.pattern);
+  const missing = c.paths.filter((p) => !exists(pjoin(root, p)));
+  if (missing.length) return { ...c, ok: false, hits: [], reason: `路径不存在: ${missing.join(", ")}` };
+  const hits = [];
+  for (const p of c.paths) {
+    for (const f of filesUnder(root, p)) {
+      const text = fileText(root, f);
+      if (text === null || text.includes("\0")) continue;
+      const lines = text.split("\n");
+      const code = CODE_EXT.test(f);
+      for (let i = 0; i < lines.length; i++) {
+        if (code && COMMENT_LINE.test(lines[i])) continue;
+        if (!test(lines[i])) continue;
+        hits.push(`${f}:${i + 1}`);
+        if (!forbid || hits.length >= MAX_HITS) break;
+      }
+      if (hits.length >= MAX_HITS || !forbid && hits.length) break;
+    }
+    if (!forbid && hits.length) break;
+  }
+  return { ...c, hits, ok: forbid ? hits.length === 0 : hits.length > 0 };
+}
+function checkEntries(root, entries) {
+  fileCache.clear();
+  return entries.map((e) => {
+    const anchors = e.anchors.map((a) => checkAnchor(root, a));
+    const tests = e.tests.map((a) => checkTest(root, a));
+    const forbidden = e.forbidden.map((c) => scanPattern(root, c, true));
+    const required = e.required.map((c) => scanPattern(root, c, false));
+    const problems = [];
+    for (const a of anchors) if (!a.ok) problems.push(`代码位置失效 \`${a.ref}\`：${a.reason}`);
+    for (const a of tests) if (!a.ok) problems.push(`测试失效 \`${a.ref}\`：${a.reason}`);
+    for (const c of forbidden) {
+      if (c.reason) problems.push(`禁止项 \`${c.pattern}\`：${c.reason}`);
+      else if (!c.ok) problems.push(`出现了禁止的写法 \`${c.pattern}\`：${c.hits.join(", ")}`);
+    }
+    for (const c of required) {
+      if (c.reason) problems.push(`要求项 \`${c.pattern}\`：${c.reason}`);
+      else if (!c.ok) problems.push(`缺少要求的写法 \`${c.pattern}\`（在 ${c.paths.join(", ")}）`);
+    }
+    let verdict = problems.length ? "fail" : "ok";
+    if (verdict === "ok") {
+      if (e.kind === "rule" && !anchors.length) problems.push("没有挂代码位置");
+      if (e.kind === "rule" && !tests.length && !forbidden.length && !required.length) problems.push("没有测试或检查保证");
+      if (e.kind === "rule" && !e.sources.length) problems.push("没有写来源");
+      if (e.kind !== "rule" && !anchors.length) problems.push("没有挂代码位置");
+      if (problems.length) verdict = "warn";
+    }
+    return { ...e, anchors, tests, forbidden, required, verdict, problems };
+  });
+}
+function covers(path, file) {
+  const p = path.replace(/\/+$/, "");
+  return file === p || file.startsWith(p + "/");
+}
+function lastPart2(symbol) {
+  const parts = symbol.split(/\.|::/);
+  return parts[parts.length - 1];
+}
+function recentDiffs(root, n) {
+  const log = runGit(["log", `-${n}`, "--no-merges", "-p", "-U0", "--no-color", "--format=%x1e%h%x1f%s"], root);
+  if (!log) return [];
+  const out = [];
+  for (const rec of log.split("")) {
+    const nl = rec.indexOf("\n");
+    const head = nl < 0 ? rec : rec.slice(0, nl);
+    if (!head.includes("")) continue;
+    const [commit, subject] = head.split("");
+    if (subject.includes("[skip ci]")) continue;
+    const files = /* @__PURE__ */ new Map();
+    let cur = null;
+    for (const line of (nl < 0 ? "" : rec.slice(nl + 1)).split("\n")) {
+      const d = line.match(/^diff --git a\/(.+?) b\/(.+)$/);
+      if (d) {
+        const file = d[2];
+        cur = file === BUSINESS_FILE || file === "PROJECT_BLUEPRINT.md" ? null : { changed: "", ranges: [] };
+        if (cur) files.set(file, cur);
+        continue;
+      }
+      if (!cur) continue;
+      const h = line.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/);
+      if (h) {
+        const start = Number(h[1]);
+        const count = h[2] === void 0 ? 1 : Number(h[2]);
+        cur.ranges.push(count ? [start, start + count - 1] : [start, start + 1]);
+      } else if ((line.startsWith("+") || line.startsWith("-")) && !line.startsWith("+++") && !line.startsWith("---")) {
+        cur.changed += "\n" + line.slice(1);
+      }
+    }
+    if (files.size) out.push({ commit, subject, files });
+  }
+  return out;
+}
+function blockSpan(lines, line) {
+  const indent = (l) => l.length - l.trimStart().length;
+  const base = indent(lines[line - 1] ?? "");
+  let end = line;
+  for (let i = line; i < lines.length; i++) {
+    const l = lines[i];
+    if (!l.trim()) continue;
+    if (indent(l) > base) {
+      end = i + 1;
+      continue;
+    }
+    if (indent(l) === base && /^\s*[}\])]/.test(l)) end = i + 1;
+    break;
+  }
+  return [line, end];
+}
+function touches(root, e, c, versions) {
+  for (const [file, diff] of c.files) {
+    for (const a of e.anchors) {
+      if (!covers(a.path, file)) continue;
+      if (!a.symbol) return true;
+      const name = lastPart2(a.symbol);
+      if (diff.changed.includes(name)) return true;
+      const key = `${c.commit}:${file}`;
+      if (!versions.has(key)) {
+        const text = runGit(["show", key], root);
+        versions.set(key, text ? text.split("\n") : null);
+      }
+      const lines = versions.get(key);
+      if (!lines) continue;
+      const at = findSymbol(lines.join("\n"), a.symbol);
+      if (!at) continue;
+      const [s, t] = blockSpan(lines, at);
+      if (diff.ranges.some(([x, y]) => x <= t && y >= s)) return true;
+    }
+    for (const t of e.tests) {
+      if (t.path !== file) continue;
+      if (!t.symbol || diff.changed.includes(t.symbol)) return true;
+    }
+    for (const chk of [...e.forbidden, ...e.required]) {
+      if (!chk.paths.some((p) => covers(p, file))) continue;
+      const test = patternTester(chk.pattern);
+      if (diff.changed.split("\n").some((l) => test(l))) return true;
+    }
+  }
+  return false;
+}
+function recentImpact(root, entries, n = 8) {
+  const out = [];
+  for (const c of recentDiffs(root, n)) {
+    const versions = /* @__PURE__ */ new Map();
+    const ids = entries.filter((e) => touches(root, e, c, versions)).map((e) => e.id);
+    if (ids.length) out.push({ commit: c.commit, subject: c.subject, ids: [...new Set(ids)] });
+  }
+  return out;
+}
+function checkBusinessBlueprint(root, text) {
+  const file = pjoin(root, BUSINESS_FILE);
+  const body = text ?? (isFile(file) ? readTextIgnore(file) : null);
+  if (body === null) return null;
+  const parsed = parseBusinessBlueprint(body);
+  if (!parsed.length) return null;
+  const entries = checkEntries(root, parsed);
+  const counts = { term: 0, flow: 0, rule: 0, state: 0 };
+  const rules = { ok: 0, warn: 0, fail: 0 };
+  for (const e of entries) {
+    counts[e.kind]++;
+    if (e.kind === "rule") rules[e.verdict]++;
+  }
+  const seen = /* @__PURE__ */ new Set();
+  const duplicates = [];
+  for (const e of entries) {
+    if (seen.has(e.id)) duplicates.push(e.id);
+    seen.add(e.id);
+  }
+  return {
+    file: BUSINESS_FILE,
+    entries,
+    counts,
+    rules,
+    fails: entries.filter((e) => e.verdict === "fail").length + duplicates.length,
+    warns: entries.filter((e) => e.verdict === "warn").length,
+    impact: recentImpact(root, parsed),
+    duplicates
+  };
+}
+var MARK = { ok: "✅", warn: "⚠️", fail: "❌" };
+function summaryLine(r) {
+  const c = r.counts;
+  return `规则 ${c.rule}（✅ ${r.rules.ok} · ⚠️ ${r.rules.warn} · ❌ ${r.rules.fail}）· 流程 ${c.flow} · 术语 ${c.term} · 状态 ${c.state}`;
+}
+function problemLines(r, limit = Infinity) {
+  const out = [];
+  for (const id of r.duplicates) out.push(`- ❌ \`${id}\`：编号重复`);
+  for (const e of r.entries) {
+    if (e.verdict === "ok") continue;
+    out.push(`- ${MARK[e.verdict]} \`${e.id}\` ${e.title}（L${e.line}）：${e.problems.join("；")}`);
+  }
+  if (out.length > limit) return [...out.slice(0, limit), `- …… 还有 ${out.length - limit} 条，见 ${BUSINESS_FILE} 末尾「自动核对」`];
+  return out;
+}
+function renderCheckRegion(r) {
+  const lines = [
+    CHECK_START,
+    "## 自动核对 (Auto Check)",
+    "",
+    "> 生成器随每次提交核对：代码位置还在不在、测试还在不在、禁止 / 要求的写法满不满足。✅ 通过 · ⚠️ 缺代码位置、测试或来源 · ❌ 位置失效或违反规则（CI 会拦下）。",
+    "",
+    `- 汇总：${summaryLine(r)}`,
+    "",
+    "| 编号 | 名称 | 代码位置 | 测试 | 检查 | 结论 |",
+    "| :--- | :--- | :--- | :--- | :--- | :--- |"
+  ];
+  for (const e of r.entries) {
+    const okA = e.anchors.filter((a) => a.ok).length;
+    const okT = e.tests.filter((a) => a.ok).length;
+    const checks = e.forbidden.length + e.required.length;
+    const okC = e.forbidden.filter((c) => c.ok).length + e.required.filter((c) => c.ok).length;
+    const frac = (ok, all) => all ? `${ok}/${all}` : "—";
+    lines.push(`| \`${e.id}\` | ${e.title.replace(/\|/g, "\\|")} | ${frac(okA, e.anchors.length)} | ${frac(okT, e.tests.length)} | ${frac(okC, checks)} | ${MARK[e.verdict]} |`);
+  }
+  const problems = problemLines(r);
+  lines.push("", "### 需要处理", "", ...problems.length ? problems : ["- 没有。"], CHECK_END);
+  return lines;
+}
+function renderIndex(r, sections) {
+  return [
+    INDEX_START,
+    "> 先读这一段定位；要细节时按下表行号只读对应章节。改了「代码位置」里的文件，先看对应条目还成不成立。",
+    "",
+    `- 汇总：${summaryLine(r)}`,
+    `- 核对：${r.fails ? `❌ ${r.fails} 条需要处理` : "全部通过"}${r.warns ? ` · ⚠️ ${r.warns} 条待补` : ""}（详见末尾「自动核对」）`,
+    "",
+    "| 章节 | 行号 |",
+    "| :--- | :--- |",
+    ...sections.map((s) => `| ${s.title} | L${s.start}-L${s.end} |`),
+    INDEX_END
+  ];
+}
+function stripRegion(lines, start, end) {
+  const s = lines.findIndex((l) => l.startsWith(start));
+  if (s < 0) return { lines, at: -1 };
+  let e = lines.findIndex((l, i) => i > s && l.startsWith(end));
+  if (e < 0) e = s;
+  return { lines: [...lines.slice(0, s), ...lines.slice(e + 1)], at: s };
+}
+function refreshBusinessText(root, text) {
+  let lines = text.replace(/\r\n/g, "\n").split("\n");
+  const idx = stripRegion(lines, INDEX_START, INDEX_END);
+  lines = idx.lines;
+  lines = stripRegion(lines, CHECK_START, CHECK_END).lines;
+  while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
+  let at = idx.at;
+  if (at < 0) {
+    const title = lines.findIndex((l) => l.startsWith("# "));
+    at = title < 0 ? 0 : title + 1;
+    if (lines[at] !== void 0 && !lines[at].trim()) at++;
+  }
+  const report = checkBusinessBlueprint(root, lines.join("\n"));
+  if (!report) return null;
+  const indexLen = renderIndex(report, Array.from({ length: lines.slice(at).filter((l) => l.startsWith("## ")).length + 1 }, () => ({ title: "", start: 0, end: 0 }))).length;
+  for (const e of report.entries) if (e.line > at) e.line += indexLen;
+  const check = renderCheckRegion(report);
+  const headingsAfter = lines.slice(at).filter((l) => l.startsWith("## ")).length + 1;
+  const placeholder = renderIndex(report, Array.from({ length: headingsAfter }, () => ({ title: "", start: 0, end: 0 })));
+  const out = [...lines.slice(0, at), ...placeholder, ...lines.slice(at), "", ...check, ""];
+  const starts = [];
+  for (let i = at + placeholder.length; i < out.length; i++) if (out[i].startsWith("## ")) starts.push(i);
+  const sections = starts.map((s, n) => {
+    let end = (n + 1 < starts.length ? starts[n + 1] : out.length) - 1;
+    while (end > s && (!out[end].trim() || out[end].startsWith("<!-- memento:"))) end--;
+    return { title: out[s].replace(/^##\s+/, ""), start: s + 1, end: end + 1 };
+  });
+  const index = renderIndex(report, sections);
+  out.splice(at, placeholder.length, ...index);
+  return { text: out.join("\n"), report };
+}
+function refreshBusinessBlueprint(root) {
+  const file = pjoin(root, BUSINESS_FILE);
+  if (!isFile(file)) return null;
+  const res = refreshBusinessText(root, readTextIgnore(file));
+  if (!res) return null;
+  atomicWrite(file, res.text);
+  return res.report;
+}
+function projectBlueprintSection(r) {
+  const lines = [
+    "## 11. 业务蓝图核对 (Business Blueprint Check)",
+    "",
+    `- 业务蓝图：[${BUSINESS_FILE}](${BUSINESS_FILE}) · ${summaryLine(r)}`,
+    `- 结论：${r.fails ? `❌ ${r.fails} 条位置失效或违反规则` : "✅ 没有失效或违规"}${r.warns ? ` · ⚠️ ${r.warns} 条缺测试 / 代码位置 / 来源` : ""}`
+  ];
+  const problems = problemLines(r, 12);
+  if (problems.length) lines.push("", "### 需要处理", "", ...problems);
+  if (r.impact.length) {
+    lines.push("", "### 最近提交碰到的业务条目（改动后复查它们还成不成立）", "");
+    for (const it of r.impact) lines.push(`- \`${it.commit}\` ${it.subject.slice(0, 80)} → ${it.ids.map((id) => `\`${id}\``).join(", ")}`);
+  }
+  return lines;
+}
+function formatReport(r) {
+  const out = [`${BUSINESS_FILE}: ${summaryLine(r)}`];
+  const problems = problemLines(r);
+  out.push(...problems.length ? problems : ["全部通过。"]);
+  if (r.impact.length) {
+    out.push("最近提交碰到的条目:");
+    for (const it of r.impact) out.push(`  ${it.commit} ${it.subject.slice(0, 70)} → ${it.ids.join(", ")}`);
+  }
+  return out.join("\n");
+}
+function businessSkeleton(name) {
+  return [
+    `# Business Blueprint: ${name}`,
+    "",
+    "> 业务蓝图：这个项目应该做成什么样，以及每一条落在哪段代码、由哪个测试保证。和 PROJECT_BLUEPRINT.md（代码长什么样）配合看。",
+    "> 条目格式见 `scripts/project_blueprint.mjs --help` 的业务蓝图说明；`### ` 开头的编号 T-/F-/R-/S- 分别是术语、流程、规则、状态。",
+    "",
+    "## 1. 业务对象与术语",
+    "",
+    "### T-EXAMPLE 示例术语",
+    "- 定义: 这个词在本项目里的准确意思。",
+    "- 代码: `src/example.ts#decide`",
+    "",
+    "## 2. 关键流程",
+    "",
+    "### F-EXAMPLE 示例流程",
+    "1. 用户发起 — `src/page.tsx#submit`",
+    "2. 服务端处理 — `server/api.py#handle`",
+    "",
+    "## 3. 业务规则",
+    "",
+    "### R-EXAMPLE 示例规则",
+    "- 来源: 用户 YYYY-MM-DD「原话」",
+    "- 代码: `src/example.ts#decide`",
+    "- 测试: `test/example.test.ts#the test title`",
+    "- 禁止: `bad pattern` @ `src/`",
+    "",
+    "## 4. 状态归属",
+    "",
+    "### S-EXAMPLE 示例状态",
+    "- 事实源: `server/models.py#Thing`",
+    "- 副本: `web/cache.ts#thingCache`（失效方式）",
+    ""
+  ].join("\n");
 }
 
 // packages/daemon/src/blueprint/content.ts
@@ -6445,6 +6963,8 @@ function buildBlueprintContent(root) {
     doc.push("", "## 10. Key Environment Variables & Configuration", "", "| Variable | Default / Status | Description |", "| :--- | :--- | :--- |");
     for (const ev of envVars.slice(0, 20)) doc.push(`| \`${ev.name}\` | \`${ev.default}\` | ${ev.description} |`);
   }
+  const business = checkBusinessBlueprint(root);
+  if (business) doc.push("", ...projectBlueprintSection(business));
   doc.push(
     "",
     "---",
@@ -6463,7 +6983,8 @@ function buildBlueprintContent(root) {
     testSuites,
     commands: detectVerificationCommands(root),
     evolution: evolutionList,
-    about
+    about,
+    business
   });
   return withSummaryAndIndex(doc, summary);
 }
@@ -6493,6 +7014,13 @@ function quickSummary(x) {
   const runnable = x.commands.filter((c) => pyStrip(c) && !pyLstrip(c).startsWith("#")).map((c) => pyStrip(c)).slice(0, 4);
   if (runnable.length) lines.push(`- 自测命令 (Verify): ${runnable.map((c) => `\`${c}\``).join(" ; ")}`);
   if (x.evolution.length) lines.push(`- 最近改动 (Latest): ${pySlice(pyStrip(pyLstrip(x.evolution[0], "- ")), 0, 160)}`);
+  if (x.business) {
+    const b = x.business;
+    const touched = [...new Set(b.impact.slice(0, 3).flatMap((it) => it.ids))].slice(0, 8);
+    lines.push(
+      `- 业务蓝图 (Business): \`${BUSINESS_FILE}\` · ${summaryLine(b)}${b.fails ? ` · ❌ ${b.fails} 条失效/违规` : ""}` + (touched.length ? ` · 最近提交碰到 ${touched.map((id) => `\`${id}\``).join(", ")}` : "")
+    );
+  }
   return lines;
 }
 function withSummaryAndIndex(docLines, summary) {
@@ -6677,6 +7205,10 @@ function writeBlueprint(root, outPath = null) {
   if (outPath === null && isFile(target) && !isGenerated(target)) return [target, false];
   const changed = atomicWrite(target, buildBlueprintContent(root));
   if (samePath(resolvePath(target), resolvePath(pjoin(root, BLUEPRINT_FILE)))) {
+    try {
+      refreshBusinessBlueprint(root);
+    } catch {
+    }
     recordBlueprintHead(root);
     const untracked = !isTracked(root);
     const excluded = untracked ? ensureExcluded(root) : false;
@@ -6723,7 +7255,10 @@ var HOOK_TEMPLATE = [
   "    if git ls-files --error-unmatch PROJECT_BLUEPRINT.md >/dev/null 2>&1; then",
   "        # Tracked: regenerated into the commit itself; afterwards only the HEAD it matches is recorded",
   '        if [ "$HOOK_NAME" = "pre-commit" ]; then',
-  '            ELECTRON_RUN_AS_NODE=1 "$BP_NODE" "$BP_SCRIPT" --root . --quiet >/dev/null 2>&1 && git add PROJECT_BLUEPRINT.md >/dev/null 2>&1',
+  "            # BUSINESS_BLUEPRINT.md is staged with its refreshed check only when it has no unstaged edits of its own",
+  '            BP_BIZ=""',
+  "            if git ls-files --error-unmatch BUSINESS_BLUEPRINT.md >/dev/null 2>&1 && git diff --quiet -- BUSINESS_BLUEPRINT.md 2>/dev/null; then BP_BIZ=1; fi",
+  '            ELECTRON_RUN_AS_NODE=1 "$BP_NODE" "$BP_SCRIPT" --root . --quiet >/dev/null 2>&1 && git add PROJECT_BLUEPRINT.md >/dev/null 2>&1 && { [ -z "$BP_BIZ" ] || git add BUSINESS_BLUEPRINT.md >/dev/null 2>&1; }',
   "        else",
   '            git rev-parse --short HEAD > "$GIT_DIR_PATH/.memento_blueprint_head" 2>/dev/null',
   "        fi",
@@ -7033,9 +7568,23 @@ var OPTIONS = [
   { flag: "--anchor", dest: "anchor", help: "Also add a read-the-blueprint hint to the repo's CLAUDE.md / AGENTS.md / ..." },
   { flag: "--bootstrap-discovered", dest: "bootstrap_discovered", help: "Discover and install blueprint & hooks across all local git projects" },
   { flag: "--check", dest: "check", help: "Check if current PROJECT_BLUEPRINT.md is up-to-date" },
+  { flag: "--business", dest: "business", help: "Check BUSINESS_BLUEPRINT.md against the code, refresh its generated regions, exit 1 on broken anchors or broken rules" },
+  { flag: "--business-init", dest: "business_init", help: "Write a starting BUSINESS_BLUEPRINT.md (layout and one example of each entry kind) when there is none" },
   { flag: "--quiet", dest: "quiet", help: "Suppress stdout messages" }
 ];
 var DESCRIPTION = "Generate and maintain living PROJECT_BLUEPRINT.md for AI agents.";
+var BUSINESS_HELP = [
+  "BUSINESS_BLUEPRINT.md (业务蓝图) entries are `### <ID> <title>` headings; the ID's letter is the kind:",
+  "  T- term (术语)  F- flow (流程, numbered steps)  R- rule (规则)  S- state (状态归属)",
+  "with list fields under them:",
+  "  - 来源: 用户 2026-11-14「原话」            who asked for it (rules)",
+  "  - 代码: `path#symbol`, `path`               where the code decides it (symbol found by name)",
+  "  - 测试: `test/x.test.ts#test title`         the test that proves it",
+  "  - 禁止: `text` @ `dir/`; `/regex/` @ `f`    must not appear there (how the bug looked)",
+  "  - 要求: `text` @ `path`                     must appear there (what keeps it fixed)",
+  "  - 事实源 / 副本 / 同步: …                    (states) their `path#symbol` are checked too",
+  "The generator keeps an index after the title and the check results at the end (between memento markers)."
+].join("\n");
 var UsageError = class extends Error {
 };
 var HelpRequested = class extends Error {
@@ -7135,6 +7684,8 @@ ${description}
 
 options:
 ${body.join("\n")}
+
+${BUSINESS_HELP}
 `;
 }
 function looksLikeOption(word) {
@@ -7165,6 +7716,8 @@ function parseArgs(argv) {
     anchor: false,
     bootstrap_discovered: false,
     check: false,
+    business: false,
+    business_init: false,
     quiet: false
   };
   const extras = [];
@@ -7239,6 +7792,29 @@ function main(argv = process.argv.slice(2), prog = SCRIPT_NAME) {
     const ok2 = uninstallGitHook(root);
     if (!args.quiet) say("Git hooks uninstalled.");
     return ok2 ? 0 : 1;
+  }
+  if (args.business_init) {
+    const file = pjoin(root, BUSINESS_FILE);
+    if (exists(file)) {
+      if (!args.quiet) say(`${BUSINESS_FILE} already exists.`);
+      return 0;
+    }
+    atomicWrite(file, businessSkeleton(pname(root)));
+    if (!args.quiet) say(`Wrote ${toNative(file)}`);
+    return 0;
+  }
+  if (args.business) {
+    if (!exists(pjoin(root, BUSINESS_FILE))) {
+      if (!args.quiet) say(`${BUSINESS_FILE} is missing (--business-init writes a starting one).`);
+      return 1;
+    }
+    const report = refreshBusinessBlueprint(root);
+    if (!report) {
+      if (!args.quiet) say(`${BUSINESS_FILE} has no entries (### T-/F-/R-/S- headings).`);
+      return 1;
+    }
+    if (!args.quiet) say(formatReport(report));
+    return report.fails ? 1 : 0;
   }
   if (args.check) {
     const target2 = outPath ?? pjoin(root, BLUEPRINT_FILE);

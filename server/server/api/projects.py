@@ -455,9 +455,20 @@ async def _resolve_codebase_blueprint(
     project: Project,
     mids: list[uuid.UUID] | None,
 ) -> str | None:
+    """PROJECT_BLUEPRINT.md as the user's devices uploaded it (see _codebase_blueprint_copy)."""
+    copy = await _codebase_blueprint_copy(db, project, mids)
+    return copy[0] if copy else None
+
+
+async def _codebase_blueprint_copy(
+    db: AsyncSession,
+    project: Project,
+    mids: list[uuid.UUID] | None,
+) -> tuple[str, uuid.UUID | None, dict] | None:
     """PROJECT_BLUEPRINT.md as the user's devices uploaded it: of the copies (one per device checkout)
     the one describing the newest code, not the one synced last. The project's own copies come before
-    same-named ones. The project's source_path is a path on the user's device, never read on the server."""
+    same-named ones. The project's source_path is a path on the user's device, never read on the server.
+    (content, the device it came from, its metadata: project_path is where the checkout is there)."""
     try:
         conds = [Document.project_id == project.id]
         for key in (project.title, project.slug):
@@ -465,7 +476,7 @@ async def _resolve_codebase_blueprint(
                 leaf = key.rsplit("/", 1)[-1]
                 conds.append(Document.relative_path.ilike(f"{leaf}/PROJECT_BLUEPRINT.md"))
         bp_q = (
-            select(Document.content, Document.synced_at, Document.project_id)
+            select(Document.content, Document.synced_at, Document.project_id, Document.machine_id, Document.metadata_)
             .where(
                 Document.relative_path.ilike("%PROJECT_BLUEPRINT.md"),
                 or_(*conds),
@@ -478,10 +489,32 @@ async def _resolve_codebase_blueprint(
         own = [r for r in rows if r[2] == project.id]
         best = pick_freshest(own, lambda r: r[0], lambda r: r[1]) or pick_freshest(rows, lambda r: r[0], lambda r: r[1])
         if best is not None:
-            return best[0]
+            return best[0], (best[3] if len(best) > 3 else None), dict((best[4] if len(best) > 4 else None) or {})
     except (Exception, StopIteration):
         pass
     return None
+
+
+async def _business_blueprint_fields(db: AsyncSession, project: Project, mids, user=None) -> dict:
+    """BUSINESS_BLUEPRINT.md for the project: the copy from the same checkout as the code blueprint, what its
+    check says, and (given the user) which of their rules for the project it doesn't carry yet."""
+    from ..services import business_blueprint as biz
+
+    code = await _codebase_blueprint_copy(db, project, mids)
+    try:
+        found = await biz.resolve_business_blueprint(db, project, mids, prefer_machine=code[1] if code else None)
+    except Exception:
+        found = None
+    text = found[0] if found else None
+    out: dict = {"business_blueprint": text, "business_check": biz.check_summary(text) if text else None}
+    if user is not None:
+        try:
+            rules = await biz.project_rules(db, user, project)
+        except Exception:
+            rules = []
+        out["business_rules_total"] = len(rules)
+        out["business_uncovered_rules"] = biz.uncovered_rules(text, rules) if text else [r.lstrip("-* ").strip() for r in rules]
+    return out
 
 
 @router.get("/{project_id}")
@@ -548,6 +581,7 @@ async def get_project(
         "source_path": clean_path,
         "visibility": project.visibility,
         "codebase_blueprint": codebase_blueprint,
+        **(await _business_blueprint_fields(db, project, mids, _user)),
         "documents": [_doc_row(d) for d in docs],
     }
 
@@ -1973,6 +2007,7 @@ async def get_project_blueprint(
             Document.project_id == project_id,
             Document.category.in_(CURATED),
             ~Document.relative_path.ilike("%PROJECT_BLUEPRINT.md"),
+            ~Document.relative_path.ilike("%BUSINESS_BLUEPRINT.md"),
         )
         .order_by(Document.synced_at.desc())
         .limit(100)
@@ -2060,6 +2095,7 @@ async def get_project_blueprint(
             "source_path": _clean_source_path(project.source_path),
         },
         "codebase_blueprint": codebase_blueprint,
+        **(await _business_blueprint_fields(db, project, mids, _user)),
         "curated_docs": [
             {
                 "id": str(d.id),
@@ -2105,3 +2141,45 @@ async def get_project_blueprint(
     }
     await cache_set(cache_key, payload, ttl_seconds=30)
     return payload
+
+
+@router.post("/{project_id}/business-blueprint/generate")
+async def generate_business_blueprint(
+    project_id: uuid.UUID,
+    body: dict | None = None,
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
+) -> dict:
+    """Send an agent to write (or bring up to date) the repo's BUSINESS_BLUEPRINT.md, on the device whose
+    checkout the newest code blueprint came from, with the user's rules for the project in its prompt. The
+    task shows on the tasks page like any other; the file comes back with the device's next upload."""
+    from ..services import business_blueprint as biz
+    from .tasks import CreateTask, create_task
+
+    mids = await user_machine_ids(db, _user)
+    project = (await db.execute(select(Project).where(Project.id == project_id))).scalar_one_or_none()
+    if not project:
+        raise HTTPException(status_code=404)
+    code = await _codebase_blueprint_copy(db, project, mids)
+    if not code or not code[1]:
+        raise HTTPException(status_code=409, detail="还没有设备上传过这个项目的代码蓝图，不知道仓库在哪台设备的哪个目录")
+    path = str(code[2].get("project_path") or "").strip()
+    if not path:
+        raise HTTPException(status_code=409, detail="代码蓝图没有记下仓库目录（设备客户端需 1.0.97 及以上）")
+    machine = (await db.execute(select(Machine).where(Machine.id == code[1]))).scalar_one_or_none()
+    if machine is None:
+        raise HTTPException(status_code=409, detail="上传代码蓝图的设备已不在")
+    binary = str((body or {}).get("binary") or "claude").strip()
+    if binary not in ("claude", "codex", "agy", "workbuddy"):
+        raise HTTPException(status_code=400, detail=f"unknown agent: {binary}")
+    existing = await biz.resolve_business_blueprint(db, project, mids, prefer_machine=code[1])
+    rules = await biz.project_rules(db, _user, project)
+    name = (project.title or project.slug or "").rsplit("/", 1)[-1] or str(project.id)
+    prompt = biz.generation_prompt(name, rules, has_file=existing is not None)
+    payload = {"binary": binary, "prompt": prompt, "cwd": path, "user_question": f"生成业务蓝图：{name}"}
+    model = str((body or {}).get("model") or "").strip()
+    if model:
+        payload["model"] = model
+    task = await create_task(machine.collector_token_hash or machine.name, CreateTask(action="agent", payload=payload), db, _user)
+    return {"task": task, "device": machine.name, "cwd": path, "rules": len(rules)}
+

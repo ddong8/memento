@@ -4,6 +4,8 @@
 import { BLUEPRINT_FILE, buildBlueprintContent } from "./content.js";
 import { exists, pjoin, pname, readTextIgnore, resolvePath, toNative } from "./files.js";
 import { pyStrip } from "./py.js";
+import { atomicWrite } from "./files.js";
+import { BUSINESS_FILE, businessSkeleton, formatReport, refreshBusinessBlueprint } from "./business.js";
 import { bootstrapDiscoveredProjects, ensureAgentGuidanceAnchor, installGitHook, SCRIPT_NAME, uninstallAll, uninstallGitHook, uninstallRepo, writeBlueprint } from "./repo.js";
 
 interface Option {
@@ -23,9 +25,23 @@ const OPTIONS: Option[] = [
   { flag: "--anchor", dest: "anchor", help: "Also add a read-the-blueprint hint to the repo's CLAUDE.md / AGENTS.md / ..." },
   { flag: "--bootstrap-discovered", dest: "bootstrap_discovered", help: "Discover and install blueprint & hooks across all local git projects" },
   { flag: "--check", dest: "check", help: "Check if current PROJECT_BLUEPRINT.md is up-to-date" },
+  { flag: "--business", dest: "business", help: "Check BUSINESS_BLUEPRINT.md against the code, refresh its generated regions, exit 1 on broken anchors or broken rules" },
+  { flag: "--business-init", dest: "business_init", help: "Write a starting BUSINESS_BLUEPRINT.md (layout and one example of each entry kind) when there is none" },
   { flag: "--quiet", dest: "quiet", help: "Suppress stdout messages" },
 ];
 const DESCRIPTION = "Generate and maintain living PROJECT_BLUEPRINT.md for AI agents.";
+const BUSINESS_HELP = [
+  "BUSINESS_BLUEPRINT.md (业务蓝图) entries are `### <ID> <title>` headings; the ID's letter is the kind:",
+  "  T- term (术语)  F- flow (流程, numbered steps)  R- rule (规则)  S- state (状态归属)",
+  "with list fields under them:",
+  "  - 来源: 用户 2026-11-14「原话」            who asked for it (rules)",
+  "  - 代码: `path#symbol`, `path`               where the code decides it (symbol found by name)",
+  "  - 测试: `test/x.test.ts#test title`         the test that proves it",
+  "  - 禁止: `text` @ `dir/`; `/regex/` @ `f`    must not appear there (how the bug looked)",
+  "  - 要求: `text` @ `path`                     must appear there (what keeps it fixed)",
+  "  - 事实源 / 副本 / 同步: …                    (states) their `path#symbol` are checked too",
+  "The generator keeps an index after the title and the check results at the end (between memento markers).",
+].join("\n");
 
 export interface Args {
   root: string;
@@ -37,6 +53,8 @@ export interface Args {
   anchor: boolean;
   bootstrap_discovered: boolean;
   check: boolean;
+  business: boolean;
+  business_init: boolean;
   quiet: boolean;
 }
 
@@ -143,7 +161,7 @@ function help(prog: string): string {
     for (const l of lines.slice(1)) body.push(" ".repeat(helpPosition) + l);
   }
   const description = wrap(squash(DESCRIPTION), Math.max(width, 11)).join("\n");
-  return `${usageText(prog, width)}\n\n${description}\n\noptions:\n${body.join("\n")}\n`;
+  return `${usageText(prog, width)}\n\n${description}\n\noptions:\n${body.join("\n")}\n\n${BUSINESS_HELP}\n`;
 }
 
 /** A word argparse takes as an option rather than a value (negative numbers are values here). */
@@ -177,6 +195,8 @@ export function parseArgs(argv: string[]): Args {
     anchor: false,
     bootstrap_discovered: false,
     check: false,
+    business: false,
+    business_init: false,
     quiet: false,
   };
   const extras: string[] = [];
@@ -255,6 +275,31 @@ export function main(argv: string[] = process.argv.slice(2), prog = SCRIPT_NAME)
     const ok = uninstallGitHook(root);
     if (!args.quiet) say("Git hooks uninstalled.");
     return ok ? 0 : 1;
+  }
+
+  if (args.business_init) {
+    const file = pjoin(root, BUSINESS_FILE);
+    if (exists(file)) {
+      if (!args.quiet) say(`${BUSINESS_FILE} already exists.`);
+      return 0;
+    }
+    atomicWrite(file, businessSkeleton(pname(root)));
+    if (!args.quiet) say(`Wrote ${toNative(file)}`);
+    return 0;
+  }
+
+  if (args.business) {
+    if (!exists(pjoin(root, BUSINESS_FILE))) {
+      if (!args.quiet) say(`${BUSINESS_FILE} is missing (--business-init writes a starting one).`);
+      return 1;
+    }
+    const report = refreshBusinessBlueprint(root);
+    if (!report) {
+      if (!args.quiet) say(`${BUSINESS_FILE} has no entries (### T-/F-/R-/S- headings).`);
+      return 1;
+    }
+    if (!args.quiet) say(formatReport(report));
+    return report.fails ? 1 : 0;
   }
 
   if (args.check) {

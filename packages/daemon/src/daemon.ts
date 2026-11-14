@@ -323,30 +323,34 @@ export class Daemon extends EventEmitter {
       const ok = await ensureProjectBlueprint(proj.path, { force, log: this.log });
       if (!ok || !this.ingest) return;
       const gitRoot = findGitRoot(proj.path) || proj.path;
-      const bpFile = join(gitRoot, "PROJECT_BLUEPRINT.md");
-      if (!existsSync(bpFile)) return;
-      const content = await readFile(bpFile, "utf8");
-      const hash = contentHash(content);
-      if (this.blueprintHashes.get(bpFile) === hash) return;
-      const st = await stat(bpFile);
-      // Named after the repo folder, as the server and MCP look projects up by the path's last segment
-      const name = basename(gitRoot);
-      const res = await this.ingest.ingestDocument({
-        toolId: proj.toolId,
-        category: "identity",
-        contentType: "md",
-        relativePath: `${name}/PROJECT_BLUEPRINT.md`,
-        content,
-        contentHash: hash,
-        fileSize: st.size,
-        mtimeMs: st.mtimeMs,
-        mode: "full",
-        offset: 0,
-        metadata: { project_path: gitRoot, project_name: name, project_hash: name },
-      });
-      if (res.ok) {
-        this.blueprintHashes.set(bpFile, hash);
-        anyUpdated = true;
+      // The code blueprint, and the business blueprint next to it when the repo has one (written by people
+      // and agents, its check refreshed by the same generator run)
+      for (const file of ["PROJECT_BLUEPRINT.md", "BUSINESS_BLUEPRINT.md"]) {
+        const bpFile = join(gitRoot, file);
+        if (!existsSync(bpFile)) continue;
+        const content = await readFile(bpFile, "utf8");
+        const hash = contentHash(content);
+        if (this.blueprintHashes.get(bpFile) === hash) continue;
+        const st = await stat(bpFile);
+        // Named after the repo folder, as the server and MCP look projects up by the path's last segment
+        const name = basename(gitRoot);
+        const res = await this.ingest.ingestDocument({
+          toolId: proj.toolId,
+          category: "identity",
+          contentType: "md",
+          relativePath: `${name}/${file}`,
+          content,
+          contentHash: hash,
+          fileSize: st.size,
+          mtimeMs: st.mtimeMs,
+          mode: "full",
+          offset: 0,
+          metadata: { project_path: gitRoot, project_name: name, project_hash: name },
+        });
+        if (res.ok) {
+          this.blueprintHashes.set(bpFile, hash);
+          anyUpdated = true;
+        }
       }
     };
     const queue = [...candidates];

@@ -1064,7 +1064,11 @@ export class TaskRunner {
       const bpRoot = findGitRoot(workDir) || workDir;
       const bpFile = join(bpRoot, "PROJECT_BLUEPRINT.md");
       if (existsSync(bpFile) && !sysAppend.includes("PROJECT_BLUEPRINT.md")) {
-        const bpHint = `[架构心智指引] 当前项目根目录有随提交更新的活体代码蓝图 (${bpFile})。新会话或跨模块排查前先读它开头的「0. 速览与章节索引」，再按索引里的行号只读需要的章节，不要整份读入。`;
+        let bpHint = `[架构心智指引] 当前项目根目录有随提交更新的活体代码蓝图 (${bpFile})。新会话或跨模块排查前先读它开头的「0. 速览与章节索引」，再按索引里的行号只读需要的章节，不要整份读入。`;
+        const bizFile = join(bpRoot, "BUSINESS_BLUEPRINT.md");
+        if (existsSync(bizFile)) {
+          bpHint += `\n[业务心智指引] 同目录的业务蓝图 (${bizFile}) 写着用户定下的业务规则、术语、流程和状态归属，每条挂了代码位置和测试。动手前先看开头索引里和这次改动相关的条目；改了条目「代码」里列的文件，确认这条规则还成立；用户提出新的长期规则时，按文件里的格式补一条并挂上代码和测试。`;
+        }
         sysAppend = sysAppend ? `${sysAppend}\n\n${bpHint}` : bpHint;
       }
     }

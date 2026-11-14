@@ -3,9 +3,11 @@
 
 // Monotonically increasing generator version for cross-device OTA synchronization. Bump it with
 // every change to what the generator writes: the daemon regenerates blueprints from older versions.
-export const BLUEPRINT_SCRIPT_VERSION = 20261121;
+export const BLUEPRINT_SCRIPT_VERSION = 20261122;
 
 export const BLUEPRINT_FILE = "PROJECT_BLUEPRINT.md";
+/** What the project should do, tied to the code that does it (business.ts): written by people and agents */
+export const BUSINESS_FILE = "BUSINESS_BLUEPRINT.md";
 /** The generator's file name: scripts/ in a repo, ~/.memento/scripts, the app's assets */
 export const SCRIPT_NAME = "project_blueprint.mjs";
 /** The Python generator this replaces, still found in repos, hooks and ~/.memento/scripts */

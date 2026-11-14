@@ -101,10 +101,17 @@ async def cache_get(key: str, *, l1_ttl_seconds: float = 3.0) -> Any | None:
         return None
 
 
-async def cache_set(key: str, value: Any, ttl_seconds: int) -> None:
-    """Store value in both L1 (in-process) and L2 (Redis) caches."""
-    # Write to L1 (capped to at most 15 seconds or ttl_seconds to avoid long-term stale memory)
-    l1_cache_set(key, value, ttl_seconds=min(float(ttl_seconds), 15.0))
+async def cache_set(key: str, value: Any, ttl_seconds: int, *, l1: bool = True) -> None:
+    """Store value in both L1 (in-process) and L2 (Redis) caches.
+
+    l1=False for state that changes under the key (a login ticket going from pending to done): the L1 copy
+    is this replica's alone, so another replica changing the value leaves it stale here for up to 15 s.
+    Read such keys with cache_get(..., l1_ttl_seconds=0)."""
+    if l1:
+        # Write to L1 (capped to at most 15 seconds or ttl_seconds to avoid long-term stale memory)
+        l1_cache_set(key, value, ttl_seconds=min(float(ttl_seconds), 15.0))
+    else:
+        l1_cache_delete(key)
 
     c = redis_client()
     if c is None:

@@ -32,6 +32,7 @@ import {
 import { cmpStr, isDict, pyGet, pyIter, pyLstrip, pyRstrip, pySplitWs, pySplitlines, pyStr, pyStrip, reEscape, reFinditer, reSub, reSubn, truthy, type PyDict, type PyValue } from "./py.js";
 import { dumps, loads } from "./pyjson.js";
 import { buildBlueprintContent } from "./content.js";
+import { refreshBusinessBlueprint } from "./business.js";
 import {
   BLUEPRINT_FILE,
   BLUEPRINT_SCRIPT_VERSION,
@@ -244,6 +245,12 @@ export function writeBlueprint(root: string, outPath: string | null = null): [st
   if (outPath === null && isFile(target) && !isGenerated(target)) return [target, false];
   const changed = atomicWrite(target, buildBlueprintContent(root));
   if (samePath(resolvePath(target), resolvePath(pjoin(root, BLUEPRINT_FILE)))) {
+    // The business blueprint's generated regions (index, check results) follow the same code
+    try {
+      refreshBusinessBlueprint(root);
+    } catch {
+      // a business file that can't be read or written: the code blueprint still stands
+    }
     recordBlueprintHead(root);
     const untracked = !isTracked(root);
     const excluded = untracked ? ensureExcluded(root) : false;
@@ -300,7 +307,10 @@ export const HOOK_TEMPLATE = [
   "    if git ls-files --error-unmatch PROJECT_BLUEPRINT.md >/dev/null 2>&1; then",
   "        # Tracked: regenerated into the commit itself; afterwards only the HEAD it matches is recorded",
   '        if [ "$HOOK_NAME" = "pre-commit" ]; then',
-  '            ELECTRON_RUN_AS_NODE=1 "$BP_NODE" "$BP_SCRIPT" --root . --quiet >/dev/null 2>&1 && git add PROJECT_BLUEPRINT.md >/dev/null 2>&1',
+  "            # BUSINESS_BLUEPRINT.md is staged with its refreshed check only when it has no unstaged edits of its own",
+  '            BP_BIZ=""',
+  '            if git ls-files --error-unmatch BUSINESS_BLUEPRINT.md >/dev/null 2>&1 && git diff --quiet -- BUSINESS_BLUEPRINT.md 2>/dev/null; then BP_BIZ=1; fi',
+  '            ELECTRON_RUN_AS_NODE=1 "$BP_NODE" "$BP_SCRIPT" --root . --quiet >/dev/null 2>&1 && git add PROJECT_BLUEPRINT.md >/dev/null 2>&1 && { [ -z "$BP_BIZ" ] || git add BUSINESS_BLUEPRINT.md >/dev/null 2>&1; }',
   "        else",
   '            git rev-parse --short HEAD > "$GIT_DIR_PATH/.memento_blueprint_head" 2>/dev/null',
   "        fi",

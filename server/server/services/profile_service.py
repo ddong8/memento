@@ -277,6 +277,7 @@ def render_profile_block(version: int, content: str) -> str:
         "## 关于我（Memento 长期记忆）\n\n"
         f"{content.strip()}\n\n"
         "进入项目或排查架构问题时，若项目根目录存在 PROJECT_BLUEPRINT.md（活体代码蓝图），先读开头「0. 速览与章节索引」，再按索引里的行号只读需要的章节，避免整份读入或盲目全库 grep。\n"
+        "项目根目录若有 BUSINESS_BLUEPRINT.md（业务蓝图：用户定的业务规则、术语、流程、状态归属，各挂代码位置和测试），改动前先看开头索引里相关的条目；改了条目里列出的代码，确认规则仍成立；用户提出新的长期规则时按其格式补一条。\n"
         "需要了解用户的跨项目工程版图、全域技术栈、核心业务领域与学科交叉背景时，读 ~/.memento/USER_BLUEPRINT.md（个人全域蓝图）开头的「0. 速览」。\n"
         "需要更多上下文时，用 memento-memory MCP 的 memory_search / memory_core / memory_blueprint 查询。\n"
         f"{PROFILE_END}\n"

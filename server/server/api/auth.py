@@ -589,8 +589,11 @@ def _clean_expired_tickets() -> None:
         _wechat_tickets.pop(k, None)
 
 
+# A ticket changes under its key (pending → success on the WeChat callback, which can land on another api
+# replica than the page polling it), so it never goes through the per-replica L1 copy: there the poll kept
+# reading "pending" for up to 15 s after the scan. Redis is the one copy; this dict only without Redis.
 async def _get_ticket_data(code: str) -> dict | None:
-    cached = await cache_get(f"wechat_ticket:{code}")
+    cached = await cache_get(f"wechat_ticket:{code}", l1_ttl_seconds=0)
     if cached:
         return cached
     return _wechat_tickets.get(code)
@@ -598,12 +601,12 @@ async def _get_ticket_data(code: str) -> dict | None:
 
 async def _set_ticket_data(code: str, data: dict, ttl_seconds: int = 300) -> None:
     _wechat_tickets[code] = data
-    await cache_set(f"wechat_ticket:{code}", data, ttl_seconds=ttl_seconds)
+    await cache_set(f"wechat_ticket:{code}", data, ttl_seconds=ttl_seconds, l1=False)
 
 
 async def _delete_ticket_data(code: str) -> None:
     _wechat_tickets.pop(code, None)
-    await cache_set(f"wechat_ticket:{code}", {"status": "used"}, ttl_seconds=60)
+    await cache_set(f"wechat_ticket:{code}", {"status": "used"}, ttl_seconds=60, l1=False)
 
 
 async def _create_wechat_ticket() -> str:

@@ -107,6 +107,13 @@ jobs:
           # scripts/project_blueprint.mjs is committed (the server serves it, git hooks run it)
           node packages/daemon/scripts/build-runners.mjs --check
 
+      # BUSINESS_BLUEPRINT.md: the user's rules tied to the code. A rule broken or an anchor gone fails the run
+      # (deploy waits for CI); generated regions out of date only warn (the commit hook refreshes them).
+      - name: business blueprint · rules hold against the code
+        run: |
+          node scripts/project_blueprint.mjs --business --root .
+          git diff --quiet -- BUSINESS_BLUEPRINT.md || echo "::warning file=BUSINESS_BLUEPRINT.md::生成区域不是最新：本地跑 node scripts/project_blueprint.mjs --business 后提交"
+
       - name: mcp · typecheck & test
         run: |
           npm run typecheck -w @memento/mcp

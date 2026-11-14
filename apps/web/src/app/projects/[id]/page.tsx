@@ -8,6 +8,7 @@ import { getApiBase, authFetch } from "@/lib/api-client";
 import { Icon, ToolGlyph, CategoryIcon } from "@/components/aurora/Icon";
 import { Btn, Glass, TopBar, SectionLabel } from "@/components/aurora/primitives";
 import MarkdownViewer from "@/components/viewers/MarkdownViewer";
+import { BusinessBlueprintCard, type BusinessCheck } from "@/components/projects/BusinessBlueprintCard";
 
 interface ProjectDetail {
   id: string;
@@ -17,6 +18,10 @@ interface ProjectDetail {
   source_path: string;
   visibility: string;
   codebase_blueprint?: string | null;
+  business_blueprint?: string | null;
+  business_check?: BusinessCheck | null;
+  business_uncovered_rules?: string[];
+  business_rules_total?: number;
   documents: { id: string; relative_path: string; category: string; title: string; file_size_bytes: number; synced_at: string }[];
 }
 
@@ -152,6 +157,15 @@ export default function ProjectDetailPage() {
           </Glass>
         </div>
       )}
+
+      <BusinessBlueprintCard
+        projectId={projectId}
+        blueprint={project.business_blueprint}
+        check={project.business_check}
+        uncovered={project.business_uncovered_rules ?? []}
+        rulesTotal={project.business_rules_total ?? 0}
+        isZh={isZh}
+      />
 
       {Object.entries(byCategory).map(([cat, docs]) => (
         <div key={cat} style={{ marginBottom: 24 }}>

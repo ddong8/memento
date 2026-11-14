@@ -66,6 +66,25 @@ export function blueprintSection(md: string, section = "summary"): string {
   return parts.length ? parts.join("\n\n") : `No section "${section}" in this blueprint. Sections:\n${sectionList.join("\n")}`;
 }
 
+/**
+ * Part of a BUSINESS_BLUEPRINT.md for section="business[:…]": "business" is the generated index (summary,
+ * check result, section lines) with the rules the user set for the project that no entry carries yet;
+ * "business:all" the whole file; "business:3" a section by number.
+ */
+export function businessSection(md: string, section: string, uncovered: string[] = []): string {
+  const sub = section.trim().toLowerCase().replace(/^business[:：]?/, "").trim() || "summary";
+  if (sub === "all" || sub === "full") return md;
+  if (sub !== "summary") return blueprintSection(md, sub);
+  const lines = md.split("\n");
+  const a = lines.findIndex((l) => l.startsWith("<!-- memento:business-index:start"));
+  const b = lines.findIndex((l) => l.startsWith("<!-- memento:business-index:end"));
+  const head = a >= 0 && b > a ? [...lines.slice(0, a), ...lines.slice(a + 1, b)] : lines.slice(0, 40);
+  const out = [head.join("\n").trimEnd()];
+  if (uncovered.length) out.push("", "### 用户给这个项目定的规则里，业务蓝图还没写的", ...uncovered.map((r) => `- ${r}`));
+  out.push("", '_Index only: pass section="business:<number>" (e.g. "business:3" for the rules) or "business:all"._');
+  return out.join("\n");
+}
+
 const DOC_OPENING_CHARS = 400;
 
 /** The whole lines of `md` that fit in `max` characters (at least the first line, cut). */
@@ -303,11 +322,12 @@ export function createServer(remote: RemoteClient, version = "0.1.0"): McpServer
         section: z
           .string()
           .optional()
-          .describe('Which part of the blueprint: "summary" (default: quick summary + line-numbered section index), "all", or section numbers like "3" or "4,6.5"'),
+          .describe('Which part of the blueprint: "summary" (default: quick summary + line-numbered section index), "all", or section numbers like "3" or "4,6.5". "business" for the business blueprint (BUSINESS_BLUEPRINT.md: the user\'s rules, terms, flows and state ownership tied to code, with its check result), "business:3" for one of its sections, "business:all" for all of it'),
       },
     },
     async ({ project_name, recent_conversations = 10, section = "summary" }) => {
-      const onlySections = !["summary", "all", "full", ""].includes(section.trim().toLowerCase());
+      const wantBusiness = /^business/i.test(section.trim());
+      const onlySections = !wantBusiness && !["summary", "all", "full", ""].includes(section.trim().toLowerCase());
       if (["me", "user", "global", "个人", "用户", "user_blueprint"].includes(project_name.trim().toLowerCase())) {
         try {
           const ubp = await remote.get<Json>("/api/profile/blueprint");
@@ -350,6 +370,21 @@ export function createServer(remote: RemoteClient, version = "0.1.0"): McpServer
           // fallback to remote codebase_blueprint
         }
       }
+      let businessBp = s(bp.business_blueprint);
+      if (localSourcePath) {
+        try {
+          const localBiz = join(localSourcePath, "BUSINESS_BLUEPRINT.md");
+          if (existsSync(localBiz)) businessBp = readFileSync(localBiz, "utf8");
+        } catch {
+          // fallback to the uploaded copy
+        }
+      }
+      const uncovered = arr(bp.business_uncovered_rules).map((r) => s(r));
+      if (wantBusiness) {
+        if (businessBp) return text(`${out[0]}\n\n${businessSection(businessBp, section, uncovered)}`);
+        const rules = uncovered.length ? `\n\n用户给这个项目定的规则（${uncovered.length} 条）：\n${uncovered.map((r) => `- ${r}`).join("\n")}` : "";
+        return text(`${out[0]}\n\nNo BUSINESS_BLUEPRINT.md for this project yet (the project page can send an agent to write one; or run \`project_blueprint.mjs --business-init\` in the repo).${rules}`);
+      }
       if (onlySections) {
         // Asked for particular sections: just those, without docs, graph and conversations
         return text(codebaseBp ? `${out[0]}\n\n${blueprintSection(codebaseBp, section)}` : `${out[0]}\n\nNo codebase blueprint for this project yet.`);
@@ -357,10 +392,21 @@ export function createServer(remote: RemoteClient, version = "0.1.0"): McpServer
       if (codebaseBp) {
         out.push("## Living Codebase Architecture Blueprint", "", blueprintSection(codebaseBp, section), "");
       }
+      const check = obj(bp.business_check);
+      if (businessBp || uncovered.length) {
+        out.push("## Business Blueprint (BUSINESS_BLUEPRINT.md)", "");
+        if (businessBp && check.rules !== undefined) {
+          out.push(`规则 ${s(check.rules)}（✅ ${s(check.ok)} · ⚠️ ${s(check.warn)} · ❌ ${s(check.fail)}）· 流程 ${s(check.flows)} · 术语 ${s(check.terms)} · 状态 ${s(check.states)}`);
+        } else if (!businessBp) out.push("这个项目还没有业务蓝图。");
+        if (uncovered.length) out.push(`用户给这个项目定的规则里，有 ${uncovered.length} 条业务蓝图还没写。`);
+        out.push('_section="business" for its index and the missing rules, "business:3" for the rules._', "");
+      }
       // The summary keeps within a tool result: whole documents only with section="all"
       const brief = !["all", "full"].includes(section.trim().toLowerCase());
       // Not each device's copy of PROJECT_BLUEPRINT.md: the newest one is above (three copies were 135K characters)
-      const curated = arr(bp.curated_docs).filter((d) => !(codebaseBp && s(d.relative_path).endsWith("PROJECT_BLUEPRINT.md")));
+      const curated = arr(bp.curated_docs).filter(
+        (d) => !(codebaseBp && s(d.relative_path).endsWith("PROJECT_BLUEPRINT.md")) && !s(d.relative_path).endsWith("BUSINESS_BLUEPRINT.md"),
+      );
       if (curated.length) {
         out.push("## Curated documents");
         let cut = 0;

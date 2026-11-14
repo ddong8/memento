@@ -29,7 +29,8 @@ import {
   type TechStack,
   type TestSuite,
 } from "./scan.js";
-import { BLUEPRINT_FILE, BLUEPRINT_SCRIPT_VERSION, GENERATED_MARK } from "./meta.js";
+import { BLUEPRINT_FILE, BLUEPRINT_SCRIPT_VERSION, BUSINESS_FILE, GENERATED_MARK } from "./meta.js";
+import { checkBusinessBlueprint, projectBlueprintSection, summaryLine, type BusinessReport } from "./business.js";
 
 export { BLUEPRINT_FILE, BLUEPRINT_SCRIPT_VERSION, GENERATED_MARK };
 
@@ -371,6 +372,10 @@ export function buildBlueprintContent(root: string): string {
     for (const ev of envVars.slice(0, 20)) doc.push(`| \`${ev.name}\` | \`${ev.default}\` | ${ev.description} |`);
   }
 
+  // The business blueprint, when the repo has one: how its rules hold against this code
+  const business = checkBusinessBlueprint(root);
+  if (business) doc.push("", ...projectBlueprintSection(business));
+
   doc.push(
     "",
     "---",
@@ -391,6 +396,7 @@ export function buildBlueprintContent(root: string): string {
     commands: detectVerificationCommands(root),
     evolution: evolutionList,
     about,
+    business,
   });
   return withSummaryAndIndex(doc, summary);
 }
@@ -408,6 +414,7 @@ interface SummaryInput {
   commands: string[];
   evolution: string[];
   about: string;
+  business: BusinessReport | null;
 }
 
 /** The few lines that orient an agent without reading the rest. */
@@ -443,6 +450,14 @@ function quickSummary(x: SummaryInput): string[] {
     .slice(0, 4);
   if (runnable.length) lines.push(`- 自测命令 (Verify): ${runnable.map((c) => `\`${c}\``).join(" ; ")}`);
   if (x.evolution.length) lines.push(`- 最近改动 (Latest): ${pySlice(pyStrip(pyLstrip(x.evolution[0]!, "- ")), 0, 160)}`);
+  if (x.business) {
+    const b = x.business;
+    const touched = [...new Set(b.impact.slice(0, 3).flatMap((it) => it.ids))].slice(0, 8);
+    lines.push(
+      `- 业务蓝图 (Business): \`${BUSINESS_FILE}\` · ${summaryLine(b)}${b.fails ? ` · ❌ ${b.fails} 条失效/违规` : ""}` +
+        (touched.length ? ` · 最近提交碰到 ${touched.map((id) => `\`${id}\``).join(", ")}` : ""),
+    );
+  }
   return lines;
 }
 

@@ -4,22 +4,22 @@
   "release_notes": "1. 用 Antigravity 新建任务时，按配置里选的项目目录找到（没有就新建）对应的 Antigravity 项目，不再落到 Antigravity 最后新建的那个项目里（之前选 easywork-copilot 却在 chem-vision 里干活）\n2. 手机端版本号与客户端统一为 1.0.131",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.130-win-x64.zip",
-      "size": 158288272,
-      "sha256": "75c65ef3b3b69adf259b110894cafe03bffcfc4523d88a0ca83864d152ffcb21",
-      "sha512": "AeO2YetEM/Qh7R2ZnA2srJZ+R+NjVQsCsphVyF1QIzLdHFASQp39GQUtFTqtKA7qtM+cfbS3INGMQpspJ+7lkw=="
+      "asset_name": "Memento-1.0.131-win-x64.zip",
+      "size": 158287221,
+      "sha256": "46858444e1c1be733e4f209a04cd5d08958d39f6fa65586f2d420b8b2af567b3",
+      "sha512": "hkAdKkc+xA1QQjkegJjpPIBGY4MwNTHd0W8AEp1gyWzffD9V8k63JBME7cYMv0RTmev+wYoUSuJcNBLvFKUSzg=="
     },
     "macos": {
-      "asset_name": "Memento-1.0.130-mac-arm64.zip",
-      "size": 132775391,
-      "sha256": "a3f696711698ec02dd762a324786416d904d725082cda34958f0ba5378d22b4d",
-      "sha512": "KRmRphRrBh+Wk4PvaaqmaIHXbsQ8fi3hWtE9o4Sdy/Hz5VKym6uWuSWwS0V98kwSHygjXP/sKtse72yJmgDo6Q=="
+      "asset_name": "Memento-1.0.131-mac-arm64.zip",
+      "size": 132775892,
+      "sha256": "1491b84685d05a880bd28a3cf419650bd342d2e47d34d1bb1dc165a178c7c39b",
+      "sha512": "IJDiSVa51i5dZ3JE6qEF9MUmeW6qIrsOXxFDhnHZSRBi32WhrmblbvLvEq6JsnDM/gaXxb98Dir/EObXes4cvw=="
     },
     "linux": {
-      "asset_name": "Memento-1.0.130-linux-x64.tar.gz",
-      "size": 132050788,
-      "sha256": "fd52801d51c60059cdfbf771aa760684452d9747c2f9ebe75ce57fef4477233a",
-      "sha512": "ICz9lk/nI6ZVRH/Bpc1jRGESxklHly0XHl23gVH+w8aQdFYdhTHP0yUP+pTJbzCLkVb998vEK8lCO9OMenbX8Q=="
+      "asset_name": "Memento-1.0.131-linux-x64.tar.gz",
+      "size": 132053599,
+      "sha256": "cd7738cca18fe10fada4ce4be0f3a78d7d87c2d7f32ca2cb9abb0fea435d2fe1",
+      "sha512": "bM3oZvbCZMUC/c8/sBdvKfguUxr4dq2FjFfw14kJ2epp+sWXKeDdwzZPsXtgwyCI07UoR3J4z8UCFzsKE52E8Q=="
     }
   }
 }

@@ -2222,20 +2222,33 @@ function AskPageContent() {
     };
   }, [loadConversation, scrollConversationToBottom]);
 
-  // The footer grows (background-task strip, follow-ups, the phone keyboard) and the list above gets
-  // shorter: keep the bottom where it was, or the last lines of the reply sit under the input and the
-  // stream-follow below takes the gap for the user scrolling away and stops following.
+  // Keep the bottom in view as sizes change. The content grows after its turns land (followed while at
+  // the bottom); the footer grows (background-task strip, follow-ups, the phone keyboard) and the list
+  // gets shorter: keep the bottom where it was, or the reply's last lines sit under the input.
   useEffect(() => {
     const el = chatScrollRef.current;
     if (!el || typeof ResizeObserver === "undefined") return;
     let prevHeight = el.clientHeight;
+    let prevScrollHeight = el.scrollHeight;
     const ro = new ResizeObserver(() => {
       const h = el.clientHeight;
       const shrunk = prevHeight - h;
+      // Where the bottom was before this change (content grew, or the list got shorter)
+      const distBefore = prevScrollHeight - el.scrollTop - prevHeight;
       prevHeight = h;
+      prevScrollHeight = el.scrollHeight;
+      if (isUserInteractingRef.current) return;
+      // Following the reply: it grows after the turn's text lands too (code highlighting, images, tool
+      // cards, the final render), and the turns effect never sees that.
+      if (!userScrolledAwayRef.current && (streamingRef.current || distBefore < 40)) {
+        el.scrollTop = el.scrollHeight;
+        return;
+      }
       if (shrunk > 0) el.scrollTop += shrunk;
     });
     ro.observe(el);
+    const content = el.firstElementChild;
+    if (content) ro.observe(content);
     return () => ro.disconnect();
   }, []);
 
@@ -2278,12 +2291,9 @@ function AskPageContent() {
       requestAnimationFrame(() => {
         if (isUserInteractingRef.current || userScrolledAwayRef.current) return;
         if (streamingRef.current && chatScrollRef.current) {
+          // Not "the user scrolled away" when it's far from the bottom: a tool card or a long code block
+          // lands more than a screen at once. Only the user scrolling up says that (onScroll).
           const el = chatScrollRef.current;
-          const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-          if (distFromBottom > 80) {
-            userScrolledAwayRef.current = true;
-            return;
-          }
           el.scrollTop = el.scrollHeight;
         }
       });
@@ -4874,6 +4884,7 @@ function AskPageContent() {
                 askCache.scrollTop = el.scrollTop;
               }
               const st = el.scrollTop;
+              const prevTop = lastScrollTopRef.current;
               if (st > lastScrollTopRef.current + 15 && st > 50) {
                 if (typeof window !== "undefined" && window.innerWidth < 768) {
                   setIsConfigCollapsed(true);
@@ -4886,10 +4897,12 @@ function AskPageContent() {
                 showScrollBottomRef.current = shouldShow;
                 setShowScrollBottom(shouldShow);
               }
-              if (dist > 80) {
-                userScrolledAwayRef.current = true;
-              } else if (dist < 20) {
+              // Away from the bottom only when the user moved it (wheel/touch, or the view went up: scrollbar,
+              // keys); our own scrolls only go down, and content growing doesn't scroll at all.
+              if (dist < 20) {
                 userScrolledAwayRef.current = false;
+              } else if (dist > 80 && (isUserInteractingRef.current || st < prevTop - 2)) {
+                userScrolledAwayRef.current = true;
               }
             }}
             onTouchStart={handleTouchStart}

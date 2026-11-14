@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `0692a6ae` · Updated: `2026-11-14`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `119ba986` · Updated: `2026-11-14`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,7 +16,7 @@
 - 规模 (Scale): 9 个子系统 · 35 组 API 路由 / 236 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 207 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `0692a6ae` (2026-11-14): fix(问答): 输入区变高时回答底部不再被遮住
+- 最近改动 (Latest): `119ba986` (2026-11-14): fix(问答): 配置面板和会话上下文限高内部滚动，不再把回答区挤成一条
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -609,7 +609,7 @@ erDiagram
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
 - [`packages/daemon/assets/workbuddy_cli.mjs`](packages/daemon/assets/workbuddy_cli.mjs) (20 commits)
-- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (14 commits)
+- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (15 commits)
 - [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (9 commits)
 - [`apps/desktop/src/main.ts`](apps/desktop/src/main.ts) (6 commits)
 - [`apps/web/src/app/globals.css`](apps/web/src/app/globals.css) (6 commits)
@@ -640,12 +640,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `119ba986` (2026-11-14): fix(问答): 配置面板和会话上下文限高内部滚动，不再把回答区挤成一条
 - `0692a6ae` (2026-11-14): fix(问答): 输入区变高时回答底部不再被遮住
 - `8053fdb3` (2026-11-14): feat(额度): 额度按当前对话用的模型显示，Antigravity 各模型分开算
 - `875afd56` (2026-11-14): fix: 删除对话后不再从另一副本的缓存里回来；对话自己建的会话不再标成“续”；手机端模型名显示完整
 - `994868d4` (2026-11-14): fix(antigravity): 等 Antigravity 的定时复查到点再收尾，不再提前挂出后台任务没跑完；升级客户端版本至 v1.0.132
 - `2a58d678` (2026-11-14): fix(antigravity): 新建会话按任务目录选 Antigravity 项目，不再落进最后新建的项目；升级客户端版本至 v1.0.131
-- `2599957c` (2026-11-14): fix(web): 选已有对话的会话时不再把会话预览叠在对话回合上方，Antigravity 工具卡片不再显示原始参数字典
 
 ## 10. Key Environment Variables & Configuration
 

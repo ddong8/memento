@@ -4,22 +4,22 @@
   "release_notes": "1. 只装 agy 命令行的执行机上，Antigravity 额度列出全部可用模型（含 Gemini 4 Argon/Hydrogen、Gemini 3.8 Flash 各档），剩余额度按真实额度池计算：Claude/GPT 取周额度和 5 小时额度中较紧的一个\n2. 执行机守护进程会自己跟上新版本：旁路构建，等任务结束再切换，不用再登录服务器重跑安装脚本\n3. 手机端版本号与客户端统一为 1.0.130",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.129-win-x64.zip",
-      "size": 158282705,
-      "sha256": "8a17c4bbde5876a827a8f67c144fba5c2a078188a48c53477154e8d25c63c687",
-      "sha512": "gSrytZYJ+nWA5VsnIDYSyT5X9Cjott3V9CdbCDpgRzYe2LYTXMh5WseOZr5sC7Jjs6wpiQ0ie93YHuuYowrkPg=="
+      "asset_name": "Memento-1.0.130-win-x64.zip",
+      "size": 158288272,
+      "sha256": "75c65ef3b3b69adf259b110894cafe03bffcfc4523d88a0ca83864d152ffcb21",
+      "sha512": "AeO2YetEM/Qh7R2ZnA2srJZ+R+NjVQsCsphVyF1QIzLdHFASQp39GQUtFTqtKA7qtM+cfbS3INGMQpspJ+7lkw=="
     },
     "macos": {
-      "asset_name": "Memento-1.0.129-mac-arm64.zip",
-      "size": 132770775,
-      "sha256": "0f24adcdc04df6085455916bf37a541d15459931f77aeab6e3de2a514ed1c286",
-      "sha512": "hqnx5C5TYHBKK4LBW14KAM9+UZK7A9oBCpbvUEj3URYZgy4zcL/WBB2mzKsqLGaTrRL0S3aIcidFFOUvySjIEA=="
+      "asset_name": "Memento-1.0.130-mac-arm64.zip",
+      "size": 132775391,
+      "sha256": "a3f696711698ec02dd762a324786416d904d725082cda34958f0ba5378d22b4d",
+      "sha512": "KRmRphRrBh+Wk4PvaaqmaIHXbsQ8fi3hWtE9o4Sdy/Hz5VKym6uWuSWwS0V98kwSHygjXP/sKtse72yJmgDo6Q=="
     },
     "linux": {
-      "asset_name": "Memento-1.0.129-linux-x64.tar.gz",
-      "size": 132049043,
-      "sha256": "8af982b99346db167cc6b25c80e939137ec1e86ee0d2245a0caa8b804496c007",
-      "sha512": "2oLrJv2FUZ7Hfpk30H7WXmpxsSDvZpkJbAlQbjr536wYljKti7GuNNrotuY87/xWffcnRWeNLQxEE6Xr/797uw=="
+      "asset_name": "Memento-1.0.130-linux-x64.tar.gz",
+      "size": 132050788,
+      "sha256": "fd52801d51c60059cdfbf771aa760684452d9747c2f9ebe75ce57fef4477233a",
+      "sha512": "ICz9lk/nI6ZVRH/Bpc1jRGESxklHly0XHl23gVH+w8aQdFYdhTHP0yUP+pTJbzCLkVb998vEK8lCO9OMenbX8Q=="
     }
   }
 }

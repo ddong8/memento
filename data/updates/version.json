@@ -4,22 +4,22 @@
   "release_notes": "1. Windows 11 客户端：系统标题栏和应用顶栏合成一条，最小化、最大化、关闭按钮在顶栏右端，拖动顶栏移动窗口、双击最大化，和 VS Code、Teams 一样\n2. Mac 客户端：侧栏用系统毛玻璃材质，和访达、备忘录一样透出桌面颜色\n3. 手机端版本号与客户端统一为 1.0.127",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.126-win-x64.zip",
-      "size": 158276875,
-      "sha256": "ef0742de3f780f4c411c897f65b8a476d8f8dc704d7ac0a2fbc5e88e8c3acec1",
-      "sha512": "bf3l1nI535meadr5CxxbNWdVycmDaPij3ojVtFAI2Hu022Auc2genRYYtE7SL1eUFNKoqWbPO0AfFdSRWZW4dw=="
+      "asset_name": "Memento-1.0.127-win-x64.zip",
+      "size": 158278477,
+      "sha256": "20b721b7a7d2b972521979996edda7250c6c0bfc32c62409a527e2b39bf77b08",
+      "sha512": "zNhjYCdiFnOfnKfiULVBK410CX6oDD8PAr5xOFL4vbKsephjcbIEjOBDfD+mmPMZGGEXkkHrANm5DakrmJGSaA=="
     },
     "macos": {
-      "asset_name": "Memento-1.0.126-mac-arm64.zip",
-      "size": 132764405,
-      "sha256": "0bf845a3689f535c6afe4500a27b1bd339a0d41adcd81a85cc204ffe084f15e5",
-      "sha512": "W2KLBI1pB4kzKRUS2op4ESWD4kN1yJOdySpgu+5R0oNgZSZjkZ0zl+kPpTg/ts7JIXOTV3P31evfLIsuLfmr9A=="
+      "asset_name": "Memento-1.0.127-mac-arm64.zip",
+      "size": 132765824,
+      "sha256": "b8cdffb0afb5158de55af604969cbc46f9b2da31b88d6a6f201d6d90517397cb",
+      "sha512": "dl/A26deY7qFbdv1xWRXWe44k+M1xJGoJbb6bDFNrAyYcFu3n5BviH0j3Sbnf1+8uGNc+jCh2T6VFXKblN+wkw=="
     },
     "linux": {
-      "asset_name": "Memento-1.0.126-linux-x64.tar.gz",
-      "size": 132044261,
-      "sha256": "9a9142f4f9ec99992f981533fee2fe1146aa22630401469f9348eeb159575d18",
-      "sha512": "W8YscBpb+Sb2zmuDtI5VK46bd+PFi0wVSYVfeDWTcs/+WxXkjK87QUjJmp686s6BGHKkGMIVzlwdZMHp/TQYAQ=="
+      "asset_name": "Memento-1.0.127-linux-x64.tar.gz",
+      "size": 132043288,
+      "sha256": "d3256adbd9cb20afb047586c0b766864393106fa153c0ad8496d4410a50d0e08",
+      "sha512": "bJWhr+/Dn7+GUwGEsq30wz04UQkYMten7DqGTCdXVMdhmtknr5uZbYAkeBVXA4PTA2118QY0tviz/8VQSoPmfg=="
     }
   }
 }

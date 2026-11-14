@@ -46,4 +46,4 @@ images:
   newTag: 875afd565201
 - name: ghcr.io/ddong8/memento-web
   newName: ghcr.io/ddong8/memento-web
-  newTag: 875afd565201
+  newTag: 8053fdb36039

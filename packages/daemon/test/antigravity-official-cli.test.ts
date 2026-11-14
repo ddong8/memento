@@ -105,7 +105,8 @@ it.skipIf(process.platform === "win32")(
     const { done, events } = await runTask("feedbeef-0000-4000-8000-0000000000b1", { prompt: "修好测试", effort: "high" });
     expect(done, `${done.error}\n${done.stderr}`).toMatchObject({ status: "succeeded", session_id: CID });
     expect(String(done.stdout)).toContain("改好了，测试已过。");
-    const { args, electron } = calls()[0]!;
+    // The first run, not the model listing the quota report on connecting does
+    const { args, electron } = calls().find((c) => c.args[0] !== "models")!;
     expect(args).toEqual(["--effort", "high", "--print-timeout", "105s", "--dangerously-skip-permissions", "--output-format", "stream-json", "-p", "修好测试"]);
     // The CLI is a program of its own, not a script for this runtime
     expect(electron).toBeNull();

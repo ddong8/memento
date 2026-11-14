@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   agedClaudeUsage,
-  agyCliModels,
+  agyCliQuotaModels,
   claudePlanTier,
   claudeCredentialAccount,
   claudeCredentialService,
@@ -14,6 +14,7 @@ import {
   usableClaudeAccessToken,
 } from "../src/quotas.js";
 import { agentLoginHint, usageLimitMessage } from "../src/task-runner.js";
+import { parseAgyModels } from "../src/agy-models.js";
 
 describe("Real Agent Quotas", () => {
   it("probes Claude Code real utilization from ~/.claude.json fixture", async () => {
@@ -219,20 +220,40 @@ describe("quota reads that stay readable", () => {
     expect(aged.seven_day.utilization).toBe(60);
   });
 
-  it("lists the agy CLI's named models once each, the agent's own first", () => {
-    const { models, defaultId } = agyCliModels({
-      defaultAgentModelId: "claude-opus-low",
-      agentModelSorts: [{ groups: [{ modelIds: ["claude-opus-low"] }] }],
-      models: {
-        "gemini-flash": { displayName: "Gemini Flash", quotaInfo: { resetTime: "2026-11-14T01:00:00Z" } },
-        "gemini-flash-alias": { displayName: "Gemini Flash", quotaInfo: { remainingFraction: 0.5 } },
-        chat_1: { isInternal: true, quotaInfo: { remainingFraction: 1 } },
-        tab_x: { quotaInfo: { remainingFraction: 1 } },
-        "claude-opus-low": { displayName: "Claude Opus (Low)", quotaInfo: { remainingFraction: 1, resetTime: "2026-11-13T21:00:00Z" } },
+  it("gives every model the agy CLI offers the quota it really draws on", () => {
+    const list = parseAgyModels(
+      "Fetching available models...\ngemini-4-argon-medium\tGemini 4 Argon (Medium)\ngemini-3.8-flash-high\tGemini 3.8 Flash (High)\nclaude-opus-5-5-low\tClaude Opus 5.5 (Low)\ngpt-oss-120b-medium\tGPT-OSS 120B (Medium)\n",
+    );
+    expect(list.map((m) => m.id)).toEqual(["gemini-4-argon-medium", "gemini-3.8-flash-high", "claude-opus-5-5-low", "gpt-oss-120b-medium"]);
+    const { models, defaultId, groups } = agyCliQuotaModels({
+      list,
+      available: { tieredModelIds: { flashLite: ["gemini-3.5-flash-lite"], flash: ["gemini-3.8-flash-tiered"], pro: ["gemini-3.8-flash-tiered"] }, models: {} },
+      quota: {
+        buckets: [
+          { modelId: "gemini-3.8-flash-tiered", remainingFraction: 0.95419294, resetTime: "2026-11-14T07:42:00Z" },
+          { modelId: "claude-opus-5-5-low", remainingFraction: 1, resetTime: "2026-11-14T08:05:56Z" },
+          { modelId: "gpt-oss-120b-medium", remainingFraction: 1, resetTime: "2026-11-14T08:05:56Z" },
+        ],
+      },
+      summary: {
+        groups: [
+          {
+            displayName: "Claude and GPT models",
+            description: "Models within this group: Claude Opus, Claude Sonnet, GPT-OSS",
+            buckets: [
+              { window: "weekly", resetTime: "2026-11-18T15:33:47Z", remainingFraction: 0.42 },
+              { window: "5h", resetTime: "2026-11-14T08:05:56Z", remainingFraction: 1 },
+            ],
+          },
+        ],
       },
     });
-    expect(defaultId).toBe("claude-opus-low");
-    expect(models.map((m) => m.model_id)).toEqual(["claude-opus-low", "gemini-flash"]);
-    expect(models[1]!.remaining_percent).toBe(0);
+    expect(defaultId).toBe("gemini-4-argon-medium");
+    const pct = Object.fromEntries(models.map((m) => [m.model_id, m.remaining_percent]));
+    // The 3.8 Flash levels are on the tier's Flash pool; Claude and GPT on their weekly limit, not the 5-hour one;
+    // Gemini 4's own quota isn't reported anywhere, so it doesn't borrow the Flash pool's
+    expect(pct).toEqual({ "gemini-4-argon-medium": null, "gemini-3.8-flash-high": 95.4, "claude-opus-5-5-low": 42, "gpt-oss-120b-medium": 42 });
+    expect(models.find((m) => m.model_id === "claude-opus-5-5-low")!.reset_time).toBe("2026-11-18T15:33:47Z");
+    expect(groups[0]!.buckets.map((b) => b.label)).toEqual(["周额度", "5 小时额度"]);
   });
 });

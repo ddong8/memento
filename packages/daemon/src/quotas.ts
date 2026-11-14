@@ -6,6 +6,7 @@ import { userInfo } from "node:os";
 import { join } from "node:path";
 import https from "node:https";
 
+import { type AgyModel, listAgyModels } from "./agy-models.js";
 import { type AntigravityLanguageServer, findAntigravityLanguageServer, officialAgyCli } from "./antigravity.js";
 import { homeDir } from "./config.js";
 import { clearModelLimit, defaultModel, limitedModels, modelFamily, noteModelLimit, type LimitAgent, type LimitedModel } from "./model-limits.js";
@@ -201,8 +202,11 @@ export async function probeAntigravityQuota(
   }
 }
 
-/** Google's Code Assist API, the one Antigravity reads its model quotas from. */
-const CLOUDCODE_API = "https://cloudcode-pa.googleapis.com/v1internal";
+/**
+ * Google's Code Assist API as the agy CLI calls it: the daily endpoint first (where the CLI reads its
+ * quotas; the other one reports a different Gemini pool), then the production one.
+ */
+const CLOUDCODE_HOSTS = ["https://daily-cloudcode-pa.googleapis.com/v1internal", "https://cloudcode-pa.googleapis.com/v1internal"];
 
 interface AgyCliToken {
   access_token?: string;
@@ -224,85 +228,171 @@ function agyTokenUsable(token: AgyCliToken | undefined, now = Date.now()): token
   return !Number.isFinite(exp) || exp - 60_000 > now;
 }
 
-let agyCliRefreshAt = 0;
+let agyModelsAt = 0;
+let agyModelsCache: AgyModel[] | undefined;
 
 /**
- * The agy CLI's access token, while valid. An expired one is renewed by the CLI itself: `agy models`
- * signs in with its stored login and saves the new token (at most every 10 minutes); memento never
- * redeems the refresh token.
+ * The models the CLI offers, its default first (Gemini 4 and the like are built into it; Google's model API
+ * doesn't list them), shared with the task runner's list. `agy models` also signs in with the CLI's stored
+ * login, saving a fresh token when the old one expired, so memento never redeems the refresh token itself.
+ * Run at most every 10 minutes.
  */
-async function agyCliAccessToken(home: string): Promise<{ token: string; email?: string } | undefined> {
+async function agyCliModelList(home: string): Promise<AgyModel[] | undefined> {
+  if (Date.now() - agyModelsAt < 10 * 60_000) return agyModelsCache;
+  agyModelsAt = Date.now();
+  const bin = await officialAgyCli(home);
+  if (!bin) return agyModelsCache;
+  const models = await listAgyModels(bin, await executionEnvironment());
+  if (models.length) agyModelsCache = models;
+  return agyModelsCache;
+}
+
+async function agyCliAccessToken(home: string): Promise<{ token: string; email?: string; models?: AgyModel[] } | undefined> {
   let saved = await readAgyCliToken(home);
   if (!saved) return undefined;
-  if (!agyTokenUsable(saved.token) && Date.now() - agyCliRefreshAt > 10 * 60_000) {
-    agyCliRefreshAt = Date.now();
-    const bin = await officialAgyCli(home);
-    if (bin) {
-      await run(bin, ["models"], 30_000);
-      saved = await readAgyCliToken(home);
-    }
-  }
-  return saved && agyTokenUsable(saved.token) ? { token: saved.token.access_token, email: saved.email } : undefined;
+  const expired = !agyTokenUsable(saved.token);
+  const models = await agyCliModelList(home);
+  if (expired) saved = await readAgyCliToken(home);
+  return saved && agyTokenUsable(saved.token) ? { token: saved.token.access_token, email: saved.email, models } : undefined;
 }
 
 async function cloudcode(method: string, token: string, body: unknown): Promise<any> {
-  try {
-    const res = await fetch(`${CLOUDCODE_API}:${method}`, {
-      method: "POST",
-      // The API turns away requests that don't name a client
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", "User-Agent": "antigravity" },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(8000),
-    });
-    return res.ok ? await res.json() : undefined;
-  } catch {
-    return undefined;
+  for (const base of CLOUDCODE_HOSTS) {
+    try {
+      const res = await fetch(`${base}:${method}`, {
+        method: "POST",
+        // The API turns away requests that don't name a client
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", "User-Agent": "antigravity" },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(8000),
+      });
+      if (res.ok) return await res.json();
+    } catch {}
   }
+  return undefined;
 }
 
-/** Turns fetchAvailableModels' answer into the quota list: named models only, one per name, the agent's own first. */
-export function agyCliModels(data: any): { models: QuotaModelItem[]; defaultId: string } {
-  const all: Record<string, any> = data?.models || {};
-  const sorted: string[] = [];
-  for (const sort of data?.agentModelSorts || []) for (const g of sort?.groups || []) for (const id of g?.modelIds || []) sorted.push(id);
-  const ids = [...new Set([...sorted, ...Object.keys(all)])];
-  const seen = new Set<string>();
-  const models: QuotaModelItem[] = [];
-  for (const id of ids) {
-    const m = all[id];
-    if (!m?.displayName || m.isInternal || seen.has(m.displayName)) continue;
-    seen.add(m.displayName);
-    const qi = m.quotaInfo;
-    if (qi && (typeof qi.remainingFraction === "number" || qi.resetTime)) {
-      const fraction = Math.max(0, Math.min(1, typeof qi.remainingFraction === "number" ? qi.remainingFraction : 0));
-      const pct = Math.round(fraction * 1000) / 10;
-      models.push({
-        label: m.displayName,
-        model_id: id,
-        remaining_fraction: fraction,
-        remaining_percent: pct,
-        status_text: pct === 100 ? "满额 (未消耗)" : `${pct}% 剩余`,
-        reset_time: qi.resetTime,
-      });
-    } else {
-      models.push({ label: m.displayName, model_id: id, remaining_fraction: null, remaining_percent: null, status_text: "无配额限制" });
+interface QuotaBucket {
+  fraction: number;
+  reset?: string;
+  /** Which limit it is, for a model whose group shares several. */
+  label?: string;
+}
+
+/** The tighter of a group's limits (the weekly one and the 5-hour one). */
+function tightest(buckets: QuotaBucket[]): QuotaBucket | undefined {
+  return buckets.reduce<QuotaBucket | undefined>((a, b) => (!a || b.fraction < a.fraction ? b : a), undefined);
+}
+
+/**
+ * The quota each of the CLI's models draws on.
+ * - A model in a group of retrieveUserQuotaSummary (Claude and GPT share a weekly and a 5-hour limit)
+ *   has the tighter of them left; its per-model bucket only shows the 5-hour one.
+ * - Otherwise its own bucket in retrieveUserQuota, when it has one.
+ * - Otherwise a Flash level the CLI names on its own (Gemini 3.8 Flash High/Medium/Low) draws on the
+ *   tier's Flash pool fetchAvailableModels points to (tieredModelIds.flash / flashLite).
+ * - Gemini 4 has a quota of its own that no API reports (it ran out on 11-12 while Flash still answered),
+ *   so it shows none rather than the Flash pool's; the caller marks it spent once a task hits its limit.
+ */
+export function agyCliQuotaModels(input: {
+  list?: AgyModel[];
+  available?: any;
+  quota?: any;
+  summary?: any;
+}): { models: QuotaModelItem[]; defaultId: string; groups: Array<{ name: string; buckets: Array<{ label: string; remaining_percent: number; reset_time?: string }> }> } {
+  const all: Record<string, any> = input.available?.models || {};
+  const perModel = new Map<string, QuotaBucket>();
+  for (const b of input.quota?.buckets || []) {
+    if (b?.modelId && typeof b.remainingFraction === "number") perModel.set(b.modelId, { fraction: b.remainingFraction, reset: b.resetTime });
+  }
+  const groups: Array<{ name: string; members: string[]; buckets: QuotaBucket[] }> = [];
+  for (const g of input.summary?.groups || []) {
+    const buckets: QuotaBucket[] = (g?.buckets || [])
+      .filter((b: any) => typeof b?.remainingFraction === "number")
+      .map((b: any) => ({ fraction: b.remainingFraction, reset: b.resetTime, label: b.window === "weekly" ? "周额度" : b.window === "5h" ? "5 小时额度" : b.displayName }));
+    // "Models within this group: Claude Opus, Claude Sonnet, GPT-OSS"
+    const members = String(g?.description || "").replace(/^.*?:/, "").split(",").map((m: string) => m.trim().toLowerCase()).filter(Boolean);
+    const name = /claude/i.test(g?.displayName || "") && /gpt/i.test(g?.displayName || "") ? "Claude 和 GPT 模型" : g?.displayName || members.join(", ");
+    if (buckets.length && members.length) groups.push({ name, members, buckets });
+  }
+  const tiered = input.available?.tieredModelIds || {};
+  const tierBucket = (key: string) => {
+    const id = Array.isArray(tiered[key]) ? tiered[key][0] : undefined;
+    return id ? perModel.get(id) : undefined;
+  };
+
+  let list = input.list?.length ? input.list.map((m) => ({ id: m.id, name: m.label })) : undefined;
+  if (!list) {
+    // No CLI list: the named models of fetchAvailableModels, the agent's own first
+    const sorted: string[] = [];
+    for (const sort of input.available?.agentModelSorts || []) for (const g of sort?.groups || []) for (const id of g?.modelIds || []) sorted.push(id);
+    const seen = new Set<string>();
+    list = [];
+    for (const id of [...new Set([...sorted, ...Object.keys(all)])]) {
+      const m = all[id];
+      if (!m?.displayName || m.isInternal || seen.has(m.displayName)) continue;
+      seen.add(m.displayName);
+      list.push({ id, name: m.displayName });
     }
   }
-  return { models, defaultId: typeof data?.defaultAgentModelId === "string" ? data.defaultAgentModelId : "" };
+
+  const models: QuotaModelItem[] = list.map(({ id, name }) => {
+    const lower = name.toLowerCase();
+    const group = groups.find((g) => g.members.some((m) => lower.startsWith(m)));
+    let bucket: QuotaBucket | undefined;
+    if (group) bucket = tightest(group.buckets);
+    else bucket = perModel.get(id) ?? (all[id]?.quotaInfo ? { fraction: all[id].quotaInfo.remainingFraction ?? 0, reset: all[id].quotaInfo.resetTime } : undefined);
+    if (!bucket && /gemini/i.test(id) && /flash/i.test(id)) bucket = /lite/i.test(id) ? tierBucket("flashLite") : tierBucket("flash");
+    if (!bucket) return { label: name, model_id: id, remaining_fraction: null, remaining_percent: null, status_text: "额度未公开（用完时任务自动换模型）" };
+    const fraction = Math.max(0, Math.min(1, bucket.fraction));
+    const pct = Math.round(fraction * 1000) / 10;
+    const which = group && bucket.label ? `（${bucket.label}）` : "";
+    return {
+      label: name,
+      model_id: id,
+      remaining_fraction: fraction,
+      remaining_percent: pct,
+      status_text: pct === 100 ? "满额 (未消耗)" : `${pct}% 剩余${which}`,
+      reset_time: bucket.reset,
+    };
+  });
+  return {
+    models,
+    defaultId: input.list?.[0]?.id || (typeof input.available?.defaultAgentModelId === "string" ? input.available.defaultAgentModelId : ""),
+    groups: groups.map((g) => ({
+      name: g.name,
+      buckets: g.buckets.map((b) => ({ label: b.label || "", remaining_percent: Math.round(b.fraction * 1000) / 10, reset_time: b.reset })),
+    })),
+  };
 }
 
 /** Antigravity quotas through Google's agy CLI login, for a machine without the app; undefined when it isn't signed in. */
 export async function probeAntigravityCliQuota(home = homeDir()): Promise<ToolQuotaInfo | undefined> {
   const login = await agyCliAccessToken(home);
   if (!login) return undefined;
-  const [assist, available] = await Promise.all([
+  const [assist, available, quota, summary] = await Promise.all([
     cloudcode("loadCodeAssist", login.token, { metadata: { ideType: "ANTIGRAVITY" } }),
     cloudcode("fetchAvailableModels", login.token, {}),
+    cloudcode("retrieveUserQuota", login.token, {}),
+    cloudcode("retrieveUserQuotaSummary", login.token, {}),
   ]);
-  if (!available) {
+  if (!available && !quota) {
     return { tool: "antigravity", name: "Google Antigravity", available: false, error: "无法读取 Antigravity 额度（agy 命令行）" };
   }
-  const { models, defaultId } = agyCliModels(available);
+  const { models, defaultId, groups } = agyCliQuotaModels({ list: login.models, available, quota, summary });
+  const held = limitedModels("antigravity");
+  for (const m of models) {
+    // A model whose quota no API reports, known to be spent because a task ran into its limit
+    const limit = m.remaining_percent == null ? held.find((l) => l.family === modelFamily("antigravity", m.model_id)) : undefined;
+    if (limit) {
+      Object.assign(m, { remaining_fraction: 0, remaining_percent: 0, status_text: "额度用完", reset_time: limit.until ? new Date(limit.until).toISOString() : undefined });
+      continue;
+    }
+    if (m.remaining_percent === 0 && m.model_id) {
+      const until = m.reset_time ? Date.parse(m.reset_time) : NaN;
+      noteModelLimit("antigravity", m.model_id, "额度用完", Number.isFinite(until) ? until : undefined);
+    }
+  }
   const def = models.find((m) => m.model_id === defaultId);
   let primary = def && typeof def.remaining_percent === "number" ? def : models.find((m) => typeof m.remaining_percent === "number") || models[0];
   if (primary?.remaining_percent === 0) primary = models.find((m) => (m.remaining_percent ?? 0) > 0) || primary;
@@ -317,12 +407,12 @@ export async function probeAntigravityCliQuota(home = homeDir()): Promise<ToolQu
     plan_name: tier.name || "Antigravity",
     tier: /pro/i.test(tier.id || "") ? "PRO" : /ultra/i.test(tier.id || "") ? "ULTRA" : String(tier.id || "FREE").toUpperCase(),
     quota_type: "percentage",
-    quota_desc: `${tier.name || "Antigravity"} 按模型计费`,
+    quota_desc: groups.length ? `${tier.name || "Antigravity"}：Gemini Flash 共用一个额度池，Gemini 4 单独计算（不公开），${groups.map((g) => g.name).join("、")}共用周额度和 5 小时额度` : `${tier.name || "Antigravity"} 按模型计费`,
     probe_source: "agy 命令行登录",
     remaining_percent: primary?.remaining_percent ?? null,
     reset_time: primary?.reset_time ?? null,
     models,
-    details: { default_model_id: defaultId, default_model_label: def?.label || "", via_cli: true },
+    details: { default_model_id: defaultId, default_model_label: def?.label || "", via_cli: true, quota_groups: groups },
   };
 }
 

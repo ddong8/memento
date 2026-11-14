@@ -31,11 +31,11 @@ import os
 import secrets
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
-from sqlalchemy import or_, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import defer
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -414,6 +414,64 @@ async def _save_finished(tid_str: str, data: dict) -> bool:
     return False
 
 
+LOST_TASK_MARGIN_SECONDS = 10
+LOST_TASK_ERROR = (
+    "设备上的 Memento 在任务运行中重启了（升级或退出），这个任务的进程和它断开了，结果回不来。"
+    "会话本身还在：重新发送，或说“继续”接着做。"
+)
+
+
+async def _settle_lost_tasks(device_id: str, data: dict) -> list[str]:
+    """A daemon (1.0.129+) says what it runs right after it connects. Tasks the server has as running on it,
+    sent to it before the daemon started and not among them, were cut off by a restart: end them as failed
+    with the reason, the way a finished task ends, so the conversation stops waiting (it otherwise did so
+    only at the task's timeout, hours later). Returns the ids ended."""
+    try:
+        uptime = float(data["uptime_ms"]) / 1000
+    except (KeyError, TypeError, ValueError):
+        return []
+    if not 0 <= uptime < 365 * 86400:
+        return []
+    # When the daemon started, on this server's clock (the device's may differ), less a margin for the trip
+    since = datetime.now(timezone.utc) - timedelta(seconds=uptime + LOST_TASK_MARGIN_SECONDS)
+    keep = {str(x) for x in (data.get("task_ids") or []) if x}
+    try:
+        async with async_session_factory() as db:
+            rows = (
+                await db.execute(
+                    select(DeviceTask.id).where(
+                        DeviceTask.device_id == device_id,
+                        DeviceTask.status == "running",
+                        func.coalesce(DeviceTask.dispatched_at, DeviceTask.created_at) < since,
+                    )
+                )
+            ).scalars().all()
+    except Exception as e:
+        logger.warning("Could not check the tasks of reconnected device %s: %s", device_id, e)
+        return []
+    ended: list[str] = []
+    for tid in rows:
+        tid_str = str(tid)
+        if tid_str in keep:
+            continue
+        result = {
+            "type": "task_finished",
+            "task_id": tid_str,
+            "status": "failed",
+            "exit_code": None,
+            "stdout": "",
+            "stderr": LOST_TASK_ERROR,
+            "error": LOST_TASK_ERROR,
+        }
+        watched = await ws_manager.is_watched(tid_str)
+        ws_manager.push_finished(tid_str, result)
+        if await _save_finished(tid_str, result) and not watched:
+            await _recover_turn(tid_str)
+        logger.info("task %s on %s ended: lost in a restart of the device's app", tid_str, device_id)
+        ended.append(tid_str)
+    return ended
+
+
 async def _recover_turn(tid_str: str) -> None:
     """No run followed the task: its turn goes into the conversation it was asked from."""
     from ..db.models import AskConversation
@@ -572,6 +630,8 @@ async def device_websocket_endpoint(
                 notify_service.spawn(workspace_relay.handle(data, real_device_id, machine.user_id))
             elif msg_type in ("file_stat_resp", "file_chunk_resp", "p2p_answer", "workspace_resp", "agent_login_resp"):
                 ws_manager.handle_file_response(data)
+            elif msg_type == "running_tasks":
+                notify_service.spawn(_settle_lost_tasks(real_device_id, data))
             elif msg_type == "task_finished":
                 tid_str = data.get("task_id")
                 if tid_str:

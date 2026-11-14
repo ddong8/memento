@@ -976,7 +976,24 @@ export class TaskRunner {
     return next.id;
   }
 
+  /** Tasks taken and not over yet, from receipt (preparing a workspace, waiting to start) to the end. */
+  private readonly accepted = new Set<string>();
+
+  /** Every task this daemon has on hand: started, or taken and still getting ready. */
+  get activeTaskIds(): string[] {
+    return [...new Set([...this.accepted, ...this.running.keys()])];
+  }
+
   async execute(task: TaskDispatch): Promise<void> {
+    this.accepted.add(task.id);
+    try {
+      await this.executeTask(task);
+    } finally {
+      this.accepted.delete(task.id);
+    }
+  }
+
+  private async executeTask(task: TaskDispatch): Promise<void> {
     const taskId = task.id;
     const { action, payload } = task;
     const text = (key: string) => (payload[key] == null ? "" : String(payload[key]));

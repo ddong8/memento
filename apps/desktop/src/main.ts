@@ -1143,6 +1143,18 @@ rm -f "$0"
   }
 }
 
+let updateWhenIdleTimer: NodeJS.Timeout | null = null;
+
+/** Agent tasks running on this device now (0 when the daemon can't be asked: nothing to wait for then). */
+async function runningAgentTasks(): Promise<number> {
+  try {
+    const st = (await daemon.call("GET", "/status")) as { runningTasks?: unknown } | null;
+    return Array.isArray(st?.runningTasks) ? st.runningTasks.length : 0;
+  } catch {
+    return 0;
+  }
+}
+
 function setupUpdater(): void {
   // 解耦 autoDownload，将轻量版本比对与大文件下载分离，避免网络下载阻塞导致检查更新弹窗报错
   autoUpdater.autoDownload = false;
@@ -1224,20 +1236,49 @@ function setupUpdater(): void {
       return;
     }
     lastPromptedVersion = info.version;
-    const { response } = await dialog.showMessageBox({
-      type: "info",
-      buttons: ["现在重启", "稍后"],
-      defaultId: 0,
-      message: `Memento ${info.version} 已下载`,
-      detail: "重启后生效；也可以稍后退出时自动安装。",
-    });
-    if (response === 0) {
+    const install = async () => {
       quitting = true;
       if (process.platform === "darwin") {
         await installMacUpdate(info);
       } else {
         autoUpdater.quitAndInstall();
       }
+    };
+    // Restarting ends the daemon, and with it the pipe of every agent running on this device: the agent goes
+    // on orphaned, and its reply stops reaching the conversation (11-14: a Claude Code run cut off this way).
+    // So with agents running, the restart waits for them by default.
+    const running = await runningAgentTasks();
+    if (running === 0) {
+      const { response } = await dialog.showMessageBox({
+        type: "info",
+        buttons: ["现在重启", "稍后"],
+        defaultId: 0,
+        message: `Memento ${info.version} 已下载`,
+        detail: "重启后生效；也可以稍后退出时自动安装。",
+      });
+      if (response === 0) await install();
+      return;
+    }
+    const { response } = await dialog.showMessageBox({
+      type: "info",
+      buttons: ["任务结束后重启", "立即重启", "稍后"],
+      defaultId: 0,
+      cancelId: 2,
+      message: `Memento ${info.version} 已下载`,
+      detail: `本机还有 ${running} 个智能体任务在运行，现在重启会中断它们的回复。选“任务结束后重启”会在它们都结束后自动重启到新版本。`,
+    });
+    if (response === 1) await install();
+    else if (response === 0) {
+      showNotification("任务结束后自动更新", `还有 ${running} 个任务在运行，结束后重启到 Memento ${info.version}`);
+      if (updateWhenIdleTimer) clearInterval(updateWhenIdleTimer);
+      updateWhenIdleTimer = setInterval(() => {
+        void runningAgentTasks().then((n) => {
+          if (n !== 0 || quitting) return;
+          if (updateWhenIdleTimer) clearInterval(updateWhenIdleTimer);
+          updateWhenIdleTimer = null;
+          void install();
+        });
+      }, 15_000);
     }
   });
 

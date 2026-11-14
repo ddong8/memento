@@ -229,6 +229,7 @@ export class WsTaskClient {
           this.onConnection(true);
           this.log(`Handshake verified by server (${String(data.device_name ?? "")})`);
           this.flushPendingOutbox();
+          this.reportRunningTasks();
           void this.reportQuotas();
           this.schedulePendingPatches();
           break;
@@ -364,6 +365,24 @@ export class WsTaskClient {
     }
     // Queue critical task messages if socket is not open (e.g. during network or VPN switch)
     this.enqueuePending(message);
+  }
+
+  /**
+   * After every (re)connect, once the queued messages went out: the tasks this daemon is running and how
+   * long it has run. A task the server still has as running on this device, sent to it before that and not in
+   * the list, was cut off by a restart (the app updated or quit mid-run: the agent goes on orphaned and its
+   * reply never comes back); the server ends it with the reason instead of leaving the conversation waiting.
+   */
+  reportRunningTasks(): void {
+    const finishing = this.pendingOutbox
+      .filter((m) => m.type === "task_finished" && typeof m.task_id === "string")
+      .map((m) => String(m.task_id));
+    this.sendJson({
+      type: "running_tasks",
+      task_ids: [...new Set([...this.runner.activeTaskIds, ...finishing])],
+      // How long it has run (not a start time: the server's clock may differ from this device's)
+      uptime_ms: Math.round(process.uptime() * 1000),
+    });
   }
 
   private flushPendingOutbox(): void {

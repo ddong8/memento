@@ -153,6 +153,32 @@ function getWindowIcon(): Electron.NativeImage | undefined {
   return fallback.isEmpty() ? undefined : fallback;
 }
 
+/**
+ * Windows: no system title bar above the app's own top bar (like VS Code, Teams, the new Outlook). The
+ * minimize / maximize / close buttons are drawn by Windows over the right end of the app's top bar
+ * (titleBarOverlay, transparent so the bar shows through), the bar drags the window and snaps it like a
+ * title bar, and the page keeps clear of the buttons with env(titlebar-area-*). Its height is the bar's:
+ * 56 px, 44 px in a window narrower than 640 px (the page's sm breakpoint).
+ */
+const MERGED_TITLE_BAR = process.platform === "win32";
+let overlayFollowsTheme = false;
+
+function titleBarOverlay(width?: number): Electron.TitleBarOverlay {
+  const dark = nativeTheme.shouldUseDarkColors;
+  return {
+    color: "#00000000",
+    symbolColor: dark ? "#E8E8EE" : "#1C1B22",
+    height: (width ?? 1280) < 640 ? 44 : 56,
+  };
+}
+
+function updateTitleBarOverlay(): void {
+  if (!MERGED_TITLE_BAR || !win || win.isDestroyed()) return;
+  try {
+    win.setTitleBarOverlay(titleBarOverlay(win.getContentSize()[0]));
+  } catch {}
+}
+
 function createWindow(show: boolean): void {
   win = new BrowserWindow({
     width: 1280,
@@ -162,9 +188,14 @@ function createWindow(show: boolean): void {
     show,
     title: "Memento",
     icon: getWindowIcon(),
-    // Matches the page while it loads, so there's no dark flash in light mode.
-    backgroundColor: nativeTheme.shouldUseDarkColors ? "#0b0b12" : "#f6f5fb",
-    titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
+    // Matches the page while it loads, so there's no dark flash in light mode. macOS: the sidebar
+    // material, as in Finder and Notes; the page is transparent over it only in its sidebar (globals.css,
+    // data-window-material), its own background everywhere else.
+    ...(process.platform === "darwin"
+      ? { vibrancy: "sidebar" as const, visualEffectState: "followWindow" as const, backgroundColor: "#00000000" }
+      : { backgroundColor: nativeTheme.shouldUseDarkColors ? "#0b0b12" : "#f6f5fb" }),
+    titleBarStyle: process.platform === "darwin" ? "hiddenInset" : MERGED_TITLE_BAR ? "hidden" : "default",
+    ...(MERGED_TITLE_BAR ? { titleBarOverlay: titleBarOverlay(1280) } : {}),
     trafficLightPosition: process.platform === "darwin" ? { x: 18, y: 18 } : undefined,
     // Windows / Linux: the default File-Edit-View menu adds nothing to the web UI and its
     // bottom edge shows as a dark line under it. Hidden, it still answers Alt and its shortcuts.
@@ -180,6 +211,22 @@ function createWindow(show: boolean): void {
   // The page's scripts are content-hashed and cached for a year, so a start reuses them like a native app
   // instead of downloading ~1.4 MB again; only the first start of a new version clears the cache once.
   clearCacheOnNewVersion();
+
+  if (MERGED_TITLE_BAR) {
+    // The buttons' height follows the top bar's (it's lower in a narrow window)
+    let tall = true;
+    if (!overlayFollowsTheme) {
+      overlayFollowsTheme = true;
+      nativeTheme.on("updated", updateTitleBarOverlay); // the system's dark mode, when the page follows it
+    }
+    win.on("resize", () => {
+      const now = (win?.getContentSize()[0] ?? 1280) >= 640;
+      if (now !== tall) {
+        tall = now;
+        updateTitleBarOverlay();
+      }
+    });
+  }
 
   // Native context menu for text copying, pasting, and selection in Desktop app
   win.webContents.on("context-menu", (_e, params) => {
@@ -1282,6 +1329,7 @@ function setupIpc(): void {
   // The page's light/dark choice for what the system draws: the title bar (Windows), scroll bars, menus, dialogs
   handle("app:set-theme", (_e, theme: unknown) => {
     nativeTheme.themeSource = theme === "dark" || theme === "light" ? theme : "system";
+    updateTitleBarOverlay();
     return nativeTheme.themeSource;
   });
   handle("app:set-open-at-login", (_e, on: unknown) => {

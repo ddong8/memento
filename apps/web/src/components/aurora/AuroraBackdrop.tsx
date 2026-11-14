@@ -13,6 +13,7 @@ export function AuroraBackdrop() {
   return (
     <div
       aria-hidden
+      data-app-backdrop
       style={{
         position: "fixed",
         inset: 0,

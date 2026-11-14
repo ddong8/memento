@@ -26,12 +26,14 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
   const [totalDevices, setTotalDevices] = useState<number>(0);
   const [todoCount, setTodoCount] = useState<number>(0);
   const [isMacDesktop, setIsMacDesktop] = useState(false);
+  const [isDesktopApp, setIsDesktopApp] = useState(false);
   const [appVersion, setAppVersion] = useState(WEB_VERSION);
   const [updateAvailable, setUpdateAvailable] = useState<string | null>(null);
 
   useEffect(() => {
     const d = desktop();
     if (d) {
+      setIsDesktopApp(true);
       const isMac =
         typeof navigator !== "undefined" &&
         (/Mac/i.test(navigator.userAgent) || /Mac/i.test((navigator as { platform?: string }).platform || ""));
@@ -267,7 +269,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
         {/* Brand & Collapse Header */}
         <div
           className={`px-3.5 pb-2.5 flex items-center justify-between ${
-            isMacDesktop ? "pt-12 app-region-drag" : "pt-4"
+            isMacDesktop ? "pt-12 app-region-drag" : isDesktopApp ? "pt-4 app-region-drag" : "pt-4"
           }`}
         >
           <Link

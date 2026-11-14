@@ -842,6 +842,37 @@ html[data-skin="baseline"][data-theme="light"] aside {
   -webkit-app-region: no-drag;
 }
 
+/* Windows desktop app: the system's minimize / maximize / close buttons are drawn over the right end of the
+   top bar (the window has no title bar of its own); the bar's content keeps clear of them. env() is the area
+   left of the buttons, 0 in a browser and in a client with the system title bar. */
+html[data-client="desktop"][data-os="windows"] header {
+  padding-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw) + 12px) !important;
+}
+
+/* macOS desktop app (1.0.127+): the sidebar shows the window's system sidebar material (vibrancy, as in
+   Finder and Notes). Only with the sidebar docked (lg); the page keeps its own background everywhere else,
+   and the drawer of a narrow window stays opaque over the content. */
+@media (min-width: 1024px) {
+  html[data-window-material="sidebar"],
+  html[data-window-material="sidebar"] body {
+    background: transparent !important;
+  }
+  html[data-window-material="sidebar"] [data-app-backdrop] {
+    display: none;
+  }
+  html[data-window-material="sidebar"] [data-app-main] {
+    min-height: 100vh;
+    min-height: 100dvh;
+    background: var(--aurora-bg);
+  }
+  html[data-window-material="sidebar"] aside {
+    background: transparent !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    border-right-color: var(--aurora-border-strong) !important;
+  }
+}
+
 header button,
 header a,
 header select,

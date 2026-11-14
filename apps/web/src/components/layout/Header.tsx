@@ -16,12 +16,12 @@ export default function Header({ onMenuToggle, className = "" }: { onMenuToggle:
   const { t, locale, setLocale } = useI18n();
   const { collapsed, toggleCollapsed } = useSidebar();
   const pathname = usePathname();
-  const [isMacDesktop, setIsMacDesktop] = useState(false);
+  // The top bar is the desktop window's title bar: it drags the window (on Windows the system's
+  // minimize / maximize / close buttons sit over its right end, see globals.css)
+  const [isDesktopApp, setIsDesktopApp] = useState(false);
 
   useEffect(() => {
-    if (desktop() && typeof navigator !== "undefined" && (/Mac/i.test(navigator.userAgent) || /Mac/i.test((navigator as { platform?: string }).platform || ""))) {
-      setIsMacDesktop(true);
-    }
+    if (desktop()) setIsDesktopApp(true);
   }, []);
 
   const pageMeta = (() => {
@@ -41,7 +41,7 @@ export default function Header({ onMenuToggle, className = "" }: { onMenuToggle:
 
   return (
     <header
-      className={`h-11 sm:h-14 flex items-center justify-between px-3 sm:px-4 md:px-6 fixed top-0 left-0 ${collapsed ? "lg:left-[68px]" : "lg:left-60"} right-0 z-20 transition-[left] duration-200 ease-in-out ${isMacDesktop ? "app-region-drag" : ""} ${className}`}
+      className={`h-11 sm:h-14 flex items-center justify-between px-3 sm:px-4 md:px-6 fixed top-0 left-0 ${collapsed ? "lg:left-[68px]" : "lg:left-60"} right-0 z-20 transition-[left] duration-200 ease-in-out ${isDesktopApp ? "app-region-drag" : ""} ${className}`}
       style={{
         background: "var(--aurora-surface)",
         backdropFilter: "var(--aurora-blur)",

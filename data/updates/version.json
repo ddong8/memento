@@ -4,22 +4,22 @@
   "release_notes": "1. 新增业务蓝图（BUSINESS_BLUEPRINT.md）：把你给项目定的业务规则、术语、流程和状态归属挂到代码和测试上，每次提交自动核对，规则和代码对不上时提示；客户端会把它和代码蓝图一起上传，项目页显示核对结果和还没写进蓝图的规则，可以一键派智能体去写\n2. 派给智能体的任务会提示它先看业务蓝图里相关的规则\n3. 手机端版本号与客户端统一为 1.0.133",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.132-win-x64.zip",
-      "size": 158289651,
-      "sha256": "b6b9fe71be1181eccf4feae46e110c68e639b9bcb2b9f86b09bdb2e5e86fd9fa",
-      "sha512": "fATUOhZijI7dU3q9L4PBl2XMqV4bqJmOA9InvOGdKHZdfZMwiJ7caKndRJyAu7Sy13JLPrxbGaL9uYN491w1JQ=="
+      "asset_name": "Memento-1.0.133-win-x64.zip",
+      "size": 158300891,
+      "sha256": "bea70e8e754e0383465d1ee39c39668a20b482811bbd32893feb8f66f8023e8e",
+      "sha512": "+lnhZxIT0svvj9gVjVQ/3A0BTXqERlVn5okc+YxOHg1Fhy3XH5ZWhISebd9J2typKhI11zZX9DVvNepVpfbJUQ=="
     },
     "macos": {
-      "asset_name": "Memento-1.0.132-mac-arm64.zip",
-      "size": 132776438,
-      "sha256": "623d9c0f05be4a7214ffd8bdddfe0b9eb0c871354cbd0094de59b622769f3d67",
-      "sha512": "znT3IrYfnGeYyddEj56o/gF3/dcNgBa4+o/fNCk6d4BB8Ejx24+GXC1oYAkBENmcbwiC0hz8MMJ0IYz7yUqviw=="
+      "asset_name": "Memento-1.0.133-mac-arm64.zip",
+      "size": 132788191,
+      "sha256": "88ce0ae8d28149910c343fc9013ee5dd91b55fe7a01f955a190abc2c34ae01ba",
+      "sha512": "bfL/1Pgn741QaX2YgvC0hwGzanluPhPQSDe/GETTss9a8rRyMom1D11blWg+SZ+Hk+xxPkq2d+mFy+VG6/QVzQ=="
     },
     "linux": {
-      "asset_name": "Memento-1.0.132-linux-x64.tar.gz",
-      "size": 132053613,
-      "sha256": "3711d42c81f55c668c6d8a5b6c58178ad66d5c66300597555696fc911ed3c57a",
-      "sha512": "X7Da62ng83wpsvrlQ5lwQQvy/aX3q/rDLTBq1UEoXK4MeODLpmlS7JLGrPDttkap4qziQkda0XgKn/FcIlE4BQ=="
+      "asset_name": "Memento-1.0.133-linux-x64.tar.gz",
+      "size": 132065788,
+      "sha256": "fc699e3cd17d60de6f260477e113367f47d6649a04dd01aa2b6a9ce0f9d5dd52",
+      "sha512": "XxRx2CqoCyh66BGPJMs1gqbJ4y5sGPLhK/ImHl5VG6hJZ7vr08KrkLxz8AxktcvB9lA0zz3WJtUebrIm6LCO1A=="
     }
   }
 }

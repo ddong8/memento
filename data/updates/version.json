@@ -4,22 +4,22 @@
   "release_notes": "1. 有任务在本机运行时，更新默认等任务结束后再自动重启，不再打断正在进行的回复\n2. 客户端重启后，被打断的任务会立即结束并说明原因，问答页不再一直显示运行中\n3. 桌面端的“更多”菜单和用户菜单是系统原生菜单（1.0.128 起）\n4. 手机端版本号与客户端统一为 1.0.129",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.128-win-x64.zip",
-      "size": 158280144,
-      "sha256": "2943f09fcc8e913dd4b8a5b9b6eecf7d547aa972c3c10e8105c0d2a36a368983",
-      "sha512": "0p0rLErNp0UM1uwLYp/UhGUpskWC2gQsPV2yAmhfF9MS74O/o+Uo/lA8go4toB1FN3BUeK/D8mKRsCnV+ClxMw=="
+      "asset_name": "Memento-1.0.129-win-x64.zip",
+      "size": 158282705,
+      "sha256": "8a17c4bbde5876a827a8f67c144fba5c2a078188a48c53477154e8d25c63c687",
+      "sha512": "gSrytZYJ+nWA5VsnIDYSyT5X9Cjott3V9CdbCDpgRzYe2LYTXMh5WseOZr5sC7Jjs6wpiQ0ie93YHuuYowrkPg=="
     },
     "macos": {
-      "asset_name": "Memento-1.0.128-mac-arm64.zip",
-      "size": 132768160,
-      "sha256": "94e720980883777282413e03a82b295d80ed9883dcc829450facbb151026f3ef",
-      "sha512": "oU9rM5QBN2LQNhXAdwToG6lT/Ta1imq58Q+LI/5vzjpj1+qwm8tcwSNh82WayQ7AOKCkGHXnTVtiUbupxLU2Zg=="
+      "asset_name": "Memento-1.0.129-mac-arm64.zip",
+      "size": 132770775,
+      "sha256": "0f24adcdc04df6085455916bf37a541d15459931f77aeab6e3de2a514ed1c286",
+      "sha512": "hqnx5C5TYHBKK4LBW14KAM9+UZK7A9oBCpbvUEj3URYZgy4zcL/WBB2mzKsqLGaTrRL0S3aIcidFFOUvySjIEA=="
     },
     "linux": {
-      "asset_name": "Memento-1.0.128-linux-x64.tar.gz",
-      "size": 132046987,
-      "sha256": "047a5d3677cc12bfcf7559c6e614701160db604483cd2ae8f5d1eb4825169a50",
-      "sha512": "0QLIEm4+HoynmQlV6sU717aysBJvgjH2leLS/XDUhQK0qyicUeKOJUpN6Ud3b3Cy/MsnO6hESMm4krM0kbMbJQ=="
+      "asset_name": "Memento-1.0.129-linux-x64.tar.gz",
+      "size": 132049043,
+      "sha256": "8af982b99346db167cc6b25c80e939137ec1e86ee0d2245a0caa8b804496c007",
+      "sha512": "2oLrJv2FUZ7Hfpk30H7WXmpxsSDvZpkJbAlQbjr536wYljKti7GuNNrotuY87/xWffcnRWeNLQxEE6Xr/797uw=="
     }
   }
 }

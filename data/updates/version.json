@@ -1,7 +1,7 @@
 {
-  "version": "1.0.126",
-  "title": "Memento v1.0.126",
-  "release_notes": "1. 英文字体按系统选用最合适的：苹果设备用 SF，Windows 用 Segoe UI，Linux 跟随桌面环境（GNOME、Ubuntu、KDE 各用自己的界面字体），安卓用 Roboto\n2. 桌面端更像原生应用：按钮用系统箭头光标，界面文字不会被误选，窗口标题栏和菜单的深浅色跟随应用主题，启动更快\n3. 手机端长按按钮不再弹出文字选择菜单\n4. 没手动选过深浅色时，跟随系统实时切换\n5. 手机端版本号与客户端统一为 1.0.126",
+  "version": "1.0.127",
+  "title": "Memento v1.0.127",
+  "release_notes": "1. Windows 11 客户端：系统标题栏和应用顶栏合成一条，最小化、最大化、关闭按钮在顶栏右端，拖动顶栏移动窗口、双击最大化，和 VS Code、Teams 一样\n2. Mac 客户端：侧栏用系统毛玻璃材质，和访达、备忘录一样透出桌面颜色\n3. 手机端版本号与客户端统一为 1.0.127",
   "platforms": {
     "windows": {
       "asset_name": "Memento-1.0.126-win-x64.zip",

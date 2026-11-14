@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `768d7d01` · Updated: `2026-11-13`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `8a786a3d` · Updated: `2026-11-14`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,7 +16,7 @@
 - 规模 (Scale): 9 个子系统 · 35 组 API 路由 / 236 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 201 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `cb351446` (2026-11-14): chore(release): 升级客户端版本至 v1.0.126，英文字体按系统选用、客户端更接近原生应用
+- 最近改动 (Latest): `8a786a3d` (2026-11-14): feat(native): Windows 标题栏与应用顶栏合为一条，macOS 侧栏用系统毛玻璃材质
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -611,10 +611,10 @@ erDiagram
 - [`packages/daemon/assets/workbuddy_cli.mjs`](packages/daemon/assets/workbuddy_cli.mjs) (18 commits)
 - [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (13 commits)
 - [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (10 commits)
-- [`apps/web/src/lib/api-client.ts`](apps/web/src/lib/api-client.ts) (7 commits)
-- [`server/server/services/plan_service.py`](server/server/services/plan_service.py) (7 commits)
-- [`server/tests/test_plan_service.py`](server/tests/test_plan_service.py) (7 commits)
 - [`apps/web/src/components/TaskTimeline.tsx`](apps/web/src/components/TaskTimeline.tsx) (6 commits)
+- [`apps/web/src/lib/api-client.ts`](apps/web/src/lib/api-client.ts) (6 commits)
+- [`server/server/services/plan_service.py`](server/server/services/plan_service.py) (6 commits)
+- [`server/tests/test_plan_service.py`](server/tests/test_plan_service.py) (6 commits)
 - [`apps/web/src/components/ExecutionCard.tsx`](apps/web/src/components/ExecutionCard.tsx) (5 commits)
 - [`apps/web/src/components/viewers/MediaInspectorPanel.tsx`](apps/web/src/components/viewers/MediaInspectorPanel.tsx) (5 commits)
 - [`apps/web/src/lib/i18n/en-US.ts`](apps/web/src/lib/i18n/en-US.ts) (5 commits)
@@ -640,12 +640,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `8a786a3d` (2026-11-14): feat(native): Windows 标题栏与应用顶栏合为一条，macOS 侧栏用系统毛玻璃材质
 - `cb351446` (2026-11-14): chore(release): 升级客户端版本至 v1.0.126，英文字体按系统选用、客户端更接近原生应用
 - `d65066c8` (2026-11-14): feat(native): 英文字体按系统选用，客户端交互更接近原生应用
 - `2bb299ca` (2026-11-14): chore(release): 升级客户端版本至 v1.0.125，界面去渐变、按系统选字体、截图不再找不到
 - `88093675` (2026-11-14): fix(images): 工作台里用户上传的截图不再找不到或显示成别的图
 - `3f6aeefc` (2026-11-14): style(web): 去掉按钮与界面装饰性渐变，统一按各系统最佳中文字体排版
-- `bd1c349f` (2026-11-13): feat(daemon): 执行机守护进程自动跟随新版本升级，不用再登录每台服务器重跑安装脚本
 
 ## 10. Key Environment Variables & Configuration
 

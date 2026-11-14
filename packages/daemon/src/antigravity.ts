@@ -664,43 +664,24 @@ export async function refreshAntigravityMcpServers(
   return again ? call(again) : false;
 }
 
-async function lastProjectId(files: string[]): Promise<string | undefined> {
-  for (const f of files) {
-    try {
-      const data = JSON.parse(await readFile(f, "utf8")) as { lastCreatedProjectId?: unknown };
-      if (data.lastCreatedProjectId != null) return String(data.lastCreatedProjectId);
-    } catch {
-      // absent or unreadable
-    }
-  }
-  return undefined;
-}
-
 /**
  * Where the running Antigravity app's language server listens, with its CSRF
- * token and last project; null when Antigravity isn't running. On macOS the app
+ * token; null when Antigravity isn't running. On macOS the app
  * is started when it's installed but closed.
  */
 export async function discoverAntigravityEnv(forceRefresh = false): Promise<Record<string, string> | null> {
   if (!forceRefresh && cached && Date.now() - cached.at < 30_000) return cached.env;
   cached = undefined;
-  const home = homeDir();
   try {
     const ls = await findAntigravityLanguageServer({ launch: true, forceRefresh });
     if (!ls) return null;
-    const projectFiles =
-      process.platform === "win32"
-        ? [join(process.env.APPDATA ?? "", "Antigravity", "app_storage.json")]
-        : [
-            join(home, "Library", "Application Support", "Antigravity", "app_storage.json"),
-            join(home, ".config", "Antigravity", "app_storage.json"),
-          ];
     const env: Record<string, string> = { ANTIGRAVITY_LS_ADDRESS: `localhost:${ls.port}` };
     if (ls.csrf) env.ANTIGRAVITY_CSRF_TOKEN = ls.csrf;
     // The runner's agentapi, for an app installed somewhere other than the default folder
     if (ls.binary) env.ANTIGRAVITY_LS_BINARY = ls.binary;
-    const project = await lastProjectId(projectFiles);
-    if (project) env.ANTIGRAVITY_PROJECT_ID = project;
+    // No ANTIGRAVITY_PROJECT_ID: the runner picks the project for the task's folder (projectForFolder).
+    // The app's lastCreatedProjectId here put every new conversation in the project made last, whatever
+    // folder the task was for (2026-11-14: easywork-copilot tasks ran in chem-vision).
     cached = { env, at: Date.now() };
     return env;
   } catch {

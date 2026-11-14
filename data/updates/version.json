@@ -1,7 +1,7 @@
 {
-  "version": "1.0.130",
-  "title": "Memento v1.0.130",
-  "release_notes": "1. 只装 agy 命令行的执行机上，Antigravity 额度列出全部可用模型（含 Gemini 4 Argon/Hydrogen、Gemini 3.8 Flash 各档），剩余额度按真实额度池计算：Claude/GPT 取周额度和 5 小时额度中较紧的一个\n2. 执行机守护进程会自己跟上新版本：旁路构建，等任务结束再切换，不用再登录服务器重跑安装脚本\n3. 手机端版本号与客户端统一为 1.0.130",
+  "version": "1.0.131",
+  "title": "Memento v1.0.131",
+  "release_notes": "1. 用 Antigravity 新建任务时，按配置里选的项目目录找到（没有就新建）对应的 Antigravity 项目，不再落到 Antigravity 最后新建的那个项目里（之前选 easywork-copilot 却在 chem-vision 里干活）\n2. 手机端版本号与客户端统一为 1.0.131",
   "platforms": {
     "windows": {
       "asset_name": "Memento-1.0.130-win-x64.zip",

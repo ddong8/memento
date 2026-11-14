@@ -4,7 +4,7 @@ import { appendFileSync, chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSyn
 import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { build } from "esbuild";
 
 import { antigravityExecutable, ensureAgyCliInstalled } from "../src/antigravity.js";
@@ -254,6 +254,8 @@ describe.skipIf(!posix)("Antigravity runner, end to end", () => {
   let rpcCalls: { method: string; body: any }[];
   let trajectory: () => unknown;
   let onAnswer: (() => void) | undefined;
+  // The app's projects, as the language server's ListProjects/ReadProjects/CreateProject keep them
+  let projects: { id: string; name: string; projectResources: unknown }[];
 
   const transcript = () => join(home, ".gemini", "antigravity", "brain", CID, ".system_generated", "logs", "transcript_full.jsonl");
   const writeSteps = (...steps: unknown[]) => {
@@ -287,7 +289,7 @@ import { join } from "node:path";
 const home = process.env.HOME;
 const args = process.argv.slice(2);
 appendFileSync(join(home, "agentapi-calls.jsonl"), JSON.stringify(args) + "\\n");
-appendFileSync(join(home, "agentapi-env.jsonl"), JSON.stringify({ conversation: process.env.ANTIGRAVITY_CONVERSATION_ID ?? null, electron: process.env.ELECTRON_RUN_AS_NODE ?? null }) + "\\n");
+appendFileSync(join(home, "agentapi-env.jsonl"), JSON.stringify({ conversation: process.env.ANTIGRAVITY_CONVERSATION_ID ?? null, electron: process.env.ELECTRON_RUN_AS_NODE ?? null, project: process.env.ANTIGRAVITY_PROJECT_ID ?? null }) + "\\n");
 const [, sub, ...rest] = args;
 const cid = ${JSON.stringify(CID)};
 const log = join(home, ".gemini", "antigravity", "brain", cid, ".system_generated", "logs");
@@ -352,6 +354,16 @@ if (sub === "new-conversation") {
         } else if (method === "HandleCascadeUserInteraction") {
           res.end("{}");
           onAnswer?.();
+        } else if (method === "ListProjects") {
+          res.end(JSON.stringify({ projectIds: [...projects.map((p) => p.id), "outside-of-project"] }));
+        } else if (method === "ReadProjects") {
+          res.end(JSON.stringify({ projects: projects.filter((p) => body.ids.includes(p.id)) }));
+        } else if (method === "ReadProject") {
+          const project = projects.find((p) => p.id === body.id);
+          res.end(JSON.stringify(project ? { project } : { notFoundOnDisk: true }));
+        } else if (method === "CreateProject") {
+          projects.push(body.project);
+          res.end("{}");
         } else {
           res.writeHead(404).end();
         }
@@ -367,6 +379,7 @@ if (sub === "new-conversation") {
   beforeEach(() => {
     home = mkdtempSync(join(dir, "home-"));
     rpcCalls = [];
+    projects = [];
     trajectory = () => ({ trajectory: { trajectoryId: "traj-1", steps: [] } });
     onAnswer = undefined;
   });
@@ -375,7 +388,7 @@ if (sub === "new-conversation") {
   const reply = (stdout: string) => stdout.split("\n").filter((l) => !l.includes('"memento_event"')).join("\n");
 
   /** Starts the runner; `done` resolves once it exits. */
-  function start(args: string[], env: Record<string, string> = {}) {
+  function start(args: string[], env: Record<string, string> = {}, cwd?: string) {
     // MEMENTO_E2E_RUNTIME: the desktop app's executable, to run it on Electron as Node as tasks do
     const child = spawn(process.env.MEMENTO_E2E_RUNTIME || process.execPath, [bundle, ...args], {
       env: {
@@ -390,6 +403,7 @@ if (sub === "new-conversation") {
         ...env,
       },
       stdio: ["pipe", "pipe", "pipe"],
+      ...(cwd ? { cwd } : {}),
     });
     const out = { stdout: "", stderr: "" };
     child.stdout.on("data", (c) => (out.stdout += c));
@@ -406,7 +420,19 @@ if (sub === "new-conversation") {
   }
 
   it("starts a conversation on the app's default model, steps down a tier when it can't, and ends on the reply", async () => {
-    const run = start(["--dangerously-skip-permissions", "-p", "看看 README"], { FAKE_AGY: "simple", FAKE_FAIL_MODEL: "gemini-4-argon-high" });
+    // The task's folder has a project of its own; the app made another one last (2026-11-14: tasks for
+    // easywork-copilot ran in chem-vision)
+    const work = join(home, "easywork-copilot");
+    mkdirSync(work);
+    projects = [
+      { id: "proj-easy", name: "easywork-copilot", projectResources: { resources: [{ gitFolder: { folderUri: pathToFileURL(work).href } }] } },
+      { id: "proj-chem", name: "chem-vision", projectResources: { resources: [{ gitFolder: { folderUri: "file:///d%3A/dev/chem-vision" } }] } },
+    ];
+    const run = start(
+      ["--dangerously-skip-permissions", "-p", "看看 README"],
+      { FAKE_AGY: "simple", FAKE_FAIL_MODEL: "gemini-4-argon-high", ANTIGRAVITY_PROJECT_ID: "proj-chem" },
+      work,
+    );
     expect(await run.done).toBe(0);
     expect(agentapiCalls().map((a) => a[2])).toEqual(["--model=gemini-4-argon-high", "--model=pro"]);
     expect(agentapiCalls()[1]).toEqual(["agentapi", "new-conversation", "--model=pro", "--title=看看 README", "看看 README"]);
@@ -423,10 +449,12 @@ if (sub === "new-conversation") {
     expect(run.out.stdout).toContain("最终答案：完成\n\n");
     // A tool's output is never part of the reply
     expect(reply(run.out.stdout)).not.toContain("机密内容");
-    expect(rpcCalls.map((c) => c.method)).toEqual(["GetUserStatus"]);
-    // Neither the runner's runtime switch nor a parent session's id reaches agentapi
+    expect(rpcCalls.map((c) => c.method)).toEqual(["GetUserStatus", "ListProjects", "ReadProjects"]);
+    // Neither the runner's runtime switch nor a parent session's id reaches agentapi; the conversation
+    // goes in the folder's project, not the inherited one
     const envs = readFileSync(join(home, "agentapi-env.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
-    expect(envs).toEqual([{ conversation: null, electron: null }, { conversation: null, electron: null }]);
+    const sent = { conversation: null, electron: null, project: "proj-easy" };
+    expect(envs).toEqual([sent, sent]);
   });
 
   it("shows a question Antigravity holds and sends the answer back the way the app does", async () => {

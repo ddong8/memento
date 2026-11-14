@@ -1,7 +1,8 @@
 import { execFile, spawn } from "node:child_process";
-import { accessSync, closeSync, constants, existsSync, fstatSync, openSync, readFileSync, readSync, statSync } from "node:fs";
+import { accessSync, closeSync, constants, existsSync, fstatSync, openSync, readFileSync, readSync, realpathSync, statSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 
 import { agyToolDetail, agyToolOutput } from "../agent-stream.js";
@@ -108,24 +109,6 @@ export async function autoDiscoverLanguageServer(): Promise<void> {
         csrf ??= /"csrfToken":"([^"]+)"/.exec(page)?.[1];
         process.env.ANTIGRAVITY_LS_ADDRESS = `localhost:${port}`;
         if (csrf) process.env.ANTIGRAVITY_CSRF_TOKEN = csrf;
-        if (!process.env.ANTIGRAVITY_PROJECT_ID) {
-          const storage = [
-            join(homedir(), "Library", "Application Support", "Antigravity", "app_storage.json"),
-            join(homedir(), ".config", "Antigravity", "app_storage.json"),
-            ...(process.env.APPDATA ? [join(process.env.APPDATA, "Antigravity", "app_storage.json")] : []),
-          ];
-          for (const sp of storage) {
-            try {
-              const id = obj(JSON.parse(readFileSync(sp, "utf8"))).lastCreatedProjectId;
-              if (truthy(id)) {
-                process.env.ANTIGRAVITY_PROJECT_ID = String(id);
-                break;
-              }
-            } catch {
-              // not this one
-            }
-          }
-        }
         return;
       }
     } else if (process.platform === "win32") {
@@ -263,6 +246,130 @@ async function isLanguageServerAlive(): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/**
+ * A folder as Antigravity writes it in a project's resources: file:///d%3A/dev/x on Windows (drive
+ * lower-cased, colon escaped, as VS Code URIs), file:///Users/x elsewhere.
+ */
+export function agyFolderUri(dir: string, platform: NodeJS.Platform = process.platform): string {
+  const path = dir.replace(/\\/g, "/").replace(/\/+$/, "") || "/";
+  const drive = /^([A-Za-z]):(\/.*)?$/.exec(path);
+  const enc = (p: string) => p.split("/").map((seg) => encodeURIComponent(seg)).join("/");
+  if (drive?.[1] && platform === "win32") return `file:///${drive[1].toLowerCase()}%3A${enc(drive[2] || "/")}`;
+  return `file://${enc(path.startsWith("/") ? path : `/${path}`)}`;
+}
+
+/** Two folder URIs (or paths) naming the same folder: decoded, slashes and trailing slash evened out. */
+export function sameAgyFolder(a: string, b: string, platform: NodeJS.Platform = process.platform): boolean {
+  const norm = (u: string) => {
+    let p = u.trim();
+    try {
+      p = decodeURIComponent(p);
+    } catch {
+      // keep as is
+    }
+    p = p.replace(/^file:\/\//i, "").replace(/\\/g, "/").replace(/\/+$/, "");
+    if (/^\/[A-Za-z]:/.test(p)) p = p.slice(1);
+    return platform === "win32" || /^[A-Za-z]:/.test(p) ? p.toLowerCase() : p;
+  };
+  return norm(a) === norm(b);
+}
+
+/** A folder URI's or path's real path when it exists here (symlinks such as macOS /tmp resolved), else as is. */
+function realFolder(uriOrPath: string): string {
+  let p = uriOrPath.trim();
+  try {
+    p = decodeURIComponent(p);
+  } catch {
+    // keep as is
+  }
+  p = p.replace(/^file:\/\//i, "");
+  if (/^\/[A-Za-z]:/.test(p)) p = p.slice(1);
+  try {
+    return realpathSync.native(p);
+  } catch {
+    return p;
+  }
+}
+
+/** The same folder, by how it's written or by where it really is. */
+const isFolder = (uri: string, dir: string) => sameAgyFolder(uri, dir) || sameAgyFolder(realFolder(uri), realFolder(dir));
+
+/** Folder URIs a project's resources name (git folders and plain folders alike). */
+function projectFolders(project: Obj): string[] {
+  const uris: string[] = [];
+  for (const r of list(obj(project.projectResources).resources)) {
+    for (const v of Object.values(obj(r))) {
+      const uri = str(obj(v).folderUri);
+      if (uri) uris.push(uri);
+    }
+  }
+  return uris;
+}
+
+/** Ids of the projects Antigravity has (the built-in "outside-of-project" left out). */
+async function agyProjects(): Promise<Obj[]> {
+  const ids = list(obj(await lsRpc("ListProjects", {})).projectIds)
+    .map(str)
+    .filter((id) => id && id !== "outside-of-project");
+  if (!ids.length) return [];
+  return list(obj(await lsRpc("ReadProjects", { ids })).projects).map(obj);
+}
+
+/** The project the latest of the app's own conversations in this folder ran in, if it still exists. */
+async function projectFromHistory(dir: string, known: Set<string>): Promise<string | undefined> {
+  const rows =
+    sqliteRows(
+      join(agyHome(), "conversation_summaries.db"),
+      "SELECT project_id, workspace_uris FROM conversation_summaries WHERE project_id NOT IN ('', 'outside-of-project', 'default-cli-project') ORDER BY last_modified_time DESC LIMIT 2000",
+    ) ?? [];
+  for (const [pid, ws] of rows) {
+    const id = str(pid);
+    let uris: unknown[] = [];
+    try {
+      uris = list(JSON.parse(str(ws) || "[]"));
+    } catch {
+      continue;
+    }
+    if (uris.length !== 1 || !isFolder(str(uris[0]), dir)) continue;
+    if (known.has(id)) return id;
+    const p = obj(obj(await lsRpc("ReadProject", { id })).project);
+    if (str(p.id) === id) return id;
+  }
+  return undefined;
+}
+
+/**
+ * The Antigravity project a new conversation works in for this folder: one whose resources name it,
+ * else the one the app's own conversations here used, else a new one made for it. agentapi starts a
+ * conversation in ANTIGRAVITY_PROJECT_ID's project and takes its workspace from there, not from our
+ * cwd; without it the hub used its default project, so a task for easywork-copilot ran in the
+ * chem-vision project created last (seen 2026-11-14 on Windows). No project for the home folder or
+ * a drive root: those are what no folder picked looks like.
+ */
+export async function projectForFolder(dir: string): Promise<string | undefined> {
+  const full = resolve(dir);
+  if (sameAgyFolder(full, homedir()) || dirname(full) === full) return undefined;
+  const projects = await agyProjects();
+  const match = projects.find((p) => projectFolders(p).some((u) => isFolder(u, full)));
+  if (match && str(match.id)) return str(match.id);
+  const fromHistory = await projectFromHistory(full, new Set(projects.map((p) => str(p.id))));
+  if (fromHistory) return fromHistory;
+  // Names are unique in the app: the folder's, then with its parent, then numbered
+  const names = new Set(projects.map((p) => str(p.name)));
+  const base = basename(full) || full;
+  const pick = [base, `${base} (${basename(dirname(full))})`, ...Array.from({ length: 8 }, (_, i) => `${base} ${i + 2}`)].find(
+    (n) => !names.has(n),
+  );
+  if (!pick) return undefined;
+  // The id is ours to give: without one the app writes the project to "projects/.json"
+  const id = randomUUID();
+  const created = await lsRpc("CreateProject", {
+    project: { id, name: pick, projectResources: { resources: [{ gitFolder: { folderUri: agyFolderUri(full) } }] } },
+  });
+  if (!created) return undefined;
+  return str(obj(obj(await lsRpc("ReadProject", { id })).project).id) === id ? id : undefined;
 }
 
 /** Calls the language server's Connect RPC with JSON, as the Antigravity app does; null on failure. */
@@ -647,6 +754,11 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
       return 1;
     }
   } else {
+    // In the project for the task's folder, so the conversation's workspace is that folder. Over any
+    // inherited ANTIGRAVITY_PROJECT_ID too (an older daemon passes the app's last-created project, a
+    // daemon started from an Antigravity terminal its session's): the folder is what the task asked for.
+    const project = await projectForFolder(process.cwd()).catch(() => undefined);
+    if (project) process.env.ANTIGRAVITY_PROJECT_ID = project;
     // A new conversation, stepping down a tier when a model can't take it
     let lastErr = "";
     for (const cand of candidates) {

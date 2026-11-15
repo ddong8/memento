@@ -131,7 +131,7 @@ export function AskTopBar({
               title={agent.name || "AI 执事"}
             >
               <Icon
-                name={agent.id === "shell" ? "terminal" : "sparkles"}
+                name={agent.id === "shell" ? "terminal" : agent.id === "ai" ? "brain" : "sparkles"}
                 size={11.5}
                 style={{ color: agentColor }}
               />

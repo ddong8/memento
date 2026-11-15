@@ -38,61 +38,78 @@ export function resolveConversationAgent(c: AskConversationSummary): Conversatio
     cfg.mode ||
     cfg.agent ||
     cfg.tool ||
+    (c as any).execution_mode ||
+    (c as any).executionMode ||
     ""
   ).toLowerCase().trim();
 
-  const model = String(cfg.model || cfg.selectedModel || "").toLowerCase();
+  const model = String(cfg.model || cfg.selectedModel || (c as any).model || "").toLowerCase();
   const title = (c.title || "").toLowerCase();
 
-  // 1. 明确匹配 Claude Code
+  // Tier 1: Explicit execution mode / agent tool takes highest priority
+  // (e.g. Antigravity running a claude-* model must stay Antigravity, not Claude Code)
+  if (rawMode.includes("antigravity") || rawMode.includes("agy")) {
+    return { id: "antigravity", name: "Google Antigravity", brandId: "antigravity" };
+  }
+  if (rawMode.includes("claude")) {
+    return { id: "claude_code", name: "Claude Code", brandId: "claude_code" };
+  }
+  if (rawMode.includes("codex") || rawMode.includes("openai")) {
+    return { id: "codex", name: "OpenAI Codex", brandId: "codex" };
+  }
+  if (rawMode.includes("workbuddy") || rawMode.includes("codebuddy")) {
+    return { id: "workbuddy", name: "WorkBuddy", brandId: "workbuddy" };
+  }
+  if (rawMode === "shell" || rawMode === "bash" || rawMode === "sh") {
+    return { id: "shell", name: "终端 Shell" };
+  }
+
+  // Tier 2: Infer from model when execution mode is unset or "ai"
+  if (model.includes("gemini") || model.includes("argon")) {
+    return { id: "antigravity", name: "Google Antigravity", brandId: "antigravity" };
+  }
   if (
-    rawMode.includes("claude") ||
     model.includes("claude") ||
-    title.includes("[claude") ||
-    title.includes("claude-")
+    model.includes("sonnet") ||
+    model.includes("opus") ||
+    model.includes("haiku") ||
+    model.includes("fable")
   ) {
     return { id: "claude_code", name: "Claude Code", brandId: "claude_code" };
   }
-
-  // 2. 明确匹配 Google Antigravity
   if (
-    rawMode.includes("antigravity") ||
-    rawMode.includes("agy") ||
-    model.includes("gemini") ||
-    title.includes("[antigravity") ||
-    title.includes("[agy")
-  ) {
-    return { id: "antigravity", name: "Google Antigravity", brandId: "antigravity" };
-  }
-
-  // 3. 明确匹配 OpenAI Codex / ChatGPT
-  if (
-    rawMode.includes("codex") ||
-    rawMode.includes("openai") ||
     model.includes("gpt") ||
     model.includes("o1") ||
     model.includes("o3") ||
     model.includes("o4") ||
-    title.includes("[codex")
+    model.includes("codex")
   ) {
     return { id: "codex", name: "OpenAI Codex", brandId: "codex" };
   }
 
-  // 4. 明确匹配 Tencent WorkBuddy
-  if (
-    rawMode.includes("workbuddy") ||
-    rawMode.includes("codebuddy") ||
-    title.includes("[workbuddy")
-  ) {
+  // Tier 3: Infer from explicit bracket tags in title
+  if (title.includes("[antigravity") || title.includes("[agy")) {
+    return { id: "antigravity", name: "Google Antigravity", brandId: "antigravity" };
+  }
+  if (title.includes("[claude") || title.includes("claude-")) {
+    return { id: "claude_code", name: "Claude Code", brandId: "claude_code" };
+  }
+  if (title.includes("[codex")) {
+    return { id: "codex", name: "OpenAI Codex", brandId: "codex" };
+  }
+  if (title.includes("[workbuddy")) {
     return { id: "workbuddy", name: "WorkBuddy", brandId: "workbuddy" };
   }
-
-  // 5. 终端 Shell
-  if (rawMode === "shell" || rawMode === "bash" || rawMode === "sh" || title.includes("[shell]")) {
+  if (title.includes("[shell]")) {
     return { id: "shell", name: "终端 Shell" };
   }
 
-  // 6. 默认回退（系统主力 Agent 为 Claude Code）
+  // Tier 4: Explicit AI orchestration mode (when no underlying CLI agent was inferred)
+  if (rawMode === "ai") {
+    return { id: "ai", name: "AI 编排" };
+  }
+
+  // Tier 5: Default fallback (system primary agent is Claude Code)
   return { id: "claude_code", name: "Claude Code", brandId: "claude_code" };
 }
 
@@ -550,7 +567,11 @@ const ConversationItem = memo(function ConversationItem({
                 {agent.brandId ? (
                   <BrandMark id={agent.brandId} size={12} colored />
                 ) : (
-                  <Icon name="terminal" size={11} style={{ color: "var(--aurora-fg3)" }} />
+                  <Icon
+                    name={agent.id === "ai" ? "brain" : "terminal"}
+                    size={11}
+                    style={{ color: agent.id === "ai" ? "var(--aurora-accent)" : "var(--aurora-fg3)" }}
+                  />
                 )}
               </span>
 

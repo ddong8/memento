@@ -997,7 +997,25 @@ function AskPageContent() {
   // Helper to persist updated configuration for current conversation if one is active
   const persistCurrentConfig = useCallback((patch: Record<string, any>) => {
     const convId = activeConversationIdRef.current;
-    if (!convId || streamingRef.current || isRestoringRef.current) return;
+    if (!convId || isRestoringRef.current) return;
+    const normalizedPatch: Record<string, any> = { ...patch };
+    if ("execution_mode" in patch && !("executionMode" in patch)) {
+      normalizedPatch.executionMode = patch.execution_mode;
+    } else if ("executionMode" in patch && !("execution_mode" in patch)) {
+      normalizedPatch.execution_mode = patch.executionMode;
+    }
+    setConversations((prev) =>
+      prev.map((c) =>
+        c.id === convId
+          ? {
+              ...c,
+              ...(patch.device_id ? { device_id: patch.device_id } : {}),
+              config: { ...(c.config || {}), ...normalizedPatch },
+            }
+          : c
+      )
+    );
+    if (streamingRef.current) return;
     api.updateAskConversation(convId, patch).catch(() => {});
   }, []);
 
@@ -4692,15 +4710,70 @@ function AskPageContent() {
   }, [displayConvTitle]);
 
   const activeConvAgent = useMemo(() => {
-    if (activeConversation) {
-      return resolveConversationAgent(activeConversation);
+    let turnInferredMode = "";
+    let turnInferredModel = "";
+    for (let i = turns.length - 1; i >= 0; i--) {
+      const t = turns[i] as any;
+      const tMode = String(t?.execution_mode || t?.executionMode || "").toLowerCase().trim();
+      if (!turnInferredMode && tMode && tMode !== "ai") {
+        turnInferredMode = tMode;
+      }
+      if (!turnInferredModel && t?.model) {
+        turnInferredModel = String(t.model);
+      }
+      const tcs = t?.toolCalls || t?.tool_calls;
+      if (!turnInferredMode && Array.isArray(tcs)) {
+        for (let j = tcs.length - 1; j >= 0; j--) {
+          const tc = tcs[j];
+          const bin = String(
+            tc?.args?.binary || tc?.binary || tc?.call?.binary || tc?.result?.binary || tc?.name || ""
+          ).toLowerCase();
+          if (bin.includes("agy") || bin.includes("antigravity")) {
+            turnInferredMode = "antigravity";
+            break;
+          }
+          if (bin.includes("workbuddy") || bin.includes("codebuddy")) {
+            turnInferredMode = "workbuddy";
+            break;
+          }
+          if (bin.includes("claude")) {
+            turnInferredMode = "claude";
+            break;
+          }
+          if (bin.includes("codex")) {
+            turnInferredMode = "codex";
+            break;
+          }
+        }
+      }
+      if (turnInferredMode) break;
     }
+
+    const savedMode = String(
+      activeConversation?.config?.execution_mode ||
+      activeConversation?.config?.executionMode ||
+      ""
+    ).toLowerCase().trim();
+
+    const effectiveMode =
+      executionMode && executionMode !== "ai"
+        ? executionMode
+        : turnInferredMode || (savedMode && savedMode !== "ai" ? savedMode : executionMode || savedMode);
+
+    const effectiveModel =
+      selectedModel || turnInferredModel || activeConversation?.config?.model || "";
+
     return resolveConversationAgent({
-      id: activeConversationId || "temp",
-      title: displayConvTitle,
-      config: { executionMode, model: selectedModel },
+      ...(activeConversation || { id: activeConversationId || "temp", title: displayConvTitle }),
+      title: displayConvTitle || activeConversation?.title || "",
+      config: {
+        ...(activeConversation?.config || {}),
+        executionMode: effectiveMode,
+        execution_mode: effectiveMode,
+        model: effectiveModel,
+      },
     } as any);
-  }, [activeConversation, activeConversationId, displayConvTitle, executionMode, selectedModel]);
+  }, [activeConversation, activeConversationId, displayConvTitle, executionMode, selectedModel, turns]);
 
   const activeConvAgentColor = useMemo(() => {
     switch (activeConvAgent.brandId) {
@@ -4890,11 +4963,6 @@ function AskPageContent() {
               }
               const st = el.scrollTop;
               const prevTop = lastScrollTopRef.current;
-              if (st > lastScrollTopRef.current + 15 && st > 50) {
-                if (typeof window !== "undefined" && window.innerWidth < 768) {
-                  setIsConfigCollapsed(true);
-                }
-              }
               lastScrollTopRef.current = st;
               const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
               const shouldShow = dist > 180;
@@ -5167,7 +5235,19 @@ function AskPageContent() {
             {/* Settings and the session context above the input: capped and scrolled inside, so they don't
                 squeeze the reply above down to a strip (expanded, they took 500px of a 900px window). Background
                 tasks, follow-ups and the input box come after, always in view. Tighter with the phone keyboard up. */}
-            <div className="ask-footer-extras" style={{ maxHeight: viewportBottomOffset > 0 ? "22dvh" : "min(36dvh, 400px)", overflowY: "auto", overscrollBehavior: "contain", minWidth: 0 }}>
+            <div
+              className="ask-footer-extras"
+              style={{
+                maxHeight: viewportBottomOffset > 0 ? "24dvh" : "min(42dvh, 420px)",
+                overflowY: "auto",
+                overflowX: "hidden",
+                overscrollBehavior: "contain",
+                width: "100%",
+                maxWidth: "100%",
+                minWidth: 0,
+                boxSizing: "border-box",
+              }}
+            >
               {isConfigCollapsed ? (
                 /* Collapsed Summary Pill Bar */
                 <div
@@ -5223,12 +5303,6 @@ function AskPageContent() {
                             void api.getAgentQuotas(selectedDevice);
                           }
                         }}
-                        onClick={(e) => {
-                          if (["antigravity", "claude", "codex", "workbuddy"].includes(executionMode)) {
-                            e.stopPropagation();
-                            setQuotaOpen(true);
-                          }
-                        }}
                         style={{
                           display: "inline-flex",
                           alignItems: "center",
@@ -5242,9 +5316,9 @@ function AskPageContent() {
                           fontWeight: 600,
                           whiteSpace: "nowrap",
                           flexShrink: 0,
-                          cursor: ["antigravity", "claude", "codex", "workbuddy"].includes(executionMode) ? "pointer" : "default",
+                          cursor: "pointer",
                         }}
-                        title={["antigravity", "claude", "codex", "workbuddy"].includes(executionMode) ? "点击查看 AI 订阅与额度详情" : undefined}
+                        title={isZh ? "点击展开配置或切换智能体" : "Click to expand configuration"}
                       >
                         {currentMode.brandId ? (
                           <BrandMark id={currentMode.brandId} size={13} colored />
@@ -5254,6 +5328,11 @@ function AskPageContent() {
                         <span>{currentMode.label}</span>
                         {modeQuota && (
                           <span
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setQuotaOpen(true);
+                            }}
+                            title={isZh ? "点击查看 AI 订阅与额度详情" : "Click to view AI quota details"}
                             style={{
                               fontSize: 10,
                               fontWeight: 700,
@@ -5263,6 +5342,7 @@ function AskPageContent() {
                               border: "1px solid var(--aurora-border)",
                               color: modeQuota.percent != null && modeQuota.percent < 30 ? "#F59E0B" : "inherit",
                               fontVariantNumeric: "tabular-nums",
+                              cursor: "pointer",
                             }}
                           >
                             {modeQuota.label}
@@ -5492,7 +5572,7 @@ function AskPageContent() {
                 </button>
               </div>
             ) : (
-              <div>
+              <div style={{ width: "100%", maxWidth: "100%", minWidth: 0, overflowX: "hidden", boxSizing: "border-box" }}>
                 {/* Agent Mode Selector Toolbelt with Collapse button */}
                 <div
                   style={{
@@ -5507,6 +5587,7 @@ function AskPageContent() {
                   }}
                 >
                   <div
+                    className="no-scrollbar"
                     style={{
                       display: "flex",
                       alignItems: "center",
@@ -5517,6 +5598,8 @@ function AskPageContent() {
                       paddingBottom: 2,
                       scrollbarWidth: "none",
                       WebkitOverflowScrolling: "touch",
+                      touchAction: "pan-x",
+                      overscrollBehaviorX: "contain",
                       minWidth: 0,
                     }}
                   >
@@ -5606,7 +5689,7 @@ function AskPageContent() {
                 </div>
 
             {/* Device & environment toolbelt */}
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap", maxWidth: "100%", minWidth: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8, flexWrap: "wrap", width: "100%", maxWidth: "100%", minWidth: 0, boxSizing: "border-box" }}>
               {/* Target device selector */}
               <div
                 style={{
@@ -5620,6 +5703,8 @@ function AskPageContent() {
                   fontSize: 12,
                   maxWidth: "100%",
                   minWidth: 0,
+                  overflow: "hidden",
+                  boxSizing: "border-box",
                 }}
               >
                 <Icon name="devices" size={13} style={{ color: !isCurrentDevOnline && selectedDevice !== "auto" && selectedDevice !== "ask_only" ? "#ef4444" : "var(--aurora-accent)", flexShrink: 0 }} />
@@ -5635,6 +5720,8 @@ function AskPageContent() {
                     fontWeight: 500,
                     cursor: "pointer",
                     maxWidth: "min(220px, 60vw)",
+                    flex: "1 1 auto",
+                    overflow: "hidden",
                     textOverflow: "ellipsis",
                     whiteSpace: "nowrap",
                     minWidth: 0,
@@ -5670,6 +5757,7 @@ function AskPageContent() {
                       display: "inline-flex",
                       alignItems: "center",
                       whiteSpace: "nowrap",
+                      flexShrink: 0,
                     }}
                   >
                     ⚠️ {isZh ? "离线" : "Offline"}
@@ -5692,10 +5780,12 @@ function AskPageContent() {
                     fontSize: 12,
                     maxWidth: "100%",
                     minWidth: 0,
+                    overflow: "hidden",
+                    boxSizing: "border-box",
                   }}
                 >
                   <Icon name="code" size={13} style={{ color: codeDevice ? "var(--aurora-accent)" : "var(--aurora-fg3)", flexShrink: 0 }} />
-                  <span style={{ color: "var(--aurora-fg2)", whiteSpace: "nowrap" }}>{t.ask.codeOn}</span>
+                  <span style={{ color: "var(--aurora-fg2)", whiteSpace: "nowrap", flexShrink: 0 }}>{t.ask.codeOn}</span>
                   <select
                     value={codeDevice}
                     onChange={(e) => handleCodeDeviceChange(e.target.value)}
@@ -5708,6 +5798,8 @@ function AskPageContent() {
                       fontWeight: codeDevice ? 600 : 500,
                       cursor: "pointer",
                       maxWidth: "min(180px, 50vw)",
+                      flex: "1 1 auto",
+                      overflow: "hidden",
                       textOverflow: "ellipsis",
                       whiteSpace: "nowrap",
                       minWidth: 0,
@@ -5750,6 +5842,8 @@ function AskPageContent() {
                       flex: 1,
                       minWidth: "min(140px, 100%)",
                       maxWidth: "100%",
+                      overflow: "hidden",
+                      boxSizing: "border-box",
                     }}
                   >
                     <Icon name="folder" size={13} style={{ color: "var(--aurora-accent)", flexShrink: 0 }} />
@@ -5783,6 +5877,7 @@ function AskPageContent() {
                         fontSize: 12,
                         fontFamily: "var(--font-mono)",
                         width: "100%",
+                        flex: "1 1 auto",
                         minWidth: 0,
                       }}
                     />
@@ -5814,6 +5909,8 @@ function AskPageContent() {
                       transition: "all 0.15s ease",
                       maxWidth: "min(200px, 45vw)",
                       minWidth: 0,
+                      overflow: "hidden",
+                      boxSizing: "border-box",
                     }}
                   >
                     <Icon name="folder" size={12} style={{ flexShrink: 0 }} />
@@ -5839,6 +5936,8 @@ function AskPageContent() {
                       fontSize: 12,
                       maxWidth: "100%",
                       minWidth: 0,
+                      overflow: "hidden",
+                      boxSizing: "border-box",
                     }}
                     title={isZh ? "输入任意模型名称或标识符" : "Input custom model identifier"}
                   >
@@ -5860,6 +5959,7 @@ function AskPageContent() {
                         fontSize: 12,
                         fontFamily: "var(--font-mono)",
                         width: "min(160px, 35vw)",
+                        flex: "1 1 auto",
                         minWidth: 0,
                       }}
                     />
@@ -5890,6 +5990,8 @@ function AskPageContent() {
                       fontSize: 12,
                       maxWidth: "100%",
                       minWidth: 0,
+                      overflow: "hidden",
+                      boxSizing: "border-box",
                     }}
                     title={isZh ? "选择调用的模型" : "Select model"}
                   >
@@ -5915,6 +6017,8 @@ function AskPageContent() {
                         fontWeight: selectedModel ? 600 : 500,
                         cursor: "pointer",
                         maxWidth: "min(200px, 50vw)",
+                        flex: "1 1 auto",
+                        overflow: "hidden",
                         textOverflow: "ellipsis",
                         whiteSpace: "nowrap",
                         minWidth: 0,
@@ -5986,6 +6090,7 @@ function AskPageContent() {
                         color: "var(--aurora-fg3)",
                         opacity: isRefreshingCaps ? 0.5 : 0.8,
                         transition: "color 0.15s ease, opacity 0.15s ease",
+                        flexShrink: 0,
                       }}
                       onMouseEnter={(e) => (e.currentTarget.style.color = "var(--aurora-accent)")}
                       onMouseLeave={(e) => (e.currentTarget.style.color = "var(--aurora-fg3)")}
@@ -6011,6 +6116,8 @@ function AskPageContent() {
                     fontSize: 12,
                     maxWidth: "100%",
                     minWidth: 0,
+                    overflow: "hidden",
+                    boxSizing: "border-box",
                   }}
                   title={isZh ? "调节推理思考深度 (Reasoning Effort)" : "Adjust reasoning effort"}
                 >
@@ -6030,6 +6137,8 @@ function AskPageContent() {
                       fontWeight: selectedEffort ? 600 : 500,
                       cursor: "pointer",
                       maxWidth: "min(170px, 40vw)",
+                      flex: "1 1 auto",
+                      overflow: "hidden",
                       textOverflow: "ellipsis",
                       whiteSpace: "nowrap",
                       minWidth: 0,
@@ -6076,9 +6185,11 @@ function AskPageContent() {
                     color: worktreeMode ? "var(--aurora-accent)" : "var(--aurora-fg2)",
                     fontWeight: worktreeMode ? 600 : 500,
                     cursor: "pointer",
+                    whiteSpace: "nowrap",
+                    flexShrink: 0,
                   }}
                 >
-                  <Icon name="layers" size={13} />
+                  <Icon name="layers" size={13} style={{ flexShrink: 0 }} />
                   {t.taskRun.worktree}
                 </button>
               )}
@@ -6097,6 +6208,8 @@ function AskPageContent() {
                     fontSize: 12,
                     maxWidth: "100%",
                     minWidth: 0,
+                    overflow: "hidden",
+                    boxSizing: "border-box",
                   }}
                   title={isZh ? "关联项目代码库" : "Associate project repository"}
                 >
@@ -6116,6 +6229,8 @@ function AskPageContent() {
                       fontWeight: 500,
                       cursor: "pointer",
                       maxWidth: "min(200px, 50vw)",
+                      flex: "1 1 auto",
+                      overflow: "hidden",
                       textOverflow: "ellipsis",
                       whiteSpace: "nowrap",
                       minWidth: 0,
@@ -6177,6 +6292,8 @@ function AskPageContent() {
                       fontSize: 12,
                       maxWidth: "100%",
                       minWidth: 0,
+                      overflow: "hidden",
+                      boxSizing: "border-box",
                     }}
                     title={isZh ? "续接该项目下的历史会话" : "Resume historical session"}
                   >
@@ -6194,6 +6311,8 @@ function AskPageContent() {
                         fontWeight: selectedSessionId ? 600 : 500,
                         cursor: "pointer",
                         maxWidth: "min(220px, 55vw)",
+                        flex: "1 1 auto",
+                        overflow: "hidden",
                         textOverflow: "ellipsis",
                         whiteSpace: "nowrap",
                         minWidth: 0,
@@ -6248,11 +6367,15 @@ function AskPageContent() {
                       fontSize: 12,
                       color: "var(--aurora-fg3)",
                       opacity: 0.8,
+                      maxWidth: "100%",
+                      minWidth: 0,
+                      overflow: "hidden",
+                      boxSizing: "border-box",
                     }}
                     title={isZh ? "请先选择项目以查看该项目的历史会话列表" : "Select a project to view its historical sessions"}
                   >
                     <Icon name="clock" size={13} style={{ color: "var(--aurora-fg3)", opacity: 0.6, flexShrink: 0 }} />
-                    <span>{isZh ? "选项目看历史会话" : "Select project for sessions"}</span>
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{isZh ? "选项目看历史会话" : "Select project for sessions"}</span>
                   </div>
                 )
               )}

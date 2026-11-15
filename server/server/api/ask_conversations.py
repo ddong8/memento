@@ -205,29 +205,13 @@ async def list_conversations(
         turns_list = list(conv_obj.turns or []) if conv_obj else None
 
         # 补全 session_id / execution_mode
-        if turns_list and (not cfg.get("session_id") or not cfg.get("execution_mode") or cfg.get("execution_mode") == "ai"):
-            for turn in reversed(turns_list):
-                tcs = turn.get("toolCalls") or turn.get("tool_calls") or []
-                for tc in reversed(tcs):
-                    if not isinstance(tc, dict):
+        if turns_list and conv_obj is not None and (not cfg.get("session_id") or not cfg.get("execution_mode") or cfg.get("execution_mode") == "ai"):
+            inferred_cfg, _ = infer_conversation_config(conv_obj, turns_list)
+            for k in ("session_id", "execution_mode", "model", "effort", "project_id", "cwd", "device_id"):
+                if inferred_cfg.get(k) and (not cfg.get(k) or (k == "execution_mode" and cfg.get(k) == "ai")):
+                    if k == "session_id" and cfg.get("session_id") == "":
                         continue
-                    tc_args = tc.get("args") if isinstance(tc.get("args"), dict) else {}
-                    tc_res = tc.get("result") if isinstance(tc.get("result"), dict) else {}
-                    sid = tc_res.get("session_id") or tc_args.get("session_id") or (tc.get("call") or {}).get("session_id")
-                    # A saved "" is a choice: a new session, or one gone from its device
-                    if sid and cfg.get("session_id") is None:
-                        cfg["session_id"] = str(sid)
-                    bin_name = str(tc_args.get("binary") or tc.get("binary") or "").lower()
-                    if "agy" in bin_name or "antigravity" in bin_name:
-                        cfg["execution_mode"] = "antigravity"
-                    elif "workbuddy" in bin_name or "codebuddy" in bin_name:
-                        cfg["execution_mode"] = "workbuddy"
-                    elif "claude" in bin_name:
-                        cfg["execution_mode"] = "claude"
-                    elif "codex" in bin_name:
-                        cfg["execution_mode"] = "codex"
-                if cfg.get("session_id") and cfg.get("execution_mode"):
-                    break
+                    cfg[k] = inferred_cfg[k]
 
         # 清洗修复垃圾标题
         if turns_list and _is_junk_or_uuid_title(display_title, cfg.get("session_id")):
@@ -241,7 +225,7 @@ async def list_conversations(
                         display_title = c_text[:50]
                         break
 
-        if conv_obj is not None:
+        if conv_obj is not None and turns_list:
             cfg["_meta_scanned"] = True
             conv_obj.config = dict(cfg)
             if display_title != (conv_obj.title or ""):

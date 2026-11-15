@@ -955,6 +955,21 @@ html, body {
   }
 }
 
+/* Ask footer configuration panel: prevent horizontal scroll clipping and keep compact 12px controls */
+.ask-footer-extras {
+  overflow-x: hidden !important;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.ask-footer-extras select,
+.ask-footer-extras input[type="text"] {
+  font-size: 12px !important;
+  line-height: 1.35 !important;
+  min-width: 0 !important;
+}
+
 /* =========================================================================
    Quota Badges — high-contrast & razor-sharp in both light and dark themes
    ========================================================================= */

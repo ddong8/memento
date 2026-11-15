@@ -464,6 +464,8 @@ async def append_conversation_turns(
                 if config.get("effort"):
                     asst_turn["effort"] = str(config["effort"])
             inferred_tc_dev = None
+            inferred_tc_mode = None
+            inferred_tc_sid = None
             if tool_calls:
                 clean_tool_calls = []
                 for tc in tool_calls:
@@ -471,10 +473,30 @@ async def append_conversation_turns(
                         tc_copy = dict(tc)
                         res_d = tc_copy.get("result") if isinstance(tc_copy.get("result"), dict) else {}
                         args_d = tc_copy.get("args") if isinstance(tc_copy.get("args"), dict) else {}
+                        call_d = tc_copy.get("call") if isinstance(tc_copy.get("call"), dict) else {}
                         for d_cand in (res_d.get("device_id"), res_d.get("device_name"), tc_copy.get("device_name"), args_d.get("device_id")):
                             if d_cand and str(d_cand).strip() not in ("", "auto", "ask_only", "all"):
                                 inferred_tc_dev = str(d_cand).strip()
                                 break
+                        sid_cand = res_d.get("session_id") or args_d.get("session_id") or call_d.get("session_id")
+                        if sid_cand and str(sid_cand).strip():
+                            inferred_tc_sid = str(sid_cand).strip()
+                        bin_cand = str(
+                            args_d.get("binary")
+                            or tc_copy.get("binary")
+                            or call_d.get("binary")
+                            or res_d.get("binary")
+                            or tc_copy.get("name")
+                            or ""
+                        ).lower().strip()
+                        if "agy" in bin_cand or "antigravity" in bin_cand:
+                            inferred_tc_mode = "antigravity"
+                        elif "workbuddy" in bin_cand or "codebuddy" in bin_cand:
+                            inferred_tc_mode = "workbuddy"
+                        elif "claude" in bin_cand:
+                            inferred_tc_mode = "claude"
+                        elif "codex" in bin_cand:
+                            inferred_tc_mode = "codex"
                         args = tc_copy.get("args")
                         if isinstance(args, dict) and "images" in args:
                             clean_args = dict(args)
@@ -488,6 +510,8 @@ async def append_conversation_turns(
                     else:
                         clean_tool_calls.append(tc)
                     asst_turn["toolCalls"] = clean_tool_calls
+            if inferred_tc_mode and (not asst_turn.get("execution_mode") or asst_turn.get("execution_mode") == "ai"):
+                asst_turn["execution_mode"] = inferred_tc_mode
             turns.append(asst_turn)
 
             conv.turns = turns
@@ -501,8 +525,9 @@ async def append_conversation_turns(
                 conv.device_id = effective_dev
             if cwd:
                 conv.cwd = cwd
-            if config or forget_session or (effective_dev and effective_dev != "auto"):
+            if config or forget_session or inferred_tc_mode or inferred_tc_sid or (effective_dev and effective_dev != "auto"):
                 cfg = dict(conv.config or {})
+                cfg.pop("_meta_scanned", None)
                 if config:
                     for k, v in config.items():
                         if not _skip_config_value(k, v, _RUN_EMPTY_IS_A_CHOICE):
@@ -511,9 +536,13 @@ async def append_conversation_turns(
                             if k == "device_id" and v == "auto" and cfg.get("device_id") and cfg.get("device_id") not in ("auto", "ask_only", "all"):
                                 continue
                             cfg[k] = v
+                if inferred_tc_mode and (not cfg.get("execution_mode") or cfg.get("execution_mode") == "ai"):
+                    cfg["execution_mode"] = inferred_tc_mode
                 if forget_session:
                     # "", not removed: removed, the session would be inferred back from this very turn
                     cfg["session_id"] = ""
+                elif inferred_tc_sid and cfg.get("session_id") is None:
+                    cfg["session_id"] = inferred_tc_sid
                 if effective_dev and effective_dev != "auto":
                     cfg["device_id"] = effective_dev
                 conv.config = cfg
@@ -668,6 +697,16 @@ def infer_conversation_config(conv: AskConversation, sample_turns: list[dict] | 
     loaded_turns = conv.__dict__.get("turns") if hasattr(conv, "__dict__") else None
     turns_source = sample_turns if sample_turns is not None else (loaded_turns or [])
     for turn in reversed(turns_source):
+        if isinstance(turn, dict):
+            t_mode = str(turn.get("execution_mode") or turn.get("executionMode") or "").lower().strip()
+            if t_mode and t_mode != "ai" and "execution_mode" not in inferred:
+                inferred["execution_mode"] = t_mode
+            t_mod = turn.get("model")
+            if t_mod and "model" not in inferred:
+                inferred["model"] = str(t_mod)
+            t_eff = turn.get("effort")
+            if t_eff and "effort" not in inferred:
+                inferred["effort"] = str(t_eff)
         tcs = turn.get("toolCalls") or turn.get("tool_calls") or []
         for tc in reversed(tcs):
             if not isinstance(tc, dict):

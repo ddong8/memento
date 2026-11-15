@@ -138,9 +138,16 @@ const INJECTED_CLIENT_HELPERS = `(() => {
     html {
       overscroll-behavior-y: none !important;
     }
-    input, textarea, select {
+    input:not(.ask-footer-extras input), textarea, select:not(.ask-footer-extras select) {
       font-size: 16px !important;
       max-width: 100% !important;
+    }
+    .ask-footer-extras {
+      overflow-x: hidden !important;
+    }
+    .ask-footer-extras select, .ask-footer-extras input {
+      font-size: 12px !important;
+      min-width: 0 !important;
     }
     body {
       -webkit-user-select: none !important;

@@ -31,7 +31,7 @@ describe("resolveConversationAgent", () => {
     expect(resolveConversationAgent(c2).id).toBe("claude_code");
   });
 
-  it("resolves antigravity agent correctly", () => {
+  it("resolves antigravity agent correctly even when using a claude model or claude title", () => {
     const c: AskConversationSummary = {
       id: "3",
       title: "深度思考问题",
@@ -45,6 +45,37 @@ describe("resolveConversationAgent", () => {
       id: "antigravity",
       name: "Google Antigravity",
       brandId: "antigravity",
+    });
+
+    const cAgyWithClaudeModel: AskConversationSummary = {
+      id: "3b",
+      title: "修复 claude-code 配置问题",
+      created_at: null,
+      updated_at: null,
+      device_id: null,
+      message_count: 4,
+      config: { execution_mode: "antigravity", model: "claude-opus-4-6-thinking" },
+    };
+    expect(resolveConversationAgent(cAgyWithClaudeModel)).toEqual({
+      id: "antigravity",
+      name: "Google Antigravity",
+      brandId: "antigravity",
+    });
+  });
+
+  it("resolves explicit ai orchestration mode when no CLI agent is inferred", () => {
+    const cAi: AskConversationSummary = {
+      id: "7",
+      title: "新对话",
+      created_at: null,
+      updated_at: null,
+      device_id: null,
+      message_count: 0,
+      config: { executionMode: "ai" },
+    };
+    expect(resolveConversationAgent(cAi)).toEqual({
+      id: "ai",
+      name: "AI 编排",
     });
   });
 

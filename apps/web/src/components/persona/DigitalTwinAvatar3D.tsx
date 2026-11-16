@@ -1450,7 +1450,7 @@ export default function DigitalTwinAvatar3D({
             <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-[#10B981] animate-ping" />
             <div className="flex items-center gap-1.5 sm:gap-2 text-[11px] sm:text-xs">
               <span className="font-bold text-transparent bg-clip-text bg-gradient-to-r from-[#F59E0B] via-[#EC4899] to-[#8B5CF6] font-mono tracking-wide">
-                Lv.{evolutionLevel} <span className="hidden sm:inline">· {evolutionStage}</span>
+                <span className="hidden sm:inline">{evolutionStage}</span>
               </span>
               <span className="text-[10px] text-white/50 font-mono hidden md:inline">
                 EXP {evolutionExp}/1000

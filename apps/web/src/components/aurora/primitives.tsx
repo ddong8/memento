@@ -306,3 +306,9 @@ export function SkinPicker() {
     </div>
   );
 }
+
+
+/** A placeholder block while content loads: the page keeps its shape instead of a bare "加载中…" line. */
+export function Skeleton({ width = "100%", height = 14, radius = 8, style }: { width?: number | string; height?: number | string; radius?: number; style?: CSSProperties }) {
+  return <div className="aurora-skeleton" style={{ width, height, borderRadius: radius, ...style }} />;
+}

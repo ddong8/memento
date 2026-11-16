@@ -820,13 +820,13 @@ export default function PersonaPage() {
     { id: "tech", label: "架构偏好", count: ruleStats.tech, color: "#F59E0B" },
     { id: "execution", label: "工作习惯", count: ruleStats.execution, color: "#10B981" },
     { id: "project", label: "项目专属", count: ruleStats.project, color: "#8B5CF6" },
-    { id: "sandbox", label: "心智实测", count: 4, color: "#EC4899" },
-    { id: "privileges", label: "特权矩阵", count: 10, color: "#3B82F6" },
+    { id: "sandbox", label: "规则测试", count: 4, color: "#EC4899" },
+    { id: "privileges", label: "成长等级", count: 10, color: "#3B82F6" },
     { id: "evolution", label: "每日进化", count: dailyHistory.length, color: "#FACC15" },
     { id: "all", label: "全景总览", count: totalRulesCount, color: "#A855F7" },
-    { id: "matrix", label: "终端矩阵", count: 5, color: "#10B981" },
+    { id: "matrix", label: "已同步工具", count: 5, color: "#10B981" },
     { id: "learned", label: "避坑纠偏", count: pending.length, color: "#EC4899" },
-    { id: "source", label: "源码比对", color: "#6B7280" },
+    { id: "source", label: "原文对比", color: "#6B7280" },
   ];
 
   return (
@@ -1554,7 +1554,7 @@ export default function PersonaPage() {
                     <div className="flex items-center gap-2">
                       <span className="text-base">🧪</span>
                       <h3 className="text-xs sm:text-sm font-bold text-[var(--aurora-fg1)]">
-                        心智实测沙盒 · Live Persona Sandbox
+                        规则测试
                       </h3>
                       <span className="text-[9px] font-mono px-2 py-0.2 rounded-full font-bold bg-[#10B981]/15 text-[#10B981] border border-[#10B981]/30">
                         双向心智闭环
@@ -1677,12 +1677,12 @@ export default function PersonaPage() {
                         {sandboxResult.compliance_status === "intercepted" ? (
                           <div className="flex items-center gap-1.5 text-xs font-bold text-[#EF4444]">
                             <span className="w-2 h-2 rounded-full bg-[#EF4444] animate-ping" />
-                            <span>P0 绝对红线已生效拦截 (Intercepted)</span>
+                            <span>命中绝对红线，已拦截</span>
                           </div>
                         ) : (
                           <div className="flex items-center gap-1.5 text-xs font-bold text-[#10B981]">
                             <span className="w-2 h-2 rounded-full bg-[#10B981] animate-ping" />
-                            <span>画像工程规范合规响应 (Adapted)</span>
+                            <span>符合画像规则</span>
                           </div>
                         )}
                         <span className="text-[10px] font-mono px-2 py-0.2 rounded-full bg-[var(--aurora-chip)] text-[var(--aurora-fg3)]">
@@ -1753,7 +1753,7 @@ export default function PersonaPage() {
                     <div className="flex items-center gap-2">
                       <span className="text-base">🎖️</span>
                       <h3 className="text-xs sm:text-sm font-bold text-[var(--aurora-fg1)]">
-                        自进化心智特权矩阵 · Cognitive Privilege Matrix
+                        成长等级
                       </h3>
                       <span className="text-[9px] font-mono px-2 py-0.2 rounded-full font-bold bg-[#3B82F6]/15 text-[#3B82F6] border border-[#3B82F6]/30">
                         Lv.1 ~ Lv.10 进阶

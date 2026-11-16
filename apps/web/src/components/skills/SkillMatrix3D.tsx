@@ -40,6 +40,9 @@ const skillTextTextureCache = new Map<string, THREE.CanvasTexture>();
 const terminalLabelTextureCache = new Map<string, THREE.CanvasTexture>();
 
 /** Create crisp 3D text billboard sprite for skill cores */
+/** Skill names shown all the time; the others appear on hover / selection. */
+const SKILL_LABELS = 10;
+
 function createSkillTextSprite(title: string, version: number, isPublished: boolean): THREE.Sprite {
   const displayTitle = title.length > 10 ? title.slice(0, 9) + "…" : title;
   const cacheKey = `${displayTitle}|${version}|${isPublished ? 1 : 0}`;
@@ -190,6 +193,9 @@ export default function SkillMatrix3D({
   isRotatingRef.current = isRotating;
 
   const hoveredSlugRef = useRef<string | null>(null);
+  // Skills whose name always shows (the most refined few); the rest show on hover / selection. Every
+  // label at once piled up into an unreadable block.
+  const labelSlugsRef = useRef<Set<string>>(new Set());
 
   const onSelectSkillRef = useRef(onSelectSkill);
   onSelectSkillRef.current = onSelectSkill;
@@ -766,6 +772,8 @@ export default function SkillMatrix3D({
         const isSelected = selectedSlugRef.current === slug;
         const isHovered = hoveredSlugRef.current === slug;
         const mat = mesh.material as THREE.MeshStandardMaterial;
+        const label = mesh.userData.label as THREE.Sprite | undefined;
+        if (label) label.visible = isSelected || isHovered || (!hasSelected && !hoveredSlugRef.current && labelSlugsRef.current.has(slug));
 
         if (isSelected || isHovered) {
           mesh.scale.setScalar(1.32 + Math.sin(elapsed * 5) * 0.1);
@@ -999,6 +1007,7 @@ export default function SkillMatrix3D({
       );
       sprite.position.set(0, 0.62, 0);
       mesh.add(sprite);
+      mesh.userData.label = sprite;
 
       skillRoot.add(mesh);
       skillMeshList.push(mesh);
@@ -1006,6 +1015,13 @@ export default function SkillMatrix3D({
         skillMeshMap.set(skill.slug, mesh);
       }
     });
+    labelSlugsRef.current = new Set(
+      [...skills]
+        .filter((k) => k.slug)
+        .sort((a, b) => (b.version || 1) - (a.version || 1))
+        .slice(0, SKILL_LABELS)
+        .map((k) => k.slug as string),
+    );
   }, [skills]);
 
   return (

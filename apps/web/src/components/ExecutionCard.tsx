@@ -921,7 +921,7 @@ const ExecutionCard = memo(function ExecutionCard({
               }}
             >
               <div style={{ fontWeight: 600, color: "#f59e0b", marginBottom: 4 }}>
-                Claude Code 历史会话超出上下文限制 (Prompt is too long)
+                Claude Code 历史会话超出上下文上限
               </div>
               <div style={{ color: "var(--aurora-fg2)", lineHeight: 1.5 }}>
                 “Prompt is too long” 并非指您输入的提问过长，而是当前续接的历史会话已累计大量消息与工具记录（超过了 200,000 Token 上下文限制）。
@@ -953,7 +953,7 @@ const ExecutionCard = memo(function ExecutionCard({
                     }}
                   >
                     <Icon name="sparkles" size={13} />
-                    <span>立即智能瘦身并重试 (Smart Compact & Retry)</span>
+                    <span>压缩上下文后重试</span>
                   </button>
                 </div>
               )}

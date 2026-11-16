@@ -35,6 +35,16 @@ html { accent-color: var(--aurora-accent); }
   outline: 2px solid var(--aurora-accent);
   outline-offset: 2px;
 }
+/* Loading placeholders (Skeleton): a soft sweep across a chip-colored block */
+.aurora-skeleton {
+  background: linear-gradient(90deg, var(--aurora-chip) 0%, color-mix(in srgb, var(--aurora-chip) 40%, transparent) 50%, var(--aurora-chip) 100%);
+  background-size: 200% 100%;
+  animation: aurora-skeleton-sweep 1.4s ease-in-out infinite;
+}
+@keyframes aurora-skeleton-sweep {
+  from { background-position: 100% 0; }
+  to { background-position: -100% 0; }
+}
 /* The system's "reduce motion" setting turns animations off (loading spinners keep turning) */
 @media (prefers-reduced-motion: reduce) {
   *:not(.animate-spin):not(.animate-pulse), *::before, *::after {

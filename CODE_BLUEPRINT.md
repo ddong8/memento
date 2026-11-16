@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `84e93226` · Updated: `2026-11-16`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `aa0b6e73` · Updated: `2026-11-16`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -13,11 +13,11 @@
 - 类型 (Type): Monorepo (Workspaces)
 - 技术栈 (Stack): TypeScript/JavaScript, Python, Shell / Bash · React, Electron, Next.js, TailwindCSS, Model Context Protocol (MCP), FastAPI, SQLAlchemy, Celery
 - 基础设施 (Infra): PostgreSQL, pgvector (Vector DB), Redis, MinIO / S3 Object Storage, Celery Task Queue
-- 规模 (Scale): 9 个子系统 · 35 组 API 路由 / 237 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 214 个测试文件
+- 规模 (Scale): 9 个子系统 · 35 组 API 路由 / 237 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 215 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `84e93226` (2026-11-16): style(web): 项目工程隐藏临时目录、按最近活跃排序并支持搜索；状态色统一成主题变量；数字不再用等宽字体
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 53（✅ 53 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `F-ASK`, `R-ISLAND-CLEANUP`, `R-RESUME-LABEL`, `R-MEDIA-VIEW`, `R-LLM-IN-PROFILE`, `R-PERSONA-ONBOARD`, `R-WECHAT-DRAFT`, `S-RUN-STATE`
+- 最近改动 (Latest): `aa0b6e73` (2026-11-16): fix(web): 作息节律统计数字去掉重复的 fontVariantNumeric（上一提交类型检查失败）
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 54（✅ 54 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `F-ASK`, `R-ISLAND-CLEANUP`, `R-RESUME-LABEL`, `R-UI-COMMERCIAL`, `R-MEDIA-VIEW`, `R-LLM-IN-PROFILE`, `R-PERSONA-ONBOARD`, `R-WECHAT-DRAFT`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -603,7 +603,7 @@ erDiagram
 | :--- | :--- | :--- | :--- |
 | server/tests (pytest) | [`server/tests`](server/tests) | 116 | `test_agent_ids.py`, `test_agent_limits.py`, `test_agent_login.py`, `test_agent_run_states.py`, `test_ai_provider.py` |
 | packages/daemon/test (vitest / jest) | [`packages/daemon/test`](packages/daemon/test) | 57 | `agent-args.test.ts`, `agent-login.test.ts`, `agent-stream.test.ts`, `agy-models.test.ts`, `agy-project-folder.test.ts` |
-| apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 35 | `api-client.test.ts`, `ask-reading-and-persona-rules.test.tsx`, `ask-top-bar.test.tsx`, `auth-fetch.test.ts`, `build-update.test.ts` |
+| apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 36 | `api-client.test.ts`, `ask-reading-and-persona-rules.test.tsx`, `ask-top-bar.test.tsx`, `auth-fetch.test.ts`, `build-update.test.ts` |
 | apps/mobile/test (vitest / jest) | [`apps/mobile/test`](apps/mobile/test) | 2 | `deeplink.test.ts`, `webview-props.test.ts` |
 | packages/core/test (vitest / jest) | [`packages/core/test`](packages/core/test) | 2 | `ask-stream.test.ts`, `task-events.test.ts` |
 | apps/desktop/test (vitest / jest) | [`apps/desktop/test`](apps/desktop/test) | 1 | `helpers.test.ts` |
@@ -643,12 +643,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `aa0b6e73` (2026-11-16): fix(web): 作息节律统计数字去掉重复的 fontVariantNumeric（上一提交类型检查失败）
 - `84e93226` (2026-11-16): style(web): 项目工程隐藏临时目录、按最近活跃排序并支持搜索；状态色统一成主题变量；数字不再用等宽字体
 - `f1d3aa6d` (2026-11-16): style(web): 统一外壳——顶栏只留标题，语言和风格收进头像菜单；去掉界面里的 emoji 和炫技文案；运行状态停到左栏底部；品牌化 404
 - `a48b5c43` (2026-11-16): style(桌面端): Windows 上顶栏和系统窗口按钮的间距收回到 4px，看上去约 27px，不再隔太远
 - `e6ba1ea4` (2026-11-16): fix(桌面端): Windows 上工作台工具栏的次要按钮收进「⋯」，整行放得下，不再挤到系统窗口按钮底下
 - `7d7ca182` (2026-11-16): style(桌面端): Windows 上顶栏最后一个按钮离系统窗口按钮留 24px，不再挨在一起
-- `71dfc40c` (2026-11-16): fix(桌面端): Windows 上打开工作台时系统窗口按钮不再压住工作台工具栏，按钮高度和 48px 顶栏一致；升级客户端版本至 v1.0.137
 
 ## 10. Key Environment Variables & Configuration
 
@@ -666,12 +666,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 11. 业务蓝图核对 (Business Blueprint Check)
 
-- 业务蓝图：[BUSINESS_BLUEPRINT.md](BUSINESS_BLUEPRINT.md) · 规则 53（✅ 53 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
+- 业务蓝图：[BUSINESS_BLUEPRINT.md](BUSINESS_BLUEPRINT.md) · 规则 54（✅ 54 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
 - 结论：✅ 没有失效或违规
 
 ### 最近提交碰到的业务条目（改动后复查它们还成不成立）
 
-- `f1d3aa6d` style(web): 统一外壳——顶栏只留标题，语言和风格收进头像菜单；去掉界面里的 emoji 和炫技文案；运行状态停到左栏底部；品牌化 404 → `F-ASK`, `R-ISLAND-CLEANUP`, `R-RESUME-LABEL`, `R-MEDIA-VIEW`, `R-LLM-IN-PROFILE`, `R-PERSONA-ONBOARD`, `R-WECHAT-DRAFT`, `S-RUN-STATE`
+- `f1d3aa6d` style(web): 统一外壳——顶栏只留标题，语言和风格收进头像菜单；去掉界面里的 emoji 和炫技文案；运行状态停到左栏底部；品牌化 404 → `F-ASK`, `R-ISLAND-CLEANUP`, `R-RESUME-LABEL`, `R-UI-COMMERCIAL`, `R-MEDIA-VIEW`, `R-LLM-IN-PROFILE`, `R-PERSONA-ONBOARD`, `R-WECHAT-DRAFT`, `S-RUN-STATE`
 - `e6ba1ea4` fix(桌面端): Windows 上工作台工具栏的次要按钮收进「⋯」，整行放得下，不再挤到系统窗口按钮底下 → `R-MEDIA-VIEW`, `R-WECHAT-DRAFT`
 
 ---

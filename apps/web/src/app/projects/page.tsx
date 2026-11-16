@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useI18n } from "@/lib/i18n";
 import { getApiBase, authFetch } from "@/lib/api-client";
 import { Icon, ToolGlyph } from "@/components/aurora/Icon";
-import { Glass, TopBar, SectionLabel } from "@/components/aurora/primitives";
+import { Glass, TopBar, SectionLabel, Skeleton } from "@/components/aurora/primitives";
 import { timeAgo } from "@/lib/constants";
 
 interface ProjectItem {
@@ -45,6 +45,7 @@ function shortPath(path: string): string {
 
 export default function ProjectsPage() {
   const [projects, setProjects] = useState<ProjectItem[]>([]);
+  const [loaded, setLoaded] = useState(false);
   const [filterTool, setFilterTool] = useState("");
   const [filterDevice, setFilterDevice] = useState("");
   const [devices, setDevices] = useState<Array<{ id: string; name: string; device_id: string }>>([]);
@@ -64,7 +65,11 @@ export default function ProjectsPage() {
     if (filterTool) params.set("tool_id", filterTool);
     if (filterDevice) params.set("device_id", filterDevice);
     const url = params.toString() ? `${getApiBase()}/api/projects?${params}` : `${getApiBase()}/api/projects`;
-    authFetch(url).then((r) => r.json()).then(setProjects).catch(console.error);
+    authFetch(url)
+      .then((r) => r.json())
+      .then(setProjects)
+      .catch(console.error)
+      .finally(() => setLoaded(true));
   }, [filterTool, filterDevice]);
 
   const scratchCount = useMemo(() => projects.filter(isScratch).length, [projects]);
@@ -127,7 +132,11 @@ export default function ProjectsPage() {
         </div>
       )}
 
-      {shown.length === 0 ? (
+      {!loaded ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3" aria-busy="true">
+          {Array.from({ length: 9 }, (_, i) => <Skeleton key={i} height={96} radius={18} />)}
+        </div>
+      ) : shown.length === 0 ? (
         <Glass padding={40} radius={22} style={{ textAlign: "center" }}>
           <p style={{ color: "var(--aurora-fg4)", fontSize: 13 }}>{t.projectPage.noProjects}</p>
         </Glass>

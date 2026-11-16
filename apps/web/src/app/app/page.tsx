@@ -9,7 +9,7 @@ import { onLiveEvent } from "@/lib/live-events";
 import { useNow } from "@/lib/use-now";
 import { timeAgo } from "@/lib/constants";
 import { Icon, ToolGlyph, PlatformGlyph, TOOL_HUE } from "@/components/aurora/Icon";
-import { Glass, Chip, TopBar, SectionLabel, StatCard } from "@/components/aurora/primitives";
+import { Glass, Chip, TopBar, SectionLabel, StatCard, Skeleton } from "@/components/aurora/primitives";
 
 const QUICK_PROMPTS: { icon: Parameters<typeof Icon>[0]["name"]; label: string; prompt: string }[] = [
   { icon: "calendar", label: "总结昨天开发进展", prompt: "总结一下我昨天在各个设备和工具上的开发工作与对话" },
@@ -121,7 +121,21 @@ export default function Dashboard() {
     [fetchData]
   );
 
-  if (loading) return <div style={{ color: "var(--aurora-fg4)", textAlign: "center", marginTop: 80 }}>{t.loading}</div>;
+  if (loading)
+    return (
+      <div className="max-w-6xl mx-auto" aria-busy="true" aria-label={t.loading}>
+        <Skeleton width={160} height={26} style={{ margin: "10px 0 8px" }} />
+        <Skeleton width={260} height={14} style={{ marginBottom: 24 }} />
+        <Skeleton height={150} radius={16} style={{ marginBottom: 16 }} />
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4" style={{ marginBottom: 16 }}>
+          {[0, 1, 2, 3].map((i) => <Skeleton key={i} height={104} radius={16} />)}
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <Skeleton height={220} radius={16} style={{ gridColumn: "span 2" }} />
+          <Skeleton height={220} radius={16} />
+        </div>
+      </div>
+    );
   if (!data) return <div style={{ color: "var(--aurora-fg4)", textAlign: "center", marginTop: 80 }}>Failed to load dashboard</div>;
 
   const { stats, tools, recent_conversations, daily, devices } = data;

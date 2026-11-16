@@ -3,16 +3,16 @@
 <!-- memento:business-index:start (自动生成，勿手改) -->
 > 先读这一段定位；要细节时按下表行号只读对应章节。改了「代码位置」里的文件，先看对应条目还成不成立。
 
-- 汇总：规则 53（✅ 53 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
+- 汇总：规则 54（✅ 54 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
 - 核对：全部通过（详见末尾「自动核对」）
 
 | 章节 | 行号 |
 | :--- | :--- |
 | 1. 业务对象与术语 | L21-L65 |
 | 2. 关键流程 | L67-L124 |
-| 3. 业务规则 | L126-L433 |
-| 4. 状态归属 | L435-L480 |
-| 自动核对 (Auto Check) | L483-L576 |
+| 3. 业务规则 | L126-L440 |
+| 4. 状态归属 | L442-L487 |
+| 自动核对 (Auto Check) | L490-L584 |
 <!-- memento:business-index:end -->
 > 业务蓝图：memento 应该做成什么样，每一条落在哪段代码、由哪个测试或检查保证。和代码蓝图 [CODE_BLUEPRINT.md](CODE_BLUEPRINT.md)（代码长什么样）配合看：代码蓝图回答"在哪里"，这份回答"应该怎样、为什么"。
 > 规则来自用户的原话和纠正（CLAUDE.md、长期记忆、每晚复盘），不是从代码里反推的；代码和这里对不上，先当成代码的问题查。
@@ -368,6 +368,13 @@
 - 类型: 协作约定
 - 说明: 做之前先把范围、改动点和验证方式想清楚，做完逐项验证再交付；界面字体只用系统字体（技能 system-ui-fonts）。
 
+### R-UI-COMMERCIAL 界面像成熟商业产品：统一外壳、平实文案、不用 emoji 当图标
+- 来源: 用户 11-16「要美观、大气、有质感，是一款成熟的商业化产品」「全部都做吧」
+- 说明: 顶栏只放页面标题和本页操作，语言、界面风格收在头像菜单；可见文字不用 emoji 当图标（统一线性图标），不写「全息注入」「热守护」这类炫技词、不写死假数据；状态色用 --aurora-success/warn/danger/info；内容页统一 max-w-6xl；加载用骨架屏。
+- 代码: `apps/web/src/components/layout/Header.tsx`, `apps/web/src/components/UserMenu.tsx#SegmentRow`, `apps/web/src/app/not-found.tsx`, `apps/web/src/components/aurora/primitives.tsx#Skeleton`
+- 测试: `apps/web/test/ui-polish-guard.test.ts#visible text doesn't use emoji as icons`, `apps/web/test/ui-polish-guard.test.ts#the top bar has no language or skin switcher`
+- 禁止: `契合度 99.8%` @ `apps/web/src/app/memory/persona/page.tsx`; `<SkinPicker` @ `apps/web/src/components/layout/Header.tsx`
+
 ### R-LOGIN-PERSIST 客户端登录永久记住
 - 来源: CLAUDE.md（memento）「客户端登录永久记住」
 - 说明: 网页和桌面端把登录凭据存在持久的 localStorage，过期前自动续期；桌面端窗口用持久分区，重启不丢。
@@ -484,7 +491,7 @@
 
 > 生成器随每次提交核对：代码位置还在不在、测试还在不在、禁止 / 要求的写法满不满足。✅ 通过 · ⚠️ 缺代码位置、测试或来源 · ❌ 位置失效或违反规则（CI 会拦下）。
 
-- 汇总：规则 53（✅ 53 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
+- 汇总：规则 54（✅ 54 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
 
 | 编号 | 名称 | 代码位置 | 测试 | 检查 | 结论 |
 | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -550,6 +557,7 @@
 | `R-ALL-TYPESCRIPT` | 客户端全 TypeScript，Electron + React，不混入 Flutter、Tauri 等框架 | 2/2 | — | 2/2 | ✅ |
 | `R-SELF-EVOLVE` | 越用越了解用户、能自进化 | 4/4 | 1/1 | — | ✅ |
 | `R-PLAN-THEN-FINISH` | 规划周全后一次性全部完成，追求好用，界面高级精致 | — | — | — | ✅ 约定 |
+| `R-UI-COMMERCIAL` | 界面像成熟商业产品：统一外壳、平实文案、不用 emoji 当图标 | 4/4 | 2/2 | 2/2 | ✅ |
 | `R-LOGIN-PERSIST` | 客户端登录永久记住 | 3/3 | — | 1/1 | ✅ |
 | `R-MENU-KEEPALIVE` | 记住上次菜单状态，切换菜单不重新加载 | 2/2 | 2/2 | — | ✅ |
 | `R-MAC-TRAY` | Mac 客户端支持最小化到托盘，关窗口不退出 | 1/1 | — | 2/2 | ✅ |

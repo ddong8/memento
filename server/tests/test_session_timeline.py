@@ -64,6 +64,17 @@ def session(*exchanges: tuple[str, float, str], start_line: int = 0) -> list[Msg
 
 
 class TurnsTests(unittest.TestCase):
+    def test_what_claude_code_wrote_under_the_user_role_is_not_a_question(self) -> None:
+        # Collected before the parser dropped them: /compact's summary and its echo, outside any run
+        msgs = [
+            Msg(0, "user", "This session is being continued from a previous conversation that ran out of context.", at(0)),
+            Msg(1, "user", "<local-command-stdout>Compacted </local-command-stdout>", at(0.1)),
+            *session(("在终端里问的", 5, "答了"), start_line=2),
+        ]
+        turns, _, changed = merge_session([], None, msgs, SID, "claude_code")
+        self.assertTrue(changed)
+        self.assertEqual([t["content"] for t in turns if t["role"] == "user"], ["在终端里问的"])
+
     def test_tool_calls_and_their_output_go_on_the_assistant_turn(self) -> None:
         turns = messages_to_turns(session(("看看目录", 0, "有一个文件")))
         self.assertEqual([t["role"] for t in turns], ["user", "assistant", "assistant"])

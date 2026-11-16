@@ -362,7 +362,7 @@ _TECH_ENTITY_TYPES = {"technology", "tool", "framework", "library"}
 
 # The collector's own "no real project" names (kept in sync with ingest_service._IGNORE_PROJECT_NAMES)
 _IGNORE_PROJECT_NAMES = {
-    "-", "--", "...", "dev", "desktop", "tmp", "temp", "scratch", "projects", "workspace",
+    "-", "--", "...", "dev", "desktop", "tmp", "temp", "projects", "workspace",
     "file:", "file", "untitled", "unknown", "none", "null", "main", "home", "src",
 }
 _HOME_DIR_RE = re.compile(r"^(?:/users/[^/]+|/home/[^/]+|/root|[a-z]:/users/[^/]+)/?$")

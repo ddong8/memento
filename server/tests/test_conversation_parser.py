@@ -13,6 +13,16 @@ from server.services.conversation_parser import parse_conversation_line  # noqa:
 
 
 class ConversationParserTests(unittest.TestCase):
+    def test_claude_code_compact_summary_and_local_command_echo_are_not_messages(self) -> None:
+        summary = {"type": "user", "isCompactSummary": True, "isVisibleInTranscriptOnly": True, "timestamp": "2026-11-16T00:00:00Z",
+                   "message": {"role": "user", "content": "This session is being continued from a previous conversation."}}
+        echo = {"type": "user", "timestamp": "2026-11-16T00:00:01Z",
+                "message": {"role": "user", "content": "<local-command-stdout>Compacted </local-command-stdout>"}}
+        said = {"type": "user", "timestamp": "2026-11-16T00:00:02Z", "message": {"role": "user", "content": "接着改"}}
+        self.assertIsNone(parse_conversation_line(json.dumps(summary), "claude_code"))
+        self.assertIsNone(parse_conversation_line(json.dumps(echo), "claude_code"))
+        self.assertEqual(parse_conversation_line(json.dumps(said), "claude_code").content, "接着改")
+
     def test_antigravity_message_preserves_separate_thinking(self) -> None:
         raw = json.dumps({
             "type": "assistant",

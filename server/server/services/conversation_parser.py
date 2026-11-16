@@ -51,7 +51,8 @@ def parse_conversation_line(raw_line: str, tool_id: str) -> NormalizedMessage | 
 
     # --- Claude Code format ---
     if tool_id == "claude_code":
-        if obj.get("isMeta"):
+        # isCompactSummary: the summary /compact (or auto-compaction) writes as a user turn; nobody said it
+        if obj.get("isMeta") or obj.get("isCompactSummary"):
             return None
 
         if msg_type in ("user", "assistant"):
@@ -719,7 +720,8 @@ def parse_conversation_line(raw_line: str, tool_id: str) -> NormalizedMessage | 
 _SYSTEM_TAGS = (
     "ide_opened_file|ide_selection|system-reminder|"
     "user-prompt-submit-hook|task-notification|"
-    "command-message|command-name|skill-format|total_tokens"
+    "command-message|command-name|skill-format|total_tokens|"
+    "local-command-stdout|local-command-stderr|local-command-caveat"
 )
 _SYSTEM_TAG_RE = re.compile(
     rf"<(?:{_SYSTEM_TAGS})[^>]*>.*?</(?:{_SYSTEM_TAGS})>",

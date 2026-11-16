@@ -85,9 +85,22 @@ def _norm(text: str) -> str:
     return " ".join((text or "").split())
 
 
+# What Claude Code files under the user role without anyone saying it, as collected before the parser
+# dropped it: the summary /compact writes, and a local command's echo (<local-command-stdout>Compacted…)
+_INJECTED = re.compile(
+    r"^\s*(?:This session is being continued from a previous conversation|<local-command-|<command-name>|<command-message>)"
+)
+
+
+def _said(content: str) -> bool:
+    """User-role text someone typed: not tool output, not something Claude Code wrote there itself."""
+    text = content or ""
+    return not text.startswith(_TOOL_NOISE) and not _INJECTED.match(text)
+
+
 def _is_question(m: Msg) -> bool:
-    """A message the user said (not tool output filed under the user role)."""
-    return m.role == "user" and not (m.content or "").startswith(_TOOL_NOISE)
+    """A message the user said (not tool output or Claude Code's own entries filed under the user role)."""
+    return m.role == "user" and _said(m.content)
 
 
 # ── a session's messages as turns (apps/web/src/lib/ask/sessions.ts sessionMessagesToTurns) ──────────
@@ -171,7 +184,7 @@ def messages_to_turns(msgs: list[Msg]) -> list[dict]:
                     content = content[:idx].strip()
                     role = "assistant" if content else "tool"
         if role == "user":
-            if content.startswith(_TOOL_NOISE):
+            if not _said(content):
                 continue
             turns.append({"role": "user", "content": content, "created_at": when})
         elif role == "assistant":

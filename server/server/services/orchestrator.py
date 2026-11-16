@@ -42,6 +42,7 @@ from .ai_provider import (
     split_thinking,
 )
 from . import notify_service, task_alerts
+from .agent_ids import clean_session_id, device_os, reported_session_id
 from .agent_limits import mark_usage_limit, usage_limit_message
 from .risk_policy import classify_shell_command
 from .device_dispatch import OFFLINE_ERROR, SEND_FAILED_ERROR
@@ -592,9 +593,15 @@ async def _select_affinity_machine(
 
         # 2. Operating System & Path Affinity
         m_name_lower = (m.name or "").lower()
-        is_mac = any(k in m_name_lower for k in ("mac", "darwin", "mbp", "apple", "imac", "mini"))
-        is_linux = any(k in m_name_lower for k in ("linux", "ubuntu", "debian", "centos", "server"))
-        is_win = any(k in m_name_lower for k in ("win", "pc", "desktop"))
+        m_os = device_os(m.name)
+        if m_os:
+            is_mac, is_linux, is_win = m_os == "macos", m_os == "linux", m_os == "windows"
+        else:
+            # A name that doesn't say ("<host> (Darwin)" is the collector's): guessed from words in it, whole
+            # words for Windows' ("darwin" contains "win")
+            is_mac = any(k in m_name_lower for k in ("mac", "darwin", "mbp", "apple", "imac", "mini"))
+            is_linux = any(k in m_name_lower for k in ("linux", "ubuntu", "debian", "centos", "server"))
+            is_win = bool(re.search(r"\bwin(?:dows|10|11|32|64)?\b|\bpc\b|desktop", m_name_lower))
 
         if raw_cwd:
             if raw_cwd.startswith("/data2") or raw_cwd.startswith("/home") or raw_cwd.startswith("/root"):
@@ -641,6 +648,67 @@ async def _select_affinity_machine(
             best_mach = m
 
     return best_mach or machines[0]
+
+
+
+async def _device_cwd(db: AsyncSession, machine: Machine | None, raw_cwd: str, proj_id_val: Any, has_workspace: bool) -> str:
+    """The folder a task runs in on `machine`: the one asked for, unless none was or it's another platform's
+    path (code on another device), when the project's folder on that machine stands in for it."""
+    resolved_cwd = raw_cwd
+
+    # The device's OS, as its name says ("<host> (Darwin)"): not a substring test, "darwin" contains "win"
+    # (2026-11-16: every Mac was taken for Windows, its tasks' folders swapped for a path guessed below).
+    # A name that doesn't say leaves the folder as asked.
+    mach_os = device_os(machine.name if machine else None)
+    is_mach_win = mach_os == "windows"
+    is_mach_unix = mach_os in ("macos", "linux")
+
+    is_cwd_win = bool(re.match(r"^[a-zA-Z]:[/\\]", raw_cwd))
+    is_cwd_unix = raw_cwd.startswith("/")
+
+    platform_mismatch = (is_mach_win and is_cwd_unix) or (is_mach_unix and is_cwd_win)
+
+    # Code on another device: the path is the source's own, the executor works in its clone of it
+    if (not raw_cwd or platform_mismatch) and machine and not has_workspace:
+        try:
+            from ..db.models import Document, Project
+            from ..services.ingest_service import _clean_source_path
+            mach_local_path = None
+            if proj_id_val:
+                parsed_pid = uuid.UUID(str(proj_id_val)) if isinstance(proj_id_val, str) else proj_id_val
+                # The folder most of them name, not the greatest string: one conversation's stray path (a
+                # walkthrough.md it talked about) sorted above the 84 that named the repository
+                doc_path = Document.metadata_["project_path"].astext
+                doc_path_q = (
+                    select(doc_path)
+                    .where(
+                        Document.project_id == parsed_pid,
+                        Document.machine_id == machine.id,
+                        doc_path.is_not(None),
+                        doc_path != "",
+                    )
+                    .group_by(doc_path)
+                    .order_by(func.count().desc(), doc_path)
+                    .limit(1)
+                )
+                mach_local_path = (await db.execute(doc_path_q)).scalar()
+                if not mach_local_path:
+                    # Fallback to checking Project table itself
+                    proj_obj = (await db.execute(select(Project).where(Project.id == parsed_pid))).scalar_one_or_none()
+                    if proj_obj and proj_obj.source_path:
+                        p_src = proj_obj.source_path
+                        p_win = bool(re.match(r"^[a-zA-Z]:[/\\]", p_src))
+                        if (is_mach_win and p_win) or (is_mach_unix and not p_win):
+                            mach_local_path = p_src
+
+            if mach_local_path:
+                cleaned_mach_path = _clean_source_path(mach_local_path)
+                if cleaned_mach_path:
+                    resolved_cwd = cleaned_mach_path
+                    logger.info("Auto-aligned cross-device cwd for project %s on %s: %s", proj_id_val, machine.name, resolved_cwd)
+        except Exception as e:
+            logger.warning("Failed to auto-align project cwd: %s", e)
+    return resolved_cwd
 
 
 async def _tool_run_on_device(db: AsyncSession, user: User, args: dict, *, classify_shell: bool = False):
@@ -802,8 +870,11 @@ async def _tool_run_on_device(db: AsyncSession, user: User, args: dict, *, class
             payload["prompt"] = args["prompt"]
             if args.get("binary"):
                 payload["binary"] = args["binary"]
-            if args.get("session_id"):
-                payload["session_id"] = args["session_id"]
+            # Only an id the agent could have made: anything else resumes nothing (a model's guess, or text an
+            # older daemon took for the session), so the task starts a session of its own instead
+            sess_id = clean_session_id(args.get("session_id"), args.get("binary"))
+            if sess_id:
+                payload["session_id"] = sess_id
                 # The device with the session's latest copy: this one fetches it from there before resuming
                 if args.get("session_home"):
                     payload["session_home"] = args["session_home"]
@@ -841,55 +912,8 @@ async def _tool_run_on_device(db: AsyncSession, user: User, args: dict, *, class
                     payload["system_prompt_append"] = f"{cur_append}\n\n{mind_md}".strip() if cur_append else mind_md.strip()
             except Exception as e:
                 logger.warning("Failed to auto-inject mind resonance to subagent in orchestrator: %s", e)
-        raw_cwd = (args.get("cwd") or "").strip()
         proj_id_val = args.get("project_id") or payload.get("project_id")
-        resolved_cwd = raw_cwd
-
-        # Check machine OS accurately (using platform, os or machine name)
-        mach_plat_str = (
-            getattr(machine, "platform", "")
-            or getattr(machine, "os", "")
-            or (machine.name if machine else "")
-            or ""
-        ).lower()
-        is_mach_win = "win" in mach_plat_str
-        is_mach_unix = "darwin" in mach_plat_str or "mac" in mach_plat_str or "linux" in mach_plat_str
-
-        is_cwd_win = bool(re.match(r"^[a-zA-Z]:[/\\]", raw_cwd))
-        is_cwd_unix = raw_cwd.startswith("/")
-
-        platform_mismatch = (is_mach_win and is_cwd_unix) or (is_mach_unix and is_cwd_win)
-
-        # Code on another device: the path is the source's own, the executor works in its clone of it
-        if (not raw_cwd or platform_mismatch) and machine and not args.get("workspace"):
-            try:
-                from ..db.models import Document, Project
-                from ..services.ingest_service import _clean_source_path
-                mach_local_path = None
-                if proj_id_val:
-                    parsed_pid = uuid.UUID(str(proj_id_val)) if isinstance(proj_id_val, str) else proj_id_val
-                    doc_path_q = select(func.max(Document.metadata_["project_path"].astext)).where(
-                        Document.project_id == parsed_pid,
-                        Document.machine_id == machine.id,
-                    )
-                    mach_local_path = (await db.execute(doc_path_q)).scalar()
-                    if not mach_local_path:
-                        # Fallback to checking Project table itself
-                        proj_obj = (await db.execute(select(Project).where(Project.id == parsed_pid))).scalar_one_or_none()
-                        if proj_obj and proj_obj.source_path:
-                            p_src = proj_obj.source_path
-                            p_win = bool(re.match(r"^[a-zA-Z]:[/\\]", p_src))
-                            if (is_mach_win and p_win) or (is_mach_unix and not p_win):
-                                mach_local_path = p_src
-
-                if mach_local_path:
-                    cleaned_mach_path = _clean_source_path(mach_local_path)
-                    if cleaned_mach_path:
-                        resolved_cwd = cleaned_mach_path
-                        logger.info("Auto-aligned cross-device cwd for project %s on %s: %s", proj_id_val, machine.name, resolved_cwd)
-            except Exception as e:
-                logger.warning("Failed to auto-align project cwd: %s", e)
-
+        resolved_cwd = await _device_cwd(db, machine, (args.get("cwd") or "").strip(), proj_id_val, bool(args.get("workspace")))
         if resolved_cwd:
             payload["cwd"] = resolved_cwd
 
@@ -1145,6 +1169,8 @@ async def _follow_device_task(
     device_id = task.device_id
     action = task.action
     device_timeout = task.timeout_seconds or 0
+    # The agent it runs: its sessions' ids, checked before the conversation goes on in one
+    run_binary = (task.payload or {}).get("binary") if action == "agent" and isinstance(task.payload, dict) else None
     done_task = None
     done_ws = None
     try:
@@ -1193,11 +1219,7 @@ async def _follow_device_task(
         if done_ws:
             ws_out = done_ws.get("stdout") or ""
             ws_err = done_ws.get("stderr") or ""
-            ext_sid = done_ws.get("session_id")
-            if not ext_sid:
-                m = re.search(r"session id:\s*([0-9a-fA-F-]+)", ws_out + "\n" + ws_err, re.I)
-                if m:
-                    ext_sid = m.group(1)
+            ext_sid = clean_session_id(done_ws.get("session_id"), run_binary) or reported_session_id(ws_err, run_binary)
             ws_result: dict[str, Any] = {
                 "task_id": task_id_str,
                 "device_id": device_id,
@@ -1240,11 +1262,7 @@ async def _follow_device_task(
 
         task_out = done_task.stdout or ""
         task_err = done_task.stderr or ""
-        task_sid = done_task.session_id
-        if not task_sid:
-            m = re.search(r"session id:\s*([0-9a-fA-F-]+)", task_out + "\n" + task_err, re.I)
-            if m:
-                task_sid = m.group(1)
+        task_sid = clean_session_id(done_task.session_id, run_binary) or reported_session_id(task_err, run_binary)
 
         task_result: dict[str, Any] = {
             "task_id": str(done_task.id),

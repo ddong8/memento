@@ -66,6 +66,11 @@ def _compare_semver(target: str, current: str) -> bool:
     return t_nums > c_nums
 
 
+def _is_windows(plat: str) -> bool:
+    """Windows by name, not a substring: "darwin" contains "win"."""
+    return bool(re.match(r"^win(?:dows|32|64)?\b", plat.strip().lower()))
+
+
 def _find_platform_asset(updates_dir: Path, platform: str) -> Path | None:
     """Find a binary asset in updates_dir matching the target platform."""
     if not updates_dir.exists():
@@ -73,7 +78,7 @@ def _find_platform_asset(updates_dir: Path, platform: str) -> Path | None:
 
     plat = platform.lower()
     patterns = []
-    if "win" in plat:
+    if _is_windows(plat):
         patterns = ["*windows*.zip", "*win*.zip", "*win*.exe", "*.msi", "*.exe"]
     elif "mac" in plat or "darwin" in plat:
         patterns = ["*macos*.zip", "*mac*.zip", "*.dmg", "*.pkg"]
@@ -107,7 +112,7 @@ def _match_github_asset(assets: list[dict[str, Any]], platform: str) -> dict[str
     """Match the most appropriate release asset for the requested platform."""
     plat = platform.lower()
 
-    if "win" in plat:
+    if _is_windows(plat):
         # Prefer .zip for seamless in-place hot replacement (matching macOS and Linux); fallback to setup.exe
         for a in assets:
             name = a.get("name", "").lower()

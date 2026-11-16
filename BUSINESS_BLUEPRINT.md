@@ -10,9 +10,9 @@
 | :--- | :--- |
 | 1. 业务对象与术语 | L21-L65 |
 | 2. 关键流程 | L67-L124 |
-| 3. 业务规则 | L126-L432 |
-| 4. 状态归属 | L434-L479 |
-| 自动核对 (Auto Check) | L482-L575 |
+| 3. 业务规则 | L126-L433 |
+| 4. 状态归属 | L435-L480 |
+| 自动核对 (Auto Check) | L483-L576 |
 <!-- memento:business-index:end -->
 > 业务蓝图：memento 应该做成什么样，每一条落在哪段代码、由哪个测试或检查保证。和代码蓝图 [CODE_BLUEPRINT.md](CODE_BLUEPRINT.md)（代码长什么样）配合看：代码蓝图回答"在哪里"，这份回答"应该怎样、为什么"。
 > 规则来自用户的原话和纠正（CLAUDE.md、长期记忆、每晚复盘），不是从代码里反推的；代码和这里对不上，先当成代码的问题查。
@@ -127,10 +127,10 @@
 
 ### R-AGY-WORKDIR 选了哪个目录，Antigravity 就在那个目录干活
 - 来源: 用户 2026-11-14「我的配置里选的是easy-copilot 怎么antigravity识别去开的是chem-vision」
-- 说明: 根因是守护进程把 app_storage.json 的 lastCreatedProjectId（最后新建的项目）当成 ANTIGRAVITY_PROJECT_ID 传下去。
-- 代码: `packages/daemon/src/agy-runner/runner.ts#projectForFolder`, `packages/daemon/src/antigravity.ts#discoverAntigravityEnv`
-- 测试: `packages/daemon/test/agy-project-folder.test.ts#takes the project whose resources name the folder, not the one made last`, `packages/daemon/test/agy-project-folder.test.ts#makes a project for a folder no project names`
-- 禁止: `lastCreatedProjectId` @ `packages/daemon/src/antigravity.ts`, `packages/daemon/src/agy-runner/`
+- 说明: 根因是守护进程把 app_storage.json 的 lastCreatedProjectId（最后新建的项目）当成 ANTIGRAVITY_PROJECT_ID 传下去。2026-11-16 又查实服务端派发时用 `"win" in 设备名` 判断 Windows，「(Darwin)」里含 win，Mac 上选的目录被当成别的平台的路径，换成项目文档里排序最大的路径（一份对话的 walkthrough.md），守护进程认不出是目录就退回家目录：这台 Mac 近 30 天 302 个 Antigravity 任务都不在选的目录里跑。
+- 代码: `packages/daemon/src/agy-runner/runner.ts#projectForFolder`, `packages/daemon/src/antigravity.ts#discoverAntigravityEnv`, `server/server/services/orchestrator.py#_device_cwd`, `server/server/services/agent_ids.py#device_os`
+- 测试: `packages/daemon/test/agy-project-folder.test.ts#takes the project whose resources name the folder, not the one made last`, `packages/daemon/test/agy-project-folder.test.ts#makes a project for a folder no project names`, `server/tests/test_agent_ids.py#test_a_macs_folder_is_kept_as_asked`, `server/tests/test_agent_ids.py#test_another_platforms_folder_becomes_the_one_most_of_the_projects_documents_name`
+- 禁止: `lastCreatedProjectId` @ `packages/daemon/src/antigravity.ts`, `packages/daemon/src/agy-runner/`; `"win" in` @ `server/server/services/orchestrator.py`
 - 要求: `ANTIGRAVITY_PROJECT_ID = ` @ `packages/daemon/src/agy-runner/runner.ts`
 
 ### R-TRACK-BACKGROUND 后台任务跟踪到结束，不提前收尾
@@ -223,8 +223,9 @@
 
 ### R-DEVICE-SESSION-MAP 设备与会话映射正确：会话只在它所在的设备上续
 - 来源: CLAUDE.md（memento）「设备与会话映射正确」
-- 代码: `server/server/services/ask_stream.py#_session_elsewhere`, `server/server/services/ask_stream.py#_can_carry_session`
-- 测试: `server/tests/test_ask_cascade.py#test_session_on_another_device_is_not_resumed_there`, `server/tests/test_ask_cascade.py#test_session_on_the_device_picked_is_resumed`, `server/tests/test_ask_cascade.py#test_session_of_another_tool_is_not_resumed`, `server/tests/test_ask_ensure_by_session.py#test_looks_up_and_creates_under_a_lock_per_user_and_session`
+- 说明: 会话号只认智能体自己报的（执行脚本在 stderr 上的「session id:」一行），不从回答和工具输出里找；不是会话号的值不续接、改开新会话。2026-11-16 Antigravity 读到的源码里有 `session_id: ""`，守护进程把 `\"\"` 当成会话号，之后每一轮都卡 20 秒报「Timed out waiting for Antigravity response log」。
+- 代码: `server/server/services/ask_stream.py#_session_elsewhere`, `server/server/services/ask_stream.py#_can_carry_session`, `packages/daemon/src/agent-stream.ts#cleanSessionId`, `packages/daemon/src/agy-runner/runner.ts#conversationExists`, `server/server/services/agent_ids.py#clean_session_id`, `server/server/services/agent_ids.py#reported_session_id`
+- 测试: `packages/daemon/test/antigravity-task.test.ts#Antigravity task: ids the reply quotes never become the session; the runner's own report does`, `packages/daemon/test/antigravity-task.test.ts#Antigravity task: a conversation this device doesn't have goes on in a new one instead of waiting out a reply`, `packages/daemon/test/antigravity-runner.test.ts#doesn't resume what isn't a conversation here: says so in words the daemon takes for a missing session`, `server/tests/test_agent_ids.py#test_a_conversation_never_goes_on_in_text_taken_for_its_session`, `server/tests/test_agent_ids.py#test_a_turn_asked_with_a_broken_session_starts_a_new_one`, `server/tests/test_ask_cascade.py#test_session_on_another_device_is_not_resumed_there`, `server/tests/test_ask_cascade.py#test_session_on_the_device_picked_is_resumed`, `server/tests/test_ask_cascade.py#test_session_of_another_tool_is_not_resumed`, `server/tests/test_ask_ensure_by_session.py#test_looks_up_and_creates_under_a_lock_per_user_and_session`
 
 ### R-TITLE-CONSISTENT 会话标题所有设备一致，以用户提问提取的标题为准
 - 来源: CLAUDE.md（memento）「会话标题所有设备一致」；记忆「会话标题以用户提问提取的标题为唯一事实源，由守护进程写回 Antigravity 本地 SQLite 与注解文件并同步平台」
@@ -507,7 +508,7 @@
 | `F-PLAN` | 协作任务 | 3/3 | — | — | ✅ |
 | `F-CLIENT-UPGRADE` | 客户端升级 | 3/3 | — | — | ✅ |
 | `F-BLUEPRINT` | 蓝图生成与核对 | 5/5 | — | — | ✅ |
-| `R-AGY-WORKDIR` | 选了哪个目录，Antigravity 就在那个目录干活 | 2/2 | 2/2 | 2/2 | ✅ |
+| `R-AGY-WORKDIR` | 选了哪个目录，Antigravity 就在那个目录干活 | 4/4 | 4/4 | 3/3 | ✅ |
 | `R-TRACK-BACKGROUND` | 后台任务跟踪到结束，不提前收尾 | 2/2 | 3/3 | 1/1 | ✅ |
 | `R-STOP-ALL-AGENTS` | Antigravity、Claude Code、Codex 运行中的任务都必须能停 | 3/3 | 4/4 | 1/1 | ✅ |
 | `R-ISLAND-CLEANUP` | 任务结束必须清掉灵动岛状态 | 3/3 | 3/3 | — | ✅ |
@@ -523,7 +524,7 @@
 | `R-PREVIEW-ONLY-EMPTY` | 会话预览只在服务端确认对话没有回合时显示 | 2/2 | 2/2 | 1/1 | ✅ |
 | `R-SESSION-TIMELINE` | 在工具自己的应用里接着聊的，也出现在续接它的对话里 | 7/7 | 7/7 | 3/3 | ✅ |
 | `R-RESTORE-CONFIG` | 选中历史会话恢复当时的工具、项目、会话配置 | 4/4 | 5/5 | — | ✅ |
-| `R-DEVICE-SESSION-MAP` | 设备与会话映射正确：会话只在它所在的设备上续 | 2/2 | 4/4 | — | ✅ |
+| `R-DEVICE-SESSION-MAP` | 设备与会话映射正确：会话只在它所在的设备上续 | 6/6 | 9/9 | — | ✅ |
 | `R-TITLE-CONSISTENT` | 会话标题所有设备一致，以用户提问提取的标题为准 | 3/3 | 3/3 | — | ✅ |
 | `R-DELETE-GONE-EVERYWHERE` | 删除的对话立即在所有页面、所有副本都看不到 | 3/3 | 2/2 | 2/2 | ✅ |
 | `R-REPLICA-STATE` | 会变的状态不放进单个 api 副本的内存 | 3/3 | 1/1 | 2/2 | ✅ |

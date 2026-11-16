@@ -1,7 +1,7 @@
 {
-  "version": "1.0.135",
-  "title": "Memento v1.0.135",
-  "release_notes": "1. 在另一台设备上改代码时，项目里没提交、也没写进 .gitignore 的大文件（单个超过 50MB，或合计超过 300MB 的部分）不再让任务直接失败：这些文件留在源设备上不带过去，同步照常进行，任务过程里列出没带上的文件\n2. 业务蓝图核对：要求/禁止里带分号的写法能正确识别，读不懂的写法判为不通过而不是默认通过\n3. 手机端版本号与客户端统一为 1.0.135",
+  "version": "1.0.136",
+  "title": "Memento v1.0.136",
+  "release_notes": "1. 修复 Antigravity 接着聊时一直报「Timed out waiting for Antigravity response log」：智能体读到的代码里有 session_id: \"\" 这类文字时，会被误当成会话号记下，之后每一轮都续接不上；现在只认执行脚本自己报的会话号\n2. 续接前先确认这台设备上真有这个 Antigravity 会话，没有就直接新开会话接着做，不再空等 20 秒后失败，也不会在 Antigravity 里留下以乱码命名的空会话\n3. 修复 Mac 上的任务没在选的目录里跑：服务端把设备名里的「Darwin」误判成 Windows，改写了工作目录，Antigravity 实际在用户主目录里干活\n4. 手机端版本号与客户端统一为 1.0.136",
   "platforms": {
     "windows": {
       "asset_name": "Memento-1.0.135-win-x64.zip",

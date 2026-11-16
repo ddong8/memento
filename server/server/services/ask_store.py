@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import Document, Machine, User, AskConversation, Project
 from ..db.session import async_session_factory
+from .agent_ids import clean_session_id, reported_session_id
 from .agent_limits import mark_usage_limit
 from .storage_service import sign_media_url, store_image_b64
 
@@ -801,13 +802,22 @@ def infer_conversation_config(conv: AskConversation, sample_turns: list[dict] | 
             if pid and "project_id" not in inferred:
                 inferred["project_id"] = str(pid)
 
-            sid = (
-                res_dict.get("session_id")
-                or args.get("session_id")
-                or call_dict.get("session_id")
+            # Only an id the agent could have made (an older daemon took `\\"\\"` out of a reply for one)
+            sid = next(
+                (
+                    c
+                    for c in (
+                        clean_session_id(res_dict.get("session_id"), binary),
+                        reported_session_id(res_dict.get("stderr") if isinstance(res_dict.get("stderr"), str) else None, binary),
+                        clean_session_id(args.get("session_id"), binary),
+                        clean_session_id(call_dict.get("session_id"), binary),
+                    )
+                    if c
+                ),
+                None,
             )
             if sid and "session_id" not in inferred:
-                inferred["session_id"] = str(sid)
+                inferred["session_id"] = sid
 
             mod = args.get("model") or call_dict.get("model")
             if mod and "model" not in inferred:

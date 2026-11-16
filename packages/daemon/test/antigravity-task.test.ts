@@ -15,7 +15,7 @@ const dir = mkdtempSync(join(tmpdir(), "agy-task-"));
 const bundle = join(dir, "agy_cli.mjs");
 const home = join(dir, "home");
 // Antigravity's conversation ids are UUIDs, which is what the daemon reads back as the session
-const CIDS = { simple: "6a1f0c2e-0000-4000-8000-00000000a001", ask: "6a1f0c2e-0000-4000-8000-00000000a002" };
+const CIDS = { simple: "6a1f0c2e-0000-4000-8000-00000000a001", ask: "6a1f0c2e-0000-4000-8000-00000000a002", quote: "6a1f0c2e-0000-4000-8000-00000000a003" };
 const logDir = (cid: string) => join(home, ".gemini", "antigravity", "brain", cid, ".system_generated", "logs");
 const env = vi.hoisted(() => ({ value: {} as Record<string, string> }));
 
@@ -56,7 +56,9 @@ const cid = ${JSON.stringify(CIDS)}[process.env.FAKE_AGY];
 const log = join(process.env.HOME, ".gemini", "antigravity", "brain", cid, ".system_generated", "logs");
 const write = (...steps) => { mkdirSync(log, { recursive: true }); appendFileSync(join(log, "transcript_full.jsonl"), steps.map((s) => JSON.stringify(s) + "\\n").join("")); };
 write({ source: "USER", type: "USER_INPUT", content: args[args.length - 1] });
-if (process.env.FAKE_AGY === "ask") write({ source: "MODEL", type: "PLANNER_RESPONSE", content: "", tool_calls: [{ name: "ask_question", id: "tc1", args: { questions: [{ question: "选哪个？", options: ["A", "B"] }] } }] });
+// The reply quotes code with session ids in it, and a line that reads like the runner's own report
+if (process.env.FAKE_AGY === "quote") write({ source: "MODEL", type: "PLANNER_RESPONSE", content: 'persistCurrentConfig({ project_id: "", session_id: "" });\\nsession id: ""\\nConversation ID: \\u0060、\\u0060conversation\\n改好了' });
+else if (process.env.FAKE_AGY === "ask") write({ source: "MODEL", type: "PLANNER_RESPONSE", content: "", tool_calls: [{ name: "ask_question", id: "tc1", args: { questions: [{ question: "选哪个？", options: ["A", "B"] }] } }] });
 else write({ source: "MODEL", type: "PLANNER_RESPONSE", content: "最终答案：完成" });
 console.log(JSON.stringify({ response: { newConversation: { conversationId: cid } } }));
 `,
@@ -106,14 +108,14 @@ afterAll(() => {
 });
 
 /** Dispatches one Antigravity task and collects what the daemon reports until it finishes. */
-async function runTask(taskId: string, prompt: string, answer?: string) {
+async function runTask(taskId: string, prompt: string, answer?: string, extra: Record<string, unknown> = {}) {
   const received: Record<string, unknown>[] = [];
   const wss = new WebSocketServer({ port: 0, host: "127.0.0.1" });
   let resolveDone!: (m: Record<string, unknown>) => void;
   const finished = new Promise<Record<string, unknown>>((r) => (resolveDone = r));
   wss.on("connection", (ws) => {
     ws.send(JSON.stringify({ type: "connected", device_name: "test" }));
-    ws.send(JSON.stringify({ type: "task_dispatch", task: { id: taskId, action: "agent", timeout_seconds: 60, payload: { binary: "agy", prompt, cwd: dir } } }));
+    ws.send(JSON.stringify({ type: "task_dispatch", task: { id: taskId, action: "agent", timeout_seconds: 60, payload: { binary: "agy", prompt, cwd: dir, ...extra } } }));
     ws.on("message", (raw) => {
       const msg = JSON.parse(raw.toString()) as Record<string, unknown>;
       received.push(msg);
@@ -163,6 +165,51 @@ it.skipIf(process.platform === "win32")(
     expect(submitted.interaction.askQuestion.responses[0].selectedOptionIds).toEqual(["o2"]);
     expect(done).toMatchObject({ status: "succeeded" });
     expect(String(done.stdout)).toContain("你选了 B");
+  },
+  45_000,
+);
+
+it.skipIf(process.platform === "win32")(
+  "Antigravity task: ids the reply quotes never become the session; the runner's own report does",
+  async () => {
+    // 2026-11-16: a file Antigravity read had `session_id: ""`, the daemon took `\\"\\"` for the session,
+    // and every turn after it failed with "Timed out waiting for Antigravity response log"
+    env.value.FAKE_AGY = "quote";
+    const { done } = await runTask("feedbeef-0000-4000-8000-0000000000a3", "看看配置");
+    expect(done).toMatchObject({ status: "succeeded", session_id: CIDS.quote });
+    expect(String(done.stdout)).toContain("改好了");
+  },
+  45_000,
+);
+
+it.skipIf(process.platform === "win32")(
+  "Antigravity task: a session id that isn't one starts a new conversation, said so, and reports the new one",
+  async () => {
+    env.value.FAKE_AGY = "simple";
+    const before = readFileSync(join(home, "agentapi-calls.jsonl"), "utf8").trim().split("\n").length;
+    const { done } = await runTask("feedbeef-0000-4000-8000-0000000000a4", "全部实施吧", undefined, { session_id: '\\"\\"' });
+    expect(done, String(done.stderr)).toMatchObject({ status: "succeeded", session_id: CIDS.simple });
+    expect(String(done.stderr)).toContain("会话号无效");
+    const calls = readFileSync(join(home, "agentapi-calls.jsonl"), "utf8").trim().split("\n").slice(before).map((l) => JSON.parse(l));
+    expect(calls.map((c: string[]) => c[1])).toEqual(["new-conversation"]);
+  },
+  45_000,
+);
+
+it.skipIf(process.platform === "win32")(
+  "Antigravity task: a conversation this device doesn't have goes on in a new one instead of waiting out a reply",
+  async () => {
+    env.value.FAKE_AGY = "simple";
+    const before = readFileSync(join(home, "agentapi-calls.jsonl"), "utf8").trim().split("\n").length;
+    const t0 = Date.now();
+    const { done } = await runTask("feedbeef-0000-4000-8000-0000000000a5", "继续", undefined, { session_id: "9f0c1d2e-0000-4000-8000-00000000dead" });
+    expect(done, String(done.stderr)).toMatchObject({ status: "succeeded", session_id: CIDS.simple });
+    expect(String(done.stderr)).toContain("conversation not found");
+    expect(String(done.stderr)).not.toContain("Timed out waiting for Antigravity response log");
+    // Straight away, not after the runner's 20 s wait for a transcript
+    expect(Date.now() - t0).toBeLessThan(15_000);
+    const calls = readFileSync(join(home, "agentapi-calls.jsonl"), "utf8").trim().split("\n").slice(before).map((l) => JSON.parse(l));
+    expect(calls.map((c: string[]) => c[1])).toEqual(["new-conversation"]);
   },
   45_000,
 );

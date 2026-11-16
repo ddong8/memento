@@ -245,7 +245,8 @@ describe("Antigravity runner", () => {
  * HTTP) and a fake agentapi that writes the transcript Antigravity would.
  */
 describe.skipIf(!posix)("Antigravity runner, end to end", () => {
-  const CID = "conv-e2e-0001";
+  // A UUID, as the app makes them: the runner resumes nothing else
+  const CID = "0e2e0001-0000-4000-8000-000000000001";
   let dir: string;
   let bundle: string;
   let home: string;
@@ -454,7 +455,7 @@ if (sub === "new-conversation") {
     expect(agentapiCalls()[1]).toEqual(["agentapi", "new-conversation", "--model=pro", "--title=看看 README", "看看 README"]);
     expect(run.out.stderr).toContain("模型 gemini-4-argon-high 启动遇到异常 (UNAVAILABLE (code 503)");
     expect(run.out.stderr).toContain("⚡ [提示: 模型 gemini-4-argon-high 暂不可用，已自动智能降级至 pro 成功建立会话]");
-    expect(run.out.stderr).toMatch(/^session id: conv-e2e-0001$/m);
+    expect(run.out.stderr).toMatch(/^session id: 0e2e0001-0000-4000-8000-000000000001$/m);
     // Each call a row with what it works on; its result closes it, with the output minus the timestamps
     expect(events(run.out.stdout).filter((e) => e.kind === "tool")).toEqual([
       { kind: "tool", id: "agy_1_0", name: "view_file", detail: "/repo/README.md", status: "running" },
@@ -509,7 +510,7 @@ if (sub === "new-conversation") {
     const event = JSON.parse(run.out.stdout.split("\n").find((l) => l.includes("memento_event"))!).event;
     expect(event).toEqual({
       kind: "question",
-      id: "agy_conv-e2e_1_0",
+      id: "agy_0e2e0001_1_0",
       tool: "ask_question",
       question: "选哪个？",
       options: ["A", "B"],
@@ -532,6 +533,30 @@ if (sub === "new-conversation") {
     expect(run.out.stdout).toContain("你选了 B");
     // The answer went to the open question, not to agentapi as a follow-up message
     expect(agentapiCalls().map((a) => a[1])).toEqual(["new-conversation"]);
+  });
+
+  it("doesn't resume what isn't a conversation here: says so in words the daemon takes for a missing session", async () => {
+    // Text taken for the session (2026-11-16: `\"\"` out of a source file's `session_id: ""`), and a UUID
+    // the app has no conversation for (another device's). agentapi would file the message as undelivered
+    // under brain/<id> and exit 0, and the run then waited 20 s for a reply that never came.
+    for (const id of ['\\"\\"', "9f0c1d2e-0000-4000-8000-00000000dead"]) {
+      const run = start(["--resume", id, "-p", "全部实施吧"], { FAKE_AGY: "simple" });
+      expect(await run.done).toBe(1);
+      expect(run.out.stderr).toContain("Error resuming conversation via Antigravity: conversation not found");
+      expect(run.out.stderr).not.toContain("session id:");
+      expect(run.out.stderr).not.toContain("Timed out waiting for Antigravity response log");
+    }
+    expect(agentapiCalls()).toEqual([]);
+    expect(existsSync(join(home, ".gemini", "antigravity", "brain", '\\"\\"'))).toBe(false);
+  });
+
+  it("resumes a conversation the app keeps only in its database, before any transcript", async () => {
+    const conv = join(home, ".gemini", "antigravity", "conversations");
+    mkdirSync(conv, { recursive: true });
+    writeFileSync(join(conv, `${CID}.db`), "");
+    const run = start(["--resume", CID, "-p", "继续"], { FAKE_AGY: "simple" });
+    expect(await run.done).toBe(0);
+    expect(agentapiCalls()).toEqual([["agentapi", "send-message", "--title=继续", CID, "继续"]]);
   });
 
   it("resumes a conversation and shows only what comes after the follow-up", async () => {

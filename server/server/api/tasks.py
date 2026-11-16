@@ -43,6 +43,7 @@ from ..db.models import DeviceTask, Machine, User
 from ..db.session import async_session_factory, get_db
 from ..middleware.auth import get_current_user
 from ..services import ask_followups, device_reports, mission_service, notify_service, task_alerts, workspace_relay
+from ..services.agent_ids import clean_session_id, reported_session_id
 from ..services.agent_limits import mark_usage_limit
 from ..services.ws_manager import ws_manager
 from ..services.device_dispatch import deliver_task
@@ -54,6 +55,8 @@ logger = logging.getLogger("server.tasks_api")
 async def _note_task_session(task_id: str, session_id: str) -> None:
     """The session an agent task runs in, kept from its start: a task whose run is lost (a restart, a
     deploy with nowhere to hand it) still says where its work is, for the next question to go on in."""
+    if not clean_session_id(session_id):
+        return
     try:
         async with async_session_factory() as db:
             await db.execute(
@@ -398,7 +401,12 @@ async def _save_finished(tid_str: str, data: dict) -> bool:
                     t.stdout = (data.get("stdout") or "")[:MAX_OUTPUT_CHARS] or None
                     t.stderr = (data.get("stderr") or "")[:MAX_OUTPUT_CHARS] or None
                     t.error = done.get("error")
-                    t.session_id = str(data.get("session_id") or "")[:128] or None
+                    # Only an id the agent could have made; else the one its runner named on stderr
+                    task_payload = getattr(t, "payload", None)
+                    run_binary = task_payload.get("binary") if isinstance(task_payload, dict) else None
+                    t.session_id = clean_session_id(data.get("session_id"), run_binary) or reported_session_id(
+                        data.get("stderr"), run_binary
+                    )
                     if attempt == "full" and isinstance(data.get("events"), list):
                         t.events = data["events"][-MAX_TASK_EVENTS:]
                 # still_running too: the agent has exited and nothing more comes for this task

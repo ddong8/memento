@@ -4,7 +4,16 @@ import { hostname } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 
-import { AgentEventLog, AgyCliStreamParser, ClaudeStreamParser, CodexStreamParser, UniversalStreamParser, type AgentEvent, type AgentStreamParser } from "./agent-stream.js";
+import {
+  AgentEventLog,
+  AgyCliStreamParser,
+  ClaudeStreamParser,
+  CodexStreamParser,
+  UniversalStreamParser,
+  cleanSessionId,
+  type AgentEvent,
+  type AgentStreamParser,
+} from "./agent-stream.js";
 import { antigravityExecutable, discoverAntigravityEnv, officialAgyCli } from "./antigravity.js";
 import { agyQuotaMessage, isExhausted, listAgyModels, nextAgyModel, noteDefaultModel, noteQuotaExhausted, quotaResetMs } from "./agy-models.js";
 import { ensureProjectBlueprint, findGitRoot } from "./blueprint-auto.js";
@@ -281,7 +290,9 @@ export function antigravityArgs(o: {
   official?: boolean;
 }): string[] {
   const args: string[] = [];
-  const sid = o.sessionId ? (UUID_RE.exec(o.sessionId)?.[0] ?? o.sessionId.trim()) : "";
+  // Antigravity's conversations are UUIDs: anything else would resume nothing (agentapi takes it anyway,
+  // makes a folder of that name and the run waits out the reply that never comes)
+  const sid = o.sessionId ? (UUID_RE.exec(o.sessionId)?.[0] ?? "") : "";
   if (sid) {
     args.push("--conversation", sid);
   }
@@ -925,7 +936,7 @@ export class TaskRunner {
       out.stderr += text;
       // workbuddy_cli.mjs reports the session it actually runs (a failed resume opens a new one) as
       // "session id: <id>" on stderr; the reply itself goes to stdout.
-      const sid = /^session id:\s*(\S+)/m.exec(text)?.[1];
+      const sid = cleanSessionId(/^session id:\s*(\S+)/m.exec(text)?.[1]);
       const sess = this.taskSessions.get(taskId);
       if (sid && sess) sess.sessionId = sid;
       this.sendChunk(taskId, "stderr", text);
@@ -1053,7 +1064,10 @@ export class TaskRunner {
 
     const binary = (text("binary") || "claude").toLowerCase();
     const prompt = text("prompt");
-    const sessionId = text("session_id");
+    const askedSession = text("session_id").trim();
+    // Only an id an agent could have made: text taken for one (an older daemon read `\"\"` out of a tool's
+    // output) resumes nothing, so the task starts a session of its own and reports that one instead
+    const sessionId = cleanSessionId(askedSession) ?? "";
     this.taskSessions.set(taskId, { binary, sessionId: sessionId || undefined });
     let model = text("model");
     const effort = text("effort");
@@ -1250,7 +1264,7 @@ export class TaskRunner {
             "-p",
             prompt,
           ];
-          parser = new UniversalStreamParser();
+          parser = new UniversalStreamParser({ sessionFromStdout: false });
           this.runnerTasks.add(taskId);
         } else {
           // Native WorkBuddy / CodeBuddy CLI supports Claude-compatible stream-json; headless tool use needs -y.
@@ -1277,7 +1291,7 @@ export class TaskRunner {
           timeoutSeconds: task.timeoutSeconds,
           prompt,
         });
-        parser = new UniversalStreamParser();
+        parser = new UniversalStreamParser({ sessionFromStdout: false });
         this.runnerTasks.add(taskId);
       } else {
         args = [
@@ -1295,6 +1309,10 @@ export class TaskRunner {
     this.send({ type: "task_progress", task_id: taskId, status: "running" });
     const out = { stdout: "", stderr: "" };
     this.outputs.set(taskId, out);
+    if (askedSession && !sessionId) {
+      this.log(`Task ${taskId}: session id ${JSON.stringify(askedSession.slice(0, 60))} isn't one, starting a new session`);
+      this.notice(taskId, "\n⚡ [自动自愈] 这个对话记下的会话号无效（不是智能体生成的会话号），已改为新开会话执行，之后的追问会接着这个新会话。\n\n");
+    }
 
     try {
       // The Codex and Antigravity runners run on this process's own runtime (Electron as Node in the desktop app)
@@ -1344,7 +1362,7 @@ export class TaskRunner {
       let agyModel = model;
       /** Antigravity's arguments and parser for a run: memento's runner or Google's CLI. */
       const agyRun = (o: Omit<Parameters<typeof antigravityArgs>[0], "official">) => {
-        parser = officialAgy ? new AgyCliStreamParser() : new UniversalStreamParser();
+        parser = officialAgy ? new AgyCliStreamParser() : new UniversalStreamParser({ sessionFromStdout: false });
         return { args: antigravityArgs({ ...o, official: officialAgy }), parser };
       };
       /** Where the latest run's stderr starts: a retry that succeeded leaves the earlier errors above it. */
@@ -1494,7 +1512,7 @@ export class TaskRunner {
         } else if (binary.includes("workbuddy") || binary.includes("codebuddy")) {
           const isNativeCodebuddy = exe.toLowerCase().includes("codebuddy");
           if (!isNativeCodebuddy) {
-            parser = new UniversalStreamParser();
+            parser = new UniversalStreamParser({ sessionFromStdout: false });
             exitCode = await run({
               args: [
                 ...(model ? ["--model", model] : []),
@@ -1555,10 +1573,18 @@ export class TaskRunner {
       const isStillRunning = (!timedOut || hasStillRunningTag) && detectStillRunning(out.stdout, fullErr, parser, exitCode);
       const promptTooLong = errScan().includes("Prompt is too long") || fullOut.includes("Prompt is too long");
 
-      const sid =
-        /session id:\s*([0-9a-fA-F-]+)/i.exec(fullOut)?.[1] ??
-        /session id:\s*([0-9a-fA-F-]+)/i.exec(fullErr)?.[1] ??
-        /thread[_-]id:\s*([0-9a-fA-F-]+)/i.exec(fullOut)?.[1];
+      // memento's runners report the session on stderr, a "session id: <id>" line per run, the last one being
+      // the run that counts. Their stdout is the agent's answer and tool output, never read for it: it may
+      // quote any id (2026-11-16: a file's `session_id: ""` became the session and no turn after it resumed).
+      const reportedSid = [...fullErr.matchAll(/^session id:\s*(\S+)/gim)]
+        .map((m) => cleanSessionId(m[1]))
+        .filter((s): s is string => !!s)
+        .pop();
+      const sid = this.runnerTasks.has(taskId)
+        ? reportedSid
+        : (cleanSessionId(/session id:\s*([0-9a-fA-F-]+)/i.exec(fullOut)?.[1]) ??
+          reportedSid ??
+          cleanSessionId(/thread[_-]id:\s*([0-9a-fA-F-]+)/i.exec(fullOut)?.[1]));
 
       if (worktree) {
         try {
@@ -1629,7 +1655,7 @@ export class TaskRunner {
                 ? loginHint || fullErr || streamErrors || (sessionFailedFinal ? "会话未找到或已过期" : `Exit code ${effectiveExitCode}`)
                 : null,
           errorType: usageLimit ? "usage_limit" : promptTooLong ? "prompt_too_long" : loginHint ? "agent_login_required" : null,
-          sessionId: parser?.sessionId ?? sid ?? (sessionFailedFinal ? null : (sessionId || null)),
+          sessionId: cleanSessionId(parser?.sessionId) ?? sid ?? (sessionFailedFinal ? null : (sessionId || null)),
           events: this.eventLogs.get(taskId)?.events,
         }),
       );

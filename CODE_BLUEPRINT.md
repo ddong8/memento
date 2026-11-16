@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `e720be1d` · Updated: `2026-11-16`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `2d090577` · Updated: `2026-11-16`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -13,11 +13,11 @@
 - 类型 (Type): Monorepo (Workspaces)
 - 技术栈 (Stack): TypeScript/JavaScript, Python, Shell / Bash · React, Electron, Next.js, TailwindCSS, Model Context Protocol (MCP), FastAPI, SQLAlchemy, Celery
 - 基础设施 (Infra): PostgreSQL, pgvector (Vector DB), Redis, MinIO / S3 Object Storage, Celery Task Queue
-- 规模 (Scale): 9 个子系统 · 35 组 API 路由 / 237 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 213 个测试文件
+- 规模 (Scale): 9 个子系统 · 35 组 API 路由 / 237 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 214 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `54527d30` (2026-11-16): fix(问答): 智能体提问时先写了几句话，选项不再变成点不动
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 53（✅ 53 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-PUBLIC-REPO-CLEAN`, `F-RESUME`, `R-SESSION-TIMELINE`, `R-SELF-EVOLVE`
+- 最近改动 (Latest): `9d152b02` (2026-11-16): fix(问答): 在 Antigravity 等应用里接着聊的回答并进对话后和 Memento 自己的一样显示，不再一个命令占一行
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 53（✅ 53 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-SESSION-TIMELINE`, `R-PUBLIC-REPO-CLEAN`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -468,6 +468,7 @@ erDiagram
 
 | Service Module | Path | Responsibility |
 | :--- | :--- | :--- |
+| `agent_ids` | [`server/server/services/agent_ids.py`](server/server/services/agent_ids.py) | Small checks on what devices report about themselves and their agents' sessions. |
 | `agent_limits` | [`server/server/services/agent_limits.py`](server/server/services/agent_limits.py) | An agent's own report that the account's quota ran out: the run then reads as that, not as done, |
 | `ai_health` | [`server/server/services/ai_health.py`](server/server/services/ai_health.py) | AI call health: hourly counters in Redis, read back by the health page and alerts. |
 | `ai_provider` | [`server/server/services/ai_provider.py`](server/server/services/ai_provider.py) | AI Provider service — multi-provider fallback client. |
@@ -502,7 +503,6 @@ erDiagram
 | `graph_service` | [`server/server/services/graph_service.py`](server/server/services/graph_service.py) | Knowledge graph auto-extraction — extracts entities and relations from conversations using LLM. |
 | `guard_service` | [`server/server/services/guard_service.py`](server/server/services/guard_service.py) | Completion check: the Stop hook the collector installs in Claude Code and Codex. |
 | `guidance_service` | [`server/server/services/guidance_service.py`](server/server/services/guidance_service.py) | What an AI should know before it acts: the user's rules, past pitfalls, and learned skills. |
-| `health_service` | [`server/server/services/health_service.py`](server/server/services/health_service.py) | System health overview: is the learning loop actually working? |
 
 ## 6.5. AST Call Graph, DTO Schemas & CLI Entrypoints
 
@@ -601,7 +601,7 @@ erDiagram
 
 | Suite | Directory | Files | Sample Tests |
 | :--- | :--- | :--- | :--- |
-| server/tests (pytest) | [`server/tests`](server/tests) | 115 | `test_agent_limits.py`, `test_agent_login.py`, `test_agent_run_states.py`, `test_ai_provider.py`, `test_artifact_media_stream.py` |
+| server/tests (pytest) | [`server/tests`](server/tests) | 116 | `test_agent_ids.py`, `test_agent_limits.py`, `test_agent_login.py`, `test_agent_run_states.py`, `test_ai_provider.py` |
 | packages/daemon/test (vitest / jest) | [`packages/daemon/test`](packages/daemon/test) | 57 | `agent-args.test.ts`, `agent-login.test.ts`, `agent-stream.test.ts`, `agy-models.test.ts`, `agy-project-folder.test.ts` |
 | apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 35 | `api-client.test.ts`, `ask-reading-and-persona-rules.test.tsx`, `ask-top-bar.test.tsx`, `auth-fetch.test.ts`, `build-update.test.ts` |
 | apps/mobile/test (vitest / jest) | [`apps/mobile/test`](apps/mobile/test) | 2 | `deeplink.test.ts`, `webview-props.test.ts` |
@@ -611,7 +611,7 @@ erDiagram
 
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
-- [`packages/daemon/assets/workbuddy_cli.mjs`](packages/daemon/assets/workbuddy_cli.mjs) (17 commits)
+- [`packages/daemon/assets/workbuddy_cli.mjs`](packages/daemon/assets/workbuddy_cli.mjs) (16 commits)
 - [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (15 commits)
 - [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (8 commits)
 - [`apps/desktop/src/main.ts`](apps/desktop/src/main.ts) (6 commits)
@@ -643,12 +643,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `9d152b02` (2026-11-16): fix(问答): 在 Antigravity 等应用里接着聊的回答并进对话后和 Memento 自己的一样显示，不再一个命令占一行
 - `54527d30` (2026-11-16): fix(问答): 智能体提问时先写了几句话，选项不再变成点不动
 - `5fae7391` (2026-11-16): fix(问答): /compact 的摘要和本地命令回显不再当成在 Claude Code 里说的话并进对话
 - `42529daa` (2026-11-16): fix(projects): 名字叫 scratch 的用户目录不再被当成无效项目
 - `7ed62cc5` (2026-11-16): feat(问答): 续接会话的对话与会话保持同步，工具自己应用里的问答按时间并进对话 (#20)
 - `894debf8` (2026-11-16): fix(工作区): 跨设备改代码时没进 .gitignore 的大文件留在源设备上，不再让任务失败；升级客户端版本至 v1.0.135
-- `7e8ed066` (2026-11-16): fix(问答): 手机上会话上下文预览默认收起，展开配置后不用再往下滑
 
 ## 10. Key Environment Variables & Configuration
 
@@ -671,8 +671,8 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ### 最近提交碰到的业务条目（改动后复查它们还成不成立）
 
+- `9d152b02` fix(问答): 在 Antigravity 等应用里接着聊的回答并进对话后和 Memento 自己的一样显示，不再一个命令占一行 → `R-SESSION-TIMELINE`
 - `e720be1d` ci(deploy): Fleet 卡在 Stalled 超过 3 分钟时集群内自动重同步，不用再手动 patch → `R-PUBLIC-REPO-CLEAN`
-- `7ed62cc5` feat(问答): 续接会话的对话与会话保持同步，工具自己应用里的问答按时间并进对话 (#20) → `F-RESUME`, `R-SESSION-TIMELINE`, `R-SELF-EVOLVE`
 
 ---
 _Auto-maintained by `scripts/project_blueprint.mjs` (v20261126) & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._

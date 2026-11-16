@@ -43,6 +43,7 @@ from ..db.models import (
     User,
     UserMemory,
 )
+from .agent_ids import device_os
 from .blueprint_pick import CODE_BLUEPRINT_TITLES, BlueprintCopy, blueprint_copy, code_blueprint_path, code_blueprint_title, is_fresher
 from .business_blueprint import BUSINESS_FILE
 from .cache import cache_get, cache_set
@@ -982,14 +983,13 @@ class BlueprintSources:
     profile_text: str = ""
 
 
-_PLATFORM_SUFFIX_RE = re.compile(r"\((darwin|macos|windows|linux|ios|android)\)\s*$", re.IGNORECASE)
-_PLATFORM_LABELS = {"darwin": "macOS", "macos": "macOS", "windows": "Windows", "linux": "Linux", "ios": "iOS", "android": "Android"}
+_PLATFORM_LABELS = {"macos": "macOS", "windows": "Windows", "linux": "Linux", "ios": "iOS", "android": "Android"}
 
 
 def _device_platform(name: str | None) -> str:
     """Devices are named "<host> (Darwin)" by the collector; the platform isn't stored separately."""
-    m = _PLATFORM_SUFFIX_RE.search(name or "")
-    return _PLATFORM_LABELS[m.group(1).lower()] if m else "unknown"
+    os_name = device_os(name)
+    return _PLATFORM_LABELS[os_name] if os_name else "unknown"
 
 
 async def _load_sources(db: AsyncSession, user: User) -> BlueprintSources:

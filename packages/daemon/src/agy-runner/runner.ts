@@ -711,6 +711,31 @@ const transcriptPaths = (convId: string) => {
   return [join(logs, "transcript_full.jsonl"), join(logs, "transcript.jsonl")] as const;
 };
 
+const CONVERSATION_ID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
+/**
+ * Whether this is a conversation the app has here: its ids are UUIDs, and it keeps each one's state in
+ * conversations/<id>.db (.pb before) and its transcript in brain/<id>. agentapi send-message takes any id,
+ * an unknown one too: it files the message as undelivered under brain/<id> and exits 0, and the run then
+ * waits out a reply that never comes (2026-11-16: `\"\"`, text taken for the session, failed every turn).
+ */
+export function conversationExists(convId: string, home = agyHome()): boolean {
+  if (!CONVERSATION_ID_RE.test(convId)) return false;
+  const logs = join(home, "brain", convId, ".system_generated", "logs");
+  if (
+    [join(home, "conversations", `${convId}.db`), join(home, "conversations", `${convId}.pb`), join(logs, "transcript_full.jsonl"), join(logs, "transcript.jsonl")].some(
+      (p) => existsSync(p),
+    )
+  ) {
+    return true;
+  }
+  const summaries = join(home, "conversation_summaries.db");
+  if (!existsSync(summaries)) return false;
+  const rows = sqliteRows(summaries, "SELECT 1 FROM conversation_summaries WHERE conversation_id = ? LIMIT 1", [convId], 2000);
+  // Unreadable: the app's own word goes, as before this check
+  return rows === undefined || rows.length > 0;
+}
+
 const fileSize = (p: string): number | undefined => {
   try {
     return statSync(p).size;
@@ -766,6 +791,11 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
   let startPos = 0;
 
   if (convId) {
+    // Said in the words the daemon takes for a session that isn't here, so it goes on in a new one
+    if (!conversationExists(convId)) {
+      err(`Error resuming conversation via Antigravity: conversation not found: ${JSON.stringify(convId)}\n`);
+      return 1;
+    }
     const [full, plain] = transcriptPaths(convId);
     startPos = fileSize(full) ?? fileSize(plain) ?? 0;
     try {

@@ -1,6 +1,6 @@
 {
   "name": "@memento/mobile",
-  "version": "1.0.135",
+  "version": "1.0.136",
   "main": "expo-router/entry",
   "dependencies": {
     "expo": "~57.0.26",

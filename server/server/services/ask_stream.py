@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import User
 from ..services.ask_runs import RunConflict, ask_runs
+from .agent_ids import clean_session_id
 from .agent_limits import USAGE_LIMIT
 from .ask_store import append_conversation_turns, record_stopped_orphans, store_images
 from .device_reports import get_device_environment_summary
@@ -247,6 +248,11 @@ async def _prepare_agent_args(
     from ..services.orchestrator import is_likely_long_running_task
 
     action = "shell" if execution_mode == "shell" else "agent"
+    # Only an id the agent could have made: text an older daemon took for the session (`\\"\\"`, 2026-11-16)
+    # resumes nothing and failed every turn after it, so the conversation goes on in a new session instead
+    if session_id and not clean_session_id(session_id, "agy" if execution_mode == "antigravity" else None):
+        logger.info("Conversation %s: %r isn't a session id, starting a new session", conv_id, session_id[:60])
+        session_id = None
 
     # Determine effective timeout: respect user choice; otherwise auto-expand for heavy migration/sync/build tasks
     effective_timeout = timeout_seconds

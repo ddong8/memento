@@ -13,6 +13,7 @@ import {
   TOOL_OUTPUT_TAIL,
   toolArgsDetail,
   UniversalStreamParser,
+  cleanSessionId,
   type AgentEvent,
   type AgentStreamParser,
 } from "../src/agent-stream.js";
@@ -338,6 +339,31 @@ describe("Interactive questions", () => {
 
     parser.feed("Hello from agent!");
     expect(parser.finalText).toBe("Hello from agent!");
+  });
+
+  it("UniversalStreamParser takes a session only from a line saying so, and only an id an agent could make", () => {
+    const parser = new UniversalStreamParser();
+    parser.feed("session id: 6f3d1184-787b-4878-a8f5-2f5ade4fb738");
+    // Source code and quoted text in the output: none of it is a session (2026-11-16: `\\"\\"`)
+    parser.feed('persistCurrentConfig({ project_id: "", session_id: "" });');
+    parser.feed('session id: \\"\\"');
+    parser.feed("conversation id: `、`conversation");
+    parser.feed(JSON.stringify({ type: "memento_event", event: { kind: "tool", id: "t1", status: "done", output: 'session id: ""\nsession_id: "x"' } }));
+    expect(parser.sessionId).toBe("6f3d1184-787b-4878-a8f5-2f5ade4fb738");
+
+    // memento's runners report it on stderr: their stdout is never read for it
+    const runner = new UniversalStreamParser({ sessionFromStdout: false });
+    runner.feed("session id: 6f3d1184-787b-4878-a8f5-2f5ade4fb738");
+    runner.feed('{"conversation_id": "json-conv-9999"}');
+    expect(runner.sessionId).toBeUndefined();
+  });
+
+  it("cleanSessionId keeps ids agents make and drops text taken for one", () => {
+    expect(cleanSessionId(" 6f3d1184-787b-4878-a8f5-2f5ade4fb738 ")).toBe("6f3d1184-787b-4878-a8f5-2f5ade4fb738");
+    expect(cleanSessionId("wb-session-999")).toBe("wb-session-999");
+    for (const bad of ['\\"\\"', '""', "`、`conversation", "", "ab", "a b", "../etc", "会话", undefined, 42]) {
+      expect(cleanSessionId(bad)).toBeUndefined();
+    }
   });
 
   it("ClaudeStreamParser parses thinking blocks and WorkBuddy stream-json", () => {

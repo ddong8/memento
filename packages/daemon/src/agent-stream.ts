@@ -79,6 +79,18 @@ export function toolArgsDetail(input: Json): string {
   return clip(firstLine(pairs.join(" ")), 200);
 }
 
+/**
+ * A session id as an agent could have made it, trimmed; undefined for anything else. Ids are UUIDs or
+ * similar tokens (letters, digits, `-_.:@`): quotes, backslashes, backticks or CJK mean text was taken
+ * for one (2026-11-16: `session_id: ""` in a source file Antigravity read became the session `\"\"`, and
+ * every turn after it failed to resume).
+ */
+export function cleanSessionId(id: unknown): string | undefined {
+  if (typeof id !== "string") return undefined;
+  const s = id.trim();
+  return /^[A-Za-z0-9][\w.:@-]{3,199}$/.test(s) ? s : undefined;
+}
+
 export abstract class AgentStreamParser {
   sessionId: string | undefined;
   /** Error text reported inside the stream (not on stderr), for retry decisions. */
@@ -668,6 +680,16 @@ export class CodexStreamParser extends AgentStreamParser {
 export class UniversalStreamParser extends AgentStreamParser {
   private lastText = "";
   private plainTexts: string[] = [];
+  /**
+   * Whether stdout says which session runs. Not for memento's runners (Antigravity, WorkBuddy): they
+   * report it on stderr, and their stdout is the agent's answer and tool output, which can quote anything.
+   */
+  private readonly sessionFromStdout: boolean;
+
+  constructor(opts: { sessionFromStdout?: boolean } = {}) {
+    super();
+    this.sessionFromStdout = opts.sessionFromStdout ?? true;
+  }
   private lastToolId: string | null = null;
   private toolSeq = 0;
 
@@ -689,12 +711,10 @@ export class UniversalStreamParser extends AgentStreamParser {
       return null;
     }
 
-    const sidMatch =
-      /session[ _-]id:\s*([^\s\n\r]+)/i.exec(raw) ??
-      /conversation[ _-]id:\s*([^\s\n\r]+)/i.exec(raw) ??
-      /thread[ _-]id:\s*([^\s\n\r]+)/i.exec(raw);
-    if (sidMatch && sidMatch[1]) {
-      this.sessionId = sidMatch[1].trim();
+    // A line of its own saying so, not words anywhere in the output (a JSON line's tool output included)
+    if (this.sessionFromStdout && !raw.startsWith("{")) {
+      const sid = cleanSessionId(/^(?:session|conversation|thread)[ _-]id:\s*(\S+)/i.exec(raw)?.[1]);
+      if (sid) this.sessionId = sid;
     }
 
     // 1. Explicit memento structured event line: {"type":"memento_event","event":{...}}
@@ -705,7 +725,8 @@ export class UniversalStreamParser extends AgentStreamParser {
           let consumed = false;
           const cid = typeof d.conversation_id === "string" ? d.conversation_id : typeof d.session_id === "string" ? d.session_id : undefined;
           if (cid) {
-            this.sessionId = cid.trim();
+            const sid = cleanSessionId(cid);
+            if (sid && this.sessionFromStdout) this.sessionId = sid;
             consumed = true;
           }
           if (d.type === "memento_event" && isObject(d.event)) {

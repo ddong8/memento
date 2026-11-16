@@ -36,6 +36,17 @@ export default function Header({ onMenuToggle, className = "" }: { onMenuToggle:
     if (pathname.startsWith("/projects")) return { title: t.nav.projects || "项目空间", icon: "folder" as const };
     if (pathname.startsWith("/skills")) return { title: t.nav.skills || "技能中心", icon: "sparkles" as const };
     if (pathname.startsWith("/app")) return { title: t.nav.overview || "全景总览", icon: "grid" as const };
+    // Pages reached from menus and links: their own name in the bar, not "Memento"
+    if (pathname.startsWith("/tools")) return { title: "所有工具", icon: "grid" as const };
+    if (pathname.startsWith("/devices")) return { title: "设备", icon: "devices" as const };
+    if (pathname.startsWith("/search")) return { title: "搜索", icon: "search" as const };
+    if (pathname.startsWith("/status")) return { title: "系统健康", icon: "activity" as const };
+    if (pathname.startsWith("/collector")) return { title: "本机采集", icon: "terminal" as const };
+    if (pathname.startsWith("/admin")) return { title: "管理", icon: "lock" as const };
+    if (pathname.startsWith("/support")) return { title: "帮助与支持", icon: "message" as const };
+    if (pathname.startsWith("/privacy")) return { title: "隐私政策", icon: "lock" as const };
+    if (pathname.startsWith("/documents")) return { title: "文档", icon: "book" as const };
+    if (pathname.startsWith("/conversations")) return { title: "对话", icon: "message" as const };
     return { title: t.app.title, icon: "sparkles" as const };
   })();
 

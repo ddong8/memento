@@ -440,9 +440,17 @@ export default function ActiveRunsMonitor() {
   }, [token]);
 
   const activeRuns = runs.filter((r) => !r.done);
-  const recentFinishedRuns = runs.filter(
-    (r) => r.done && !dismissedNotificationIds.has(r.conversation_id) && (now / 1000 - (r.finished_at || 0) < 20)
-  );
+  // Only runs seen finishing while this page was open (they get the 6 s dismiss timer); runs that had
+  // already finished when the page loaded used to pile up as five notices at once. At most two shown.
+  const recentFinishedRuns = runs
+    .filter(
+      (r) =>
+        r.done &&
+        completedNoticeTimerRef.current.has(r.conversation_id) &&
+        !dismissedNotificationIds.has(r.conversation_id) &&
+        now / 1000 - (r.finished_at || 0) < 20,
+    )
+    .slice(0, 2);
 
   // Suppress floating dock for runs that are already actively in the user's viewport on /ask. In a new
   // chat only its own run, the moment before its conversation id comes back; any other run stays in
@@ -459,6 +467,8 @@ export default function ActiveRunsMonitor() {
   const docked = isWide;
   // A collapsed sidebar is 68px wide: just the pulsing dot
   const iconOnly = docked && sidebarCollapsed && collapsed;
+  // Phones: dot and elapsed time only
+  const compactMobile = isMobile && collapsed;
 
   // Handle task stop/cancel
   const handleCancel = async (e: React.MouseEvent, convId: string) => {
@@ -652,9 +662,12 @@ export default function ActiveRunsMonitor() {
               ? // Wide screens: a status row at the bottom of the sidebar, above the devices chip (it used to float
                 // over the middle of every page, over cards and inputs); expanded, the list opens up from there
                 { left: 12, bottom: 152, width: collapsed ? (sidebarCollapsed ? 44 : 216) : 390 }
-              : {
+              : isMobile
+                ? // Phones: a small chip just under the top bar's right end, not over the middle of the content
+                  { top: "calc(env(safe-area-inset-top, 0px) + 52px)", right: "10px", maxWidth: "calc(100vw - 20px)", width: collapsed ? "auto" : "calc(100vw - 20px)" }
+                : {
                   top: "48%",
-                  right: isMobile ? (collapsed ? "8px" : "12px") : `calc(var(--inspector-width, 0px) + ${collapsed ? 16 : 20}px)`,
+                  right: `calc(var(--inspector-width, 0px) + ${collapsed ? 16 : 20}px)`,
                   transform: "translateY(-50%)",
                   maxWidth: isMobile ? "calc(100vw - 24px)" : "390px",
                   width: collapsed ? "auto" : (isMobile ? "calc(100vw - 24px)" : "390px"),
@@ -677,7 +690,7 @@ export default function ActiveRunsMonitor() {
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                   <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
                 </span>
-                <span className={`text-xs font-medium text-[var(--aurora-fg1)] whitespace-nowrap ${docked ? "flex-1" : ""} ${iconOnly ? "hidden" : ""}`}>
+                <span className={`text-xs font-medium text-[var(--aurora-fg1)] whitespace-nowrap ${docked ? "flex-1" : ""} ${iconOnly || compactMobile ? "hidden" : ""}`}>
                   智能体运行中
                 </span>
                 <span className={`text-[11px] tabular-nums text-[var(--aurora-fg3)] whitespace-nowrap ${iconOnly ? "hidden" : ""}`}>
@@ -688,7 +701,7 @@ export default function ActiveRunsMonitor() {
                     +{unobservedActiveRuns.length - 1}
                   </span>
                 )}
-                {!iconOnly && <Icon name={docked ? "chevron_up" : "chevron_down"} size={12} style={{ color: "var(--aurora-fg4)" }} />}
+                {!iconOnly && !compactMobile && <Icon name={docked ? "chevron_up" : "chevron_down"} size={12} style={{ color: "var(--aurora-fg4)" }} />}
               </div>
             ) : (
               <div

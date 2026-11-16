@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 export const metadata: Metadata = {
-  title: "隐私政策 (Privacy Policy) - Memento",
+  title: "隐私政策 - Memento",
   description: "Memento 隐私政策与个人数据主权保护声明",
 };
 
@@ -19,13 +19,13 @@ export default function PrivacyPolicyPage() {
               </span>
               <span className="text-xs text-[var(--aurora-fg4,#9CA3AF)]">生效日期：2026年10月</span>
             </div>
-            <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight bg-gradient-to-r from-purple-400 via-indigo-300 to-pink-300 bg-clip-text text-transparent">
-              Memento 隐私政策 (Privacy Policy)
+            <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight text-[var(--aurora-fg1)]">
+              Memento 隐私政策
             </h1>
           </div>
           <Link
             href="/"
-            className="text-xs px-3 py-1.5 rounded-xl border border-[var(--aurora-border,rgba(255,255,255,0.1))] hover:bg-white/5 transition text-[var(--aurora-fg2,#D1D5DB)]"
+            className="text-xs px-3 py-1.5 rounded-xl border border-[var(--aurora-border,rgba(255,255,255,0.1))] hover:bg-[var(--aurora-chip)] transition text-[var(--aurora-fg2,#D1D5DB)]"
           >
             返回首页
           </Link>
@@ -34,7 +34,7 @@ export default function PrivacyPolicyPage() {
         {/* Content */}
         <div className="space-y-8 text-sm md:text-base leading-relaxed text-[var(--aurora-fg2,#D1D5DB)]">
           <section className="bg-[var(--aurora-card,rgba(255,255,255,0.03))] p-6 rounded-2xl border border-[var(--aurora-border,rgba(255,255,255,0.06))] shadow-sm">
-            <h2 className="text-lg font-bold text-white mb-3 flex items-center gap-2">
+            <h2 className="text-lg font-bold text-[var(--aurora-fg1)] mb-3 flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-purple-500"></span>
               1. 核心原则：数据主权归您所有
             </h2>
@@ -49,32 +49,32 @@ export default function PrivacyPolicyPage() {
           </section>
 
           <section className="space-y-3">
-            <h2 className="text-lg font-bold text-white flex items-center gap-2">
+            <h2 className="text-lg font-bold text-[var(--aurora-fg1)] flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-indigo-500"></span>
               2. 我们收集与处理的信息类型
             </h2>
             <p>为向您提供长期记忆沉淀、智能调度与跨端协同服务，Memento 在您授权的前提下可能处理以下信息：</p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3">
-              <div className="p-4 rounded-xl bg-white/[0.02] border border-white/5">
-                <div className="font-semibold text-white mb-1">账号与认证信息</div>
+              <div className="p-4 rounded-xl bg-[var(--aurora-surface-solid)] border border-[var(--aurora-border)]">
+                <div className="font-semibold text-[var(--aurora-fg1)] mb-1">账号与认证信息</div>
                 <div className="text-xs text-[var(--aurora-fg4,#9CA3AF)]">
                   注册时提供的用户名、邮箱或受信任单点登录凭据，用于保障多设备数据加密同步与账户安全鉴权。
                 </div>
               </div>
-              <div className="p-4 rounded-xl bg-white/[0.02] border border-white/5">
-                <div className="font-semibold text-white mb-1">记忆与会话知识</div>
+              <div className="p-4 rounded-xl bg-[var(--aurora-surface-solid)] border border-[var(--aurora-border)]">
+                <div className="font-semibold text-[var(--aurora-fg1)] mb-1">记忆与会话知识</div>
                 <div className="text-xs text-[var(--aurora-fg4,#9CA3AF)]">
                   您在工作台与客户端主动记录的笔记、待办、长期规则与历史问答，经由您授权的端点进行向量索引与知识图谱构建。
                 </div>
               </div>
-              <div className="p-4 rounded-xl bg-white/[0.02] border border-white/5">
-                <div className="font-semibold text-white mb-1">终端设备与节点状态</div>
+              <div className="p-4 rounded-xl bg-[var(--aurora-surface-solid)] border border-[var(--aurora-border)]">
+                <div className="font-semibold text-[var(--aurora-fg1)] mb-1">终端设备与节点状态</div>
                 <div className="text-xs text-[var(--aurora-fg4,#9CA3AF)]">
                   您主动绑定的终端工作机器的基础运行状态（机器名、连接健康度），用于协助执行您授权的远程调度任务。
                 </div>
               </div>
-              <div className="p-4 rounded-xl bg-white/[0.02] border border-white/5">
-                <div className="font-semibold text-white mb-1">自选大模型配置</div>
+              <div className="p-4 rounded-xl bg-[var(--aurora-surface-solid)] border border-[var(--aurora-border)]">
+                <div className="font-semibold text-[var(--aurora-fg1)] mb-1">自选大模型配置</div>
                 <div className="text-xs text-[var(--aurora-fg4,#9CA3AF)]">
                   您在个人设置中自行填写的自定义 AI API Key 与端点，采用安全密文持久化，仅用于发起您的专属问答流。
                 </div>
@@ -83,29 +83,29 @@ export default function PrivacyPolicyPage() {
           </section>
 
           <section className="space-y-3">
-            <h2 className="text-lg font-bold text-white flex items-center gap-2">
+            <h2 className="text-lg font-bold text-[var(--aurora-fg1)] flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-pink-500"></span>
               3. 移动端设备系统权限使用说明
             </h2>
             <p>在 iOS / Android 移动端应用中，Memento 仅在您主动使用对应功能时向操作系统申请权限：</p>
             <ul className="space-y-2 text-sm">
               <li className="flex items-start gap-2">
-                <span className="font-semibold text-white shrink-0">• 麦克风与语音识别 (Microphone & Speech)：</span>
+                <span className="font-semibold text-[var(--aurora-fg1)] shrink-0">• 麦克风与语音识别：</span>
                 <span>仅在您使用“语音吩咐 / 实时听写”功能时调用，实时转录文本后即释放硬件占用，不后台静默窃听。</span>
               </li>
               <li className="flex items-start gap-2">
-                <span className="font-semibold text-white shrink-0">• 照片与相机权限 (Photo Library & Camera)：</span>
+                <span className="font-semibold text-[var(--aurora-fg1)] shrink-0">• 照片与相机权限：</span>
                 <span>仅在您选择“上传真实头像”或定制专属卡通数字孪生形象时，允许您从本地相册选取或拍照，不会扫描未选中的媒体。</span>
               </li>
               <li className="flex items-start gap-2">
-                <span className="font-semibold text-white shrink-0">• 系统推送通知 (Push Notifications)：</span>
+                <span className="font-semibold text-[var(--aurora-fg1)] shrink-0">• 系统推送通知：</span>
                 <span>用于在设定时间或您关注的自动化长任务完成时，向您发送及时的任务进展与晨报晚思摘要。</span>
               </li>
             </ul>
           </section>
 
           <section className="space-y-3">
-            <h2 className="text-lg font-bold text-white flex items-center gap-2">
+            <h2 className="text-lg font-bold text-[var(--aurora-fg1)] flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-cyan-500"></span>
               4. 数据的存储、加密与安全保障
             </h2>
@@ -129,14 +129,14 @@ export default function PrivacyPolicyPage() {
           </section>
 
           <section className="space-y-3">
-            <h2 className="text-lg font-bold text-white flex items-center gap-2">
+            <h2 className="text-lg font-bold text-[var(--aurora-fg1)] flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-amber-500"></span>
               6. 联系我们与技术支持
             </h2>
             <p>
               若您对本隐私政策有任何疑问、建议或合规申诉，欢迎通过以下渠道与我们取得联系：
             </p>
-            <div className="text-sm bg-white/[0.02] p-4 rounded-xl border border-white/5">
+            <div className="text-sm bg-[var(--aurora-surface-solid)] p-4 rounded-xl border border-[var(--aurora-border)]">
               <div>电子邮箱：<span className="text-purple-400">support@ihasy.com</span></div>
               <div className="mt-1">技术支持页面：<Link href="/support" className="text-purple-400 hover:underline">https://mem.ihasy.com/support</Link></div>
             </div>

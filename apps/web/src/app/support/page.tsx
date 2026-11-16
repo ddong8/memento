@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 export const metadata: Metadata = {
-  title: "技术支持与用户帮助 (Support & Help) - Memento",
+  title: "技术支持与用户帮助 - Memento",
   description: "Memento 客户支持、使用指南与常见问题解答",
 };
 
@@ -46,20 +46,20 @@ export default function SupportPage() {
               </span>
               <span className="text-xs text-[var(--aurora-fg4,#9CA3AF)]">7×24小时在线支持</span>
             </div>
-            <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight bg-gradient-to-r from-cyan-400 via-teal-300 to-indigo-300 bg-clip-text text-transparent">
-              Memento 支持中心 (Support)
+            <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight text-[var(--aurora-fg1)]">
+              Memento 支持中心
             </h1>
           </div>
           <div className="flex items-center gap-2">
             <Link
               href="/privacy"
-              className="text-xs px-3 py-1.5 rounded-xl border border-[var(--aurora-border,rgba(255,255,255,0.1))] hover:bg-white/5 transition text-[var(--aurora-fg2,#D1D5DB)]"
+              className="text-xs px-3 py-1.5 rounded-xl border border-[var(--aurora-border,rgba(255,255,255,0.1))] hover:bg-[var(--aurora-chip)] transition text-[var(--aurora-fg2,#D1D5DB)]"
             >
               隐私政策
             </Link>
             <Link
               href="/"
-              className="text-xs px-3 py-1.5 rounded-xl bg-purple-600/30 border border-purple-500/30 hover:bg-purple-600/40 transition text-purple-200"
+              className="text-xs px-3 py-1.5 rounded-xl bg-[var(--aurora-accent)] text-white hover:opacity-90 transition"
             >
               进入工作台
             </Link>
@@ -69,7 +69,7 @@ export default function SupportPage() {
         {/* Contact Banner */}
         <div className="mb-10 p-6 rounded-2xl bg-gradient-to-r from-purple-900/20 via-indigo-900/20 to-blue-900/20 border border-purple-500/20 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <div className="text-lg font-bold text-white mb-1">需要一对一人工技术支持？</div>
+            <div className="text-lg font-bold text-[var(--aurora-fg1)] mb-1">需要一对一人工技术支持？</div>
             <div className="text-xs text-[var(--aurora-fg3,#9CA3AF)]">我们的工程师团队将全天候响应您的技术咨询与功能反馈</div>
           </div>
           <a
@@ -82,14 +82,14 @@ export default function SupportPage() {
 
         {/* FAQs */}
         <div className="space-y-6">
-          <h2 className="text-xl font-bold text-white mb-4">常见问题解答 (FAQ)</h2>
+          <h2 className="text-xl font-bold text-[var(--aurora-fg1)] mb-4">常见问题解答</h2>
           <div className="space-y-4">
             {FAQS.map((faq, idx) => (
               <div
                 key={idx}
                 className="p-5 rounded-2xl bg-[var(--aurora-card,rgba(255,255,255,0.03))] border border-[var(--aurora-border,rgba(255,255,255,0.06))] hover:border-purple-500/30 transition"
               >
-                <div className="font-semibold text-white text-base mb-2 flex items-center gap-2">
+                <div className="font-semibold text-[var(--aurora-fg1)] text-base mb-2 flex items-center gap-2">
                   <span className="text-purple-400 font-bold">Q{idx + 1}.</span>
                   {faq.q}
                 </div>

@@ -12,6 +12,7 @@ export function formatBytes(bytes: number): string {
 /** Format timestamp to relative time string, in the interface's language (Chinese unless English was picked). */
 export function timeAgo(dateStr: string): string {
   const d = new Date(dateStr);
+  if (!dateStr || Number.isNaN(d.getTime())) return "—";
   const diff = Date.now() - d.getTime();
   const mins = Math.floor(diff / 60000);
   let en = false;

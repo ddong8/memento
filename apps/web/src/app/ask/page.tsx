@@ -267,7 +267,9 @@ function AskPageContent() {
   const [totalTurns, setTotalTurns] = useState<number>(() => askCache?.totalTurns ?? initSnap?.totalTurns ?? (initSnap?.turns?.length || 0));
   const [loadingMoreTurns, setLoadingMoreTurns] = useState<boolean>(false);
   const [loadingSessions, setLoadingSessions] = useState<boolean>(false);
-  const [showSessionContext, setShowSessionContext] = useState<boolean>(true);
+  // Phones start with the session's context preview folded: with it open, the expanded settings didn't fit
+  // and had to be scrolled (11-16). One tap on 预览上下文 opens it.
+  const [showSessionContext, setShowSessionContext] = useState<boolean>(() => !(typeof window !== "undefined" && window.innerWidth < 768));
   const [isConfigCollapsed, setIsConfigCollapsed] = useState<boolean>(() => {
     if (typeof window !== "undefined" && window.innerWidth < 768) return true;
     return false;

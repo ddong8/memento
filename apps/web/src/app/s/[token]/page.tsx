@@ -263,7 +263,7 @@ function TimelineView({ data, locale, t }: { data: TimelineData; locale: string;
             {s.title}
           </div>
           <div style={{ fontSize: 11, color: "var(--aurora-fg4)", marginBottom: 10 }}>
-            {new Date(s.timestamp).toLocaleString()} · {s.message_count} msgs
+            {new Date(s.timestamp).toLocaleString()} · {s.message_count} 条消息
             {s.truncated && " (preview)"}
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -325,7 +325,7 @@ function DailyView({ data }: { data: DailyData }) {
       )}
       <Glass padding={18} radius={16}>
         <div style={{ fontSize: 13, color: "var(--aurora-fg3)", marginBottom: 8 }}>
-          Conversations ({data.overview.conversations.length}) · {data.total_messages} msgs
+          对话 {data.overview.conversations.length} 个 · {data.total_messages} 条消息
         </div>
         {data.overview.conversations.map((c) => (
           <div key={c.id} style={{
@@ -405,7 +405,7 @@ function ConversationShareView({
         <div className="mb-6 p-2 rounded-2xl bg-[var(--aurora-chip)] border border-[var(--aurora-border)]">
           <div className="flex items-center justify-between px-2 pb-2 mb-2 border-b border-[var(--aurora-border)]">
             <span className="text-xs font-semibold text-[var(--aurora-fg2)] flex items-center gap-1.5">
-              <span>📚</span>
+              <Icon name="book" size={15} />
               <span>合并分享的对话列表 ({data.conversations.length})</span>
             </span>
             <div className="flex items-center gap-1.5 text-xs">
@@ -449,7 +449,7 @@ function ConversationShareView({
                         : "bg-white/5 border border-transparent text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-white/10"
                     }`}
                   >
-                    <span>💬</span>
+                    <Icon name="message" size={15} />
                     <span className="truncate max-w-[150px] sm:max-w-[200px]">{c.title || `对话 ${i + 1}`}</span>
                     <span className="text-[10.5px] opacity-70">({c.turns.length})</span>
                   </button>
@@ -505,7 +505,7 @@ function ConversationItemCard({
       {/* 对话顶栏 */}
       <div className="flex items-center justify-between pb-3.5 mb-5 border-b border-[var(--aurora-border)]">
         <div className="flex items-center gap-2.5 min-w-0">
-          <span className="text-xl shrink-0">💬</span>
+          <Icon name="message" size={15} className="shrink-0" />
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <h2 className="text-base sm:text-lg font-semibold text-[var(--aurora-fg1)] truncate">{conv.title}</h2>
@@ -565,7 +565,7 @@ function ConversationItemCard({
                 {turn.thinking && (
                   <details className="mb-3 rounded-xl border border-purple-500/25 bg-purple-500/10 p-2.5 text-xs group/think">
                     <summary className="cursor-pointer font-semibold text-purple-300 flex items-center gap-1.5 select-none">
-                      <span>💭</span>
+                      <Icon name="brain" size={15} />
                       <span>深度思考过程</span>
                       <span className="text-[10px] text-purple-400/60 font-mono">(展开)</span>
                     </summary>
@@ -584,7 +584,7 @@ function ConversationItemCard({
                         className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/15 border border-amber-500/30 text-[11px] font-mono text-amber-300"
                         title={typeof tc.args === "string" ? tc.args : JSON.stringify(tc.args)}
                       >
-                        <span>⚡</span>
+                        <Icon name="lightning" size={15} />
                         <span>{tc.name || "tool"}</span>
                       </span>
                     ))}

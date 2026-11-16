@@ -366,9 +366,7 @@ export function LifeRhythmView() {
                         className="flex items-center justify-between text-xs p-2.5 rounded-xl bg-[var(--aurora-chip)] border border-[var(--aurora-border)]"
                       >
                         <div className="flex items-center gap-2.5 min-w-0">
-                          <span className="text-sm">
-                            {isWork ? "💻" : app.category === "social" ? "💬" : "🎬"}
-                          </span>
+                          <Icon name={isWork ? "code" : app.category === "social" ? "message" : "image"} size={14} className="text-[var(--aurora-fg3)] shrink-0" />
                           <span className="font-medium text-[var(--aurora-fg1)] truncate max-w-[140px] sm:max-w-[200px]">
                             {app.name}
                           </span>
@@ -404,7 +402,7 @@ export function LifeRhythmView() {
             <Glass className="p-5 h-full flex flex-col justify-between">
               <div>
                 <div className="flex items-center gap-2 mb-3">
-                  <span className="text-lg">🧠</span>
+                  <Icon name="brain" size={15} />
                   <SectionLabel>AI 生活与精力决策导师 (Advisor)</SectionLabel>
                 </div>
 

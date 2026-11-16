@@ -856,9 +856,11 @@ export default function PersonaPage() {
             variant={isPanelCollapsed ? "glass" : "primary"}
             size="sm"
             onClick={() => setIsPanelCollapsed(!isPanelCollapsed)}
+            icon={isPanelCollapsed ? "book" : "maximize"}
             title={isPanelCollapsed ? "展开画像特征管理面板" : "3D 数字人铺满全屏"}
           >
-            {isPanelCollapsed ? "画像规则" : "3D 满屏"}
+            {/* Phones: icons only for the secondary actions, so the four fit one row */}
+            <span className="hidden sm:inline">{isPanelCollapsed ? "画像规则" : "3D 满屏"}</span>
           </Btn>
           <Btn
             variant="glass"
@@ -870,7 +872,7 @@ export default function PersonaPage() {
             }}
             title="定制与重塑数字孪生形象：设置性别、卡通人物形象，或上传照片制作"
           >
-            形象定制
+            <span className="hidden sm:inline">形象定制</span>
           </Btn>
           <Btn
             variant="glass"
@@ -879,7 +881,7 @@ export default function PersonaPage() {
             onClick={regenerate}
             disabled={busy !== null}
           >
-            {busy === "regenerate" ? t.persona.regenerating : "AI 智能提炼"}
+            <span className="hidden sm:inline">{busy === "regenerate" ? t.persona.regenerating : "AI 智能提炼"}</span>
           </Btn>
           {draft && (
             <Btn
@@ -1552,7 +1554,7 @@ export default function PersonaPage() {
                 <div className="p-3.5 rounded-2xl border border-[var(--aurora-border)] bg-gradient-to-r from-[rgba(236,72,153,0.12)] via-[var(--aurora-surface-solid)] to-transparent flex items-center justify-between gap-3">
                   <div>
                     <div className="flex items-center gap-2">
-                      <span className="text-base">🧪</span>
+                      <Icon name="activity" size={15} />
                       <h3 className="text-xs sm:text-sm font-bold text-[var(--aurora-fg1)]">
                         规则测试
                       </h3>
@@ -1751,7 +1753,7 @@ export default function PersonaPage() {
                 <div className="p-3.5 rounded-2xl border border-[var(--aurora-border)] bg-gradient-to-r from-[rgba(59,130,246,0.12)] via-[var(--aurora-surface-solid)] to-transparent flex items-center justify-between gap-3">
                   <div>
                     <div className="flex items-center gap-2">
-                      <span className="text-base">🎖️</span>
+                      <Icon name="star" size={15} />
                       <h3 className="text-xs sm:text-sm font-bold text-[var(--aurora-fg1)]">
                         成长等级
                       </h3>
@@ -1849,7 +1851,7 @@ export default function PersonaPage() {
                 <div className="p-3 rounded-2xl border border-[#FACC15]/30 bg-gradient-to-r from-[#FACC15]/10 via-[var(--aurora-surface-solid)] to-transparent flex items-center justify-between gap-3">
                   <div>
                     <div className="flex items-center gap-1.5">
-                      <span className="text-sm">✨</span>
+                      <Icon name="sparkles" size={15} />
                       <h3 className="text-xs font-bold text-[var(--aurora-fg1)]">
                         自进化成长足迹 · 每日沉淀见证
                       </h3>
@@ -2090,7 +2092,7 @@ export default function PersonaPage() {
                 <div className="p-3.5 rounded-2xl border border-[#6366F1]/40 bg-gradient-to-r from-[#6366F1]/12 via-[var(--aurora-surface-solid)] to-transparent flex items-center justify-between gap-3 flex-wrap">
                   <div>
                     <div className="flex items-center gap-2">
-                      <span className="text-base">🗺️</span>
+                      <Icon name="layers" size={15} />
                       <h3 className="text-xs sm:text-sm font-bold text-[var(--aurora-fg1)]">
                         个人全域认知与能力蓝图 · USER_BLUEPRINT.md
                       </h3>

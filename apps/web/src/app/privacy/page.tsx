@@ -89,15 +89,15 @@ export default function PrivacyPolicyPage() {
             </h2>
             <p>在 iOS / Android 移动端应用中，Memento 仅在您主动使用对应功能时向操作系统申请权限：</p>
             <ul className="space-y-2 text-sm">
-              <li className="flex items-start gap-2">
+              <li className="flex flex-col sm:flex-row items-start gap-0.5 sm:gap-2">
                 <span className="font-semibold text-[var(--aurora-fg1)] shrink-0">• 麦克风与语音识别：</span>
                 <span>仅在您使用“语音吩咐 / 实时听写”功能时调用，实时转录文本后即释放硬件占用，不后台静默窃听。</span>
               </li>
-              <li className="flex items-start gap-2">
+              <li className="flex flex-col sm:flex-row items-start gap-0.5 sm:gap-2">
                 <span className="font-semibold text-[var(--aurora-fg1)] shrink-0">• 照片与相机权限：</span>
                 <span>仅在您选择“上传真实头像”或定制专属卡通数字孪生形象时，允许您从本地相册选取或拍照，不会扫描未选中的媒体。</span>
               </li>
-              <li className="flex items-start gap-2">
+              <li className="flex flex-col sm:flex-row items-start gap-0.5 sm:gap-2">
                 <span className="font-semibold text-[var(--aurora-fg1)] shrink-0">• 系统推送通知：</span>
                 <span>用于在设定时间或您关注的自动化长任务完成时，向您发送及时的任务进展与晨报晚思摘要。</span>
               </li>

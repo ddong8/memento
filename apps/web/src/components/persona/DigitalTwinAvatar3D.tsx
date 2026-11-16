@@ -1436,12 +1436,7 @@ export default function DigitalTwinAvatar3D({
               <span className="font-bold text-white tracking-tight truncate max-w-[80px] sm:max-w-[120px]">
                 {avatarSettings?.nickname || "极客孪生"}
               </span>
-              <span className="text-[10px] text-white/60 font-mono hidden sm:inline">
-                {avatarSettings?.gender === "female" ? "👧" : avatarSettings?.gender === "agent" ? "🤖" : "👦"}
-              </span>
-              <span className="text-[10px] text-white/40 group-hover:text-white transition-colors">
-                🎨
-              </span>
+              <Icon name="edit" size={11} style={{ opacity: 0.5 }} />
             </div>
           </button>
 
@@ -1451,9 +1446,6 @@ export default function DigitalTwinAvatar3D({
             <div className="flex items-center gap-1.5 sm:gap-2 text-[11px] sm:text-xs">
               <span className="font-bold text-transparent bg-clip-text bg-gradient-to-r from-[#F59E0B] via-[#EC4899] to-[#8B5CF6] font-mono tracking-wide">
                 <span className="hidden sm:inline">{evolutionStage}</span>
-              </span>
-              <span className="text-[10px] text-white/50 font-mono hidden md:inline">
-                EXP {evolutionExp}/1000
               </span>
             </div>
           </div>
@@ -1467,8 +1459,8 @@ export default function DigitalTwinAvatar3D({
               className="px-2 sm:px-2.5 py-1 rounded-xl text-[11px] font-mono font-medium transition-all backdrop-blur-md border bg-purple-950/40 border-purple-500/40 text-purple-300 hover:bg-purple-900/60 hover:text-white flex items-center gap-1 shadow-md"
               title="定制或重塑数字孪生形象"
             >
-              <span>🎨</span>
-              <span className="hidden sm:inline">重塑形象</span>
+              <Icon name="edit" size={12} />
+              <span className="hidden xl:inline">重塑形象</span>
             </button>
           )}
 
@@ -1486,8 +1478,8 @@ export default function DigitalTwinAvatar3D({
             }`}
             title="切换 3D 数字人语音播报"
           >
-            <span>{isVoiceEnabled ? "🔊" : "🔇"}</span>
-            <span className="hidden sm:inline">{isVoiceEnabled ? "语音" : "静音"}</span>
+            <Icon name="microphone" size={12} style={{ opacity: isVoiceEnabled ? 1 : 0.45 }} />
+            <span className="hidden xl:inline">{isVoiceEnabled ? "语音" : "静音"}</span>
           </button>
 
           {onSparkEvolution && (
@@ -1500,8 +1492,8 @@ export default function DigitalTwinAvatar3D({
               title="激发今日心智进化共鸣"
               className="px-2 sm:px-2.5 py-1 rounded-xl text-[11px] font-medium transition-all backdrop-blur-md border bg-gradient-to-r from-[#F59E0B]/20 to-[#EC4899]/20 hover:from-[#F59E0B]/35 hover:to-[#EC4899]/35 text-[#F59E0B] border-[#F59E0B]/40 hover:scale-102 flex items-center gap-1 shadow-md"
             >
-              <span>⚡</span>
-              <span className="hidden sm:inline">共鸣</span>
+              <Icon name="lightning" size={12} />
+              <span className="hidden xl:inline">共鸣</span>
             </button>
           )}
 
@@ -1514,8 +1506,8 @@ export default function DigitalTwinAvatar3D({
             }`}
             title="切换视角自转"
           >
-            <span>🔄</span>
-            <span className="hidden sm:inline">{isRotating ? "自转中" : "自转"}</span>
+            <Icon name="refresh" size={12} />
+            <span className="hidden xl:inline">{isRotating ? "自转中" : "自转"}</span>
           </button>
 
           {/* 视角切换按钮：默认全身全貌 / 半身特写 */}
@@ -1534,8 +1526,8 @@ export default function DigitalTwinAvatar3D({
             }`}
             title={viewMode === "full" ? "切换为半身近景特写" : "切换回默认全身全貌（双击画面亦可快速切换）"}
           >
-            <span>{viewMode === "full" ? "🧍" : "👤"}</span>
-            <span className="hidden sm:inline">{viewMode === "full" ? "全身" : "特写"}</span>
+            <Icon name="user" size={12} />
+            <span className="hidden xl:inline">{viewMode === "full" ? "全身" : "特写"}</span>
           </button>
 
           {/* 3D / 2D 极速渲染模式切换开关 */}
@@ -1545,8 +1537,8 @@ export default function DigitalTwinAvatar3D({
               className="px-2 sm:px-2.5 py-1 rounded-xl text-[11px] font-semibold transition-all backdrop-blur-md border bg-white/10 hover:bg-white/20 text-white/90 border-white/20 flex items-center gap-1 shadow-md active:scale-95"
               title="切换为 2D 极速轻量立绘（省电、低发热）"
             >
-              <span>🎨</span>
-              <span className="hidden sm:inline">2D 立绘</span>
+              <Icon name="image" size={12} />
+              <span className="hidden xl:inline">2D 立绘</span>
             </button>
           )}
 
@@ -1556,8 +1548,8 @@ export default function DigitalTwinAvatar3D({
               className="px-2 sm:px-2.5 py-1 rounded-xl text-[11px] font-semibold bg-black/65 hover:bg-black/90 backdrop-blur-md border border-white/20 text-white flex items-center gap-1 shadow-md transition-all active:scale-95"
               title={isPanelCollapsed ? "打开右侧管理面板" : "让 3D 数字人铺满整屏"}
             >
-              <span>{isPanelCollapsed ? "⧉" : "⛶"}</span>
-              <span className="hidden sm:inline">{isPanelCollapsed ? "打开侧边面板" : "3D 铺满整屏"}</span>
+              <Icon name={isPanelCollapsed ? "sidebar" : "maximize"} size={12} />
+              <span className="hidden xl:inline">{isPanelCollapsed ? "打开侧边面板" : "3D 铺满整屏"}</span>
             </button>
           )}
 

@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { Icon } from "@/components/aurora/Icon";
 import {
   FiZoomIn,
   FiZoomOut,
@@ -475,7 +476,7 @@ export function ImageViewerModal({
             onClick={(e) => e.stopPropagation()}
             className="flex flex-col items-center justify-center p-6 sm:p-8 rounded-2xl bg-white/10 backdrop-blur-xl border border-white/15 text-center max-w-sm mx-4 shadow-2xl animate-in fade-in zoom-in-95 duration-200"
           >
-            <span className="p-3.5 rounded-full bg-amber-500/20 text-amber-300 mb-3 text-2xl shadow-inner">🖼️</span>
+            <span className="p-3.5 rounded-full bg-amber-500/20 text-amber-300 mb-3 shadow-inner"><Icon name="image" size={22} /></span>
             <p className="text-white font-semibold text-sm mb-1">{currentItem.title || "图片资源无法访问"}</p>
             <p className="text-white/60 text-xs font-mono break-all mb-3 px-2 line-clamp-2">{currentItem.src}</p>
             <p className="text-white/40 text-[11.5px] leading-relaxed">

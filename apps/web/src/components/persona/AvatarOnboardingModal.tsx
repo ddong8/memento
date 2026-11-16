@@ -785,7 +785,7 @@ export default function AvatarOnboardingModal({
                           style={{ backgroundColor: tc.color }}
                           title={tc.name}
                         >
-                          {themeColor === tc.color && <span className="text-[10px] text-black font-bold">✓</span>}
+                          {themeColor === tc.color && <Icon name="check" size={11} strokeWidth={3} style={{ color: "#111" }} />}
                         </button>
                       ))}
                     </div>

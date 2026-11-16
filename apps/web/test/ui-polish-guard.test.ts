@@ -7,10 +7,13 @@ import { describe, expect, it } from "vitest";
 
 const SRC = join(__dirname, "../src");
 const EMOJI = /(["`>]|^\s+)([\u{1F300}-\u{1FAFF}☀-➿⭐✅❌]️?)\s?(?=[\w一-鿿（(「#$[{])/u;
+// An emoji alone as an element's content (<span>🎨</span>), or as a ternary's quoted result ("🔊" : "🔇")
+const EMOJI_ALONE = /(>\s*[\u{1F300}-\u{1FAFF}☀-➿⭐✅❌]️?\s*<)|(\?\s*"[\u{1F300}-\u{1FAFF}☀-➿⭐]️?"\s*:)/u;
 // Lines that match or strip markers in agent output, not text shown as a label
 const SKIP = /\\s|\\\[|RegExp|\.test\(|\.match\(|\.replace\(|startsWith|includes\(/;
-// Files that render agent output / markdown, where emoji come from the content itself
-const ALLOW = new Set(["components/viewers/MarkdownViewer.tsx", "lib/ask/cache.ts", "lib/native-notify.ts", "components/landing/WorkbenchBlock.tsx", "components/viewers/MermaidBlock.tsx"]);
+// Files that render agent output / markdown, where emoji come from the content itself; the video
+// player's on-screen volume / brightness / lock flashes (a media HUD, like a TV's)
+const ALLOW = new Set(["components/viewers/MarkdownViewer.tsx", "lib/ask/cache.ts", "lib/native-notify.ts", "components/landing/WorkbenchBlock.tsx", "components/viewers/MermaidBlock.tsx", "components/viewers/MediaPreview.tsx"]);
 
 function files(dir: string): string[] {
   return readdirSync(dir).flatMap((n) => {
@@ -28,7 +31,7 @@ describe("UI polish guard", () => {
       readFileSync(f, "utf8").split("\n").forEach((line, i) => {
         const t = line.trim();
         if (t.startsWith("//") || t.startsWith("*") || t.startsWith("/*") || t.startsWith("{/*") || SKIP.test(line)) return;
-        if (EMOJI.test(line)) hits.push(`${rel}:${i + 1}: ${t.slice(0, 90)}`);
+        if (EMOJI.test(line) || EMOJI_ALONE.test(line)) hits.push(`${rel}:${i + 1}: ${t.slice(0, 90)}`);
       });
     }
     expect(hits, hits.join("\n")).toEqual([]);

@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `e72f3828` · Updated: `2026-11-16`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `31291e1f` · Updated: `2026-11-17`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,8 +16,8 @@
 - 规模 (Scale): 9 个子系统 · 35 组 API 路由 / 237 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 215 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `e72f3828` (2026-11-16): feat(画像): 个人画像默认显示 3D 形象，和长期记忆、技能进化一致
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 54（✅ 54 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-PERSONA-ONBOARD`, `R-UI-COMMERCIAL`
+- 最近改动 (Latest): `31291e1f` (2026-11-17): fix(web): 全面检查发现的问题——帮助/隐私页白字看不见、工具页 0 B 和 NaN、多页顶栏显示 Memento、完成提示堆叠、手机运行条压内容
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 54（✅ 54 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `F-ASK`, `R-ISLAND-CLEANUP`, `R-UI-COMMERCIAL`, `S-RUN-STATE`, `R-PERSONA-ONBOARD`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -612,15 +612,15 @@ erDiagram
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
 - [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (19 commits)
-- [`apps/web/src/app/globals.css`](apps/web/src/app/globals.css) (11 commits)
-- [`apps/web/src/components/layout/Sidebar.tsx`](apps/web/src/components/layout/Sidebar.tsx) (8 commits)
+- [`apps/web/src/app/globals.css`](apps/web/src/app/globals.css) (10 commits)
 - [`packages/daemon/assets/workbuddy_cli.mjs`](packages/daemon/assets/workbuddy_cli.mjs) (8 commits)
 - [`apps/web/src/components/ExecutionCard.tsx`](apps/web/src/components/ExecutionCard.tsx) (7 commits)
 - [`apps/web/src/components/ask/bubbles.tsx`](apps/web/src/components/ask/bubbles.tsx) (7 commits)
+- [`apps/web/src/components/layout/Sidebar.tsx`](apps/web/src/components/layout/Sidebar.tsx) (7 commits)
 - [`apps/web/src/app/app/page.tsx`](apps/web/src/app/app/page.tsx) (6 commits)
 - [`apps/web/src/components/ask/AskTopBar.tsx`](apps/web/src/components/ask/AskTopBar.tsx) (6 commits)
 - [`apps/web/src/components/viewers/MediaInspectorPanel.tsx`](apps/web/src/components/viewers/MediaInspectorPanel.tsx) (6 commits)
-- [`apps/desktop/src/main.ts`](apps/desktop/src/main.ts) (5 commits)
+- [`apps/web/src/app/memory/persona/page.tsx`](apps/web/src/app/memory/persona/page.tsx) (5 commits)
 
 ## 8. Development & Verification Commands
 
@@ -643,12 +643,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `31291e1f` (2026-11-17): fix(web): 全面检查发现的问题——帮助/隐私页白字看不见、工具页 0 B 和 NaN、多页顶栏显示 Memento、完成提示堆叠、手机运行条压内容
 - `e72f3828` (2026-11-16): feat(画像): 个人画像默认显示 3D 形象，和长期记忆、技能进化一致
 - `78c5d2b9` (2026-11-16): style(web): 手机上项目搜索框和筛选框一样宽
 - `8e908d73` (2026-11-16): style(web): 知识图谱图例和分享按钮改中文，个人画像分类用平实叫法
 - `f713b8d3` (2026-11-16): style(web): 侧栏用户卡片的角色标签不再折成两行
 - `30f7635d` (2026-11-16): style(web): 技能图谱只常显核心标签、个人画像去掉游戏化说法；加载用骨架屏；加界面规范守护测试
-- `aa0b6e73` (2026-11-16): fix(web): 作息节律统计数字去掉重复的 fontVariantNumeric（上一提交类型检查失败）
 
 ## 10. Key Environment Variables & Configuration
 
@@ -671,8 +671,8 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ### 最近提交碰到的业务条目（改动后复查它们还成不成立）
 
+- `31291e1f` fix(web): 全面检查发现的问题——帮助/隐私页白字看不见、工具页 0 B 和 NaN、多页顶栏显示 Memento、完成提示堆叠、手机运行条压内容 → `F-ASK`, `R-ISLAND-CLEANUP`, `R-UI-COMMERCIAL`, `S-RUN-STATE`
 - `e72f3828` feat(画像): 个人画像默认显示 3D 形象，和长期记忆、技能进化一致 → `R-PERSONA-ONBOARD`
-- `30f7635d` style(web): 技能图谱只常显核心标签、个人画像去掉游戏化说法；加载用骨架屏；加界面规范守护测试 → `R-UI-COMMERCIAL`, `R-PERSONA-ONBOARD`
 
 ---
 _Auto-maintained by `scripts/project_blueprint.mjs` (v20261126) & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._

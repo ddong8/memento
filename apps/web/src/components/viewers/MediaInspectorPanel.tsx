@@ -1,5 +1,6 @@
 "use client";
 
+import { Icon } from "@/components/aurora/Icon";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -1883,7 +1884,7 @@ function OfficeDocViewer({ item }: { item: MediaItem }) {
         {renderFullscreenPortal()}
         <div className="flex items-center justify-between px-3.5 py-2.5 bg-[var(--aurora-chip)]/60 rounded-xl border border-[var(--aurora-border)] text-xs">
           <div className="flex items-center gap-2">
-            <span className="text-rose-400 font-bold text-sm">📕</span>
+            <Icon name="book" size={15} />
             <span className="font-semibold text-[var(--aurora-fg1)]">PDF 文档视窗</span>
             <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-rose-500/15 text-rose-300">PREVIEW</span>
           </div>
@@ -1969,7 +1970,7 @@ function OfficeDocViewer({ item }: { item: MediaItem }) {
         {renderFullscreenPortal()}
         <div className="flex items-center justify-between px-3.5 py-2.5 bg-[var(--aurora-chip)]/60 rounded-xl border border-[var(--aurora-border)] text-xs">
           <div className="flex items-center gap-2">
-            <span className="text-emerald-400 font-bold text-sm">📊</span>
+            <Icon name="grid" size={15} />
             <span className="font-semibold text-[var(--aurora-fg1)]">电子表格数据视窗</span>
             <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-emerald-500/15 text-emerald-300">
               {parsedTable.totalRows} 行数据
@@ -2103,7 +2104,7 @@ function OfficeDocViewer({ item }: { item: MediaItem }) {
       <div className="w-full flex flex-col gap-3">
         <div className="flex items-center justify-between px-3.5 py-2.5 bg-[var(--aurora-chip)]/60 rounded-xl border border-[var(--aurora-border)] text-xs">
           <div className="flex items-center gap-2">
-            <span className="text-sky-400 font-bold text-sm">📄</span>
+            <Icon name="book" size={15} />
             <span className="font-semibold text-[var(--aurora-fg1)]">日志与纯文本</span>
           </div>
           <button

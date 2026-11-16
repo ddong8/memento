@@ -336,7 +336,7 @@ export function ProactiveAgentView() {
             className="pt-3.5 border-t border-[var(--aurora-border)] flex items-center justify-between text-[11px] text-[var(--aurora-fg3)] flex-wrap gap-2"
           >
             <div className="flex items-center gap-2">
-              <span className="text-[var(--aurora-accent)]">⚡</span>
+              <Icon name="lightning" size={15} className="text-[var(--aurora-accent)]" />
               <span>极光长程保活机制已就绪 · 云端会话与长期记忆持续在线</span>
             </div>
             <div>
@@ -433,7 +433,7 @@ export function ProactiveAgentView() {
                 boxShadow: "0 2px 6px -1px rgba(0, 0, 0, 0.04)",
               }}
             >
-              <span>{testingBrief ? "⚡" : "📱"}</span>
+              <Icon name={testingBrief ? "refresh" : "devices"} size={13} className={testingBrief ? "animate-spin" : ""} />
               <span>{testingBrief ? "合成并推送中..." : "立即测试推送"}</span>
             </button>
           </div>
@@ -509,7 +509,7 @@ export function ProactiveAgentView() {
                 boxShadow: "0 2px 6px -1px rgba(0, 0, 0, 0.04)",
               }}
             >
-              <span>{testingReflection ? "⚡" : "✨"}</span>
+              <Icon name={testingReflection ? "refresh" : "sparkles"} size={13} className={testingReflection ? "animate-spin" : ""} />
               <span>{testingReflection ? "整理沉淀中..." : "立即测试复盘"}</span>
             </button>
           </div>
@@ -628,7 +628,7 @@ export function ProactiveAgentView() {
               boxShadow: "0 4px 14px -3px rgba(124, 58, 237, 0.4)",
             }}
           >
-            <span>{saving ? "⚡" : saveSuccess ? "✓" : "💾"}</span>
+            <Icon name={saving ? "refresh" : "check"} size={13} className={saving ? "animate-spin" : ""} />
             <span>{saving ? "实时同步中..." : saveSuccess ? "设置已生效" : "立即手动保存"}</span>
           </button>
         </div>
@@ -656,7 +656,7 @@ export function ProactiveAgentView() {
               border: "1px dashed var(--aurora-border)",
             }}
           >
-            <span className="text-2xl mb-1">🛡️</span>
+            <Icon name="lock" size={15} className="mb-1" />
             <span className="text-xs font-semibold text-[var(--aurora-fg2)]">暂无进行中的长周期后台任务</span>
             <p className="text-[11px] text-[var(--aurora-fg4)] max-w-md">
               当您在 AI 执事（/ask）中发起长时间运行的大型任务或跨设备排查时，可委托给执事在后台持续守护执行。

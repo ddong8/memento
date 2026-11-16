@@ -161,14 +161,16 @@ const SessionBlock = memo(function SessionBlock({
             background: "var(--aurora-chip)",
             color: "var(--aurora-fg3)",
             fontSize: 11,
-            flexShrink: 0,
+            flexShrink: 1,
+            minWidth: 0,
+            maxWidth: "100%",
           }}
         >
-          <span style={{ fontWeight: 600, color: "var(--aurora-fg2)" }}>{session.title}</span>
+          <span style={{ fontWeight: 600, color: "var(--aurora-fg2)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{session.title}</span>
           <span>·</span>
           <span>{new Date(session.timestamp).toLocaleString(dateFmt)}</span>
           <span>·</span>
-          <span>{session.message_count} msgs</span>
+          <span>{session.message_count} 条消息</span>
         </div>
         <div style={{ flex: 1, borderTop: "1px solid var(--aurora-border)" }} />
       </div>

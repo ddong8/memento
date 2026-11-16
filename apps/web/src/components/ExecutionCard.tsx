@@ -614,7 +614,7 @@ const ExecutionCard = memo(function ExecutionCard({
                       lineHeight: 1.5,
                     }}
                   >
-                    <span style={{ fontSize: 14 }}>{isCrit ? "🛑" : isDanger ? "⚠️" : "ℹ️"}</span>
+                    <Icon name={isCrit ? "close" : isDanger ? "activity" : "sparkles"} size={14} style={{ flexShrink: 0, marginTop: 2 }} />
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontWeight: 600, color: fg }}>
                         {isCrit ? "【核心高危指令】" : isDanger ? "【高危操作风险】" : "【操作提醒】"} {alt.label}
@@ -733,9 +733,7 @@ const ExecutionCard = memo(function ExecutionCard({
                   }}
                 >
                   <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-                    <span style={{ fontSize: 16 }}>
-                      {discoveredMedia[0].type === "presentation" ? "📽️" : discoveredMedia[0].type === "spreadsheet" ? "📊" : "📄"}
-                    </span>
+                    <Icon name={discoveredMedia[0].type === "presentation" ? "layers" : discoveredMedia[0].type === "spreadsheet" ? "grid" : "book"} size={16} style={{ flexShrink: 0 }} />
                     <div style={{ minWidth: 0 }}>
                       <div style={{ fontSize: 12, fontWeight: 600, color: "var(--aurora-fg1)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                         已生成产物：{discoveredMedia[0].title}

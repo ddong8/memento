@@ -159,7 +159,7 @@ function getWindowIcon(): Electron.NativeImage | undefined {
  * minimize / maximize / close buttons are drawn by Windows over the right end of the app's top bar
  * (titleBarOverlay, transparent so the bar shows through), the bar drags the window and snaps it like a
  * title bar, and the page keeps clear of the buttons with env(titlebar-area-*). Its height is the bar's:
- * 56 px, 44 px in a window narrower than 640 px (the page's sm breakpoint).
+ * 48 px, 44 px in a window narrower than 640 px (the page's sm breakpoint).
  */
 const MERGED_TITLE_BAR = process.platform === "win32";
 let overlayFollowsTheme = false;
@@ -169,7 +169,8 @@ function titleBarOverlay(width?: number): Electron.TitleBarOverlay {
   return {
     color: "#00000000",
     symbolColor: dark ? "#E8E8EE" : "#1C1B22",
-    height: (width ?? 1280) < 640 ? 44 : 56,
+    // The page's top bars are 48 px (44 px below its sm breakpoint) since 1d93ca89: the buttons match them
+    height: (width ?? 1280) < 640 ? 44 : 48,
   };
 }
 

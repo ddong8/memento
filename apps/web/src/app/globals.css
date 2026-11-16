@@ -874,8 +874,14 @@ html[data-skin="baseline"][data-theme="light"] aside {
 /* Windows desktop app: the system's minimize / maximize / close buttons are drawn over the right end of the
    top bar (the window has no title bar of its own); the bar's content keeps clear of them. env() is the area
    left of the buttons, 0 in a browser and in a client with the system title bar. */
-html[data-client="desktop"][data-os="windows"] header {
+html[data-client="desktop"][data-os="windows"] header,
+html[data-client="desktop"][data-os="windows"] [data-window-controls] {
   padding-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw) + 12px) !important;
+}
+/* With the workbench docked as the third column, its bar is the one at the window's right end (it keeps clear
+   of the buttons above); the center column's header stops short of them and needs no gap. */
+html[data-client="desktop"][data-os="windows"][data-inspector="docked"] header {
+  padding-right: 1.25rem !important; /* the header's own sm:px-5 */
 }
 
 header button,

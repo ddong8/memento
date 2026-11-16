@@ -1,7 +1,7 @@
 {
-  "version": "1.0.136",
-  "title": "Memento v1.0.136",
-  "release_notes": "1. 修复 Antigravity 接着聊时一直报「Timed out waiting for Antigravity response log」：智能体读到的代码里有 session_id: \"\" 这类文字时，会被误当成会话号记下，之后每一轮都续接不上；现在只认执行脚本自己报的会话号\n2. 续接前先确认这台设备上真有这个 Antigravity 会话，没有就直接新开会话接着做，不再空等 20 秒后失败，也不会在 Antigravity 里留下以乱码命名的空会话\n3. 修复 Mac 上的任务没在选的目录里跑：服务端把设备名里的「Darwin」误判成 Windows，改写了工作目录，Antigravity 实际在用户主目录里干活\n4. 手机端版本号与客户端统一为 1.0.136",
+  "version": "1.0.137",
+  "title": "Memento v1.0.137",
+  "release_notes": "1. Windows 客户端右上角的最小化、最大化、关闭按钮高度和顶栏一致（48px），打开工作台时不再压住工作台工具栏右边的按钮\n2. Mac 客户端左栏顶部和中右两栏顶栏对齐，品牌放在红绿灯右边\n3. 手机端版本号与客户端统一为 1.0.137",
   "platforms": {
     "windows": {
       "asset_name": "Memento-1.0.136-win-x64.zip",

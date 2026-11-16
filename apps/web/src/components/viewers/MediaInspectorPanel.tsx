@@ -120,14 +120,21 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
     if (typeof window === "undefined") return;
     const root = document.documentElement;
     const apply = () => {
-      if (docked && window.matchMedia("(min-width: 1024px)").matches) root.style.setProperty("--inspector-width", `${panelWidth}px`);
-      else root.style.removeProperty("--inspector-width");
+      if (docked && window.matchMedia("(min-width: 1024px)").matches) {
+        root.style.setProperty("--inspector-width", `${panelWidth}px`);
+        // The center column's header no longer reaches the window's right end: Windows' buttons are over this panel's bar
+        root.dataset.inspector = "docked";
+      } else {
+        root.style.removeProperty("--inspector-width");
+        delete root.dataset.inspector;
+      }
     };
     apply();
     window.addEventListener("resize", apply);
     return () => {
       window.removeEventListener("resize", apply);
       root.style.removeProperty("--inspector-width");
+      delete root.dataset.inspector;
     };
   }, [docked, panelWidth]);
 
@@ -350,7 +357,8 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
         )}
 
         {/* Header Bar — locked to h-11 sm:h-12 (48px) so its bottom border aligns 1:1 with Sidebar & AskTopBar */}
-        <div className="h-11 sm:h-12 px-3 sm:px-3.5 border-b border-[var(--aurora-border)] bg-[var(--aurora-surface)]/80 sm:backdrop-blur-md flex items-center justify-between gap-2 shrink-0">
+        {/* data-window-controls: the right end of the window, where Windows draws its minimize/maximize/close (globals.css) */}
+        <div data-window-controls className="h-11 sm:h-12 px-3 sm:px-3.5 border-b border-[var(--aurora-border)] bg-[var(--aurora-surface)]/80 sm:backdrop-blur-md flex items-center justify-between gap-2 shrink-0 app-region-drag">
           <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
             <span className="flex items-center justify-center w-6 h-6 rounded-md bg-[var(--aurora-accent-soft)] border border-[var(--aurora-border)] text-[var(--aurora-accent)] shrink-0">
               {getItemIcon(activeMedia.type)}

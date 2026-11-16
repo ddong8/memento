@@ -290,11 +290,16 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
           color: "var(--aurora-fg2)",
         }}
       >
-        {/* Brand & Collapse Header */}
+        {/* Brand & Collapse Header — locked to 48px (h-12) on standard layouts so its bottom hairline aligns 1:1 with the center & right column headers */}
         <div
-          className={`px-3.5 pb-2.5 flex items-center justify-between ${
-            isMacDesktop && !macFullScreen ? "pt-11 app-region-drag" : isDesktopApp ? "pt-3.5 app-region-drag" : "pt-3.5"
+          className={`px-3.5 flex items-center justify-between shrink-0 ${
+            isMacDesktop && !macFullScreen
+              ? "pt-10 pb-2.5 app-region-drag"
+              : isDesktopApp
+              ? "h-12 app-region-drag"
+              : "h-12"
           }`}
+          style={{ borderBottom: "1px solid var(--aurora-border)" }}
         >
           <Link
             href={askHref}
@@ -307,18 +312,18 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
           >
             <div
               style={{
-                width: 30,
-                height: 30,
-                borderRadius: 9,
+                width: 28,
+                height: 28,
+                borderRadius: 8,
                 background: "var(--aurora-brand-grad)",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                boxShadow: "0 2px 10px -2px rgba(91,33,182,0.45), inset 0 1px 0 rgba(255,255,255,0.28)",
+                boxShadow: "0 2px 10px -2px rgba(124,58,237,0.45), inset 0 1px 0 rgba(255,255,255,0.28)",
                 flexShrink: 0,
               }}
             >
-              <Icon name="sparkles" size={15} style={{ color: "#fff" }} strokeWidth={2} />
+              <Icon name="sparkles" size={14} style={{ color: "#fff" }} strokeWidth={2} />
             </div>
             {!collapsed && (
               <div className="min-w-0 flex-1">
@@ -331,12 +336,12 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
                     whiteSpace: "nowrap",
                     overflow: "hidden",
                     textOverflow: "ellipsis",
-                    lineHeight: 1.25,
+                    lineHeight: 1.2,
                   }}
                 >
                   {t.app.title}
                 </div>
-                <div style={{ fontSize: 10.5, color: "var(--aurora-fg4)", marginTop: 0.5, lineHeight: 1.2 }}>
+                <div style={{ fontSize: 10, color: "var(--aurora-fg4)", marginTop: 1, lineHeight: 1.15 }}>
                   {t.app.subtitle}
                 </div>
               </div>
@@ -368,13 +373,13 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
         </div>
 
         {/* Global Search Button (⌘K) */}
-        <div className={`px-2.5 pb-2 ${collapsed ? "flex justify-center" : ""}`}>
+        <div className={`px-2.5 pt-2.5 pb-1 shrink-0 ${collapsed ? "flex justify-center" : ""}`}>
           <button
             type="button"
             onClick={handleOpenSearch}
             className={`flex items-center rounded-lg transition-all group ${
               collapsed
-                ? "w-9 h-9 justify-center hover:bg-[var(--aurora-chip)]"
+                ? "w-9 h-8 justify-center hover:bg-[var(--aurora-chip)]"
                 : "w-full justify-between px-2.5 py-1.5 hover:border-[var(--aurora-border-strong)]"
             }`}
             style={{
@@ -416,8 +421,6 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
             )}
           </button>
         </div>
-
-        <div style={{ height: 1, background: "var(--aurora-border)", margin: "0 12px" }} />
 
         {/* Navigation Sections */}
         <nav className="flex-1 overflow-y-auto py-1.5 scrollbar-none">

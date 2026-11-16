@@ -107,7 +107,7 @@ export function AskTopBar({
   };
 
   return (
-    <header className={`px-2.5 sm:px-4 py-1 sm:py-2 border-b border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/95 sm:bg-[var(--aurora-surface)] sm:backdrop-blur-md flex items-center justify-between gap-1.5 sm:gap-2.5 shrink-0 select-none relative z-20 min-h-[38px] sm:min-h-[44px] ${isDesktopApp ? "app-region-drag" : ""}`}>
+    <header className={`px-3 sm:px-5 h-11 sm:h-12 border-b border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/95 sm:bg-[var(--aurora-surface)] sm:backdrop-blur-md flex items-center justify-between gap-1.5 sm:gap-2.5 shrink-0 select-none relative z-20 ${isDesktopApp ? "app-region-drag" : ""}`}>
       <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-1 mr-1 sm:mr-2 overflow-hidden">
         {/* 移动端与平板侧边菜单开关 */}
         <button

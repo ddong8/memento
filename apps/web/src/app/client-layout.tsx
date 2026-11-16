@@ -103,8 +103,8 @@ function AppShellInner({
         <main
           className={
             isAskRoute
-              ? "pt-0 px-0 pb-0 sm:p-2 md:p-3 h-full overflow-hidden"
-              : "pt-13 px-2.5 pb-3 sm:pt-15 sm:px-5 sm:pb-5 md:pt-16 md:px-7 md:pb-6"
+              ? "p-0 h-full overflow-hidden"
+              : "pt-14 px-3 pb-4 sm:pt-16 sm:px-5 sm:pb-5 md:pt-16 md:px-7 md:pb-6"
           }
         >
           <RouteKeepAlive>{children}</RouteKeepAlive>

@@ -4948,9 +4948,9 @@ function AskPageContent() {
   ]);
 
   return (
-    <div className="w-full flex h-full rounded-none sm:rounded-2xl border-0 sm:border border-[var(--aurora-border)] bg-[var(--aurora-bg)] sm:bg-[var(--aurora-surface-solid)]/55 overflow-hidden sm:shadow-lg relative">
+    <div className="w-full flex h-full rounded-none border-0 bg-[var(--aurora-bg)] sm:bg-[var(--aurora-surface-solid)]/45 overflow-hidden relative">
       {/* 磨砂玻璃背景层，独立于主布局，避免 CSS backdrop-filter 阻断子元素 position: fixed 全屏脱离容器 */}
-      <div className="pointer-events-none absolute inset-0 rounded-none sm:rounded-2xl sm:backdrop-blur-xl -z-10" />
+      <div className="pointer-events-none absolute inset-0 rounded-none sm:backdrop-blur-xl -z-10" />
       {/* 离线状态全局浮动感知胶囊 */}
       <OfflineCapsule offline={isOffline} recovered={offlineRecovered} />
 

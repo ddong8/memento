@@ -283,11 +283,11 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
 
       {/* 媒体独立视窗容器: 桌面端为固定第三栏嵌入式展示，移动端为右侧滑出抽屉/全屏沉浸视口 */}
       <aside
-        className={`bg-[var(--aurora-surface-solid,#0f172a)] border-l border-[var(--aurora-border-strong)] transition-all duration-200 select-none overflow-hidden
+        className={`bg-[var(--aurora-sidebar)] sm:backdrop-blur-xl border-l border-[var(--aurora-border)] transition-all duration-200 select-none overflow-hidden
           ${
             isExpandedFull
               ? "fixed inset-0 z-[99999] w-screen h-[100dvh] max-w-none max-h-none p-0 m-0 rounded-none border-0 bg-black flex flex-col"
-              : "max-lg:fixed max-lg:top-0 max-lg:right-0 max-lg:bottom-0 max-lg:z-50 max-lg:flex max-lg:flex-col max-lg:w-full max-lg:sm:w-[460px] max-lg:max-w-full max-lg:shadow-2xl max-lg:pt-[env(safe-area-inset-top,0px)] max-lg:pb-[env(safe-area-inset-bottom,0px)] lg:relative lg:flex lg:flex-col lg:h-full lg:shrink-0 lg:z-20"
+              : "max-lg:fixed max-lg:top-0 max-lg:right-0 max-lg:bottom-0 max-lg:z-50 max-lg:flex max-lg:flex-col max-lg:w-full max-lg:sm:w-[460px] max-lg:max-w-full max-lg:shadow-2xl max-lg:bg-[var(--aurora-surface-solid)] max-lg:pt-[env(safe-area-inset-top,0px)] max-lg:pb-[env(safe-area-inset-bottom,0px)] lg:relative lg:flex lg:flex-col lg:h-full lg:shrink-0 lg:z-20"
           }
           ${className}`}
         style={{
@@ -322,69 +322,49 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
             : { width: `${panelWidth}px` }),
         }}
       >
-        {/* Resize Handle on the left border (桌面大屏停靠模式下可见) */}
+        {/* Resize Handle on the left border (桌面大屏停靠模式下可见，悬停时浮现极光指示线) */}
         {!isExpandedFull && (
           <div
             onMouseDown={handleMouseDown}
             title="拖拽调节独立窗宽度"
-            className="hidden lg:block absolute left-0 top-0 bottom-0 w-2 -ml-1 cursor-col-resize hover:bg-[var(--aurora-accent)]/50 active:bg-[var(--aurora-accent)] transition-colors z-30 group"
-          >
-            <div className="w-0.5 h-8 bg-white/20 rounded-full mx-auto my-auto relative top-1/2 -translate-y-1/2 group-hover:bg-[var(--aurora-accent)]" />
-          </div>
+            className="hidden lg:block absolute left-0 top-0 bottom-0 w-1.5 -ml-0.5 cursor-col-resize hover:bg-[var(--aurora-accent)]/60 active:bg-[var(--aurora-accent)] transition-colors z-30"
+          />
         )}
 
-        {/* Header Bar */}
-        {/* Two rows: the name gets the whole width (beside the buttons it was squeezed under them), the tools below */}
-        <div className="flex flex-col px-3 sm:px-4 pt-2.5 pb-2 border-b border-[var(--aurora-border)] bg-[var(--aurora-chip)]/40 shrink-0 gap-2">
-          <div className="flex items-center gap-2 min-w-0">
-            <span className="flex items-center justify-center w-7 h-7 rounded-lg bg-[var(--aurora-accent)]/15 text-[var(--aurora-accent)] shrink-0">
+        {/* Header Bar — locked to h-11 sm:h-12 (48px) so its bottom border aligns 1:1 with Sidebar & AskTopBar */}
+        <div className="h-11 sm:h-12 px-3 sm:px-3.5 border-b border-[var(--aurora-border)] bg-[var(--aurora-surface)]/80 sm:backdrop-blur-md flex items-center justify-between gap-2 shrink-0">
+          <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
+            <span className="flex items-center justify-center w-6 h-6 rounded-md bg-[var(--aurora-accent-soft)] border border-[var(--aurora-border)] text-[var(--aurora-accent)] shrink-0">
               {getItemIcon(activeMedia.type)}
             </span>
-            <div className="min-w-0 flex-1 overflow-hidden">
-              <div className="flex items-center gap-1.5 min-w-0">
-                <span className="text-xs font-semibold text-[var(--aurora-fg1)] truncate" title={displayTitle}>
-                  {displayTitle}
-                </span>
-                <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-[var(--aurora-chip)] text-[var(--aurora-fg3)] uppercase shrink-0">
-                  {ext}
-                </span>
-              </div>
-              {resolved.localPath && (
-                <div className="text-[10.5px] text-[var(--aurora-fg3)] mt-0.5 truncate font-mono" title={resolved.localPath}>
-                  {resolved.localPath}
-                </div>
-              )}
-            </div>
-            <button
-              type="button"
-              onClick={closeInspector}
-              title="关闭独立窗"
-              className="p-1.5 rounded-lg text-[var(--aurora-fg3)] hover:text-red-400 hover:bg-red-500/10 transition-colors shrink-0"
-            >
-              <FiX className="w-4 h-4" />
-            </button>
+            <span className="text-[13px] font-semibold text-[var(--aurora-fg1)] truncate tracking-tight" title={resolved.localPath ? `${displayTitle}\n${resolved.localPath}` : displayTitle}>
+              {displayTitle}
+            </span>
+            <span className="text-[9.5px] font-mono px-1.5 py-0.5 rounded bg-[var(--aurora-chip)] text-[var(--aurora-fg3)] uppercase shrink-0">
+              {ext}
+            </span>
           </div>
 
           {/* Action Tools */}
-          <div className="flex items-center justify-end gap-1 min-w-0 flex-wrap">
+          <div className="flex items-center gap-0.5 shrink-0">
             {mediaList.length > 1 && (
-              <div className="flex items-center gap-0.5 mr-auto bg-[var(--aurora-chip)] rounded-lg p-0.5 border border-[var(--aurora-border)] shrink-0">
+              <div className="flex items-center gap-0.5 mr-1 bg-[var(--aurora-chip)] rounded-md p-0.5 border border-[var(--aurora-border)] shrink-0">
                 <button
                   type="button"
                   onClick={prevMedia}
                   title="上一个媒体"
-                  className="p-1 rounded text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-surface)] transition-colors"
+                  className="p-0.5 rounded text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-surface-solid)] transition-colors"
                 >
                   <FiChevronLeft className="w-3.5 h-3.5" />
                 </button>
-                <span className="px-1 text-[10.5px] font-medium text-[var(--aurora-fg2)] tabular-nums">
-                  {currentIndex + 1} / {mediaList.length}
+                <span className="px-1 text-[10px] font-medium text-[var(--aurora-fg2)] tabular-nums">
+                  {currentIndex + 1}/{mediaList.length}
                 </span>
                 <button
                   type="button"
                   onClick={nextMedia}
                   title="下一个媒体"
-                  className="p-1 rounded text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-surface)] transition-colors"
+                  className="p-0.5 rounded text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-surface-solid)] transition-colors"
                 >
                   <FiChevronRight className="w-3.5 h-3.5" />
                 </button>
@@ -420,14 +400,14 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
               title={copied ? "已复制" : resolved.localPath ? "复制本地路径" : "复制链接"}
               className="p-1.5 rounded-lg text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)] transition-colors"
             >
-              {copied ? <FiCheck className="w-3.5 h-3.5 text-emerald-400" /> : <FiCopy className="w-3.5 h-3.5" />}
+              {copied ? <FiCheck className="w-3.5 h-3.5 text-emerald-500" /> : <FiCopy className="w-3.5 h-3.5" />}
             </button>
 
             <button
               type="button"
               onClick={handleShare}
               title="分享媒体链接"
-              className="p-1.5 rounded-lg text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)] transition-colors"
+              className="hidden sm:inline-flex p-1.5 rounded-lg text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)] transition-colors"
             >
               <FiShare2 className="w-3.5 h-3.5" />
             </button>
@@ -465,9 +445,9 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
                 });
               }}
               title={isLandscape ? "还原竖屏" : "横屏全屏旋转"}
-              className={`p-1.5 rounded-lg transition-colors ${
+              className={`sm:hidden p-1.5 rounded-lg transition-colors ${
                 isLandscape
-                  ? "text-[var(--aurora-accent)] bg-[var(--aurora-accent)]/20 font-semibold"
+                  ? "text-[var(--aurora-accent)] bg-[var(--aurora-accent-soft)] font-semibold"
                   : "text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)]"
               }`}
             >
@@ -481,20 +461,28 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
                   const next = !v;
                   if (!next) setIsLandscape(false);
                   triggerHapticFeedback();
-                  showInAppToast(next ? "已进入全屏视窗" : "已还原视窗", "手机端全屏沉浸播放");
+                  showInAppToast(next ? "已进入全屏视窗" : "已还原视窗", "全屏沉浸预览");
                   return next;
                 });
               }}
               title={isExpandedFull ? "还原视窗" : "全屏放映"}
               className={`p-1.5 rounded-lg transition-colors ${
                 isExpandedFull
-                  ? "text-[var(--aurora-accent)] bg-[var(--aurora-accent)]/20 font-semibold"
+                  ? "text-[var(--aurora-accent)] bg-[var(--aurora-accent-soft)] font-semibold"
                   : "text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)]"
               }`}
             >
               {isExpandedFull ? <FiMinimize2 className="w-3.5 h-3.5" /> : <FiMaximize2 className="w-3.5 h-3.5" />}
             </button>
 
+            <button
+              type="button"
+              onClick={closeInspector}
+              title="关闭工作台视窗"
+              className="p-1.5 rounded-lg text-[var(--aurora-fg3)] hover:text-red-500 hover:bg-red-500/10 transition-colors shrink-0"
+            >
+              <FiX className="w-4 h-4" />
+            </button>
           </div>
         </div>
 
@@ -503,7 +491,7 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
           className={`flex-1 overflow-y-auto ${
             isExpandedFull
               ? `p-0 space-y-0 flex flex-col min-h-0 ${darkStage ? "bg-black" : "bg-[var(--aurora-surface-solid)]"}`
-              : "px-2 sm:px-4 py-2 sm:py-4 space-y-3 sm:space-y-4"
+              : "px-3 sm:px-3.5 py-3 space-y-3"
           }`}
         >
           {/* Main Media Player Viewport */}
@@ -511,7 +499,7 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
             className={`w-full ${
               isExpandedFull
                 ? `flex-1 h-full min-h-0 rounded-none border-0 flex flex-col justify-center ${darkStage ? "bg-black" : "bg-[var(--aurora-surface-solid)]"}`
-                : `rounded-2xl overflow-hidden shadow-xl border border-[var(--aurora-border)] ${darkStage ? "bg-black/80" : "bg-[var(--aurora-surface-solid)]"}`
+                : `rounded-xl overflow-hidden border border-[var(--aurora-border)] ${darkStage ? "bg-black/85 shadow-md" : "bg-[var(--aurora-surface-solid)]"}`
             }`}
           >
             {renderPlayer()}
@@ -593,12 +581,12 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
 
           {/* Detailed Info Card */}
           {!isExpandedFull && resolved.localPath && (
-            <div className="p-3 rounded-xl border border-[var(--aurora-border)] bg-[var(--aurora-chip)]/20 text-[11px] text-[var(--aurora-fg3)] space-y-1.5">
+            <div className="p-2.5 rounded-xl border border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)] text-[11px] text-[var(--aurora-fg3)] space-y-1">
               <div className="font-medium text-[var(--aurora-fg2)] flex items-center justify-between">
-                <span>本地文件信息</span>
-                <span className="text-[10px] font-mono text-emerald-400">已就绪</span>
+                <span>本地文件物理路径</span>
+                <span className="text-[10px] font-mono text-emerald-500">已就绪</span>
               </div>
-              <div className="font-mono text-[10px] break-all bg-black/20 p-2 rounded-lg border border-white/5 select-text">
+              <div className="font-mono text-[10px] break-all bg-[var(--aurora-thinking-bg)] p-2 rounded-lg border border-[var(--aurora-border)] text-[var(--aurora-fg2)] select-text">
                 {resolved.localPath}
               </div>
             </div>
@@ -991,18 +979,18 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
   return (
     <div className="flex flex-col gap-2.5 text-left">
       {/* 工作台精细化导航与操作栏 */}
-      <div className="flex flex-col gap-2 p-2 sm:p-2.5 rounded-2xl bg-[var(--aurora-chip)]/40 border border-[var(--aurora-border)] text-xs select-none shadow-sm">
+      <div className="flex flex-col gap-2 p-2.5 rounded-xl bg-[var(--aurora-thinking-header)] border border-[var(--aurora-border)] text-xs select-none">
         {/* Row 1: 核心视窗模式切换 与 动作按钮 */}
         <div className="flex items-center justify-between gap-2">
           {/* 模式选择器 (Segmented Control) */}
-          <div className="inline-flex p-0.5 rounded-xl bg-black/20 border border-[var(--aurora-border)]/60 text-xs shrink-0">
+          <div className="inline-flex p-0.5 rounded-lg bg-[var(--aurora-chip)] border border-[var(--aurora-border)] text-xs shrink-0">
             <button
               type="button"
               onClick={() => setViewMode("preview")}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all cursor-pointer ${
                 viewMode === "preview"
-                  ? "bg-[var(--aurora-accent)] text-slate-900 shadow-sm font-semibold"
-                  : "text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-white/5"
+                  ? "bg-[var(--aurora-surface-solid)] text-[var(--aurora-accent)] shadow-2xs font-semibold"
+                  : "text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)]"
               }`}
             >
               <FiEye className="w-3.5 h-3.5" />
@@ -1011,10 +999,10 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
             <button
               type="button"
               onClick={() => setViewMode("mobile")}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all cursor-pointer ${
                 viewMode === "mobile"
-                  ? "bg-emerald-500 text-slate-900 shadow-sm font-semibold"
-                  : "text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-white/5"
+                  ? "bg-[var(--aurora-surface-solid)] text-emerald-500 shadow-2xs font-semibold"
+                  : "text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)]"
               }`}
             >
               <FiSmartphone className="w-3.5 h-3.5" />
@@ -1023,16 +1011,16 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
             <button
               type="button"
               onClick={() => setViewMode("edit")}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all cursor-pointer ${
                 viewMode === "edit"
-                  ? "bg-[var(--aurora-accent)] text-slate-900 shadow-sm font-semibold"
-                  : "text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-white/5"
+                  ? "bg-[var(--aurora-surface-solid)] text-[var(--aurora-accent)] shadow-2xs font-semibold"
+                  : "text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)]"
               }`}
             >
               <FiEdit3 className="w-3.5 h-3.5" />
               <span>润色</span>
               {isModified && (
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" title="文本已调整" />
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" title="文本已调整" />
               )}
             </button>
           </div>

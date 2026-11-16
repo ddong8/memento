@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `81fe8bf6` · Updated: `2026-11-16`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `bdef0269` · Updated: `2026-11-16`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,7 +16,7 @@
 - 规模 (Scale): 9 个子系统 · 35 组 API 路由 / 237 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 214 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `41b959e7` (2026-11-16): style(web): 升级全局极光设计系统与 AI 执事工作台界面质感
+- 最近改动 (Latest): `58f74b4c` (2026-11-16): style(web): 对齐应用图标紫粉青极光品牌色板与背景光晕
 - 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 53（✅ 53 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-MENU-KEEPALIVE`, `R-THINKING-FULL`, `R-LLM-IN-PROFILE`, `F-ASK`, `F-AGY-NEW`, `R-AGY-WORKDIR`, `R-RESTORE-CONFIG`, `R-DEVICE-SESSION-MAP`
 
 | 章节 (Section) | 行号 (Lines) |
@@ -31,7 +31,7 @@
 | 8. Development & Verification Commands | L625-L642 |
 | 9. Recent Architectural Evolutions | L644-L651 |
 | 10. Key Environment Variables & Configuration | L653-L665 |
-| 11. 业务蓝图核对 (Business Blueprint Check) | L667-L677 |
+| 11. 业务蓝图核对 (Business Blueprint Check) | L667-L675 |
 
 ## 1. Project Overview & Tech Stack
 
@@ -611,14 +611,14 @@ erDiagram
 
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
-- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (16 commits)
 - [`packages/daemon/assets/workbuddy_cli.mjs`](packages/daemon/assets/workbuddy_cli.mjs) (16 commits)
-- [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (9 commits)
-- [`apps/web/src/app/globals.css`](apps/web/src/app/globals.css) (7 commits)
+- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (15 commits)
+- [`apps/web/src/app/globals.css`](apps/web/src/app/globals.css) (8 commits)
+- [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (8 commits)
 - [`apps/desktop/src/main.ts`](apps/desktop/src/main.ts) (6 commits)
 - [`apps/web/src/components/ask/bubbles.tsx`](apps/web/src/components/ask/bubbles.tsx) (6 commits)
 - [`apps/web/src/components/viewers/MediaInspectorPanel.tsx`](apps/web/src/components/viewers/MediaInspectorPanel.tsx) (6 commits)
-- [`apps/web/src/components/ExecutionCard.tsx`](apps/web/src/components/ExecutionCard.tsx) (5 commits)
+- [`apps/web/src/components/aurora/AuroraBackdrop.tsx`](apps/web/src/components/aurora/AuroraBackdrop.tsx) (5 commits)
 - [`apps/web/src/components/layout/Sidebar.tsx`](apps/web/src/components/layout/Sidebar.tsx) (5 commits)
 - [`packages/daemon/src/blueprint/meta.ts`](packages/daemon/src/blueprint/meta.ts) (5 commits)
 
@@ -643,12 +643,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `58f74b4c` (2026-11-16): style(web): 对齐应用图标紫粉青极光品牌色板与背景光晕
 - `41b959e7` (2026-11-16): style(web): 升级全局极光设计系统与 AI 执事工作台界面质感
 - `59c8e9f1` (2026-11-16): fix(Antigravity): 回复里的 session_id 文字不再被当成会话号，Mac 上的任务回到选的目录里跑；升级客户端版本至 v1.0.136
 - `9d152b02` (2026-11-16): fix(问答): 在 Antigravity 等应用里接着聊的回答并进对话后和 Memento 自己的一样显示，不再一个命令占一行
 - `54527d30` (2026-11-16): fix(问答): 智能体提问时先写了几句话，选项不再变成点不动
 - `5fae7391` (2026-11-16): fix(问答): /compact 的摘要和本地命令回显不再当成在 Claude Code 里说的话并进对话
-- `42529daa` (2026-11-16): fix(projects): 名字叫 scratch 的用户目录不再被当成无效项目
 
 ## 10. Key Environment Variables & Configuration
 
@@ -673,8 +673,6 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 - `41b959e7` style(web): 升级全局极光设计系统与 AI 执事工作台界面质感 → `R-MENU-KEEPALIVE`, `R-THINKING-FULL`, `R-LLM-IN-PROFILE`
 - `59c8e9f1` fix(Antigravity): 回复里的 session_id 文字不再被当成会话号，Mac 上的任务回到选的目录里跑；升级客户端版本至 v1.0.136 → `F-ASK`, `F-AGY-NEW`, `R-AGY-WORKDIR`, `R-RESTORE-CONFIG`, `R-DEVICE-SESSION-MAP`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `S-RUN-STATE`, `S-CLIENT-VERSION`
-- `9d152b02` fix(问答): 在 Antigravity 等应用里接着聊的回答并进对话后和 Memento 自己的一样显示，不再一个命令占一行 → `R-SESSION-TIMELINE`
-- `e720be1d` ci(deploy): Fleet 卡在 Stalled 超过 3 分钟时集群内自动重同步，不用再手动 patch → `R-PUBLIC-REPO-CLEAN`
 
 ---
 _Auto-maintained by `scripts/project_blueprint.mjs` (v20261126) & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._

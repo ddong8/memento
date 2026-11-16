@@ -220,11 +220,12 @@ export const UserBubble = memo(function UserBubble({
       <div
         className="select-text aurora-bevel"
         style={{
-          background: "var(--aurora-user-bubble)",
-          border: "1px solid var(--aurora-user-bubble-border)",
+          // The plain accent tint it had before 41b959e7 (user 11-16: the gradient + border + clipped corner
+          // Antigravity gave it doesn't look good)
+          background: "var(--aurora-accent-soft)",
           color: "var(--aurora-fg1)",
-          padding: "9px 14px",
-          borderRadius: "14px 14px 4px 14px",
+          padding: "8px 12px",
+          borderRadius: 12,
           maxWidth: "min(96%, 720px)",
           fontSize: 14,
           lineHeight: 1.625,

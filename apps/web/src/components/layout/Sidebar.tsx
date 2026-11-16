@@ -294,7 +294,12 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
         <div
           className={`px-3.5 flex items-center justify-between shrink-0 ${
             isMacDesktop && !macFullScreen
-              ? "pt-10 pb-2.5 app-region-drag"
+              ? collapsed
+                ? "pt-10 pb-2.5 app-region-drag" // 68px wide: no room beside the traffic lights, the brand goes under them
+                : // The traffic lights sit at x 18-70, centered 24px down (trafficLightPosition 18,18 in the desktop
+                  // main process): inside a 48px bar, so the brand moves right of them and this bar's bottom line
+                  // lines up with the center and right columns' headers instead of sitting 30px lower
+                  "h-12 pl-[80px] app-region-drag"
               : isDesktopApp
               ? "h-12 app-region-drag"
               : "h-12"

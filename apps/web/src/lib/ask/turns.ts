@@ -34,6 +34,22 @@ export interface Turn {
   model?: string;
   execution_mode?: string;
   cached?: boolean;
+  /** Said in the tool's own app (antigravity, claude_code, ...), merged from the session the conversation continues */
+  origin?: string;
+}
+
+const ORIGIN_NAMES: Record<string, string> = {
+  antigravity: "Antigravity",
+  claude_code: "Claude Code",
+  codex: "Codex",
+  workbuddy: "WorkBuddy",
+};
+
+/** Where a turn merged from its session was said: "在 Antigravity 里" / "in Antigravity" */
+export function originLabel(origin: string | undefined, zh = true): string | null {
+  if (!origin) return null;
+  const name = ORIGIN_NAMES[origin] || origin;
+  return zh ? `在 ${name} 里` : `in ${name}`;
 }
 
 /**

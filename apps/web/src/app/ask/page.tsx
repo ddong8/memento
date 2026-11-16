@@ -2485,6 +2485,14 @@ function AskPageContent() {
       }
       void loadConversations();
     });
+    // The open conversation got turns from its session (said in the tool's own app, issue #20): what was
+    // saved, as when coming back to the page. A run of it going here is its own, nothing to merge then.
+    const offSyncEvent = onLiveEvent("ask_conversation_synced", (e) => {
+      const convId = (e.data as { conversation_id?: string }).conversation_id;
+      if (convId && convId === activeConversationIdRef.current && !streamingRef.current) {
+        void checkServerRun(true);
+      }
+    });
 
     // Recheck immediately when window regains visibility from background or wakes. Coming back fires
     // visibilitychange, focus, pageshow and the app's own wake events, on a phone spread over a second
@@ -2516,6 +2524,7 @@ function AskPageContent() {
       isMounted = false;
       if (timer) clearTimeout(timer);
       offRunEvent();
+      offSyncEvent();
       document.removeEventListener("visibilitychange", onVisibilityChange);
       window.removeEventListener("focus", onWake);
       window.removeEventListener("pageshow", onWake);
@@ -4904,6 +4913,7 @@ function AskPageContent() {
                 content={turn.content}
                 images={turn.images}
                 createdAt={turn.created_at}
+                origin={turn.origin}
               />
             ) : (
               <AssistantBubble

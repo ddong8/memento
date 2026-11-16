@@ -7,7 +7,7 @@ import { Icon } from "@/components/aurora/Icon";
 import { Glass } from "@/components/aurora/primitives";
 import MarkdownViewer from "@/components/viewers/MarkdownViewer";
 import { ExecutionTabs } from "@/components/ExecutionCard";
-import { Source,Turn,formatTurnDuration,formatTurnTimestamp,parseTurnContent } from "@/lib/ask/turns";
+import { Source,Turn,formatTurnDuration,formatTurnTimestamp,originLabel,parseTurnContent } from "@/lib/ask/turns";
 import { ImageViewerModal } from "@/components/viewers/ImageViewerModal";
 import { FiZoomIn } from "react-icons/fi";
 import { showInAppToast, triggerHapticFeedback } from "@/lib/native-notify";
@@ -151,6 +151,23 @@ export interface UserBubbleProps {
   content: string;
   images?: string[];
   createdAt?: string;
+  /** Asked in the tool's own app, not in Memento (Turn.origin) */
+  origin?: string;
+}
+
+/** Said in the tool's own app: it reached this conversation from the session, not from Memento */
+function OriginChip({ origin }: { origin: string }) {
+  const label = originLabel(origin);
+  if (!label) return null;
+  return (
+    <span
+      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-[var(--aurora-chip)] border border-[var(--aurora-border)]/60 text-[10px] sm:text-[10.5px] text-[var(--aurora-fg2)] whitespace-nowrap shrink-0"
+      title={`${label}说的，从会话同步过来`}
+    >
+      <Icon name="external_link" size={9.5} />
+      <span>{label}</span>
+    </span>
+  );
 }
 
 export function cleanUserMessage(raw: string): string {
@@ -167,6 +184,7 @@ function areUserPropsEqual(prev: UserBubbleProps, next: UserBubbleProps) {
   if (prev.content !== next.content) return false;
   if (prev.createdAt !== next.createdAt) return false;
   if (prev.index !== next.index) return false;
+  if (prev.origin !== next.origin) return false;
   const prevImgs = prev.images || [];
   const nextImgs = next.images || [];
   if (prevImgs.length !== nextImgs.length) return false;
@@ -180,6 +198,7 @@ export const UserBubble = memo(function UserBubble({
   content,
   images,
   createdAt,
+  origin,
 }: UserBubbleProps) {
   const displayContent = useMemo(() => cleanUserMessage(content), [content]);
   const [copied, setCopied] = useState(false);
@@ -288,6 +307,7 @@ export const UserBubble = memo(function UserBubble({
         )}
         {(timeInfo || displayContent) && (
           <div className="flex items-center justify-end gap-2 pt-0.5 select-none">
+            {origin && <OriginChip origin={origin} />}
             {timeInfo && (
               <span
                 className="inline-flex items-center gap-1 text-[11px] text-[var(--aurora-fg3)] opacity-80"
@@ -630,6 +650,7 @@ export const AssistantBubble = memo(function AssistantBubble({
                 <span>{durationText}</span>
               </span>
             )}
+            {turn.origin && <OriginChip origin={turn.origin} />}
             {(turn.model || (turn.execution_mode && turn.execution_mode !== "ai")) && (() => {
               const rawName = turn.model || turn.execution_mode || "";
               const formattedName =

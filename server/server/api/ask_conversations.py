@@ -24,6 +24,7 @@ from ..services.cache import cache_get, cache_set
 from ..services.storage_service import media_url_epoch
 from ..services.user_filter import find_machine_by_id_or_hash
 from ..services.ask_runs import ask_runs
+from ..services import session_timeline
 from ..services.ask_store import (
     bust_conv_list, get_or_create_conversation, infer_conversation_config, lookup_project_title,
     recover_orphaned_tasks_for_conv, resolve_concrete_device_for_conv, sanitize_turns_for_response,
@@ -389,6 +390,11 @@ async def get_conversation(
     if_none_match = request.headers.get("if-none-match", "").strip() if request else ""
     client_tag = if_none_match.strip().strip('"') if if_none_match else ""
 
+    # What happened in the session meanwhile outside Memento (in the tool's own app), before the tag:
+    # coming back to the page asks with the old one
+    if before is None:
+        await session_timeline.sync_quietly(cid, user_id=_user.id)
+
     # Fast metadata load: avoid de-TOASTing megabytes of turns JSON on initial fetch and conditional polls
     conv = (
         await db.execute(
@@ -710,6 +716,8 @@ async def ensure_conversation_by_session(
             config=req_config,
         )
         await lock_db.commit()
+    # A session picked from the history: its latest exchanges are the conversation's from here on
+    await session_timeline.sync_quietly(conv_id, user_id=_user.id)
     async with async_session_factory() as session:
         conv = (await session.execute(
             select(AskConversation).where(AskConversation.id == conv_id)

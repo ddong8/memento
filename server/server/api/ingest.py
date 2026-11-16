@@ -22,6 +22,7 @@ from ..db.models import User
 from ..db.session import get_db
 from ..middleware.auth import verify_collector_token
 from ..services.device_service import ensure_device
+from ..services.session_timeline import schedule_for_document
 from ..services.ingest_service import (
     OffsetMismatch,
     claim_slice,
@@ -126,6 +127,8 @@ async def ingest_file_endpoint(
     # Before the response: get_db's commit runs only after it's sent (FastAPI 0.118+), so a collector
     # was told 200, moved on, and a failed commit lost the slice for good
     await db.commit()
+    if req.category == "conversation":
+        schedule_for_document(doc_id, str(_collector_user.id))
     return IngestResponse(document_id=doc_id, message="Ingested successfully", next_offset=next_offset)
 
 
@@ -155,6 +158,8 @@ async def ingest_files_endpoint(
         try:
             doc_id, next_offset = await _ingest_one(db, f, machine_id, user_id)
             await db.commit()
+            if f.category == "conversation":
+                schedule_for_document(doc_id, user_id)
             results.append({"ok": True, "document_id": doc_id, "next_offset": next_offset})
         except OffsetMismatch as e:
             await db.rollback()

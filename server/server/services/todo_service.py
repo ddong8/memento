@@ -242,7 +242,8 @@ async def fetch_new_messages(
         cfg = conv.config or {}
         proj_name = cfg.get("project_id") or None
         for idx, turn in enumerate(conv.turns or []):
-            if not isinstance(turn, dict) or turn.get("role") != "user":
+            # Merged from the session (session_timeline): read from its messages already
+            if not isinstance(turn, dict) or turn.get("role") != "user" or turn.get("origin"):
                 continue
             ts_raw = turn.get("created_at")
             try:

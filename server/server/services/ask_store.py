@@ -430,10 +430,13 @@ async def append_conversation_turns(
             if not conv:
                 return False
 
-            turns = list(conv.turns or [])
             now_iso = datetime.now(timezone.utc).isoformat()
             u_iso = user_created_at or now_iso
             a_iso = assistant_created_at or now_iso
+            # This run, if it reached the conversation from its session first (merged from the device's
+            # log before its turns were saved: a run recovered after the server lost it), is this run's
+            from .session_timeline import drop_copies_of_run
+            turns = drop_copies_of_run(list(conv.turns or []), user_content, u_iso, a_iso)
             user_turn: dict = {
                 "role": "user",
                 "content": user_content,

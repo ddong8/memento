@@ -1143,7 +1143,8 @@ async def run_dreaming_pipeline(
         for c in ask_convs:
             turns_text = []
             # User turns only: assistant turns here carry raw stdout from devices.
-            user_turns = [t for t in (c.turns or []) if t.get("role") == "user"]
+            # Not those merged from the session (session_timeline): the session is read on its own
+            user_turns = [t for t in (c.turns or []) if t.get("role") == "user" and not t.get("origin")]
             for t in user_turns[-6:]:
                 content = clean_user_voice(str(t.get("content", "")))
                 if content:

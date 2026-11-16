@@ -3,16 +3,16 @@
 <!-- memento:business-index:start (自动生成，勿手改) -->
 > 先读这一段定位；要细节时按下表行号只读对应章节。改了「代码位置」里的文件，先看对应条目还成不成立。
 
-- 汇总：规则 52（✅ 52 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
+- 汇总：规则 53（✅ 53 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
 - 核对：全部通过（详见末尾「自动核对」）
 
 | 章节 | 行号 |
 | :--- | :--- |
 | 1. 业务对象与术语 | L21-L65 |
 | 2. 关键流程 | L67-L124 |
-| 3. 业务规则 | L126-L425 |
-| 4. 状态归属 | L427-L472 |
-| 自动核对 (Auto Check) | L475-L567 |
+| 3. 业务规则 | L126-L432 |
+| 4. 状态归属 | L434-L479 |
+| 自动核对 (Auto Check) | L482-L575 |
 <!-- memento:business-index:end -->
 > 业务蓝图：memento 应该做成什么样，每一条落在哪段代码、由哪个测试或检查保证。和代码蓝图 [CODE_BLUEPRINT.md](CODE_BLUEPRINT.md)（代码长什么样）配合看：代码蓝图回答"在哪里"，这份回答"应该怎样、为什么"。
 > 规则来自用户的原话和纠正（CLAUDE.md、长期记忆、每晚复盘），不是从代码里反推的；代码和这里对不上，先当成代码的问题查。
@@ -80,9 +80,9 @@
 
 ### F-RESUME 挑历史会话续接
 1. 会话列表里点一个会话 — `apps/web/src/app/ask/page.tsx#handleSelectSession`
-2. 找到或新建绑定这个会话的对话（按用户+会话加锁，不重复建） — `server/server/api/ask_conversations.py#ensure_conversation_by_session`
+2. 找到或新建绑定这个会话的对话（按用户+会话加锁，不重复建），把会话最近的问答并进对话 — `server/server/api/ask_conversations.py#ensure_conversation_by_session`, `server/server/services/session_timeline.py#sync_conversation`
 3. 打开这个对话，恢复当时的工具、设备、项目、会话配置 — `apps/web/src/app/ask/page.tsx#openSessionConversation`, `apps/web/src/app/ask/page.tsx#applyCachedCascade`, `apps/web/src/lib/ask/cascade.ts#cascadeOf`
-4. 等服务端确认对话没有回合，才显示会话最近消息的预览 — `apps/web/src/app/ask/page.tsx#emptyConvId`
+4. 会话还没采集到、对话没有回合时，才显示会话最近消息的预览 — `apps/web/src/app/ask/page.tsx#emptyConvId`
 5. 下一句带上会话 id，设备上接着这个会话跑（Claude 的会话不在本机就先拉过来） — `packages/daemon/src/session-sync.ts#fetchClaudeSession`
 
 ### F-AGY-NEW Antigravity 新建会话
@@ -207,6 +207,13 @@
 - 代码: `apps/web/src/app/ask/page.tsx#emptyConvId`, `apps/web/src/lib/ask/sessions.ts#sessionMessagesToTurns`
 - 测试: `apps/web/test/session-preview.test.ts#puts tool calls and their output on the assistant turn before them`, `apps/web/test/session-tool-cards.test.ts`
 - 要求: `sessionPreview.convId === emptyConvId` @ `apps/web/src/app/ask/page.tsx`
+
+### R-SESSION-TIMELINE 在工具自己的应用里接着聊的，也出现在续接它的对话里
+- 来源: 用户 2026-11-16「能在两边接续，确实算是 memento 的一项实用功能」；issue #20：先在 Memento 发起 Antigravity 会话、再到 Antigravity 应用里接着聊，回到 Memento 后那些回合看不到，换会话再切回来也补不回来
+- 说明: 会话（设备采集的完整记录，Memento 发的提问也在里面）是唯一完整的时间线；对话只多出 Memento 自己运行时才知道的东西。会话里不是 Memento 自己运行的问答，按时间并进对话、标上在哪个工具里说的；按运行的时间窗口（设备时钟差几分钟时按同一句问题）认出 Memento 自己的运行，不重复。会话一有新内容（采集）、对话一打开就对齐；对话正在运行时不并。
+- 代码: `server/server/services/session_timeline.py#merge_session`, `server/server/services/session_timeline.py#sync_conversation`, `server/server/services/session_timeline.py#schedule_for_document`, `server/server/api/ask_conversations.py#get_conversation`, `server/server/services/ask_store.py#append_conversation_turns`, `apps/web/src/components/ask/bubbles.tsx#OriginChip`
+- 测试: `server/tests/test_session_timeline.py#test_exchanges_in_the_app_go_in_between_mementos_runs_by_time`, `server/tests/test_session_timeline.py#test_a_device_clock_a_few_minutes_off_still_knows_memento_s_question`, `server/tests/test_session_timeline.py#test_turns_copied_from_the_session_before_are_not_copied_again`, `server/tests/test_session_timeline.py#test_an_exchange_still_being_written_is_rebuilt_not_repeated`, `server/tests/test_session_timeline.py#test_a_run_saved_after_its_copy_was_merged_replaces_the_copy`, `server/tests/test_session_timeline.py#test_the_app_s_exchange_comes_in_once_and_not_while_a_run_goes`
+- 要求: `session_timeline.sync_quietly(cid` @ `server/server/api/ask_conversations.py`; `schedule_for_document(` @ `server/server/api/ingest.py`
 
 ### R-RESTORE-CONFIG 选中历史会话恢复当时的工具、项目、会话配置
 - 来源: CLAUDE.md（memento）「选中历史会话要恢复当时的工具、项目、会话配置」
@@ -476,7 +483,7 @@
 
 > 生成器随每次提交核对：代码位置还在不在、测试还在不在、禁止 / 要求的写法满不满足。✅ 通过 · ⚠️ 缺代码位置、测试或来源 · ❌ 位置失效或违反规则（CI 会拦下）。
 
-- 汇总：规则 52（✅ 52 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
+- 汇总：规则 53（✅ 53 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
 
 | 编号 | 名称 | 代码位置 | 测试 | 检查 | 结论 |
 | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -492,7 +499,7 @@
 | `T-PLAN` | 协作任务 | 2/2 | — | — | ✅ |
 | `T-BLUEPRINT` | 蓝图 | 3/3 | — | — | ✅ |
 | `F-ASK` | 提问到收尾 | 16/16 | — | — | ✅ |
-| `F-RESUME` | 挑历史会话续接 | 7/7 | — | — | ✅ |
+| `F-RESUME` | 挑历史会话续接 | 8/8 | — | — | ✅ |
 | `F-AGY-NEW` | Antigravity 新建会话 | 4/4 | — | — | ✅ |
 | `F-FOLLOWUP` | 回答中追问 | 9/9 | — | — | ✅ |
 | `F-STOP` | 停止运行 | 5/5 | — | — | ✅ |
@@ -514,6 +521,7 @@
 | `R-PLAN-QUOTA-GATE` | 协作任务启动前定好设备、智能体、模型，额度不够的模型不派 | 2/2 | 3/3 | — | ✅ |
 | `R-RESUME-LABEL` | 只有从历史里挑的会话才叫「续」 | 2/2 | — | 2/2 | ✅ |
 | `R-PREVIEW-ONLY-EMPTY` | 会话预览只在服务端确认对话没有回合时显示 | 2/2 | 2/2 | 1/1 | ✅ |
+| `R-SESSION-TIMELINE` | 在工具自己的应用里接着聊的，也出现在续接它的对话里 | 6/6 | 6/6 | 2/2 | ✅ |
 | `R-RESTORE-CONFIG` | 选中历史会话恢复当时的工具、项目、会话配置 | 4/4 | 5/5 | — | ✅ |
 | `R-DEVICE-SESSION-MAP` | 设备与会话映射正确：会话只在它所在的设备上续 | 2/2 | 4/4 | — | ✅ |
 | `R-TITLE-CONSISTENT` | 会话标题所有设备一致，以用户提问提取的标题为准 | 3/3 | 3/3 | — | ✅ |

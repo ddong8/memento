@@ -501,6 +501,7 @@ export class WsTaskClient {
         upstream: r.upstream ?? "",
         user_name: r.userName ?? "",
         user_email: r.userEmail ?? "",
+        left_behind: (r.leftBehind ?? []).slice(0, 20),
       });
     } catch (e) {
       this.sendJson({ type: "workspace_resp", req_id: reqId, error: e instanceof Error ? e.message : String(e), code: e instanceof WorkspaceError ? e.code : "failed" });

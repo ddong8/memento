@@ -114,7 +114,7 @@ async def _export(data: dict[str, Any], user_id: Any) -> dict[str, Any]:
     if res.get("error"):
         return {"error": res["error"], "code": res.get("code") or "failed"}
     out = {k: res.get(k) for k in (
-        "size", "head", "branch", "snapshot", "tree", "root", "rel", "up_to_date", "upstream", "user_name", "user_email",
+        "size", "head", "branch", "snapshot", "tree", "root", "rel", "up_to_date", "upstream", "user_name", "user_email", "left_behind",
     )}
     if not res.get("up_to_date"):
         out["token"] = await _put_token({

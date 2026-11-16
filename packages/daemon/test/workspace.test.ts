@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, truncateSync, writeFileSync } from "node:fs";
 import { open } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -79,6 +79,7 @@ function fakeRelay(src: string, srcHome: string): Relay & { calls: string[] } {
         upstream: r.upstream,
         user_name: r.userName,
         user_email: r.userEmail,
+        left_behind: r.leftBehind,
       };
     }
     if (op === "chunk") {
@@ -253,6 +254,28 @@ describe("workspace on another device", () => {
     const c = await prepareWorkspace(spec(src), relay, { env, home: exeHome });
     expect(c.mirror.root).toBe(a.mirror.root);
     c.release();
+  });
+
+  it("leaves an untracked file too big to send on the source instead of failing, and says which", async () => {
+    const src = sourceRepo();
+    const big = "上海源叶产品目录 -非危化品.xlsx";
+    write(src, big, "");
+    truncateSync(join(src, big), 60 * 1024 * 1024); // sparse: instant, no real 60MB written
+    const relay = fakeRelay(src, tmp("srchome"));
+    const events: Record<string, unknown>[] = [];
+    const run = await prepareWorkspace(spec(src), relay, { env, home: tmp("exehome"), emit: (e) => events.push(e) });
+    const w = run.mirror.workDir;
+    expect(existsSync(join(w, big))).toBe(false);
+    expect(read(w, "new.txt")).toBe("untracked\n");
+    expect(events[0]).toMatchObject({ status: "synced", left_behind: [{ path: big, size: 60 * 1024 * 1024 }] });
+
+    write(w, "a.txt", "agent\n");
+    const out = await finishWorkspace(run, "5678abcd-0000", "apply", relay, { env, home: tmp("exehome2") });
+    expect(out.status).toBe("applied");
+    expect(read(src, "a.txt")).toBe("agent\n");
+    // Still there on the source, untouched
+    expect(readFileSync(join(src, big)).length).toBe(60 * 1024 * 1024);
+    expect(out.files?.map((f) => f.path)).toEqual(["a.txt"]);
   });
 
   it("says what is wrong with a directory it can't take", async () => {

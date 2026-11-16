@@ -1137,6 +1137,7 @@ const zhCN = {
     wsSourceDevice: "源设备",
     wsSyncing: "正在从 {source} 同步代码",
     wsSynced: "已从 {source} 同步代码（含未提交改动）",
+    wsLeftBehind: "没带上未纳入 .gitignore 的大文件（留在 {source} 上，智能体看不到）：{files}",
     wsDirect: "设备直连",
     wsPartlyDirect: "部分经设备直连",
     wsApplied: "改动已写回 {source}（{n} 个文件）",

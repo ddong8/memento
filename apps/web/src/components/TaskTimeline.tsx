@@ -182,7 +182,15 @@ export default function TaskTimeline({
         // Straight from the source over a direct channel (all of it, or the part before it broke off)
         const direct = Number(ev.direct_bytes) > 0 ? (Number(ev.direct_bytes) >= bytes ? tl.wsDirect : tl.wsPartlyDirect) : "";
         const note = [str(ev.branch), size, Number(ev.seconds) > 0 ? `${ev.seconds}s` : "", direct].filter(Boolean).join(" · ");
-        return plain("refresh", fmt(tl.wsSynced, { source }), note || null, "#10B981");
+        const left = Array.isArray(ev.left_behind) ? (ev.left_behind as Array<{ path?: unknown; size?: unknown }>) : [];
+        if (!left.length) return plain("refresh", fmt(tl.wsSynced, { source }), note || null, "#10B981");
+        const files = left.map((f) => `${str(f.path)}（${Math.max(1, Math.round((Number(f.size) || 0) / 1048576))}MB）`).join("、");
+        return (
+          <>
+            {plain("refresh", fmt(tl.wsSynced, { source }), note || null, "#10B981")}
+            {plain("box", fmt(tl.wsLeftBehind, { source, files }), null, "#D97706")}
+          </>
+        );
       }
       case "applied":
         return (

@@ -1123,6 +1123,7 @@ const enUS: Translations = {
     wsSourceDevice: "the source device",
     wsSyncing: "Syncing the code from {source}",
     wsSynced: "Code synced from {source} (uncommitted changes included)",
+    wsLeftBehind: "Large files not in .gitignore were left on {source} (the agent can't see them): {files}",
     wsDirect: "direct",
     wsPartlyDirect: "partly direct",
     wsApplied: "Changes written back to {source} ({n} files)",

@@ -100,39 +100,59 @@ async function withTempIndex<T>(home: string | undefined, fn: (indexFile: string
   }
 }
 
-/** The tree of the working directory as it is: tracked files with their edits, plus untracked ones .gitignore lets in. */
-async function workingTree(root: string, env: NodeJS.ProcessEnv | undefined, home: string | undefined, start: string): Promise<string> {
+/** The tree of the working directory as it is: tracked files with their edits, plus untracked ones .gitignore lets in (but not `leave`). */
+async function workingTree(root: string, env: NodeJS.ProcessEnv | undefined, home: string | undefined, start: string, leave: readonly string[] = []): Promise<string> {
   return withTempIndex(home, async (index) => {
     const e = identityEnv(env, index);
     await gitOk(["read-tree", start], root, e);
     await gitOk(["add", "-A", "--", "."], root, e);
+    if (leave.length) {
+      // Out of the temporary index only: the files stay where they are on disk, untouched
+      await gitOk(
+        ["rm", "--cached", "-q", "--ignore-unmatch", "--pathspec-from-file=-", "--pathspec-file-nul"],
+        root,
+        { ...e, GIT_LITERAL_PATHSPECS: "1" },
+        leave.join("\0") + "\0",
+      );
+    }
     return (await gitOk(["write-tree"], root, e)).trim();
   });
 }
 
-/** Largest untracked file and total a snapshot takes along; bigger ones belong in .gitignore. */
+/** Largest untracked file and total a snapshot takes along; bigger ones stay behind on the source. */
 export const UNTRACKED_FILE_LIMIT = 50 * 1024 * 1024;
 export const UNTRACKED_TOTAL_LIMIT = 300 * 1024 * 1024;
 
-async function checkUntracked(root: string, env?: NodeJS.ProcessEnv): Promise<void> {
+export interface LeftBehind {
+  path: string;
+  size: number;
+}
+
+/**
+ * Untracked files too big to send along (a data file nobody put in .gitignore): left out of the
+ * snapshot instead of failing the task. Each over UNTRACKED_FILE_LIMIT, then the biggest of the
+ * rest until what is sent fits in UNTRACKED_TOTAL_LIMIT. They stay on the source as they are; the
+ * patch coming back never touches them, since the snapshot didn't hold them.
+ */
+async function untrackedToLeave(root: string, env?: NodeJS.ProcessEnv): Promise<LeftBehind[]> {
   const out = await gitOk(["ls-files", "--others", "--exclude-standard", "-z"], root, env);
-  let total = 0;
-  const big: string[] = [];
+  const files: LeftBehind[] = [];
   for (const rel of out.split("\0")) {
     if (!rel) continue;
     try {
       const st = await lstat(join(root, rel));
-      if (!st.isFile()) continue;
-      total += st.size;
-      if (st.size > UNTRACKED_FILE_LIMIT) big.push(`${rel}（${Math.round(st.size / 1048576)}MB）`);
+      if (st.isFile()) files.push({ path: rel, size: st.size });
     } catch {}
   }
-  if (big.length) {
-    throw new WorkspaceError(`有未被 .gitignore 忽略的大文件，加进 .gitignore 后再试：${big.slice(0, 5).join("、")}`, "too_big");
+  files.sort((a, b) => b.size - a.size);
+  let total = files.reduce((n, f) => n + f.size, 0);
+  const leave: LeftBehind[] = [];
+  for (const f of files) {
+    if (f.size <= UNTRACKED_FILE_LIMIT && total <= UNTRACKED_TOTAL_LIMIT) break;
+    leave.push(f);
+    total -= f.size;
   }
-  if (total > UNTRACKED_TOTAL_LIMIT) {
-    throw new WorkspaceError(`未跟踪的文件共 ${Math.round(total / 1048576)}MB，超过 ${UNTRACKED_TOTAL_LIMIT / 1048576}MB，把构建产物等加进 .gitignore 后再试`, "too_big");
-  }
+  return leave;
 }
 
 function toPosix(p: string): string {
@@ -166,6 +186,8 @@ export interface ExportResult {
   upToDate: boolean;
   /** Where the branch's upstream is (`main@{upstream}`), so the clone's stand-in remote starts there. */
   upstream?: string;
+  /** Untracked files too big to take along, left on the source (the agent won't see them). */
+  leftBehind?: LeftBehind[];
   /** Whom the agent's commits are by: the user's git identity on the source. */
   userName?: string;
   userEmail?: string;
@@ -198,8 +220,8 @@ export async function exportWorkspace(
   const head = headR.stdout.trim();
   const branch = (await git(["symbolic-ref", "--short", "-q", "HEAD"], root, env)).stdout.trim();
 
-  await checkUntracked(root, env);
-  const tree = await workingTree(root, env, home, head);
+  const left = await untrackedToLeave(root, env);
+  const tree = await workingTree(root, env, home, head, left.map((f) => f.path));
   // Dated as HEAD: the same working tree gives the same snapshot, which the executor then already has
   const at = `${(await gitOk(["show", "-s", "--format=%ct", head], root, env)).trim()} +0000`;
   const snapshot = (
@@ -209,7 +231,7 @@ export async function exportWorkspace(
 
   const config = async (key: string) => (await git(["config", "--get", key], root, env)).stdout.trim();
   const upstream = branch ? (await git(["rev-parse", "--verify", "-q", `${branch}@{upstream}^{commit}`], root, env)).stdout.trim() : "";
-  const base = { head, branch, snapshot, tree, root, rel, upstream, userName: await config("user.name"), userEmail: await config("user.email") };
+  const base = { head, branch, snapshot, tree, root, rel, upstream, leftBehind: left, userName: await config("user.name"), userEmail: await config("user.email") };
   if (have.includes(snapshot)) return { ...base, bundle: "", size: 0, upToDate: true };
 
   // Only what the executor lacks: commits it already holds are left out

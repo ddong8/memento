@@ -148,6 +148,7 @@ function exportInfo(
   size: number;
   /** The server can set up a direct channel to the source (and these are its STUN servers) */
   iceServers?: string[];
+  leftBehind: Array<{ path: string; size: number }>;
 } {
   return {
     ...(Array.isArray(r.ice_servers) ? { iceServers: r.ice_servers.map(String) } : {}),
@@ -163,6 +164,9 @@ function exportInfo(
     upstream: String(r.upstream ?? ""),
     userName: String(r.user_name ?? ""),
     userEmail: String(r.user_email ?? ""),
+    leftBehind: Array.isArray(r.left_behind)
+      ? r.left_behind.filter((f): f is Record<string, unknown> => !!f && typeof f === "object").map((f) => ({ path: String(f.path ?? ""), size: Number(f.size ?? 0) }))
+      : [],
   };
 }
 
@@ -192,6 +196,7 @@ export async function prepareWorkspace(
           branch: info.branch,
           bytes: info.size,
           ...(direct ? { direct_bytes: direct } : {}),
+          ...(info.leftBehind.length ? { left_behind: info.leftBehind } : {}),
           seconds: Math.round((Date.now() - started) / 100) / 10,
         } as AgentEvent);
         return { spec, mirror, release: slot.release };

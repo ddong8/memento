@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `a85a7e9a` · Updated: `2026-11-16`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `7e8ed066` · Updated: `2026-11-16`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,8 +16,8 @@
 - 规模 (Scale): 9 个子系统 · 35 组 API 路由 / 237 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 212 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `a85a7e9a` (2026-11-16): fix(问答): 展开的配置项完整显示，不再被压成一半要往下滑；会话上下文仍在自己的区域里滚动
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 51（✅ 51 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-REPLY-VISIBLE`, `R-QUOTA-PER-MODEL`, `R-RESTORE-CONFIG`, `R-THINKING-FULL`, `R-PERSONA-ONBOARD`
+- 最近改动 (Latest): `7e8ed066` (2026-11-16): fix(问答): 手机上会话上下文预览默认收起，展开配置后不用再往下滑
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 52（✅ 52 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-REPLY-VISIBLE`, `R-QUOTA-PER-MODEL`, `R-RESTORE-CONFIG`, `R-THINKING-FULL`, `R-PERSONA-ONBOARD`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -618,8 +618,8 @@ erDiagram
 - [`apps/web/src/components/viewers/MediaInspectorPanel.tsx`](apps/web/src/components/viewers/MediaInspectorPanel.tsx) (6 commits)
 - [`apps/web/src/components/ExecutionCard.tsx`](apps/web/src/components/ExecutionCard.tsx) (5 commits)
 - [`apps/web/src/components/TaskTimeline.tsx`](apps/web/src/components/TaskTimeline.tsx) (5 commits)
-- [`apps/web/src/lib/api-client.ts`](apps/web/src/lib/api-client.ts) (5 commits)
 - [`packages/daemon/src/blueprint/meta.ts`](packages/daemon/src/blueprint/meta.ts) (5 commits)
+- [`scripts/project_blueprint.mjs`](scripts/project_blueprint.mjs) (5 commits)
 
 ## 8. Development & Verification Commands
 
@@ -642,12 +642,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `7e8ed066` (2026-11-16): fix(问答): 手机上会话上下文预览默认收起，展开配置后不用再往下滑
 - `a85a7e9a` (2026-11-16): fix(问答): 展开的配置项完整显示，不再被压成一半要往下滑；会话上下文仍在自己的区域里滚动
 - `f0feccb3` (2026-11-16): fix(问答): 点智能体胶囊重新打开额度详情；AI 编排对话不再被存成 Claude Code；修好 3b1f1013 带来的几处回退
 - `a6c8645e` (2026-11-16): fix(问答): 思考过程推演完不再自动收拢，恢复始终铺满展开；画像引导与正文字号两条规则补上测试
 - `3b1f1013` (2026-11-15): fix(问答): 修复配置按钮展开回弹、移动端配置面板横向裁切与字号撑破及智能体图标错位
 - `54a0bba9` (2026-11-15): fix(蓝图): 旧客户端的守护进程启动新生成器时按旧方式写 PROJECT_BLUEPRINT.md，不再把整台设备换成新名字
-- `400ee8b8` (2026-11-15): feat(蓝图): 代码蓝图改名 CODE_BLUEPRINT.md，和业务蓝图成对；个人蓝图读取各项目的业务蓝图；升级客户端版本至 v1.0.134
 
 ## 10. Key Environment Variables & Configuration
 
@@ -665,7 +665,7 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 11. 业务蓝图核对 (Business Blueprint Check)
 
-- 业务蓝图：[BUSINESS_BLUEPRINT.md](BUSINESS_BLUEPRINT.md) · 规则 51（✅ 51 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
+- 业务蓝图：[BUSINESS_BLUEPRINT.md](BUSINESS_BLUEPRINT.md) · 规则 52（✅ 52 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
 - 结论：✅ 没有失效或违规
 
 ### 最近提交碰到的业务条目（改动后复查它们还成不成立）

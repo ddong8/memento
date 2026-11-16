@@ -3,16 +3,16 @@
 <!-- memento:business-index:start (自动生成，勿手改) -->
 > 先读这一段定位；要细节时按下表行号只读对应章节。改了「代码位置」里的文件，先看对应条目还成不成立。
 
-- 汇总：规则 51（✅ 51 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
+- 汇总：规则 52（✅ 52 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
 - 核对：全部通过（详见末尾「自动核对」）
 
 | 章节 | 行号 |
 | :--- | :--- |
 | 1. 业务对象与术语 | L21-L65 |
 | 2. 关键流程 | L67-L124 |
-| 3. 业务规则 | L126-L418 |
-| 4. 状态归属 | L420-L465 |
-| 自动核对 (Auto Check) | L468-L559 |
+| 3. 业务规则 | L126-L425 |
+| 4. 状态归属 | L427-L472 |
+| 自动核对 (Auto Check) | L475-L567 |
 <!-- memento:business-index:end -->
 > 业务蓝图：memento 应该做成什么样，每一条落在哪段代码、由哪个测试或检查保证。和代码蓝图 [CODE_BLUEPRINT.md](CODE_BLUEPRINT.md)（代码长什么样）配合看：代码蓝图回答"在哪里"，这份回答"应该怎样、为什么"。
 > 规则来自用户的原话和纠正（CLAUDE.md、长期记忆、每晚复盘），不是从代码里反推的；代码和这里对不上，先当成代码的问题查。
@@ -155,6 +155,13 @@
 - 来源: CLAUDE.md（memento）「多机任务并发执行，过程和结果稳定回传」；心领神会「单台设备离线不得拖垮整体」
 - 代码: `packages/daemon/src/task-runner.ts#sendChunk`, `packages/daemon/src/task-runner.ts#resendBufferedChunks`, `server/server/services/device_dispatch.py#deliver_task`, `server/server/services/plan_service.py#choose_assignment`
 - 测试: `packages/daemon/test/task-resilience.test.ts#TaskRunner generates monotonic sequence numbers and buffers chunks for idempotent resend`, `packages/daemon/test/task-resilience.test.ts#WsTaskClient preserves strict FIFO message order when pending messages exist and new message arrives`, `server/tests/test_device_dispatch.py#test_an_offline_device_fails_the_task_at_once`, `server/tests/test_plan_service.py#test_choose_assignment_prefers_asked_agent_and_skips_tried_and_spent`
+
+### R-WS-BIG-UNTRACKED 跨设备改代码时，没进 .gitignore 的大文件不让任务失败
+- 来源: 用户 11-16 用 vps3 改 Windows 上的 pubchem 时报「有未被 .gitignore 忽略的大文件」（79MB 的 xlsx）；心领神会「开发机不必是本地机器，任何需要每台设备手工配置的方案都视为不合格」
+- 说明: 源设备打快照时，单个超过 50MB、或合计超过 300MB 的未跟踪文件留在源设备上不带过去，同步照常；任务过程里列出没带上的文件。补丁回来不会动这些文件。
+- 代码: `packages/daemon/src/workspace.ts#untrackedToLeave`, `packages/daemon/src/workspace.ts#exportWorkspace`, `packages/daemon/src/workspace-sync.ts#prepareWorkspace`, `apps/web/src/components/TaskTimeline.tsx`
+- 测试: `packages/daemon/test/workspace.test.ts#leaves an untracked file too big to send on the source instead of failing, and says which`
+- 禁止: `加进 .gitignore 后再试` @ `packages/daemon/src/workspace.ts`
 
 ### R-RUN-OUTLIVES-PAGE 运行不因页面关闭、切后台、发版而中断
 - 来源: 记忆「智能体运行状态容易丢的根因与交接修法」（10-28 查实四个根因）；CLAUDE.md「发版时旧 pod 会先等进行中的回答跑完」
@@ -469,7 +476,7 @@
 
 > 生成器随每次提交核对：代码位置还在不在、测试还在不在、禁止 / 要求的写法满不满足。✅ 通过 · ⚠️ 缺代码位置、测试或来源 · ❌ 位置失效或违反规则（CI 会拦下）。
 
-- 汇总：规则 51（✅ 51 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
+- 汇总：规则 52（✅ 52 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
 
 | 编号 | 名称 | 代码位置 | 测试 | 检查 | 结论 |
 | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -498,6 +505,7 @@
 | `R-STOP-ALL-AGENTS` | Antigravity、Claude Code、Codex 运行中的任务都必须能停 | 3/3 | 4/4 | 1/1 | ✅ |
 | `R-ISLAND-CLEANUP` | 任务结束必须清掉灵动岛状态 | 3/3 | 3/3 | — | ✅ |
 | `R-MULTI-DEVICE-STABLE` | 多机任务并发执行，过程和结果稳定回传 | 4/4 | 4/4 | — | ✅ |
+| `R-WS-BIG-UNTRACKED` | 跨设备改代码时，没进 .gitignore 的大文件不让任务失败 | 4/4 | 1/1 | 1/1 | ✅ |
 | `R-RUN-OUTLIVES-PAGE` | 运行不因页面关闭、切后台、发版而中断 | 2/2 | 4/4 | — | ✅ |
 | `R-QUOTA-PER-MODEL` | 额度按当前对话用的模型显示 | 3/3 | 1/1 | 2/2 | ✅ |
 | `R-MODEL-SWITCH` | 某个模型额度用完，能换同一工具的其它模型，三个工具都要支持 | 4/4 | 3/3 | — | ✅ |

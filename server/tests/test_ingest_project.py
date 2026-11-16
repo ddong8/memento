@@ -107,6 +107,17 @@ class IngestProjectTests(unittest.IsolatedAsyncioTestCase):
             slugs = (await db.execute(select(Project.slug))).scalars().all()
         self.assertNotIn("antigravity/output.txt", slugs)
 
+    async def test_a_folder_called_scratch_is_its_own_project(self) -> None:
+        from server.services.ingest_service import ensure_project
+
+        async with self.Session() as db:
+            mine = await ensure_project(db, "antigravity", "scratch", source_path="c:/Users/me/Documents/antigravity/scratch")
+            agy = await ensure_project(db, "antigravity", "scratch", source_path="C:/Users/me/.gemini/antigravity/scratch")
+            await db.commit()
+        self.assertEqual((mine.slug, mine.source_path), ("antigravity/scratch", "c:/Users/me/Documents/antigravity/scratch"))
+        # Antigravity's own scratch folder stays out of it
+        self.assertEqual(agy.slug, "antigravity/general")
+
     async def test_a_session_filed_under_a_file_takes_its_real_project(self) -> None:
         from server.db.models import Document, Project
 

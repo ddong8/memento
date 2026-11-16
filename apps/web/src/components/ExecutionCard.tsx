@@ -154,12 +154,22 @@ const ExecutionCard = memo(function ExecutionCard({
     callStatus === "failed";
   const isStillRunning = result?.status === "still_running";
 
+  // The agent asked something (AskUserQuestion) and waits for the answer: the task goes on, whatever it
+  // wrote before asking ("here are the drafts first:"), so its options stay clickable
+  const awaitingAnswer =
+    !isTerminal &&
+    (!result || result.status === "running" || result.status === "queued" || isStillRunning) &&
+    (result?.events || []).some((e) => {
+      const q = e as { kind?: string; status?: string; answer?: string };
+      return q.kind === "question" && q.status !== "answered" && !q.answer;
+    });
+
   // Once the turn has its answer (hasParentContent) the agent is done: still_running then only says it
   // left background work behind, nothing more comes back here, so it isn't shown as running.
   const isRunning =
     !isTerminal &&
-    !hasParentContent &&
-    (isStillRunning || !result || result.status === "running" || result.status === "queued");
+    (awaitingAnswer ||
+      (!hasParentContent && (isStillRunning || !result || result.status === "running" || result.status === "queued")));
 
   // 过滤内部遥测噪音（例如 agy_cli 写入 stderr 的 session id: <uuid>，用于服务端进程关联，并非实际报错）
   const cleanStderr = useMemo(() => {
@@ -209,7 +219,7 @@ const ExecutionCard = memo(function ExecutionCard({
     callStatus === "failed" ||
     (result && typeof result.exit_code === "number" && result.exit_code !== 0)
   );
-  const isSuccess = !isStillRunning && !isFailed && (
+  const isSuccess = !isStillRunning && !isFailed && !awaitingAnswer && (
     isTerminal ||
     result?.status === "succeeded" ||
     callStatus === "executed" ||

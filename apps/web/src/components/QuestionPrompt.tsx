@@ -35,6 +35,8 @@ export function QuestionPrompt({ questionEvent, taskId, disabled, onAnswered }: 
   const inputId = useId();
 
   const isAnswered = questionEvent.status === "answered" || Boolean(questionEvent.answer);
+  // The task ended with the question unanswered (stopped, or the agent gave up): nothing takes an answer now
+  const ended = Boolean(disabled) && !isAnswered;
   const qText = questionEvent.question || (isZh ? "请确认下一步操作" : "Please confirm next action");
 
   // Normalize options
@@ -123,9 +125,11 @@ export function QuestionPrompt({ questionEvent, taskId, disabled, onAnswered }: 
         borderRadius: 12,
         background: isAnswered
           ? "rgba(16,185,129,0.06)"
-          : "rgba(245,158,11,0.08)",
-        border: `1px solid ${isAnswered ? "rgba(16,185,129,0.25)" : "rgba(245,158,11,0.4)"}`,
-        boxShadow: isAnswered
+          : ended
+            ? "var(--aurora-chip)"
+            : "rgba(245,158,11,0.08)",
+        border: `1px solid ${isAnswered ? "rgba(16,185,129,0.25)" : ended ? "var(--aurora-border)" : "rgba(245,158,11,0.4)"}`,
+        boxShadow: isAnswered || ended
           ? "0 2px 8px -1px rgba(0,0,0,0.04)"
           : "0 0 0 1px rgba(245,158,11,0.2), 0 4px 16px -2px rgba(245,158,11,0.15)",
         transition: "all 0.25s ease",
@@ -167,7 +171,9 @@ export function QuestionPrompt({ questionEvent, taskId, disabled, onAnswered }: 
           >
             {isAnswered
               ? (isZh ? "已完成确认回复" : "Question Answered")
-              : (isZh ? "Agent 正在询问并等待回复" : "Agent is waiting for your response")}
+              : ended
+                ? (isZh ? "这个问题没有收到回复，任务已结束" : "The task ended before this was answered")
+                : (isZh ? "Agent 正在询问并等待回复" : "Agent is waiting for your response")}
           </span>
         </div>
 
@@ -181,7 +187,7 @@ export function QuestionPrompt({ questionEvent, taskId, disabled, onAnswered }: 
             color: isAnswered ? "#059669" : "#D97706",
           }}
         >
-          {isAnswered ? (isZh ? "已回复" : "Answered") : (isZh ? "等待交互" : "Waiting")}
+          {isAnswered ? (isZh ? "已回复" : "Answered") : ended ? (isZh ? "已结束" : "Ended") : (isZh ? "等待交互" : "Waiting")}
         </span>
       </div>
 
@@ -234,9 +240,14 @@ export function QuestionPrompt({ questionEvent, taskId, disabled, onAnswered }: 
         </div>
       )}
 
-      {/* Interactive Options View */}
+      {/* Interactive Options View (greyed once the task ended: answer in the composer instead) */}
+      {!isAnswered && ended && (
+        <div style={{ fontSize: 11.5, color: "var(--aurora-fg3)", marginBottom: 8 }}>
+          {isZh ? "选项已不能点击；要回答，直接在下方输入框发给它，会接着这个会话继续。" : "These can't be picked any more; answer in the message box below and the session goes on."}
+        </div>
+      )}
       {!isAnswered && (
-        <div>
+        <div style={ended ? { opacity: 0.55, pointerEvents: "none" } : undefined}>
           {/* Options List */}
           {options.length > 0 && (
             <div

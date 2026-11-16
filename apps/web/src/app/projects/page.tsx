@@ -91,7 +91,7 @@ export default function ProjectsPage() {
         subtitle={`${shown.length} ${t.projects}`}
         right={
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            <label className="aurora-input" style={{ padding: "8px 14px", minWidth: 200 }}>
+            <label className="aurora-input w-full sm:w-auto" style={{ padding: "8px 14px", minWidth: 200 }}>
               <Icon name="search" size={14} style={{ color: "var(--aurora-fg3)" }} />
               <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="搜索项目名或路径" />
             </label>

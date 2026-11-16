@@ -414,11 +414,11 @@
 - 代码: `apps/web/src/components/profile/LLMSettingsView.tsx#LLMSettingsView`, `apps/web/src/app/profile/page.tsx`
 - 要求: `LLMSettingsView` @ `apps/web/src/app/profile/page.tsx`
 
-### R-PERSONA-ONBOARD 个人画像首次进入引导设性别和卡通形象，可上传照片生成，默认全屏动画、3D 默认不选，手机端完整显示
-- 来源: CLAUDE.md（memento）「个人画像首次进入引导设置性别和卡通形象，可上传照片生成，默认全屏动画，3D 默认不选中，手机端自动缩放完整显示」
-- 说明: 首次进入（服务端没形象、本机没跳过）弹一次引导，跳过后把默认形象存回服务端；舞台默认面板收起（全屏动画）、2D 不选 3D；弹窗在手机上可滚动、舞台高度按视口缩放。
+### R-PERSONA-ONBOARD 个人画像首次进入引导设性别和卡通形象，可上传照片生成，默认全屏 3D 动画，手机端完整显示
+- 来源: CLAUDE.md（memento）「个人画像首次进入引导设置性别和卡通形象，可上传照片生成，默认全屏动画，3D 默认不选中，手机端自动缩放完整显示」；11-16 用户改为默认 3D：「个人画像那里改成3d的吧，其它两个3d，这个2d的看着有点奇怪」
+- 说明: 首次进入（服务端没形象、本机没跳过）弹一次引导，跳过后把默认形象存回服务端；舞台默认面板收起（全屏动画）、默认 3D（和长期记忆、技能进化一致），2D 可手动切换；弹窗在手机上可滚动、舞台高度按视口缩放。
 - 代码: `apps/web/src/lib/persona/onboarding.ts#shouldOfferAvatarOnboarding`, `apps/web/src/lib/persona/onboarding.ts#PERSONA_STAGE_DEFAULTS`, `apps/web/src/components/persona/AvatarOnboardingModal.tsx#AvatarOnboardingModal`, `apps/web/src/components/persona/avatarPresets.ts#getPresetsByGender`, `apps/web/src/app/memory/persona/page.tsx`
-- 测试: `apps/web/test/ask-reading-and-persona-rules.test.tsx#opens once on first visit`, `apps/web/test/ask-reading-and-persona-rules.test.tsx#starts as a full-screen 2D animation with 3D not selected`, `apps/web/test/ask-reading-and-persona-rules.test.tsx#has cartoon figures for every gender choice`
+- 测试: `apps/web/test/ask-reading-and-persona-rules.test.tsx#opens once on first visit`, `apps/web/test/ask-reading-and-persona-rules.test.tsx#starts as a full-screen 3D animation, like the other two 3D pages`, `apps/web/test/ask-reading-and-persona-rules.test.tsx#has cartoon figures for every gender choice`
 - 要求: `PERSONA_STAGE_DEFAULTS.threeD` @ `apps/web/src/app/memory/persona/page.tsx`; `shouldOfferAvatarOnboarding(` @ `apps/web/src/app/memory/persona/page.tsx`; `accept="image/*"` @ `apps/web/src/components/persona/AvatarOnboardingModal.tsx`; `overflow-y-auto` @ `apps/web/src/components/persona/AvatarOnboardingModal.tsx`; `max-h-[30vh] sm:max-h-[42vh]` @ `apps/web/src/components/persona/CartoonPersonaStage.tsx`
 
 ### R-ASK-INSTANT AI 执事区域刷新尽量零延迟
@@ -565,7 +565,7 @@
 | `R-PASTE-IMAGE-ONCE` | 粘贴图片不重复 | 1/1 | — | 1/1 | ✅ |
 | `R-MEDIA-VIEW` | 图片可点击放大；视频可预览、全屏、播放后缓存；工作台能看图片和 ppt/excel/word/md 等产物 | 5/5 | 5/5 | — | ✅ |
 | `R-LLM-IN-PROFILE` | 大模型配置放在个人设置里 | 2/2 | — | 1/1 | ✅ |
-| `R-PERSONA-ONBOARD` | 个人画像首次进入引导设性别和卡通形象，可上传照片生成，默认全屏动画、3D 默认不选，手机端完整显示 | 5/5 | 3/3 | 5/5 | ✅ |
+| `R-PERSONA-ONBOARD` | 个人画像首次进入引导设性别和卡通形象，可上传照片生成，默认全屏 3D 动画，手机端完整显示 | 5/5 | 3/3 | 5/5 | ✅ |
 | `R-ASK-INSTANT` | AI 执事区域刷新尽量零延迟 | 3/3 | 2/2 | — | ✅ |
 | `R-WECHAT-DRAFT` | 工作台文本可多次润色，确认后推到公众号草稿，文章带官网链接 | 2/2 | — | 2/2 | ✅ |
 | `R-BUSINESS-CHECKED` | 业务规则挂到代码和测试上，每次提交自动核对 | 6/6 | 4/4 | 1/1 | ✅ |

@@ -1,12 +1,12 @@
 /**
  * 个人画像页的形象引导与舞台默认值（用户规则：首次进入引导设置性别和卡通形象，可上传照片生成，
- * 默认全屏动画，3D 默认不选中）。抽成纯函数是为了让业务蓝图 R-PERSONA-ONBOARD 有测试守着。
+ * 默认全屏动画；11-16 起默认 3D，和长期记忆、技能进化两个 3D 页面一致，原来的「3D 默认不选中」作废）。抽成纯函数是为了让业务蓝图 R-PERSONA-ONBOARD 有测试守着。
  */
 
-/** 进入画像页时舞台的默认状态：右侧面板收起（全屏动画），用轻量 2D 卡通而不是 3D。 */
+/** 进入画像页时舞台的默认状态：右侧面板收起（全屏动画），默认 3D 形象（2D 卡通可手动切换）。 */
 export const PERSONA_STAGE_DEFAULTS = Object.freeze({
   panelCollapsed: true,
-  threeD: false,
+  threeD: true,
 });
 
 export interface AvatarOnboardingState {

@@ -49,8 +49,8 @@ describe("R-PERSONA-ONBOARD avatar onboarding", () => {
     expect(shouldBackfillDefaultAvatar({ initialized: true, dismissed: true, checked: false })).toBe(false);
   });
 
-  it("starts as a full-screen 2D animation with 3D not selected", () => {
-    expect(PERSONA_STAGE_DEFAULTS).toEqual({ panelCollapsed: true, threeD: false });
+  it("starts as a full-screen 3D animation, like the other two 3D pages", () => {
+    expect(PERSONA_STAGE_DEFAULTS).toEqual({ panelCollapsed: true, threeD: true });
   });
 
   it("has cartoon figures for every gender choice, and the defaults the modal starts with exist", () => {

@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `ee5d0369` · Updated: `2026-11-16`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `e9a4db46` · Updated: `2026-11-16`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,7 +16,7 @@
 - 规模 (Scale): 9 个子系统 · 35 组 API 路由 / 237 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 214 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `e6ca4f3a` (2026-11-16): style(web): Mac 客户端左栏顶部收进 48px 和中右两栏顶栏对齐；用户消息气泡恢复原来的淡紫底样式
+- 最近改动 (Latest): `e9a4db46` (2026-11-16): style(web): Mac 客户端左栏品牌离红绿灯再远一点，不再贴着
 - 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 53（✅ 53 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `F-ASK`, `R-ISLAND-CLEANUP`, `R-THINKING-FULL`, `R-MEDIA-VIEW`, `R-WECHAT-DRAFT`, `S-RUN-STATE`, `S-MODEL-CHOICE`
 
 | 章节 (Section) | 行号 (Lines) |
@@ -615,11 +615,11 @@ erDiagram
 - [`packages/daemon/assets/workbuddy_cli.mjs`](packages/daemon/assets/workbuddy_cli.mjs) (13 commits)
 - [`apps/web/src/app/globals.css`](apps/web/src/app/globals.css) (8 commits)
 - [`apps/web/src/components/ask/bubbles.tsx`](apps/web/src/components/ask/bubbles.tsx) (8 commits)
-- [`apps/web/src/components/viewers/MediaInspectorPanel.tsx`](apps/web/src/components/viewers/MediaInspectorPanel.tsx) (8 commits)
-- [`apps/web/src/components/layout/Sidebar.tsx`](apps/web/src/components/layout/Sidebar.tsx) (7 commits)
-- [`apps/desktop/src/main.ts`](apps/desktop/src/main.ts) (6 commits)
+- [`apps/web/src/components/layout/Sidebar.tsx`](apps/web/src/components/layout/Sidebar.tsx) (8 commits)
+- [`apps/web/src/components/viewers/MediaInspectorPanel.tsx`](apps/web/src/components/viewers/MediaInspectorPanel.tsx) (7 commits)
 - [`apps/web/src/components/ask/AskTopBar.tsx`](apps/web/src/components/ask/AskTopBar.tsx) (6 commits)
 - [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (6 commits)
+- [`apps/desktop/src/main.ts`](apps/desktop/src/main.ts) (5 commits)
 - [`apps/web/src/app/app/page.tsx`](apps/web/src/app/app/page.tsx) (5 commits)
 
 ## 8. Development & Verification Commands
@@ -643,12 +643,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `e9a4db46` (2026-11-16): style(web): Mac 客户端左栏品牌离红绿灯再远一点，不再贴着
 - `e6ca4f3a` (2026-11-16): style(web): Mac 客户端左栏顶部收进 48px 和中右两栏顶栏对齐；用户消息气泡恢复原来的淡紫底样式
 - `62f0ece6` (2026-11-16): style(问答): 项目目录输入框也用中性边框，和其它配置项一致
 - `321c978b` (2026-11-16): style(web): 三栏对齐与减色：思考区去掉紫色竖线，配置项只给改过默认的加紫框，运行中浮条不再压住工作台，记忆星云只常显核心标签
 - `004d2bdf` (2026-11-16): fix(web): 卡片里设备名和项目路径过长时显示省略号；全景总览近 7 日活动的柱子显示出来；手机上运行中的追问和停止只留图标，输入框不再被挤窄
 - `1d93ca89` (2026-11-16): style(web): 统一三栏工作台 48px 顶栏基准线与无缝通高框架
-- `58f74b4c` (2026-11-16): style(web): 对齐应用图标紫粉青极光品牌色板与背景光晕
 
 ## 10. Key Environment Variables & Configuration
 

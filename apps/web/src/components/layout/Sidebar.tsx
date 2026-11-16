@@ -296,10 +296,10 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
             isMacDesktop && !macFullScreen
               ? collapsed
                 ? "pt-10 pb-2.5 app-region-drag" // 68px wide: no room beside the traffic lights, the brand goes under them
-                : // The traffic lights take x 18-96 (newer macOS draws them bigger), centered 24px down (trafficLightPosition 18,18 in the desktop
+                : // The traffic lights take x 18-76 (measured on the client, 11-16), centered 24px down; 92px leaves a 16px gap (trafficLightPosition 18,18 in the desktop
                   // main process): inside a 48px bar, so the brand moves right of them and this bar's bottom line
                   // lines up with the center and right columns' headers instead of sitting 30px lower
-                  "h-12 pl-[112px] app-region-drag"
+                  "h-12 pl-[92px] app-region-drag"
               : isDesktopApp
               ? "h-12 app-region-drag"
               : "h-12"

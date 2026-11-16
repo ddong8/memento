@@ -113,6 +113,24 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
     }
   }, [isExpandedFull]);
 
+  // Docked as the third column on wide screens: tell fixed overlays (the running-agents pill) how much
+  // of the right edge it takes, so they float beside it instead of over its list
+  const docked = Boolean(inspector?.isOpen && inspector.activeMedia) && !isExpandedFull;
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const root = document.documentElement;
+    const apply = () => {
+      if (docked && window.matchMedia("(min-width: 1024px)").matches) root.style.setProperty("--inspector-width", `${panelWidth}px`);
+      else root.style.removeProperty("--inspector-width");
+    };
+    apply();
+    window.addEventListener("resize", apply);
+    return () => {
+      window.removeEventListener("resize", apply);
+      root.style.removeProperty("--inspector-width");
+    };
+  }, [docked, panelWidth]);
+
   if (!inspector || !inspector.isOpen || !inspector.activeMedia) {
     return null;
   }

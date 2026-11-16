@@ -5184,10 +5184,10 @@ function AskPageContent() {
       </div>
     )}
 
-  {/* 中栏底部交互控制台 (作为 flex footer，全面屏安全区适配) */}
+  {/* 中栏底部交互控制台 (作为 flex footer，全面屏安全区适配)。左右内边距和上面消息区一致，卡片和输入区左右对齐 */}
     <footer
       data-ask-footer="true"
-      className="shrink-0 px-1.5 pt-1 sm:px-4 sm:pt-2 lg:px-5 lg:pt-2.5 bg-transparent"
+      className="shrink-0 px-1 pt-1 sm:px-5 sm:pt-2 md:px-8 lg:pt-2.5 bg-transparent"
       style={{
         paddingBottom: viewportBottomOffset > 0
           ? `${viewportBottomOffset + 4}px`
@@ -5929,14 +5929,16 @@ function AskPageContent() {
                       display: "inline-flex",
                       alignItems: "center",
                       gap: 5,
-                      background: cwd ? "var(--aurora-accent-soft)" : "var(--aurora-chip)",
+                      // Neutral even when set (folder, model, effort almost always are): purple marks only
+                      // what is switched away from the default (独立分支, a resumed session)
+                      background: "var(--aurora-chip)",
                       border: "1px solid",
-                      borderColor: cwd ? "var(--aurora-accent)" : "var(--aurora-border)",
+                      borderColor: "var(--aurora-border)",
                       borderRadius: 10,
                       padding: "4px 10px",
                       fontSize: 12,
                       fontWeight: 500,
-                      color: cwd ? "var(--aurora-accent)" : "var(--aurora-fg2)",
+                      color: "var(--aurora-fg1)",
                       cursor: "pointer",
                       transition: "all 0.15s ease",
                       maxWidth: "min(200px, 45vw)",
@@ -5945,7 +5947,7 @@ function AskPageContent() {
                       boxSizing: "border-box",
                     }}
                   >
-                    <Icon name="folder" size={12} style={{ flexShrink: 0 }} />
+                    <Icon name="folder" size={12} style={{ flexShrink: 0, color: cwd ? "var(--aurora-accent)" : "var(--aurora-fg3)" }} />
                     <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {cwd ? cwd : t.ask.cwdLabel}
                     </span>
@@ -6014,9 +6016,9 @@ function AskPageContent() {
                       display: "inline-flex",
                       alignItems: "center",
                       gap: 6,
-                      background: selectedModel ? "var(--aurora-accent-soft)" : "var(--aurora-chip)",
+                      background: "var(--aurora-chip)",
                       border: "1px solid",
-                      borderColor: selectedModel ? "var(--aurora-accent)" : "var(--aurora-border)",
+                      borderColor: "var(--aurora-border)",
                       borderRadius: 10,
                       padding: "4px 10px",
                       fontSize: 12,
@@ -6044,7 +6046,7 @@ function AskPageContent() {
                         background: "transparent",
                         border: "none",
                         outline: "none",
-                        color: selectedModel ? "var(--aurora-accent)" : "var(--aurora-fg1)",
+                        color: "var(--aurora-fg1)",
                         fontSize: 12,
                         fontWeight: selectedModel ? 600 : 500,
                         cursor: "pointer",
@@ -6140,9 +6142,9 @@ function AskPageContent() {
                     display: "inline-flex",
                     alignItems: "center",
                     gap: 6,
-                    background: selectedEffort ? "var(--aurora-accent-soft)" : "var(--aurora-chip)",
+                    background: "var(--aurora-chip)",
                     border: "1px solid",
-                    borderColor: selectedEffort ? "var(--aurora-accent)" : "var(--aurora-border)",
+                    borderColor: "var(--aurora-border)",
                     borderRadius: 10,
                     padding: "4px 10px",
                     fontSize: 12,
@@ -6164,7 +6166,7 @@ function AskPageContent() {
                       background: "transparent",
                       border: "none",
                       outline: "none",
-                      color: selectedEffort ? "var(--aurora-accent)" : "var(--aurora-fg1)",
+                      color: "var(--aurora-fg1)",
                       fontSize: 12,
                       fontWeight: selectedEffort ? 600 : 500,
                       cursor: "pointer",

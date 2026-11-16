@@ -172,10 +172,12 @@ export function AskTopBar({
         {inspector && inspector.mediaList.length > 0 && (
           <div className="hidden sm:inline-flex shrink-0">
             <Btn
-              variant={inspector.isOpen ? "primary" : "glass"}
+              // Open: a quiet accent tint, not the solid gradient of the send button (it outweighed the whole header)
+              variant="glass"
               size="sm"
               icon="sidebar"
               onClick={inspector.toggleInspector}
+              style={inspector.isOpen ? { background: "var(--aurora-accent-soft)", color: "var(--aurora-accent)", borderColor: "color-mix(in srgb, var(--aurora-accent) 30%, transparent)" } : undefined}
               title={inspector.isOpen ? (isZh ? "折叠工作台视窗" : "Collapse workbench inspector") : (isZh ? "展开工作台预览" : "Open workbench inspector")}
             >
               <span className="flex items-center gap-1 sm:gap-1.5">
@@ -192,7 +194,7 @@ export function AskTopBar({
                     </>
                   )}
                 </span>
-                <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-black/20 font-mono font-bold">
+                <span className="text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold" style={{ background: "var(--aurora-chip)" }}>
                   {inspector.mediaList.length}
                 </span>
               </span>

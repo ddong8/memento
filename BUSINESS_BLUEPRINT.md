@@ -385,11 +385,11 @@
 - 要求: `win.on("minimize"` @ `apps/desktop/src/main.ts`; `event.preventDefault();` @ `apps/desktop/src/main.ts`
 
 ### R-THINKING-FULL 思考过程始终铺满显示，回答正文字号统一
-- 来源: CLAUDE.md（memento）「思考过程始终铺满全屏」「回答正文字号统一」
+- 来源: CLAUDE.md（memento）「思考过程始终铺满全屏」「回答正文字号统一」；用户 11-16「思考左侧的紫色竖线要去掉，不好看」
 - 说明: 思考块推演中和推演完都展开、宽度铺满，只有用户点胶囊才收起；思考、回答正文、段落和列表都是 14px。10-31 的 5af514f1（无关的检索改动）曾把它改回"推演完自动收拢"，11-16 改回并补测试。
 - 代码: `apps/web/src/components/ask/bubbles.tsx#ThinkingBlock`, `apps/web/src/components/ask/bubbles.tsx#AssistantBubble`, `apps/web/src/components/viewers/MarkdownViewer.tsx`
 - 测试: `apps/web/test/ask-reading-and-persona-rules.test.tsx#shows the whole thinking text after thinking is done`, `apps/web/test/ask-reading-and-persona-rules.test.tsx#paragraphs and list items of an answer are all 14px`
-- 禁止: `userToggled ? manualExpanded : Boolean(isLive)` @ `apps/web/src/components/ask/bubbles.tsx`
+- 禁止: `userToggled ? manualExpanded : Boolean(isLive)` @ `apps/web/src/components/ask/bubbles.tsx`; `borderLeft: "2.5px solid var(--aurora-accent)"` @ `apps/web/src/components/ask/bubbles.tsx`
 
 ### R-PASTE-IMAGE-ONCE 粘贴图片不重复
 - 来源: CLAUDE.md（memento）「粘贴图片不重复」
@@ -553,7 +553,7 @@
 | `R-LOGIN-PERSIST` | 客户端登录永久记住 | 3/3 | — | 1/1 | ✅ |
 | `R-MENU-KEEPALIVE` | 记住上次菜单状态，切换菜单不重新加载 | 2/2 | 2/2 | — | ✅ |
 | `R-MAC-TRAY` | Mac 客户端支持最小化到托盘，关窗口不退出 | 1/1 | — | 2/2 | ✅ |
-| `R-THINKING-FULL` | 思考过程始终铺满显示，回答正文字号统一 | 3/3 | 2/2 | 1/1 | ✅ |
+| `R-THINKING-FULL` | 思考过程始终铺满显示，回答正文字号统一 | 3/3 | 2/2 | 2/2 | ✅ |
 | `R-PASTE-IMAGE-ONCE` | 粘贴图片不重复 | 1/1 | — | 1/1 | ✅ |
 | `R-MEDIA-VIEW` | 图片可点击放大；视频可预览、全屏、播放后缓存；工作台能看图片和 ppt/excel/word/md 等产物 | 5/5 | 5/5 | — | ✅ |
 | `R-LLM-IN-PROFILE` | 大模型配置放在个人设置里 | 2/2 | — | 1/1 | ✅ |

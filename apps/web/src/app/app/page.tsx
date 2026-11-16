@@ -106,7 +106,11 @@ export default function Dashboard() {
     () =>
       onLiveEvent("file_synced", (event) => {
         const d = event.data as { tool_id?: string; title?: string; relative_path?: string };
-        setLastEvent(`${d.tool_id}: ${d.title || d.relative_path}`);
+        // Readable: the tool's name and what was synced; a bare session id or path says nothing to a person
+        const tool = cachedDashboardData?.tools.find((x) => x.id === d.tool_id)?.display_name || d.tool_id || "";
+        const raw = (d.title || "").trim();
+        const meaningless = !raw || /^[0-9a-f]{8}-[0-9a-f-]{20,}/i.test(raw) || /[\\/]/.test(raw) || /\.(jsonl?|md|db|pb)$/i.test(raw);
+        setLastEvent(meaningless ? `${tool} 刚刚同步了新内容` : `${tool} 刚刚同步：${raw}`);
         if (sseDebounceTimerRef.current) {
           clearTimeout(sseDebounceTimerRef.current);
         }

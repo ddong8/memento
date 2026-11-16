@@ -59,8 +59,8 @@ export function ThinkingBlock({ thinking, isLive }: { thinking: string; isLive?:
           width: "100%",
           marginBottom: 10,
           borderRadius: 10,
+          // No colored left rule (user 11-16: the purple bar Antigravity added doesn't look good)
           border: "1px solid var(--aurora-border)",
-          borderLeft: "2.5px solid var(--aurora-accent)",
           background: "var(--aurora-thinking-header)",
           overflow: "hidden",
           maxWidth: "100%",

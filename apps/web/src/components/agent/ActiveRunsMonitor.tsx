@@ -578,7 +578,7 @@ export default function ActiveRunsMonitor() {
           className="fixed z-50 pointer-events-none transition-all duration-300"
           style={{
             top: isMobile ? "calc(env(safe-area-inset-top, 0px) + 54px)" : "76px",
-            right: isMobile ? "12px" : "24px",
+            right: isMobile ? "12px" : "calc(var(--inspector-width, 0px) + 24px)",
             maxWidth: isMobile ? "calc(100vw - 24px)" : "390px",
             width: "100%",
           }}
@@ -643,7 +643,8 @@ export default function ActiveRunsMonitor() {
           className="fixed z-50 pointer-events-none transition-all duration-300 ease-out"
           style={{
             top: "48%",
-            right: collapsed ? (isMobile ? "8px" : "16px") : (isMobile ? "12px" : "20px"),
+            // Beside the docked workbench column, not over it (--inspector-width is set while it's open)
+            right: isMobile ? (collapsed ? "8px" : "12px") : `calc(var(--inspector-width, 0px) + ${collapsed ? 16 : 20}px)`,
             transform: "translateY(-50%)",
             maxWidth: isMobile ? "calc(100vw - 24px)" : "390px",
             width: collapsed ? "auto" : (isMobile ? "calc(100vw - 24px)" : "390px"),

@@ -54,6 +54,9 @@ const TYPE_COLOR_HEX: Record<string, string> = {
 // Module-level CanvasTexture cache to avoid redrawing 2D canvases & re-uploading textures on filter/tab switch
 const galaxyTextTextureCache = new Map<string, THREE.CanvasTexture>();
 
+/** Labels shown all the time (the best connected nodes); others appear on hover/selection. */
+const LABEL_HUBS = 16;
+
 /** Create text canvas sprite for crisp 3D labels with neon type dot & glass pill */
 function createTextSprite(text: string, colorHex: string): THREE.Sprite {
   const truncated = text.length > 11 ? text.slice(0, 10) + "…" : text;
@@ -166,6 +169,9 @@ export default function MemoryGalaxy3D({
   const nodeMeshMapRef = useRef<Map<string, THREE.Mesh>>(new Map());
   const nodeMeshListRef = useRef<THREE.Mesh[]>([]);
   const adjacencyMapRef = useRef<Map<string, Set<string>>>(new Map());
+  // Nodes whose label always shows: the best connected few. Every label at once was an unreadable
+  // pile; the rest show for the node in focus and its neighbors.
+  const hubLabelIdsRef = useRef<Set<string>>(new Set());
   const pulseGeoRef = useRef<THREE.BufferGeometry | null>(null);
   const validEdgePairsRef = useRef<EdgePulsePair[]>([]);
   const focusRingMeshRef = useRef<THREE.Mesh | null>(null);
@@ -666,6 +672,8 @@ export default function MemoryGalaxy3D({
         const isPrimary = selectedNodeIdRef.current === id || hoveredNodeIdRef.current === id;
         const isNeighbor = connectedSet ? connectedSet.has(id) : false;
         const mat = mesh.material as THREE.MeshStandardMaterial;
+        const label = mesh.userData.label as THREE.Sprite | undefined;
+        if (label) label.visible = isPrimary || isNeighbor || (!focusId && hubLabelIdsRef.current.has(id));
 
         if (isPrimary) {
           mesh.scale.setScalar(1.38 + Math.sin(elapsed * 4.5) * 0.14);
@@ -841,6 +849,7 @@ export default function MemoryGalaxy3D({
       const sprite = createTextSprite(node.name, colorHex);
       sprite.position.set(0, 0.48, 0);
       mesh.add(sprite);
+      mesh.userData.label = sprite;
 
       galaxyRoot.add(mesh);
       nodeMeshMap.set(node.id, mesh);
@@ -931,6 +940,9 @@ export default function MemoryGalaxy3D({
     nodeMeshMapRef.current = nodeMeshMap;
     nodeMeshListRef.current = nodeMeshList;
     adjacencyMapRef.current = adjacencyMap;
+    hubLabelIdsRef.current = new Set(
+      [...adjacencyMap.entries()].sort((a, b) => b[1].size - a[1].size).slice(0, LABEL_HUBS).map(([id]) => id),
+    );
     pulseGeoRef.current = pulseGeo;
     validEdgePairsRef.current = validEdgePairs;
 

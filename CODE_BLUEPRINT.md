@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `aa0b6e73` · Updated: `2026-11-16`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `30f7635d` · Updated: `2026-11-16`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,8 +16,8 @@
 - 规模 (Scale): 9 个子系统 · 35 组 API 路由 / 237 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 215 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `aa0b6e73` (2026-11-16): fix(web): 作息节律统计数字去掉重复的 fontVariantNumeric（上一提交类型检查失败）
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 54（✅ 54 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `F-ASK`, `R-ISLAND-CLEANUP`, `R-RESUME-LABEL`, `R-UI-COMMERCIAL`, `R-MEDIA-VIEW`, `R-LLM-IN-PROFILE`, `R-PERSONA-ONBOARD`, `R-WECHAT-DRAFT`
+- 最近改动 (Latest): `30f7635d` (2026-11-16): style(web): 技能图谱只常显核心标签、个人画像去掉游戏化说法；加载用骨架屏；加界面规范守护测试
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 54（✅ 54 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-UI-COMMERCIAL`, `R-PERSONA-ONBOARD`, `F-ASK`, `R-ISLAND-CLEANUP`, `R-RESUME-LABEL`, `R-MEDIA-VIEW`, `R-LLM-IN-PROFILE`, `R-WECHAT-DRAFT`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -611,16 +611,16 @@ erDiagram
 
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
-- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (20 commits)
+- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (19 commits)
 - [`apps/web/src/app/globals.css`](apps/web/src/app/globals.css) (12 commits)
 - [`packages/daemon/assets/workbuddy_cli.mjs`](packages/daemon/assets/workbuddy_cli.mjs) (10 commits)
-- [`apps/web/src/components/layout/Sidebar.tsx`](apps/web/src/components/layout/Sidebar.tsx) (9 commits)
+- [`apps/web/src/components/layout/Sidebar.tsx`](apps/web/src/components/layout/Sidebar.tsx) (8 commits)
 - [`apps/web/src/components/ExecutionCard.tsx`](apps/web/src/components/ExecutionCard.tsx) (7 commits)
 - [`apps/web/src/components/ask/bubbles.tsx`](apps/web/src/components/ask/bubbles.tsx) (7 commits)
-- [`apps/web/src/components/viewers/MediaInspectorPanel.tsx`](apps/web/src/components/viewers/MediaInspectorPanel.tsx) (7 commits)
 - [`apps/desktop/src/main.ts`](apps/desktop/src/main.ts) (6 commits)
 - [`apps/web/src/app/app/page.tsx`](apps/web/src/app/app/page.tsx) (6 commits)
 - [`apps/web/src/components/ask/AskTopBar.tsx`](apps/web/src/components/ask/AskTopBar.tsx) (6 commits)
+- [`apps/web/src/components/viewers/MediaInspectorPanel.tsx`](apps/web/src/components/viewers/MediaInspectorPanel.tsx) (6 commits)
 
 ## 8. Development & Verification Commands
 
@@ -643,12 +643,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `30f7635d` (2026-11-16): style(web): 技能图谱只常显核心标签、个人画像去掉游戏化说法；加载用骨架屏；加界面规范守护测试
 - `aa0b6e73` (2026-11-16): fix(web): 作息节律统计数字去掉重复的 fontVariantNumeric（上一提交类型检查失败）
 - `84e93226` (2026-11-16): style(web): 项目工程隐藏临时目录、按最近活跃排序并支持搜索；状态色统一成主题变量；数字不再用等宽字体
 - `f1d3aa6d` (2026-11-16): style(web): 统一外壳——顶栏只留标题，语言和风格收进头像菜单；去掉界面里的 emoji 和炫技文案；运行状态停到左栏底部；品牌化 404
 - `a48b5c43` (2026-11-16): style(桌面端): Windows 上顶栏和系统窗口按钮的间距收回到 4px，看上去约 27px，不再隔太远
 - `e6ba1ea4` (2026-11-16): fix(桌面端): Windows 上工作台工具栏的次要按钮收进「⋯」，整行放得下，不再挤到系统窗口按钮底下
-- `7d7ca182` (2026-11-16): style(桌面端): Windows 上顶栏最后一个按钮离系统窗口按钮留 24px，不再挨在一起
 
 ## 10. Key Environment Variables & Configuration
 
@@ -671,8 +671,8 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ### 最近提交碰到的业务条目（改动后复查它们还成不成立）
 
+- `30f7635d` style(web): 技能图谱只常显核心标签、个人画像去掉游戏化说法；加载用骨架屏；加界面规范守护测试 → `R-UI-COMMERCIAL`, `R-PERSONA-ONBOARD`
 - `f1d3aa6d` style(web): 统一外壳——顶栏只留标题，语言和风格收进头像菜单；去掉界面里的 emoji 和炫技文案；运行状态停到左栏底部；品牌化 404 → `F-ASK`, `R-ISLAND-CLEANUP`, `R-RESUME-LABEL`, `R-UI-COMMERCIAL`, `R-MEDIA-VIEW`, `R-LLM-IN-PROFILE`, `R-PERSONA-ONBOARD`, `R-WECHAT-DRAFT`, `S-RUN-STATE`
-- `e6ba1ea4` fix(桌面端): Windows 上工作台工具栏的次要按钮收进「⋯」，整行放得下，不再挤到系统窗口按钮底下 → `R-MEDIA-VIEW`, `R-WECHAT-DRAFT`
 
 ---
 _Auto-maintained by `scripts/project_blueprint.mjs` (v20261126) & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._

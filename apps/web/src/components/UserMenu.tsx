@@ -281,7 +281,8 @@ export function UserMenu({ variant = "sidebar", collapsed = false, onNavClick }:
                     color: "var(--aurora-fg3)",
                     border: "1px solid var(--aurora-border)",
                     fontWeight: 500,
-                    textTransform: "uppercase",
+                    whiteSpace: "nowrap",
+                    flexShrink: 0,
                   }}
                 >
                   {roleLabel(user.role)}

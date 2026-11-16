@@ -1456,7 +1456,7 @@ export default function DigitalTwinAvatar3D({
           {onOpenAvatarCustomizer && (
             <button
               onClick={onOpenAvatarCustomizer}
-              className="px-2 sm:px-2.5 py-1 rounded-xl text-[11px] font-mono font-medium transition-all backdrop-blur-md border bg-purple-950/40 border-purple-500/40 text-purple-300 hover:bg-purple-900/60 hover:text-white flex items-center gap-1 shadow-md"
+              className="hidden sm:flex px-2 sm:px-2.5 py-1 rounded-xl text-[11px] font-mono font-medium transition-all backdrop-blur-md border bg-purple-950/40 border-purple-500/40 text-purple-300 hover:bg-purple-900/60 hover:text-white items-center gap-1 shadow-md"
               title="定制或重塑数字孪生形象"
             >
               <Icon name="edit" size={12} />
@@ -1471,7 +1471,7 @@ export default function DigitalTwinAvatar3D({
               setIsVoiceEnabled(next);
               if (next) speakPhrase("数字孪生拟态语音已激活");
             }}
-            className={`px-2 sm:px-2.5 py-1 rounded-xl text-[11px] font-medium transition-all backdrop-blur-md border flex items-center gap-1 ${
+            className={`hidden sm:flex px-2 sm:px-2.5 py-1 rounded-xl text-[11px] font-medium transition-all backdrop-blur-md border items-center gap-1 ${
               isVoiceEnabled
                 ? "bg-[#10B981]/25 text-[#10B981] border-[#10B981]/40 shadow-xs"
                 : "bg-black/50 text-white/50 border-white/10 hover:text-white"
@@ -1519,7 +1519,7 @@ export default function DigitalTwinAvatar3D({
                 window.dispatchEvent(new CustomEvent("memento:set-cam-view", { detail: nextMode }));
               }
             }}
-            className={`px-2 sm:px-2.5 py-1 rounded-xl text-[11px] font-medium transition-all backdrop-blur-md border flex items-center gap-1 ${
+            className={`hidden sm:flex px-2 sm:px-2.5 py-1 rounded-xl text-[11px] font-medium transition-all backdrop-blur-md border items-center gap-1 ${
               viewMode === "close"
                 ? "bg-[#3B82F6]/30 text-[#93C5FD] border-[#3B82F6]/50 shadow-xs"
                 : "bg-black/50 text-white/70 border-white/10 hover:bg-black/70 hover:text-white"

@@ -316,8 +316,11 @@ _IGNORE_PATH_DIRS = {
     "temp", "tmp", "scratch", "tools", "mcp", "import", "off", ".system_generated",
     "subagents", "workflows", "conversations", "logs",
 }
+# Not "scratch": a folder the user named so is a project like any other (Antigravity users make
+# ~/Documents/antigravity/scratch); Antigravity's own ~/.gemini/antigravity/scratch is left out by
+# its path instead (_is_agy_scratch).
 _IGNORE_PROJECT_NAMES = {
-    "-", "--", "...", "dev", "desktop", "tmp", "temp", "scratch", "projects", "workspace",
+    "-", "--", "...", "dev", "desktop", "tmp", "temp", "projects", "workspace",
     "file:", "file", "untitled", "unknown", "none", "null",
 }
 
@@ -459,6 +462,12 @@ _TOOL_STATE_MARKERS = ("/.gemini/antigravity/brain/", "/.system_generated/", "/.
 _ROOT_LIKE_PATH = re.compile(r"^(?:[a-z]:)?/?(?:users|home)?/?$", re.IGNORECASE)
 
 
+def _is_agy_scratch(path: str | None) -> bool:
+    """Antigravity's own scratch folder (~/.gemini/antigravity/scratch), where it works when no folder
+    is open; projects it makes inside it are real ones."""
+    return (path or "").replace("\\", "/").rstrip("/").lower().endswith("/.gemini/antigravity/scratch")
+
+
 def is_junk_project(title: str | None, source_path: str | None) -> bool:
     """A file, a tool's own state folder or a bare home root picked up as a project."""
     if title and _FILE_LIKE_NAME.search(title.strip()):
@@ -466,7 +475,7 @@ def is_junk_project(title: str | None, source_path: str | None) -> bool:
     sp = (source_path or "").replace("\\", "/").strip()
     if not sp:
         return False
-    if any(marker in sp.lower().rstrip("/") + "/" for marker in _TOOL_STATE_MARKERS):
+    if any(marker in sp.lower().rstrip("/") + "/" for marker in _TOOL_STATE_MARKERS) or _is_agy_scratch(sp):
         return True
     return bool(_ROOT_LIKE_PATH.match(sp.rstrip("/")))
 
@@ -576,6 +585,10 @@ async def ensure_project(
 ) -> Project:
     """Ensure a project record exists for a given hash/path."""
     project_hash = (project_hash or "").strip("-\"'` ")
+    # Antigravity's own scratch folder files under "general" as before, never under the slug of a
+    # folder of the user's that is also called scratch
+    if _is_agy_scratch(source_path):
+        project_hash, source_path = "general", None
     if _is_invalid_project_name(project_hash):
         sp_cand = (source_path or "").replace("\\", "/").rstrip("/").split("/")[-1].strip("-\"'` ")
         if not _is_invalid_project_name(sp_cand):

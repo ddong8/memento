@@ -43,6 +43,21 @@ class JunkProjectTests(unittest.TestCase):
     def test_app_data_folders_are_not_projects(self) -> None:
         self.assertTrue(is_junk_project("memento", "C:\\Users\\Admin\\AppData\\Local\\Memento"))
 
+    def test_antigravity_own_scratch_folder_is_not_a_project(self) -> None:
+        self.assertTrue(is_junk_project("scratch", "C:/Users/me/.gemini/antigravity/scratch"))
+        self.assertTrue(is_junk_project("scratch", "/Users/me/.gemini/antigravity/scratch/"))
+        # What the agent builds inside it is
+        self.assertFalse(is_junk_project("todo-app", "/Users/me/.gemini/antigravity/scratch/todo-app"))
+
+    def test_a_folder_of_the_users_called_scratch_is_a_project(self) -> None:
+        from server.services.ingest_service import _clean_source_path, _is_invalid_project_name
+
+        self.assertFalse(is_junk_project("scratch", "C:/Users/me/Documents/antigravity/scratch"))
+        self.assertFalse(_is_invalid_project_name("scratch"))
+        self.assertEqual(
+            _clean_source_path("file:///c%3A/Users/me/Documents/antigravity/scratch"), "c:/Users/me/Documents/antigravity/scratch"
+        )
+
     def test_real_projects_stay(self) -> None:
         self.assertFalse(is_junk_project("memento", "/Users/me/dev/memento"))
         self.assertFalse(is_junk_project("home", "d:/dev/2026/0518/home"))

@@ -57,10 +57,11 @@ export function ThinkingBlock({ thinking, isLive }: { thinking: string; isLive?:
         className="transition-all duration-300"
         style={{
           width: "100%",
-          marginBottom: 8,
+          marginBottom: 10,
           borderRadius: 10,
           border: "1px solid var(--aurora-border)",
-          background: isLive ? "rgba(255, 255, 255, 0.03)" : "var(--aurora-chip)",
+          borderLeft: "2.5px solid var(--aurora-accent)",
+          background: "var(--aurora-thinking-header)",
           overflow: "hidden",
           maxWidth: "100%",
           minWidth: 0,
@@ -72,7 +73,7 @@ export function ThinkingBlock({ thinking, isLive }: { thinking: string; isLive?:
             setUserToggled(true);
             setManualExpanded(!expanded);
           }}
-          className="group/pill hover:bg-white/5 transition-colors"
+          className="group/pill hover:opacity-90 transition-opacity"
           style={{
             width: "100%",
             display: "flex",
@@ -82,35 +83,35 @@ export function ThinkingBlock({ thinking, isLive }: { thinking: string; isLive?:
             background: "transparent",
             border: "none",
             cursor: "pointer",
-            fontSize: 13,
+            fontSize: 12.5,
             color: "var(--aurora-fg3)",
             textAlign: "left",
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, flex: 1, overflow: "hidden" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0, flex: 1, overflow: "hidden" }}>
             <Icon
               name="zap"
-              size={14}
+              size={13.5}
               style={{
                 color: isLive ? "var(--aurora-accent)" : "#F59E0B",
                 animation: isLive ? "pulse 1.5s infinite" : "none",
                 flexShrink: 0,
               }}
             />
-            <span style={{ fontWeight: 500, color: isLive ? "var(--aurora-accent)" : "var(--aurora-fg2)", whiteSpace: "nowrap" }}>
+            <span style={{ fontWeight: 600, color: isLive ? "var(--aurora-accent)" : "var(--aurora-fg2)", whiteSpace: "nowrap" }}>
               {isLive ? t.ask.thinking : t.ask.thinkingDone}
             </span>
             {isLive ? (
-              <span style={{ fontSize: 12, color: "var(--aurora-fg4)", opacity: 0.9, fontVariantNumeric: "tabular-nums" }}>
+              <span style={{ fontSize: 11.5, color: "var(--aurora-fg4)", opacity: 0.9, fontVariantNumeric: "tabular-nums" }}>
                 ({durLabel ? `推演中 ${durLabel}` : "推演中"}{countLabel ? ` · ${countLabel}` : ""})
               </span>
             ) : (
-              <span style={{ fontSize: 12, color: "var(--aurora-fg4)", opacity: 0.9, fontVariantNumeric: "tabular-nums", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              <span style={{ fontSize: 11.5, color: "var(--aurora-fg4)", opacity: 0.9, fontVariantNumeric: "tabular-nums", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 ({durLabel ? `耗时 ${durLabel}` : ""}{countLabel ? ` · 共 ${countLabel}` : ""}{speedLabel ? ` · ${speedLabel}` : ""})
               </span>
             )}
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12, color: "var(--aurora-fg4)", flexShrink: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 11.5, color: "var(--aurora-fg4)", flexShrink: 0 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
               <span>{expanded ? t.ask.hideThinking : t.ask.showThinking}</span>
               <Icon name={expanded ? "chevron_up" : "chevron_down"} size={13} />
@@ -125,7 +126,7 @@ export function ThinkingBlock({ thinking, isLive }: { thinking: string; isLive?:
               width: "100%",
               borderTop: "1px solid var(--aurora-border)",
               padding: "10px 12px",
-              background: "rgba(0, 0, 0, 0.12)",
+              background: "var(--aurora-thinking-bg)",
               fontSize: 14,
               lineHeight: 1.625,
               color: "var(--aurora-fg2)",
@@ -219,10 +220,11 @@ export const UserBubble = memo(function UserBubble({
       <div
         className="select-text aurora-bevel"
         style={{
-          background: "var(--aurora-accent-soft)",
+          background: "var(--aurora-user-bubble)",
+          border: "1px solid var(--aurora-user-bubble-border)",
           color: "var(--aurora-fg1)",
-          padding: "8px 12px",
-          borderRadius: 12,
+          padding: "9px 14px",
+          borderRadius: "14px 14px 4px 14px",
           maxWidth: "min(96%, 720px)",
           fontSize: 14,
           lineHeight: 1.625,
@@ -460,8 +462,8 @@ export const AssistantBubble = memo(function AssistantBubble({
   return (
     <div style={{ width: "100%" }}>
       <Glass
-        padding="clamp(4px, 1.2vw, 16px)"
-        radius={12}
+        padding="clamp(6px, 1.3vw, 18px)"
+        radius={14}
         className="select-text ask-assistant-bubble-card aurora-bevel"
         style={{
           width: "100%",

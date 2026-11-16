@@ -462,9 +462,9 @@ export default function MemoryPage() {
             <h1 className="text-xs sm:text-base font-bold text-[var(--aurora-fg1)] tracking-tight truncate">
               长期记忆 · 认知星云
             </h1>
-            <span className="text-[10px] px-2 py-0.2 rounded-full font-medium bg-[rgba(16,185,129,0.12)] text-[#10B981] hidden md:flex items-center gap-1 font-mono shrink-0">
+            <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-[rgba(16,185,129,0.12)] text-[#10B981] hidden md:flex items-center gap-1 font-mono shrink-0">
               <span className="w-1.5 h-1.5 rounded-full bg-[#10B981] breathing-glow-emerald" />
-              {nodes.length || stats?.entities || 42} 实体 · {edges.length || stats?.relations || 86} 突触
+              {nodes.length || stats?.entities || 0} 实体 · {edges.length || stats?.relations || 0} 突触
             </span>
           </div>
         </div>
@@ -473,17 +473,21 @@ export default function MemoryPage() {
         <div className="flex items-center gap-1.5">
           <button
             onClick={() => {
+              setIsPanelCollapsed(false);
               setActiveTab("dreaming");
               setNotice("已就绪夜间梦境控制台，可手动唤醒记忆深度蒸馏提炼");
             }}
-            className="px-2.5 py-1 rounded-xl text-xs font-medium text-[var(--aurora-fg2)] bg-[var(--aurora-surface-solid)] hover:bg-[var(--aurora-chip)] border border-[var(--aurora-border)] flex items-center gap-1.5 transition-all shadow-2xs"
+            className="px-2.5 py-1 rounded-lg text-xs font-medium text-[var(--aurora-fg2)] bg-[var(--aurora-surface-solid)] hover:bg-[var(--aurora-chip)] border border-[var(--aurora-border)] flex items-center gap-1.5 transition-all"
           >
-            <span className="text-amber-400">🌙</span>
+            <Icon name="moon" size={12} style={{ color: "var(--aurora-accent)" }} />
             <span>梦境提炼</span>
           </button>
           <button
-            onClick={() => setActiveTab("markdown")}
-            className="px-2.5 py-1 rounded-xl text-xs font-medium text-[var(--aurora-fg2)] bg-[var(--aurora-surface-solid)] hover:bg-[var(--aurora-chip)] border border-[var(--aurora-border)] flex items-center gap-1.5 transition-all shadow-2xs"
+            onClick={() => {
+              setIsPanelCollapsed(false);
+              setActiveTab("markdown");
+            }}
+            className="px-2.5 py-1 rounded-lg text-xs font-medium text-[var(--aurora-fg2)] bg-[var(--aurora-surface-solid)] hover:bg-[var(--aurora-chip)] border border-[var(--aurora-border)] flex items-center gap-1.5 transition-all"
           >
             <Icon name="file_text" size={12} />
             <span>MEMORY.md</span>
@@ -507,7 +511,7 @@ export default function MemoryPage() {
           currentTab="memory"
           variant="compact"
           summaryStats={{
-            memoryCount: totalLeaves || 39,
+            memoryCount: totalLeaves || 0,
             syncedTargetsCount: 5,
           }}
         />
@@ -768,26 +772,26 @@ export default function MemoryPage() {
         {!isPanelCollapsed && (
           <div className="max-lg:fixed max-lg:inset-0 max-lg:z-50 max-lg:rounded-none max-lg:border-none lg:col-span-7 h-full flex flex-col min-h-0 bg-[var(--aurora-surface)] rounded-3xl border border-[var(--aurora-border)] shadow-2xl overflow-hidden animate-in fade-in max-lg:slide-in-from-bottom-6 duration-300">
             {/* A. 顶部仪表盘概览与 Tab 导航区 (Sticky Header) */}
-            <div className="p-3 bg-gradient-to-r from-[var(--aurora-surface-solid)] via-[var(--aurora-surface)] to-[var(--aurora-chip)] border-b border-[var(--aurora-border)] shrink-0 space-y-2.5">
+            <div className="p-3 bg-[var(--aurora-thinking-header)] border-b border-[var(--aurora-border)] shrink-0 space-y-2.5">
               {/* Mobile Back Button to 3D */}
-              <div className="flex items-center justify-between lg:hidden pb-1 border-b border-white/10">
+              <div className="flex items-center justify-between lg:hidden pb-1.5 border-b border-[var(--aurora-border)]">
                 <button
                   onClick={() => setIsPanelCollapsed(true)}
-                  className="px-2.5 py-1 rounded-xl bg-white/10 hover:bg-white/20 text-xs font-semibold flex items-center gap-1.5 shrink-0 text-white"
+                  className="px-2.5 py-1 rounded-lg bg-[var(--aurora-chip)] hover:bg-[var(--aurora-accent-soft)] text-xs font-semibold flex items-center gap-1.5 shrink-0 text-[var(--aurora-fg1)] border border-[var(--aurora-border)]"
                 >
                   <Icon name="arrow_left" size={14} />
                   <span>返回 3D 认知舞台</span>
                 </button>
-                <span className="text-[11px] font-mono text-white/50">知识准则管理中枢</span>
+                <span className="text-[11px] font-mono text-[var(--aurora-fg3)]">知识准则管理中枢</span>
               </div>
               {/* 三列高级 KPI 态势磁贴 */}
               <div className="grid grid-cols-3 gap-2">
                 {/* Tile 1: 知识准则条数 */}
-                <div className="p-2 rounded-xl bg-[var(--aurora-surface)]/80 border border-[var(--aurora-border)] flex items-center justify-between">
+                <div className="p-2 rounded-xl bg-[var(--aurora-surface-solid)] border border-[var(--aurora-border)] flex items-center justify-between">
                   <div>
-                    <div className="text-[10px] text-[var(--aurora-fg4)]">长效准则库</div>
-                    <div className="text-xs font-bold text-[#10B981] font-mono mt-0.5">
-                      {totalLeaves || 39} <span className="text-[10px] font-normal text-[var(--aurora-fg3)]">条</span>
+                    <div className="text-[10px] text-[var(--aurora-fg3)]">长效准则库</div>
+                    <div className="text-xs font-bold text-[#10B981] font-mono mt-0.5 tabular-nums">
+                      {totalLeaves || 0} <span className="text-[10px] font-normal text-[var(--aurora-fg3)]">条</span>
                     </div>
                   </div>
                   <div className="text-right">
@@ -798,30 +802,30 @@ export default function MemoryPage() {
                 </div>
 
                 {/* Tile 2: 星云实体规模 */}
-                <div className="p-2 rounded-xl bg-[var(--aurora-surface)]/80 border border-[var(--aurora-border)] flex items-center justify-between">
+                <div className="p-2 rounded-xl bg-[var(--aurora-surface-solid)] border border-[var(--aurora-border)] flex items-center justify-between">
                   <div>
-                    <div className="text-[10px] text-[var(--aurora-fg4)]">知识星晶实体</div>
-                    <div className="text-xs font-bold text-[#38BDF8] font-mono mt-0.5">
-                      {nodes.length || stats?.entities || 42} <span className="text-[10px] font-normal text-[var(--aurora-fg3)]">星晶</span>
+                    <div className="text-[10px] text-[var(--aurora-fg3)]">知识星晶实体</div>
+                    <div className="text-xs font-bold text-[#38BDF8] font-mono mt-0.5 tabular-nums">
+                      {nodes.length || stats?.entities || 0} <span className="text-[10px] font-normal text-[var(--aurora-fg3)]">星晶</span>
                     </div>
                   </div>
                   <div className="text-right">
                     <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-[rgba(56,189,248,0.1)] text-[#38BDF8]">
-                      {edges.length || stats?.relations || 86} 突触
+                      {edges.length || stats?.relations || 0} 突触
                     </span>
                   </div>
                 </div>
 
                 {/* Tile 3: 梦境蒸馏进化 */}
-                <div className="p-2 rounded-xl bg-[var(--aurora-surface)]/80 border border-[var(--aurora-border)] flex items-center justify-between">
+                <div className="p-2 rounded-xl bg-[var(--aurora-surface-solid)] border border-[var(--aurora-border)] flex items-center justify-between">
                   <div>
-                    <div className="text-[10px] text-[var(--aurora-fg4)]">夜间梦境提炼</div>
-                    <div className="text-xs font-bold text-[#A855F7] font-mono mt-0.5">
+                    <div className="text-[10px] text-[var(--aurora-fg3)]">夜间梦境提炼</div>
+                    <div className="text-xs font-bold text-[var(--aurora-accent)] font-mono mt-0.5">
                       持续蒸馏 <span className="text-[10px] font-normal text-[var(--aurora-fg3)]">就绪</span>
                     </div>
                   </div>
                   <div className="text-right">
-                    <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-[rgba(168,85,247,0.1)] text-[#A855F7]">
+                    <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-[var(--aurora-accent-soft)] text-[var(--aurora-accent)]">
                       去重合并
                     </span>
                   </div>
@@ -830,24 +834,25 @@ export default function MemoryPage() {
 
               {/* Navigation Tabs Bar with Collapse Action */}
               <div className="flex items-center justify-between gap-2 overflow-x-auto pb-0.5">
-                <div className="flex items-center gap-1.5">
-                  {[
-                    { id: "tree", label: `🌳 知识准则树 (${totalLeaves || 39})`, color: "#10B981" },
-                    { id: "entity", label: `🌌 实体拓扑 ${selectedEntity ? `· ${selectedEntity.name}` : ""}`, color: "#38BDF8" },
-                    { id: "dreaming", label: "🌙 梦境夜间提炼", color: "#A855F7" },
-                    { id: "search", label: "🔍 认知检索", color: "#F59E0B" },
-                    { id: "markdown", label: "📜 MEMORY.md", color: "#64748B" },
-                  ].map((tb) => (
+                <div className="flex items-center gap-1">
+                  {([
+                    { id: "tree", icon: "layers" as const, label: `知识准则树 (${totalLeaves || 0})` },
+                    { id: "entity", icon: "target" as const, label: `实体拓扑${selectedEntity ? ` · ${selectedEntity.name}` : ""}` },
+                    { id: "dreaming", icon: "moon" as const, label: "梦境提炼" },
+                    { id: "search", icon: "search" as const, label: "认知检索" },
+                    { id: "markdown", icon: "file_text" as const, label: "MEMORY.md" },
+                  ] as const).map((tb) => (
                     <button
                       key={tb.id}
-                      onClick={() => setActiveTab(tb.id as typeof activeTab)}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-medium whitespace-nowrap transition-all border ${
+                      onClick={() => setActiveTab(tb.id)}
+                      className={`px-2.5 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-all border flex items-center gap-1.5 cursor-pointer ${
                         activeTab === tb.id
-                          ? "bg-[var(--aurora-surface-solid)] text-[var(--aurora-fg1)] border-[var(--aurora-border-strong)] shadow-xs font-bold"
-                          : "border-transparent text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-surface-solid)]/60"
+                          ? "bg-[var(--aurora-accent-soft)] text-[var(--aurora-accent)] border-[var(--aurora-accent)]/30 font-semibold"
+                          : "border-transparent text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)]"
                       }`}
                     >
-                      {tb.label}
+                      <Icon name={tb.icon} size={12.5} />
+                      <span>{tb.label}</span>
                     </button>
                   ))}
                 </div>

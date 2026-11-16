@@ -41,7 +41,7 @@ export default function Header({ onMenuToggle, className = "" }: { onMenuToggle:
 
   return (
     <header
-      className={`h-11 sm:h-14 flex items-center justify-between px-3 sm:px-4 md:px-6 fixed top-0 left-0 ${collapsed ? "lg:left-[68px]" : "lg:left-60"} right-0 z-20 transition-[left] duration-200 ease-in-out ${isDesktopApp ? "app-region-drag" : ""} ${className}`}
+      className={`h-11 sm:h-12 flex items-center justify-between px-3 sm:px-5 md:px-7 fixed top-0 left-0 ${collapsed ? "lg:left-[68px]" : "lg:left-60"} right-0 z-20 transition-[left] duration-200 ease-in-out ${isDesktopApp ? "app-region-drag" : ""} ${className}`}
       style={{
         background: "var(--aurora-surface)",
         backdropFilter: "var(--aurora-blur)",
@@ -49,7 +49,7 @@ export default function Header({ onMenuToggle, className = "" }: { onMenuToggle:
         borderBottom: "1px solid var(--aurora-border)",
       }}
     >
-      <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
+      <div className="flex items-center gap-2 sm:gap-2.5 min-w-0 flex-1">
         {/* Mobile menu */}
         <button
           onClick={onMenuToggle}
@@ -57,7 +57,7 @@ export default function Header({ onMenuToggle, className = "" }: { onMenuToggle:
           className="lg:hidden p-1 -ml-0.5 rounded-lg active:bg-[var(--aurora-chip)]"
           style={{ color: "var(--aurora-fg2)" }}
         >
-          <Icon name="menu" size={20} />
+          <Icon name="menu" size={19} />
         </button>
 
         {/* Desktop Sidebar toggle when collapsed */}
@@ -69,7 +69,7 @@ export default function Header({ onMenuToggle, className = "" }: { onMenuToggle:
             className="hidden lg:flex items-center justify-center p-1.5 rounded-lg text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)] transition-colors app-region-no-drag"
             style={{ border: "none", background: "transparent", cursor: "pointer" }}
           >
-            <Icon name="sidebar" size={17} />
+            <Icon name="sidebar" size={16} />
           </button>
         )}
 
@@ -77,21 +77,21 @@ export default function Header({ onMenuToggle, className = "" }: { onMenuToggle:
         <div className="flex items-center gap-2 min-w-0">
           <div
             style={{
-              width: 24,
-              height: 24,
-              borderRadius: 7,
-              background: "var(--aurora-brand-grad)",
+              width: 22,
+              height: 22,
+              borderRadius: 6,
+              background: "var(--aurora-accent-soft)",
+              border: "1px solid color-mix(in srgb, var(--aurora-accent) 22%, transparent)",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              boxShadow: "0 2px 8px -2px rgba(124,58,237,0.45)",
               flexShrink: 0,
             }}
           >
-            <Icon name={pageMeta.icon} size={12.5} style={{ color: "#fff" }} strokeWidth={2.2} />
+            <Icon name={pageMeta.icon} size={12} style={{ color: "var(--aurora-accent)" }} strokeWidth={2} />
           </div>
           <span
-            className="truncate text-[13.5px] sm:text-[14px]"
+            className="truncate text-[13px] sm:text-[13.5px]"
             style={{
               fontWeight: 600,
               color: "var(--aurora-fg1)",
@@ -103,12 +103,12 @@ export default function Header({ onMenuToggle, className = "" }: { onMenuToggle:
         </div>
 
         <span
-          className="hidden sm:inline-block h-3.5 w-[1px] mx-0.5"
+          className="hidden sm:inline-block h-3 w-[1px] mx-1"
           style={{ background: "var(--aurora-border-strong)" }}
         />
 
         {/* Language switcher */}
-        <div className="hidden sm:flex gap-1 app-region-no-drag">
+        <div className="hidden sm:flex gap-0.5 app-region-no-drag">
           {(Object.keys(locales) as Locale[]).map((l) => {
             const active = locale === l;
             return (
@@ -116,10 +116,10 @@ export default function Header({ onMenuToggle, className = "" }: { onMenuToggle:
                 key={l}
                 onClick={() => setLocale(l)}
                 style={{
-                  padding: "5px 10px",
-                  borderRadius: 8,
+                  padding: "3px 8px",
+                  borderRadius: 6,
                   fontSize: 11,
-                  fontWeight: 500,
+                  fontWeight: active ? 600 : 500,
                   letterSpacing: "-0.005em",
                   border: 0,
                   cursor: "pointer",
@@ -135,7 +135,7 @@ export default function Header({ onMenuToggle, className = "" }: { onMenuToggle:
         </div>
       </div>
 
-      <div className="flex items-center gap-2 sm:gap-3">
+      <div className="flex items-center gap-2">
         <div className="hidden md:block"><SkinPicker /></div>
         <ThemeToggle />
         {!user && (

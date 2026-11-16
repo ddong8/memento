@@ -1,14 +1,16 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, type AgentQuotasResponse } from "@/lib/api-client";
 import { Icon } from "@/components/aurora/Icon";
 import { BrandMark } from "@/components/aurora/BrandMark";
-import { Btn } from "@/components/aurora/primitives";
+import { Btn, ThemeToggle } from "@/components/aurora/primitives";
 import { useMediaInspector } from "@/components/viewers/MediaInspectorContext";
 import { resolveConversationAgent } from "@/components/ask/HistoryDrawer";
 import { useI18n } from "@/lib/i18n";
 import { useTheme } from "@/lib/theme-context";
+import { useSidebar } from "@/lib/sidebar-context";
+import { desktop } from "@/lib/desktop";
 import { hasNativeMenu, popupNativeMenu, type NativeMenuItem } from "@/lib/native-menu";
 import type { ExecutionMode } from "@/lib/ask/turns";
 import type { ModelQuota } from "@/lib/ask/model-limits";
@@ -60,8 +62,14 @@ export function AskTopBar({
   const isZh = locale.startsWith("zh");
   const inspector = useMediaInspector();
   const { theme, toggleTheme } = useTheme();
+  const { collapsed, toggleCollapsed } = useSidebar();
+  const [isDesktopApp, setIsDesktopApp] = useState(false);
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const moreRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (desktop()) setIsDesktopApp(true);
+  }, []);
 
   // The desktop app shows this menu as the system's own menu; a browser and the mobile app get the page's
   const openMoreMenu = async () => {
@@ -99,27 +107,40 @@ export function AskTopBar({
   };
 
   return (
-    <header className="px-2 sm:px-4 py-0 sm:py-2.5 border-b border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/95 sm:bg-[var(--aurora-surface-solid)]/75 sm:backdrop-blur-md flex items-center justify-between gap-1 sm:gap-2.5 shrink-0 select-none relative z-20 min-h-[34px] sm:min-h-[46px]">
+    <header className={`px-2.5 sm:px-4 py-1 sm:py-2 border-b border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/95 sm:bg-[var(--aurora-surface)] sm:backdrop-blur-md flex items-center justify-between gap-1.5 sm:gap-2.5 shrink-0 select-none relative z-20 min-h-[38px] sm:min-h-[44px] ${isDesktopApp ? "app-region-drag" : ""}`}>
       <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-1 mr-1 sm:mr-2 overflow-hidden">
-        {/* 移动端侧边菜单开关 (在移动端下充当主侧边栏汉堡按钮) */}
+        {/* 移动端与平板侧边菜单开关 */}
         <button
           type="button"
           onClick={() => window.dispatchEvent(new CustomEvent("memento_toggle_sidebar"))}
           aria-label="打开侧边导航"
           title={isZh ? "打开侧边栏" : "Open sidebar"}
-          className="sm:hidden p-1.5 -ml-1 rounded-lg text-[var(--aurora-fg2)] active:bg-[var(--aurora-chip)] shrink-0 transition-colors"
+          className="lg:hidden p-1.5 -ml-1 rounded-lg text-[var(--aurora-fg2)] active:bg-[var(--aurora-chip)] shrink-0 transition-colors app-region-no-drag"
         >
-          <Icon name="menu" size={19} />
+          <Icon name="menu" size={18} />
         </button>
 
+        {/* 桌面端侧边栏收起时的展开开关 */}
+        {collapsed && (
+          <button
+            type="button"
+            onClick={toggleCollapsed}
+            title="展开侧边栏 (⌘B)"
+            className="hidden lg:flex items-center justify-center p-1.5 -ml-1 rounded-lg text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)] shrink-0 transition-colors app-region-no-drag"
+            style={{ border: "none", background: "transparent", cursor: "pointer" }}
+          >
+            <Icon name="sidebar" size={16} />
+          </button>
+        )}
+
         {/* 当前会话标题与智能体图标徽章 */}
-        <div className="min-w-0 flex-1 flex items-center gap-1.5 overflow-hidden">
+        <div className="min-w-0 flex-1 flex items-center gap-2 overflow-hidden">
           {agent.brandId ? (
             <div
               className="w-5 h-5 rounded-md flex items-center justify-center shrink-0"
               style={{
-                background: agentColor + "18",
-                border: `1px solid ${agentColor}35`,
+                background: agentColor + "16",
+                border: `1px solid ${agentColor}30`,
               }}
               title={agent.name}
             >
@@ -138,7 +159,7 @@ export function AskTopBar({
             </div>
           )}
           <h1
-            className="text-[13.5px] sm:text-sm font-semibold text-[var(--aurora-fg1)] truncate"
+            className="text-[13.5px] sm:text-[14px] font-semibold text-[var(--aurora-fg1)] truncate tracking-tight"
             title={title}
           >
             {title}
@@ -146,7 +167,7 @@ export function AskTopBar({
         </div>
       </div>
 
-      <div className="flex items-center gap-1 sm:gap-1.5 shrink-0 relative">
+      <div className="flex items-center gap-1 sm:gap-1.5 shrink-0 relative app-region-no-drag">
         {/* 工作台独立视窗快捷开关 (桌面端展示；移动端收拢至更多菜单) */}
         {inspector && inspector.mediaList.length > 0 && (
           <div className="hidden sm:inline-flex shrink-0">
@@ -448,6 +469,10 @@ export function AskTopBar({
               </div>
             </>
           )}
+        </div>
+        {/* 桌面端明暗主题切换 */}
+        <div className="hidden sm:inline-flex shrink-0">
+          <ThemeToggle />
         </div>
       </div>
     </header>

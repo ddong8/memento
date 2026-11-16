@@ -11,11 +11,11 @@ import { timeAgo } from "@/lib/constants";
 import { Icon, ToolGlyph, PlatformGlyph, TOOL_HUE } from "@/components/aurora/Icon";
 import { Glass, Chip, TopBar, SectionLabel, StatCard } from "@/components/aurora/primitives";
 
-const QUICK_PROMPTS = [
-  { icon: "📅", label: "总结昨天开发进展", prompt: "总结一下我昨天在各个设备和工具上的开发工作与对话" },
-  { icon: "💻", label: "检查在线设备状态", prompt: "列出当前所有在线的设备，并检查它们的运行状态与端口" },
-  { icon: "🔍", label: "检索近期架构讨论", prompt: "回顾一下我最近关于项目架构设计与关键方案的讨论" },
-  { icon: "⚡", label: "排查服务与报错", prompt: "帮我排查一下开发机上的服务运行日志与最新报错" },
+const QUICK_PROMPTS: { icon: Parameters<typeof Icon>[0]["name"]; label: string; prompt: string }[] = [
+  { icon: "calendar", label: "总结昨天开发进展", prompt: "总结一下我昨天在各个设备和工具上的开发工作与对话" },
+  { icon: "devices", label: "检查在线设备状态", prompt: "列出当前所有在线的设备，并检查它们的运行状态与端口" },
+  { icon: "search", label: "检索近期架构讨论", prompt: "回顾一下我最近关于项目架构设计与关键方案的讨论" },
+  { icon: "terminal", label: "排查服务与报错", prompt: "帮我排查一下开发机上的服务运行日志与最新报错" },
 ];
 
 interface DashboardData {
@@ -135,90 +135,74 @@ export default function Dashboard() {
         )}
       />
 
-      {/* Ask AI Hero Card */}
-      <div style={{ position: "relative", marginBottom: 20 }}>
-        <Glass padding={24} radius={24} style={{ overflow: "hidden", position: "relative" }}>
-          <div
-            aria-hidden
-            style={{
-              position: "absolute",
-              top: -80,
-              right: -40,
-              width: 340,
-              height: 340,
-              borderRadius: "50%",
-              background: "radial-gradient(circle, color-mix(in srgb, var(--aurora-accent) 32%, transparent), transparent 70%)",
-              filter: "blur(40px)",
-              pointerEvents: "none",
-            }}
-          />
+      {/* Ask AI Command Bar Card */}
+      <div style={{ position: "relative", marginBottom: 16 }}>
+        <Glass padding="18px 20px" radius={16} style={{ overflow: "hidden", position: "relative" }}>
           <div style={{ position: "relative" }}>
-            <div className="flex items-center justify-between gap-4 mb-3">
+            <div className="flex items-center justify-between gap-4 mb-2.5">
               <div className="flex items-center gap-2.5">
                 <div
                   style={{
-                    width: 32,
-                    height: 32,
-                    borderRadius: 10,
+                    width: 28,
+                    height: 28,
+                    borderRadius: 8,
                     background: "var(--aurora-brand-grad)",
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
-                    boxShadow: "0 4px 12px -2px color-mix(in srgb, var(--aurora-accent) 40%, transparent)",
+                    boxShadow: "0 2px 8px -2px color-mix(in srgb, var(--aurora-accent) 40%, transparent)",
                   }}
                 >
-                  <Icon name="sparkles" size={16} style={{ color: "#fff" }} />
+                  <Icon name="sparkles" size={14} style={{ color: "#fff" }} />
                 </div>
                 <div>
-                  <h2 style={{ fontSize: 17, fontWeight: 600, color: "var(--aurora-fg1)", letterSpacing: "-0.02em" }}>
-                    {t.nav.ask || "问记忆"} · 跨设备调度
+                  <h2 style={{ fontSize: 15, fontWeight: 600, color: "var(--aurora-fg1)", letterSpacing: "-0.015em", lineHeight: 1.2 }}>
+                    {t.nav.ask || "AI 执事"} · 跨设备调度
                   </h2>
-                  <p style={{ fontSize: 12, color: "var(--aurora-fg4)", marginTop: 1 }}>
-                    基于全设备沉淀的编程知识问答，或直接向在线物理机调度排查任务
+                  <p style={{ fontSize: 12, color: "var(--aurora-fg3)", marginTop: 1 }}>
+                    基于全设备沉淀的编程知识问答，或直接向在线物理机派发任务
                   </p>
                 </div>
               </div>
-              <div className="hidden sm:flex items-center gap-2 text-xs" style={{ color: "var(--aurora-fg3)" }}>
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                <span>{devices.length} 台设备就绪</span>
+              <div className="hidden sm:flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full" style={{ background: "var(--aurora-chip)", color: "var(--aurora-fg2)" }}>
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                <span style={{ fontSize: 11.5, fontWeight: 500 }}>{devices.length} 台设备就绪</span>
               </div>
             </div>
 
             {/* Prompt Input Box */}
-            <form onSubmit={handleAskSubmit} className="relative mt-4">
+            <form onSubmit={handleAskSubmit} className="relative mt-3">
               <div
                 style={{
                   display: "flex",
                   alignItems: "center",
-                  background: "var(--aurora-input)",
-                  border: "1px solid var(--aurora-border)",
-                  borderRadius: 16,
-                  padding: "6px 8px 6px 16px",
-                  boxShadow: "0 4px 20px -4px rgba(0,0,0,0.06)",
+                  background: "var(--aurora-thinking-bg)",
+                  border: "1px solid var(--aurora-border-strong)",
+                  borderRadius: 12,
+                  padding: "4px 6px 4px 12px",
                   transition: "all .2s",
                 }}
-                className="focus-within:border-purple-500 focus-within:ring-2 focus-within:ring-purple-500/20"
               >
-                <Icon name="sparkles" size={18} style={{ color: "var(--aurora-brand-from)", flexShrink: 0 }} />
+                <Icon name="search" size={15} style={{ color: "var(--aurora-fg3)", flexShrink: 0 }} />
                 <input
                   type="text"
                   value={askPrompt}
                   onChange={(e) => setAskPrompt(e.target.value)}
                   placeholder="向 AI 提问编程记忆，或下发设备指令（如：检查开发机端口、总结昨天工作）..."
-                  className="flex-1 bg-transparent border-0 outline-none text-sm px-3 py-2 text-aurora-fg1 placeholder:text-aurora-fg4 min-w-0"
+                  className="flex-1 bg-transparent border-0 outline-none text-[13.5px] px-2.5 py-1.5 text-[var(--aurora-fg1)] placeholder:text-[var(--aurora-fg4)] min-w-0"
                 />
 
                 {/* Target device selector */}
                 {devices.length > 0 && (
                   <div
-                    className="hidden sm:flex items-center gap-1 px-2.5 py-1.5 rounded-lg mr-2 text-xs"
+                    className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-lg mr-1.5 text-xs"
                     style={{
-                      background: "var(--aurora-surface)",
+                      background: "var(--aurora-surface-solid)",
                       border: "1px solid var(--aurora-border)",
                       color: "var(--aurora-fg2)",
                     }}
                   >
-                    <Icon name="devices" size={12} style={{ color: "var(--aurora-fg4)" }} />
+                    <Icon name="devices" size={12} style={{ color: "var(--aurora-fg3)" }} />
                     <select
                       value={askDevice}
                       onChange={(e) => setAskDevice(e.target.value)}
@@ -239,27 +223,27 @@ export default function Dashboard() {
                 <button
                   type="submit"
                   disabled={!askPrompt.trim()}
-                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-medium text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-medium text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                   style={{
-                    background: "var(--aurora-brand-grad)",
-                    boxShadow: "0 2px 8px -1px color-mix(in srgb, var(--aurora-accent) 40%, transparent)",
+                    background: "var(--aurora-primary-grad)",
+                    boxShadow: "var(--aurora-btn-shadow)",
                   }}
                 >
                   <span>发送</span>
-                  <Icon name="rocket" size={13} />
+                  <Icon name="arrow_right" size={12.5} />
                 </button>
               </div>
             </form>
 
             {/* Quick Prompt Chips */}
-            <div className="flex items-center gap-2 mt-3 flex-wrap">
-              <span style={{ fontSize: 11, color: "var(--aurora-fg4)", marginRight: 2 }}>快捷探索:</span>
+            <div className="flex items-center gap-1.5 mt-2.5 flex-wrap">
+              <span style={{ fontSize: 11, color: "var(--aurora-fg4)", marginRight: 2 }}>快捷指令:</span>
               {QUICK_PROMPTS.map((qp) => (
                 <button
                   key={qp.label}
                   type="button"
                   onClick={() => router.push(`/ask?q=${encodeURIComponent(qp.prompt)}`)}
-                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs transition-all hover:border-purple-400"
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs transition-all hover:border-[var(--aurora-accent)]"
                   style={{
                     background: "var(--aurora-chip)",
                     border: "1px solid var(--aurora-border)",
@@ -267,7 +251,7 @@ export default function Dashboard() {
                     cursor: "pointer",
                   }}
                 >
-                  <span>{qp.icon}</span>
+                  <Icon name={qp.icon} size={11.5} style={{ color: "var(--aurora-accent)" }} />
                   <span>{qp.label}</span>
                 </button>
               ))}
@@ -276,62 +260,10 @@ export default function Dashboard() {
         </Glass>
       </div>
 
-      {/* Hero stat card */}
-      <div style={{ position: "relative", marginBottom: 18 }}>
-        <Glass padding={28} radius={24} style={{ overflow: "hidden", position: "relative" }}>
-          <div
-            aria-hidden
-            style={{
-              position: "absolute",
-              top: -120, right: -80,
-              width: 320, height: 320, borderRadius: "50%",
-              background: "radial-gradient(circle, color-mix(in srgb, var(--aurora-accent) 35%, transparent), transparent 70%)",
-              filter: "blur(40px)",
-              pointerEvents: "none",
-            }}
-          />
-          <div style={{ position: "relative", display: "flex", gap: 36, alignItems: "center", flexWrap: "wrap" }}>
-            <div style={{ flex: 1, minWidth: 240 }}>
-              <Chip tone="accent" icon="activity" style={{ marginBottom: 10 }}>Live</Chip>
-              <div style={{ fontSize: "clamp(32px, 5vw, 44px)", fontWeight: 600, color: "var(--aurora-fg1)", letterSpacing: "-0.04em", lineHeight: 1 }}>
-                {stats.total_documents.toLocaleString()}
-                <span style={{ color: "var(--aurora-fg4)", fontWeight: 400 }}> {t.files}</span>
-              </div>
-              <div style={{ fontSize: 14, color: "var(--aurora-fg3)", marginTop: 8, letterSpacing: "-0.01em" }}>
-                across <b style={{ color: "var(--aurora-fg2)" }}>{stats.total_tools} {t.nav.tools}</b>,{" "}
-                <b style={{ color: "var(--aurora-fg2)" }}>{stats.total_projects} {t.nav.projects}</b>
-              </div>
-            </div>
-            <div style={{ display: "flex", gap: 24 }}>
-              {[
-                { v: stats.today_total.toLocaleString(), l: t.dashboard.today },
-                { v: stats.today_conversations.toLocaleString(), l: t.dashboard.conversations },
-                { v: stats.total_devices.toString(), l: t.nav.devices },
-              ].map((s) => (
-                <div key={s.l} style={{ textAlign: "right" }}>
-                  <div style={{ fontSize: 26, fontWeight: 600, color: "var(--aurora-fg1)", letterSpacing: "-0.03em" }}>{s.v}</div>
-                  <div
-                    style={{
-                      fontSize: 11,
-                      color: "var(--aurora-fg4)",
-                      marginTop: 2,
-                      textTransform: "uppercase",
-                      letterSpacing: "0.06em",
-                    }}
-                  >
-                    {s.l}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </Glass>
-      </div>
-
       {/* Stat cards row */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
         <StatCard label={t.dashboard.todayFiles} value={stats.today_total} sub={`${stats.today_conversations} ${t.dashboard.conversations}`} />
-        <StatCard label={t.dashboard.totalFiles} value={stats.total_documents} />
+        <StatCard label={t.dashboard.totalFiles} value={stats.total_documents} sub={`${stats.total_tools} ${t.nav.tools}`} />
         <StatCard label={t.nav.projects} value={stats.total_projects} />
         <StatCard label={t.nav.devices} value={stats.total_devices} />
       </div>

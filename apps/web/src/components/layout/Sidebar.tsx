@@ -293,7 +293,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
         {/* Brand & Collapse Header */}
         <div
           className={`px-3.5 pb-2.5 flex items-center justify-between ${
-            isMacDesktop && !macFullScreen ? "pt-12 app-region-drag" : isDesktopApp ? "pt-4 app-region-drag" : "pt-4"
+            isMacDesktop && !macFullScreen ? "pt-11 app-region-drag" : isDesktopApp ? "pt-3.5 app-region-drag" : "pt-3.5"
           }`}
         >
           <Link
@@ -307,18 +307,18 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
           >
             <div
               style={{
-                width: 32,
-                height: 32,
-                borderRadius: 10,
+                width: 30,
+                height: 30,
+                borderRadius: 9,
                 background: "var(--aurora-brand-grad)",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                boxShadow: "0 4px 14px -4px rgba(124,58,237,0.5)",
+                boxShadow: "0 2px 10px -2px rgba(91,33,182,0.45), inset 0 1px 0 rgba(255,255,255,0.28)",
                 flexShrink: 0,
               }}
             >
-              <Icon name="sparkles" size={16} style={{ color: "#fff" }} strokeWidth={2} />
+              <Icon name="sparkles" size={15} style={{ color: "#fff" }} strokeWidth={2} />
             </div>
             {!collapsed && (
               <div className="min-w-0 flex-1">
@@ -331,11 +331,12 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
                     whiteSpace: "nowrap",
                     overflow: "hidden",
                     textOverflow: "ellipsis",
+                    lineHeight: 1.25,
                   }}
                 >
                   {t.app.title}
                 </div>
-                <div style={{ fontSize: 10.5, color: "var(--aurora-fg4)", marginTop: 0.5 }}>
+                <div style={{ fontSize: 10.5, color: "var(--aurora-fg4)", marginTop: 0.5, lineHeight: 1.2 }}>
                   {t.app.subtitle}
                 </div>
               </div>
@@ -371,10 +372,10 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
           <button
             type="button"
             onClick={handleOpenSearch}
-            className={`flex items-center rounded-xl transition-all group ${
+            className={`flex items-center rounded-lg transition-all group ${
               collapsed
-                ? "w-10 h-10 justify-center hover:bg-[var(--aurora-chip)]"
-                : "w-full justify-between px-2.5 py-1.5 hover:border-[var(--aurora-accent)]"
+                ? "w-9 h-9 justify-center hover:bg-[var(--aurora-chip)]"
+                : "w-full justify-between px-2.5 py-1.5 hover:border-[var(--aurora-border-strong)]"
             }`}
             style={{
               background: "var(--aurora-chip)",
@@ -386,11 +387,11 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
             title={collapsed ? "快速检索记忆与会话 (⌘K)" : undefined}
           >
             <div className="flex items-center gap-2 min-w-0">
-              <Icon name="search" size={14} style={{ color: "var(--aurora-fg3)", flexShrink: 0 }} />
+              <Icon name="search" size={13.5} style={{ color: "var(--aurora-fg3)", flexShrink: 0 }} />
               {!collapsed && (
                 <span
-                  style={{ fontSize: 12, color: "var(--aurora-fg4)" }}
-                  className="group-hover:text-[var(--aurora-fg2)] transition-colors"
+                  style={{ fontSize: 12, color: "var(--aurora-fg3)" }}
+                  className="group-hover:text-[var(--aurora-fg1)] transition-colors"
                 >
                   {t.nav.searchPlaceholder || "快速检索..."}
                 </span>
@@ -402,12 +403,12 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
                   fontFamily: "var(--font-mono)",
                   fontSize: 10,
                   fontWeight: 600,
-                  background: "var(--aurora-surface)",
+                  background: "var(--aurora-surface-solid)",
                   border: "1px solid var(--aurora-border)",
                   borderRadius: 5,
                   padding: "1px 5px",
                   color: "var(--aurora-fg4)",
-                  boxShadow: "0 1px 2px rgba(0,0,0,0.04)",
+                  boxShadow: "0 1px 1px rgba(0,0,0,0.03)",
                 }}
               >
                 ⌘K
@@ -682,11 +683,11 @@ const SectionHeader = memo(function SectionHeader({
   return (
     <div
       style={{
-        padding: "6px 14px 4px 16px",
-        fontSize: 11,
+        padding: "6px 14px 3px 14px",
+        fontSize: 10.5,
         fontWeight: 600,
         color: "var(--aurora-fg4)",
-        letterSpacing: "0.04em",
+        letterSpacing: "0.05em",
         textTransform: "uppercase",
         display: "flex",
         alignItems: "center",
@@ -743,9 +744,9 @@ const NavRow = memo(function NavRow({
       onMouseEnter={handleMouseEnter}
       onTouchStart={handleMouseEnter}
       title={label + (badge ? ` (${badge})` : "")}
-      className={`group flex items-center relative select-none transition-colors duration-150 ${
-        collapsed ? "justify-center py-2 px-0 mx-2 my-0.5" : "justify-start py-2 px-3.5 mx-2 my-0.5"
-      } rounded-xl ${
+      className={`group flex items-center relative select-none transition-all duration-150 ${
+        collapsed ? "justify-center py-2 px-0 mx-2 my-0.5" : "justify-start py-1.5 px-3 mx-2 my-0.5"
+      } rounded-lg ${
         active
           ? "text-[var(--aurora-accent)] bg-[var(--aurora-accent-soft)] font-semibold"
           : "text-[var(--aurora-fg2)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)] font-normal"
@@ -756,8 +757,21 @@ const NavRow = memo(function NavRow({
         textDecoration: "none",
       }}
     >
+      {active && !collapsed && (
+        <span
+          style={{
+            position: "absolute",
+            left: 0,
+            top: 6,
+            bottom: 6,
+            width: 3,
+            borderRadius: "0 3px 3px 0",
+            background: "var(--aurora-accent)",
+          }}
+        />
+      )}
       <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <Icon name={icon} size={16} color={active ? "var(--aurora-accent)" : undefined} />
+        <Icon name={icon} size={15.5} color={active ? "var(--aurora-accent)" : undefined} />
         {collapsed && badge && (
           <span
             style={{
@@ -768,7 +782,7 @@ const NavRow = memo(function NavRow({
               height: 14,
               padding: "0 3px",
               borderRadius: 9999,
-              background: "var(--aurora-accent, #7C3AED)",
+              background: "var(--aurora-accent, #5B21B6)",
               color: "#fff",
               fontSize: 9,
               fontWeight: 700,
@@ -785,7 +799,7 @@ const NavRow = memo(function NavRow({
       </div>
 
       {!collapsed && (
-        <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginLeft: 11 }}>
+        <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginLeft: 10 }}>
           {label}
         </span>
       )}
@@ -793,30 +807,17 @@ const NavRow = memo(function NavRow({
       {!collapsed && badge && (
         <span
           style={{
-            fontSize: 9.5,
-            fontWeight: 700,
+            fontSize: 10,
+            fontWeight: 600,
             padding: "1px 6px",
             borderRadius: 6,
-            background: active ? "var(--aurora-accent)" : "rgba(124,58,237,0.14)",
+            background: active ? "var(--aurora-accent)" : "var(--aurora-accent-soft)",
             color: active ? "#fff" : "var(--aurora-accent)",
-            letterSpacing: "0.02em",
+            fontVariantNumeric: "tabular-nums",
           }}
         >
           {badge}
         </span>
-      )}
-
-      {active && !badge && !collapsed && (
-        <span
-          style={{
-            width: 5,
-            height: 5,
-            borderRadius: 9999,
-            background: "var(--aurora-accent)",
-            flexShrink: 0,
-            marginLeft: 8,
-          }}
-        />
       )}
     </Link>
   );

@@ -8,26 +8,27 @@ import { useI18n } from "@/lib/i18n";
 export function AskEmptyState({ onPick }: { onPick: (question: string) => void }) {
   const { t } = useI18n();
   return (
-    <Glass padding="clamp(16px, 4vw, 32px)" radius={20} style={{ textAlign: "center", marginBottom: 20, maxWidth: "100%", minWidth: 0 }}>
+    <Glass padding="clamp(20px, 4vw, 32px)" radius={16} style={{ textAlign: "center", marginBottom: 20, maxWidth: "100%", minWidth: 0 }}>
       <div
         style={{
           display: "inline-flex",
           alignItems: "center",
           justifyContent: "center",
-          width: 48,
-          height: 48,
-          borderRadius: 14,
-          background: "rgba(56, 189, 248, 0.12)",
+          width: 44,
+          height: 44,
+          borderRadius: 12,
+          background: "var(--aurora-accent-soft)",
+          border: "1px solid color-mix(in srgb, var(--aurora-accent) 22%, transparent)",
           color: "var(--aurora-accent)",
           marginBottom: 12,
         }}
       >
-        <Icon name="terminal" size={26} />
+        <Icon name="sparkles" size={22} />
       </div>
-      <h3 style={{ fontSize: 16, fontWeight: 600, color: "var(--aurora-fg1)", margin: "0 0 6px" }}>
+      <h3 style={{ fontSize: 15.5, fontWeight: 600, color: "var(--aurora-fg1)", margin: "0 0 6px", letterSpacing: "-0.015em" }}>
         {t.ask.title}
       </h3>
-      <p style={{ color: "var(--aurora-fg3)", fontSize: 13.5, margin: "0 0 18px" }}>
+      <p style={{ color: "var(--aurora-fg3)", fontSize: 13, margin: "0 0 18px", lineHeight: 1.55 }}>
         {t.ask.empty}
       </p>
 
@@ -47,25 +48,28 @@ export function AskEmptyState({ onPick }: { onPick: (question: string) => void }
               display: "inline-flex",
               alignItems: "center",
               gap: 6,
-              padding: "7px 14px",
-              borderRadius: 9999,
+              padding: "6px 12px",
+              borderRadius: 9,
               background: "var(--aurora-chip)",
               border: "1px solid var(--aurora-border)",
               color: "var(--aurora-fg2)",
-              fontSize: 12.5,
+              fontSize: 12,
+              fontWeight: 500,
               cursor: "pointer",
               transition: "all 0.15s ease",
             }}
             onMouseEnter={(e) => {
               e.currentTarget.style.borderColor = "var(--aurora-accent)";
               e.currentTarget.style.color = "var(--aurora-fg1)";
+              e.currentTarget.style.background = "var(--aurora-accent-soft)";
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.borderColor = "var(--aurora-border)";
               e.currentTarget.style.color = "var(--aurora-fg2)";
+              e.currentTarget.style.background = "var(--aurora-chip)";
             }}
           >
-            <Icon name={s.icon} size={13} style={{ color: "var(--aurora-accent)" }} />
+            <Icon name={s.icon} size={12.5} style={{ color: "var(--aurora-accent)" }} />
             <span>{s.label}</span>
           </button>
         ))}

@@ -18,7 +18,7 @@ interface GlassProps {
 }
 
 export function Glass({
-  children, className, style, padding = 20, radius = 20, hover, onClick, accent,
+  children, className, style, padding = 18, radius = 16, hover, onClick, accent,
 }: GlassProps) {
   return (
     <div
@@ -32,7 +32,7 @@ export function Glass({
       style={{
         padding,
         borderRadius: radius,
-        ...(accent ? { ["--aurora-card-shadow-hover" as never]: `0 1px 0 0 rgba(255,255,255,0.5) inset, 0 12px 40px -12px ${accent}` } : {}),
+        ...(accent ? { ["--aurora-card-shadow-hover" as never]: `0 1px 0 0 rgba(255,255,255,0.5) inset, 0 12px 36px -12px ${accent}` } : {}),
         ...style,
       }}
     >
@@ -172,10 +172,10 @@ export function TopBar({ title, subtitle, right }: TopBarProps) {
     <div
       style={{
         display: "flex",
-        alignItems: "flex-end",
+        alignItems: "center",
         justifyContent: "space-between",
-        padding: "18px 0 22px",
-        gap: 16,
+        padding: "8px 0 18px",
+        gap: 14,
         flexWrap: "wrap",
       }}
     >
@@ -183,11 +183,11 @@ export function TopBar({ title, subtitle, right }: TopBarProps) {
         <h1
           style={{
             margin: 0,
-            fontSize: "clamp(22px, 3.2vw, 32px)",
+            fontSize: "clamp(19px, 2.2vw, 24px)",
             fontWeight: 600,
             color: "var(--aurora-fg1)",
-            letterSpacing: "-0.03em",
-            lineHeight: 1.1,
+            letterSpacing: "-0.025em",
+            lineHeight: 1.2,
           }}
         >
           {title}
@@ -195,17 +195,17 @@ export function TopBar({ title, subtitle, right }: TopBarProps) {
         {subtitle && (
           <p
             style={{
-              margin: "6px 0 0",
-              fontSize: 14,
+              margin: "4px 0 0",
+              fontSize: 13,
               color: "var(--aurora-fg3)",
-              letterSpacing: "-0.01em",
+              letterSpacing: "-0.005em",
             }}
           >
             {subtitle}
           </p>
         )}
       </div>
-      {right && <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", minWidth: 0 }}>{right}</div>}
+      {right && <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", minWidth: 0 }}>{right}</div>}
     </div>
   );
 }
@@ -215,11 +215,11 @@ export function TopBar({ title, subtitle, right }: TopBarProps) {
 export function StatCard({ label, value, sub }: { label: string; value: number | string; sub?: string }) {
   const num = typeof value === "number" ? value.toLocaleString() : value;
   return (
-    <Glass padding={16} radius={18}>
-      <p style={{ fontSize: 11, color: "var(--aurora-fg4)", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 600 }}>
+    <Glass padding="14px 16px" radius={14}>
+      <p style={{ fontSize: 11, color: "var(--aurora-fg3)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 600 }}>
         {label}
       </p>
-      <p style={{ fontSize: 26, fontWeight: 600, color: "var(--aurora-fg1)", letterSpacing: "-0.03em", lineHeight: 1 }}>
+      <p style={{ fontSize: 24, fontWeight: 600, color: "var(--aurora-fg1)", letterSpacing: "-0.03em", lineHeight: 1.05, fontVariantNumeric: "tabular-nums" }}>
         {num}
       </p>
       {sub && (

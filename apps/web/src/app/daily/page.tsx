@@ -113,16 +113,18 @@ export default function DailyPage() {
   };
 
   const isCurrentMonth = selectedMonth === monthKey(new Date());
+  const isZh = locale.startsWith("zh");
+  const weekLabels = isZh ? ["一", "二", "三", "四", "五", "六", "日"] : ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
   return (
     <div className="max-w-6xl mx-auto">
       <TopBar
         title={t.daily.title}
-        subtitle="Memory captured per day across all tools"
+        subtitle={isZh ? "跨设备、跨工具每日沉淀的编程对话与记忆日历" : "Memory captured per day across all tools"}
         right={
           <>
             <Btn variant="glass" size="sm" icon="chevron_left" onClick={() => goMonth(-1)}>
-              Prev
+              {isZh ? "上月" : "Prev"}
             </Btn>
             <Btn
               variant="glass"
@@ -131,36 +133,36 @@ export default function DailyPage() {
               onClick={() => goMonth(1)}
               disabled={isCurrentMonth}
             >
-              Next
+              {isZh ? "下月" : "Next"}
             </Btn>
           </>
         }
       />
 
       <div
-        className="grid gap-5 lg:[grid-template-columns:minmax(0,1fr)_320px] grid-cols-1"
+        className="grid gap-5 lg:[grid-template-columns:minmax(0,1fr)_300px] grid-cols-1"
       >
         {/* Calendar */}
         <div className="min-w-0">
           <SectionLabel>{monthLabel(selectedMonth, locale)}</SectionLabel>
-          <Glass padding={0} radius={18} style={{ overflow: "hidden" }}>
+          <Glass padding={0} radius={16} style={{ overflow: "hidden" }}>
             {/* Day-of-week header */}
             <div
               style={{
                 display: "grid",
                 gridTemplateColumns: "repeat(7, minmax(0, 1fr))",
                 borderBottom: "1px solid var(--aurora-border)",
-                background: "var(--aurora-chip)",
+                background: "var(--aurora-thinking-header)",
               }}
             >
-              {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => (
+              {weekLabels.map((d) => (
                 <div
                   key={d}
-                  className="px-1.5 sm:px-3 py-1.5 sm:py-2 text-[9px] sm:text-[10px] text-center sm:text-left"
+                  className="px-1.5 sm:px-3 py-2 text-[10px] sm:text-[11px] text-center sm:text-left"
                   style={{
                     color: "var(--aurora-fg3)",
                     textTransform: "uppercase",
-                    letterSpacing: "0.08em",
+                    letterSpacing: "0.06em",
                     fontWeight: 600,
                     fontFamily: "var(--font-mono)",
                   }}
@@ -186,35 +188,36 @@ export default function DailyPage() {
 
         {/* Right stats panel */}
         <div>
-          <SectionLabel>This month</SectionLabel>
-          <Glass padding={18} radius={18}>
+          <SectionLabel>{isZh ? "本月概览" : "This month"}</SectionLabel>
+          <Glass padding={18} radius={16}>
             <div
               style={{
-                fontSize: 36,
-                fontWeight: 500,
+                fontSize: 32,
+                fontWeight: 600,
                 color: "var(--aurora-fg1)",
                 letterSpacing: "-0.03em",
-                lineHeight: 1,
+                lineHeight: 1.05,
                 fontFamily: "var(--font-mono)",
+                fontVariantNumeric: "tabular-nums",
               }}
             >
               {loading ? "…" : monthTotal.toLocaleString()}
             </div>
             <div style={{ fontSize: 12, color: "var(--aurora-fg3)", marginTop: 4 }}>
-              {t.daily.title} · {activeDays} active days
+              {t.daily.title} · {isZh ? `${activeDays} 天活跃` : `${activeDays} active days`}
             </div>
-            <div style={{ height: 1, background: "var(--aurora-border)", margin: "16px 0" }} />
+            <div style={{ height: 1, background: "var(--aurora-border)", margin: "14px 0" }} />
 
-            <StatRow label="Daily average" value={dailyAvg.toLocaleString()} />
+            <StatRow label={isZh ? "日均沉淀" : "Daily average"} value={dailyAvg.toLocaleString()} />
             <StatRow
-              label="Busiest day"
+              label={isZh ? "峰值单日" : "Busiest day"}
               value={
                 busiestDay && busiestDay.count > 0
-                  ? `${busiestDay.day} · ${busiestDay.count}`
+                  ? `${busiestDay.day}${isZh ? "日" : ""} · ${busiestDay.count}`
                   : "—"
               }
             />
-            <StatRow label="Active days" value={`${activeDays} / ${monthCells.length}`} />
+            <StatRow label={isZh ? "活跃天数" : "Active days"} value={`${activeDays} / ${monthCells.length}`} />
 
             {allDates.length === 0 && !loading && (
               <p style={{ fontSize: 12, color: "var(--aurora-fg4)", marginTop: 14 }}>

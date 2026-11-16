@@ -99,12 +99,12 @@ function AppShellInner({
     <div className={`min-h-screen ${isAskRoute ? "h-[100dvh] overflow-hidden" : ""}`}>
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <div className={`transition-[margin-left] duration-200 ease-in-out ${collapsed ? "lg:ml-[68px]" : "lg:ml-60"} relative z-0 ${isAskRoute ? "h-full overflow-hidden" : ""}`}>
-        <Header onMenuToggle={() => setSidebarOpen((v) => !v)} className={isAskRoute ? "hidden sm:flex" : "flex"} />
+        <Header onMenuToggle={() => setSidebarOpen((v) => !v)} className={isAskRoute ? "hidden" : "flex"} />
         <main
           className={
             isAskRoute
-              ? "pt-0 px-0 pb-0 sm:pt-[4.25rem] sm:px-3 sm:pb-3 md:pt-[4.5rem] md:px-4 md:pb-4 h-full overflow-hidden"
-              : "pt-13 px-2.5 pb-3 sm:pt-18 sm:px-4 sm:pb-4 md:pt-20 md:px-6 md:pb-6"
+              ? "pt-0 px-0 pb-0 sm:p-2 md:p-3 h-full overflow-hidden"
+              : "pt-13 px-2.5 pb-3 sm:pt-15 sm:px-5 sm:pb-5 md:pt-16 md:px-7 md:pb-6"
           }
         >
           <RouteKeepAlive>{children}</RouteKeepAlive>

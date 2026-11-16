@@ -296,14 +296,13 @@ const ExecutionCard = memo(function ExecutionCard({
   return (
     <div
       style={{
-        margin: "10px 0",
-        borderRadius: 14,
-        border: "1px solid var(--aurora-border-strong)",
-        background: "var(--aurora-surface-solid)",
+        margin: "8px 0",
+        borderRadius: 11,
+        border: "1px solid var(--aurora-border)",
+        background: "var(--aurora-thinking-bg)",
         overflow: "hidden",
         maxWidth: "100%",
         minWidth: 0,
-        boxShadow: "0 2px 10px -2px rgba(0,0,0,0.06)",
       }}
     >
       {/* Header bar */}
@@ -312,12 +311,12 @@ const ExecutionCard = memo(function ExecutionCard({
           setUserToggled(true);
           setExpanded(!expanded);
         }}
-        className="px-2.5 sm:px-3.5 py-2 sm:py-2.5 transition-colors"
+        className="px-2.5 sm:px-3 py-1.5 sm:py-2 transition-colors hover:bg-[var(--aurora-chip)]"
         style={{
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          background: "var(--aurora-chip)",
+          background: "var(--aurora-thinking-header)",
           borderBottom: expanded ? "1px solid var(--aurora-border)" : "none",
           cursor: "pointer",
           userSelect: "none",
@@ -331,9 +330,9 @@ const ExecutionCard = memo(function ExecutionCard({
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              width: 26,
-              height: 26,
-              borderRadius: 7,
+              width: 24,
+              height: 24,
+              borderRadius: 6,
               flexShrink: 0,
               background: isSuccess
                 ? "rgba(16,185,129,0.12)"
@@ -344,9 +343,9 @@ const ExecutionCard = memo(function ExecutionCard({
             }}
           >
             {agentBrandId ? (
-              <BrandMark id={agentBrandId} size={15} colored={!isFailed && !isSuccess} tint={isSuccess ? "#10B981" : isFailed ? "#EF4444" : undefined} />
+              <BrandMark id={agentBrandId} size={14} colored={!isFailed && !isSuccess} tint={isSuccess ? "#10B981" : isFailed ? "#EF4444" : undefined} />
             ) : (
-              <Icon name={isAgent ? "sparkles" : name === "list_devices" ? "devices" : "terminal"} size={14} />
+              <Icon name={isAgent ? "sparkles" : name === "list_devices" ? "devices" : "terminal"} size={13} />
             )}
           </div>
 
@@ -355,9 +354,9 @@ const ExecutionCard = memo(function ExecutionCard({
               title={machineName}
               className="hidden sm:inline-flex"
               style={{
-                fontSize: 12,
+                fontSize: 11.5,
                 fontWeight: 600,
-                color: "var(--aurora-fg1)",
+                color: "var(--aurora-fg2)",
                 alignItems: "center",
                 gap: 4,
                 maxWidth: "min(130px, 28vw)",
@@ -368,20 +367,21 @@ const ExecutionCard = memo(function ExecutionCard({
                 minWidth: 0,
               }}
             >
-              🖥️ {machineName.replace(/\.local\b/i, "")}
+              <Icon name="devices" size={11.5} style={{ color: "var(--aurora-fg3)", flexShrink: 0 }} />
+              <span>{machineName.replace(/\.local\b/i, "")}</span>
             </span>
           )}
 
           <span
             style={{
-              fontSize: 11,
+              fontSize: 10.5,
               fontWeight: 600,
-              padding: "2px 7px",
-              borderRadius: 6,
+              padding: "1.5px 6.5px",
+              borderRadius: 5,
               background: "var(--aurora-surface-solid)",
-              border: `1px solid ${agentBrandId ? agentColor + "40" : "var(--aurora-border-strong)"}`,
+              border: `1px solid ${agentBrandId ? agentColor + "35" : "var(--aurora-border)"}`,
               color: agentBrandId ? agentColor : "var(--aurora-fg2)",
-              letterSpacing: "0.02em",
+              letterSpacing: "0.01em",
               flexShrink: 0,
               whiteSpace: "nowrap",
             }}
@@ -647,16 +647,19 @@ const ExecutionCard = memo(function ExecutionCard({
                 <span
                   style={{
                     fontFamily: "var(--font-mono)",
-                    color: "var(--aurora-fg2)",
+                    color: "var(--aurora-fg3)",
                     overflow: "hidden",
                     textOverflow: "ellipsis",
                     whiteSpace: "nowrap",
                     maxWidth: "100%",
-                    display: "inline-block",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 4,
                   }}
                   title={cwd}
                 >
-                  📁 {formatShortPath(cwd)}
+                  <Icon name="folder" size={11.5} style={{ color: "var(--aurora-accent)", flexShrink: 0 }} />
+                  <span>{formatShortPath(cwd)}</span>
                 </span>
               )}
             </div>

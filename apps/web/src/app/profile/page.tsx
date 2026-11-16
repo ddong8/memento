@@ -110,15 +110,14 @@ function ProfileContent() {
       <TopBar title={t.profile.title || "个人设置"} subtitle={t.profile.subtitle || "全天候智能执事、大模型底座、生活作息与终端运维"} />
 
       {/* Tabs navigation with frosted glass & smooth pill active style */}
-      <div className="relative mb-6">
+      <div className="relative mb-5">
         <div
-          className="flex items-center gap-1.5 p-1.5 rounded-2xl overflow-x-auto no-scrollbar scroll-smooth"
+          className="flex items-center gap-1 p-1 rounded-xl overflow-x-auto no-scrollbar scroll-smooth"
           style={{
-            background: "var(--aurora-surface, rgba(255, 255, 255, 0.72))",
-            backdropFilter: "blur(20px)",
-            WebkitBackdropFilter: "blur(20px)",
+            background: "var(--aurora-surface)",
+            backdropFilter: "var(--aurora-blur)",
+            WebkitBackdropFilter: "var(--aurora-blur)",
             border: "1px solid var(--aurora-border)",
-            boxShadow: "0 2px 14px -2px rgba(0, 0, 0, 0.04)",
           }}
         >
           {TABS.map((tab) => {
@@ -127,23 +126,17 @@ function ProfileContent() {
               <button
                 key={tab.id}
                 onClick={() => switchTab(tab.id)}
-                className="flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-medium transition-all duration-200 whitespace-nowrap cursor-pointer select-none"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs sm:text-[13px] font-medium transition-all duration-150 whitespace-nowrap cursor-pointer select-none"
                 style={{
-                  background: active
-                    ? "linear-gradient(135deg, rgba(124, 58, 237, 0.12) 0%, rgba(99, 102, 241, 0.08) 100%)"
-                    : "transparent",
+                  background: active ? "var(--aurora-accent-soft)" : "transparent",
                   color: active ? "var(--aurora-accent)" : "var(--aurora-fg3)",
                   border: active
-                    ? "1px solid color-mix(in srgb, var(--aurora-accent) 28%, transparent)"
+                    ? "1px solid color-mix(in srgb, var(--aurora-accent) 26%, transparent)"
                     : "1px solid transparent",
-                  fontWeight: active ? 600 : 450,
-                  boxShadow: active
-                    ? "0 2px 8px -2px rgba(124, 58, 237, 0.2), inset 0 1px 0 rgba(255,255,255,0.4)"
-                    : "none",
-                  transform: active ? "translateY(-0.5px)" : "none",
+                  fontWeight: active ? 600 : 500,
                 }}
               >
-                <Icon name={tab.icon} size={15} color={active ? "var(--aurora-accent)" : undefined} />
+                <Icon name={tab.icon} size={14} color={active ? "var(--aurora-accent)" : undefined} />
                 <span>{tab.label}</span>
               </button>
             );

@@ -4948,7 +4948,7 @@ function AskPageContent() {
   ]);
 
   return (
-    <div className="w-full flex h-full rounded-none sm:rounded-2xl border-0 sm:border border-[var(--aurora-border-strong)] bg-[var(--aurora-bg)] sm:bg-[var(--aurora-surface-solid)]/40 overflow-hidden sm:shadow-2xl relative">
+    <div className="w-full flex h-full rounded-none sm:rounded-2xl border-0 sm:border border-[var(--aurora-border)] bg-[var(--aurora-bg)] sm:bg-[var(--aurora-surface-solid)]/55 overflow-hidden sm:shadow-lg relative">
       {/* 磨砂玻璃背景层，独立于主布局，避免 CSS backdrop-filter 阻断子元素 position: fixed 全屏脱离容器 */}
       <div className="pointer-events-none absolute inset-0 rounded-none sm:rounded-2xl sm:backdrop-blur-xl -z-10" />
       {/* 离线状态全局浮动感知胶囊 */}
@@ -5187,7 +5187,7 @@ function AskPageContent() {
   {/* 中栏底部交互控制台 (作为 flex footer，全面屏安全区适配) */}
     <footer
       data-ask-footer="true"
-      className="shrink-0 px-1 pt-0.5 sm:px-3.5 sm:pt-2 lg:p-3.5 border-t border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/95 sm:bg-[var(--aurora-surface-solid)]/90 sm:backdrop-blur-xl"
+      className="shrink-0 px-1.5 pt-1 sm:px-4 sm:pt-2 lg:px-5 lg:pt-2.5 bg-transparent"
       style={{
         paddingBottom: viewportBottomOffset > 0
           ? `${viewportBottomOffset + 4}px`
@@ -5197,14 +5197,20 @@ function AskPageContent() {
     >
       <div className="max-w-3xl xl:max-w-4xl 2xl:max-w-5xl mx-auto w-full min-w-0" style={{ boxSizing: "border-box" }}>
         <div
-          className="px-2.5 py-2 sm:px-4 sm:py-3"
+          className="px-2.5 py-2 sm:px-3.5 sm:py-2.5"
           style={{
             background: isDraggingOver ? "var(--aurora-accent-soft)" : "var(--aurora-surface-solid)",
-            border: isDraggingOver ? "2px dashed var(--aurora-accent)" : "1px solid var(--aurora-border-strong)",
-            borderRadius: 14,
+            border: isDraggingOver
+              ? "2px dashed var(--aurora-accent)"
+              : isInputFocused
+              ? "1px solid color-mix(in srgb, var(--aurora-accent) 42%, var(--aurora-border-strong))"
+              : "1px solid var(--aurora-border-strong)",
+            borderRadius: 16,
             boxShadow: isDraggingOver
               ? "0 0 24px rgba(99, 102, 241, 0.25)"
-              : "var(--aurora-card-shadow), 0 16px 40px -8px rgba(0,0,0,0.14)",
+              : isInputFocused
+              ? "var(--aurora-card-shadow), 0 0 0 3px var(--aurora-accent-soft)"
+              : "var(--aurora-card-shadow)",
             maxWidth: "100%",
             width: "100%",
             minWidth: 0,
@@ -5292,7 +5298,7 @@ function AskPageContent() {
                     justifyContent: "space-between",
                     gap: 6,
                     marginBottom: 6,
-                    padding: "2px 0 6px 0",
+                    padding: "1px 0 6px 0",
                     borderBottom: "1px solid var(--aurora-border)",
                     cursor: "pointer",
                     transition: "all 0.15s ease",
@@ -5308,7 +5314,7 @@ function AskPageContent() {
                   style={{
                     display: "flex",
                     alignItems: "center",
-                    gap: 6,
+                    gap: 5,
                     overflowX: "auto",
                     scrollbarWidth: "none",
                     WebkitOverflowScrolling: "touch",
@@ -5344,10 +5350,10 @@ function AskPageContent() {
                           display: "inline-flex",
                           alignItems: "center",
                           gap: 4.5,
-                          padding: "3px 8px",
-                          borderRadius: 7,
+                          padding: "2.5px 7.5px",
+                          borderRadius: 6,
                           background: "var(--aurora-accent-soft)",
-                          border: `1px solid ${currentMode.color}`,
+                          border: `1px solid color-mix(in srgb, ${currentMode.color} 35%, transparent)`,
                           color: currentMode.color,
                           fontSize: 11,
                           fontWeight: 600,
@@ -5358,20 +5364,19 @@ function AskPageContent() {
                         title={isAgentMode ? (isZh ? "点击查看 AI 订阅与额度详情" : "Click to view AI quota details") : (isZh ? "点击展开配置或切换智能体" : "Click to expand configuration")}
                       >
                         {currentMode.brandId ? (
-                          <BrandMark id={currentMode.brandId} size={13} colored />
+                          <BrandMark id={currentMode.brandId} size={12.5} colored />
                         ) : (
-                          <Icon name={currentMode.icon || "sparkles"} size={12} style={{ color: currentMode.color }} />
+                          <Icon name={currentMode.icon || "sparkles"} size={11.5} style={{ color: currentMode.color }} />
                         )}
                         <span>{currentMode.label}</span>
                         {modeQuota && (
                           <span
                             style={{
                               fontSize: 10,
-                              fontWeight: 700,
-                              padding: "0 5px",
+                              fontWeight: 600,
+                              padding: "0 4.5px",
                               borderRadius: 4,
-                              background: "var(--aurora-chip)",
-                              border: "1px solid var(--aurora-border)",
+                              background: "var(--aurora-surface-solid)",
                               color: modeQuota.percent != null && modeQuota.percent < 30 ? "#F59E0B" : "inherit",
                               fontVariantNumeric: "tabular-nums",
                               cursor: "pointer",
@@ -5391,10 +5396,9 @@ function AskPageContent() {
                       display: "inline-flex",
                       alignItems: "center",
                       gap: 4,
-                      padding: "3px 8px",
-                      borderRadius: 7,
-                      background: !isCurrentDevOnline && selectedDevice !== "auto" && selectedDevice !== "ask_only" ? "rgba(239, 68, 68, 0.12)" : "var(--aurora-chip)",
-                      border: !isCurrentDevOnline && selectedDevice !== "auto" && selectedDevice !== "ask_only" ? "1px solid rgba(239, 68, 68, 0.4)" : "1px solid var(--aurora-border)",
+                      padding: "2.5px 7px",
+                      borderRadius: 6,
+                      background: !isCurrentDevOnline && selectedDevice !== "auto" && selectedDevice !== "ask_only" ? "rgba(239, 68, 68, 0.1)" : "var(--aurora-chip)",
                       color: !isCurrentDevOnline && selectedDevice !== "auto" && selectedDevice !== "ask_only" ? "#ef4444" : "var(--aurora-fg2)",
                       fontSize: 11,
                       fontWeight: 500,
@@ -5404,8 +5408,8 @@ function AskPageContent() {
                   >
                     <span
                       style={{
-                        width: 6,
-                        height: 6,
+                        width: 5.5,
+                        height: 5.5,
                         borderRadius: 999,
                         background: !isCurrentDevOnline && selectedDevice !== "auto" && selectedDevice !== "ask_only" ? "#ef4444" : "#10B981",
                         flexShrink: 0,
@@ -5445,10 +5449,9 @@ function AskPageContent() {
                           display: "inline-flex",
                           alignItems: "center",
                           gap: 4,
-                          padding: "3px 8px",
-                          borderRadius: 7,
+                          padding: "2.5px 7px",
+                          borderRadius: 6,
                           background: "var(--aurora-chip)",
-                          border: "1px solid var(--aurora-border)",
                           color: "var(--aurora-fg2)",
                           fontSize: 11,
                           fontWeight: 500,
@@ -5456,7 +5459,7 @@ function AskPageContent() {
                           flexShrink: 0,
                         }}
                       >
-                        <Icon name="code" size={12} style={{ color: "var(--aurora-fg3)" }} />
+                        <Icon name="code" size={11.5} style={{ color: "var(--aurora-fg3)" }} />
                         <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{displayTitle}</span>
                       </span>
                     );
@@ -5472,10 +5475,9 @@ function AskPageContent() {
                           display: "inline-flex",
                           alignItems: "center",
                           gap: 4,
-                          padding: "3px 8px",
-                          borderRadius: 7,
+                          padding: "2.5px 7px",
+                          borderRadius: 6,
                           background: "var(--aurora-chip)",
-                          border: "1px solid var(--aurora-border)",
                           color: "var(--aurora-fg3)",
                           fontSize: 11,
                           whiteSpace: "nowrap",
@@ -5498,17 +5500,16 @@ function AskPageContent() {
                         display: "inline-flex",
                         alignItems: "center",
                         gap: 4,
-                        padding: "2px 8px",
-                        borderRadius: 8,
+                        padding: "2.5px 7px",
+                        borderRadius: 6,
                         background: "var(--aurora-chip)",
-                        border: "1px solid var(--aurora-border)",
                         color: "var(--aurora-fg3)",
                         fontSize: 11,
                         whiteSpace: "nowrap",
                         flexShrink: 0,
                       }}
                     >
-                      <Icon name="sparkles" size={11} style={{ color: "var(--aurora-accent)" }} />
+                      <Icon name="sparkles" size={10.5} style={{ color: "var(--aurora-accent)" }} />
                       <span>{selectedModel}</span>
                     </span>
                   )}
@@ -5520,17 +5521,16 @@ function AskPageContent() {
                         display: "inline-flex",
                         alignItems: "center",
                         gap: 3,
-                        padding: "2px 6px",
-                        borderRadius: 8,
+                        padding: "2.5px 6px",
+                        borderRadius: 6,
                         background: "var(--aurora-chip)",
-                        border: "1px solid var(--aurora-border)",
                         color: "var(--aurora-fg3)",
                         fontSize: 11,
                         whiteSpace: "nowrap",
                         flexShrink: 0,
                       }}
                     >
-                      <Icon name="brain" size={11} style={{ color: "var(--aurora-accent)" }} />
+                      <Icon name="brain" size={10.5} style={{ color: "var(--aurora-accent)" }} />
                       <span>{selectedEffort}</span>
                     </span>
                   )}
@@ -5543,10 +5543,10 @@ function AskPageContent() {
                         display: "inline-flex",
                         alignItems: "center",
                         gap: 4,
-                        padding: "2px 8px",
-                        borderRadius: 8,
+                        padding: "2.5px 7.5px",
+                        borderRadius: 6,
                         background: "var(--aurora-accent-soft)",
-                        border: "1px solid var(--aurora-accent)",
+                        border: "1px solid color-mix(in srgb, var(--aurora-accent) 30%, transparent)",
                         color: "var(--aurora-accent)",
                         fontSize: 11,
                         fontWeight: 600,
@@ -5586,13 +5586,13 @@ function AskPageContent() {
                     display: "inline-flex",
                     alignItems: "center",
                     gap: 3,
-                    background: "var(--aurora-accent-soft)",
-                    border: "1px solid var(--aurora-accent)",
-                    borderRadius: 7,
-                    padding: "3px 8px",
-                    color: "var(--aurora-accent)",
+                    background: "var(--aurora-chip)",
+                    border: "1px solid var(--aurora-border)",
+                    borderRadius: 6,
+                    padding: "2.5px 7px",
+                    color: "var(--aurora-fg2)",
                     fontSize: 11,
-                    fontWeight: 600,
+                    fontWeight: 500,
                     cursor: "pointer",
                     flexShrink: 0,
                   }}
@@ -5653,13 +5653,13 @@ function AskPageContent() {
                           style={{
                             display: "inline-flex",
                             alignItems: "center",
-                            gap: 6,
+                            gap: 5.5,
                             background: isSelected ? "var(--aurora-accent-soft)" : "var(--aurora-chip)",
                             border: "1px solid",
-                            borderColor: isSelected ? m.color : "var(--aurora-border)",
-                            borderRadius: 12,
-                            padding: "4px 10px",
-                            fontSize: 12,
+                            borderColor: isSelected ? `color-mix(in srgb, ${m.color} 45%, transparent)` : "transparent",
+                            borderRadius: 8,
+                            padding: "3.5px 9px",
+                            fontSize: 11.5,
                             fontWeight: isSelected ? 600 : 500,
                             color: isSelected ? m.color : "var(--aurora-fg2)",
                             cursor: "pointer",
@@ -5669,9 +5669,9 @@ function AskPageContent() {
                           }}
                         >
                           {m.brandId ? (
-                            <BrandMark id={m.brandId} size={14} colored={isSelected} tint={isSelected ? undefined : "var(--aurora-fg3)"} />
+                            <BrandMark id={m.brandId} size={13.5} colored={isSelected} tint={isSelected ? undefined : "var(--aurora-fg3)"} />
                           ) : (
-                            <Icon name={m.icon || "sparkles"} size={13} style={{ color: isSelected ? m.color : "var(--aurora-fg3)" }} />
+                            <Icon name={m.icon || "sparkles"} size={12.5} style={{ color: isSelected ? m.color : "var(--aurora-fg3)" }} />
                           )}
                           <span>{m.label}</span>
                           {qSummary && (
@@ -5679,11 +5679,11 @@ function AskPageContent() {
                               style={{
                                 fontSize: 10,
                                 fontWeight: 600,
-                                padding: "1px 5px",
-                                borderRadius: 6,
-                                background: isSelected ? "var(--aurora-card)" : "var(--aurora-surface)",
-                                border: "1px solid var(--aurora-border)",
+                                padding: "0.5px 4.5px",
+                                borderRadius: 4,
+                                background: isSelected ? "var(--aurora-surface-solid)" : "var(--aurora-surface)",
                                 color: isSelected ? "var(--aurora-fg1)" : "var(--aurora-fg3)",
+                                fontVariantNumeric: "tabular-nums",
                               }}
                             >
                               {qSummary.label}
@@ -5764,14 +5764,14 @@ function AskPageContent() {
                   </option>
                   {selectedDevice && !["auto", "ask_only", "all"].includes(selectedDevice) && !devices.some((d) => d.device_id === selectedDevice) && (
                     <option value={selectedDevice} style={{ background: "var(--aurora-surface-solid)", color: "var(--aurora-fg1)" }}>
-                      💻 {selectedDevice}
+                      {selectedDevice}
                     </option>
                   )}
                   {devices.map((d) => {
                     const isOnline = d.online ?? (d.last_heartbeat ? (Date.now() - new Date(d.last_heartbeat).getTime()) < 180_000 : false);
                     return (
                       <option key={d.device_id} value={d.device_id} style={{ background: "var(--aurora-surface-solid)", color: isOnline ? "var(--aurora-fg1)" : "var(--aurora-fg3)" }}>
-                        {isOnline ? "🟢" : "🔴"} {d.name} ({isOnline ? (isZh ? "在线" : "Online") : (isZh ? "离线" : "Offline")})
+                        {isOnline ? "●" : "○"} {d.name} ({isOnline ? (isZh ? "在线" : "Online") : (isZh ? "离线" : "Offline")})
                       </option>
                     );
                   })}
@@ -5842,7 +5842,7 @@ function AskPageContent() {
                     </option>
                     {codeDevice && !devices.some((d) => d.device_id === codeDevice) && (
                       <option value={codeDevice} style={{ background: "var(--aurora-surface-solid)", color: "var(--aurora-fg3)" }}>
-                        💻 {codeDevice}
+                        {codeDevice}
                       </option>
                     )}
                     {devices
@@ -5851,7 +5851,7 @@ function AskPageContent() {
                         const isOnline = d.online ?? (d.last_heartbeat ? (Date.now() - new Date(d.last_heartbeat).getTime()) < 180_000 : false);
                         return (
                           <option key={d.device_id} value={d.device_id} style={{ background: "var(--aurora-surface-solid)", color: isOnline ? "var(--aurora-fg1)" : "var(--aurora-fg3)" }}>
-                            {isOnline ? "🟢" : "🔴"} {d.name}
+                            {isOnline ? "●" : "○"} {d.name}
                           </option>
                         );
                       })}
@@ -6281,7 +6281,7 @@ function AskPageContent() {
                       });
                       return (
                         <option value={selectedProjectId} style={{ background: "var(--aurora-surface-solid)", color: "var(--aurora-fg1)" }}>
-                          📁 {fallbackTitle}
+                          {fallbackTitle}
                         </option>
                       );
                     })()}
@@ -6300,7 +6300,7 @@ function AskPageContent() {
                       });
                       return (
                         <option key={p.id} value={p.id} style={{ background: "var(--aurora-surface-solid)", color: "var(--aurora-fg1)" }}>
-                          📁 {safeOptionTitle}
+                          {safeOptionTitle}
                         </option>
                       );
                     })}
@@ -6351,7 +6351,7 @@ function AskPageContent() {
                       }}
                     >
                       <option value="" style={{ background: "var(--aurora-surface-solid)", color: "var(--aurora-fg1)" }}>
-                        {loadingSessions ? (isZh ? "加载会话列表中..." : "Loading sessions...") : (isZh ? "➕ 新建独立会话" : "➕ New Session")}
+                        {loadingSessions ? (isZh ? "加载会话列表中..." : "Loading sessions...") : (isZh ? "+ 新建独立会话" : "+ New Session")}
                       </option>
                       {selectedSessionId && !sessions.some((s) => (s.session_id || s.conversation_id) === selectedSessionId) && (() => {
                         const isCurrentActive = Boolean(
@@ -6365,7 +6365,7 @@ function AskPageContent() {
                         const fallbackTitle = matchedConv?.title || (selectedSessionId.length > 25 ? selectedSessionId.slice(0, 25) + "..." : selectedSessionId);
                         return (
                           <option value={selectedSessionId} style={{ background: "var(--aurora-surface-solid)", color: "var(--aurora-fg1)" }}>
-                            💬 {fallbackTitle.length > 25 ? fallbackTitle.slice(0, 25) + "..." : fallbackTitle}
+                            {fallbackTitle.length > 25 ? fallbackTitle.slice(0, 25) + "..." : fallbackTitle}
                           </option>
                         );
                       })()}
@@ -6380,7 +6380,7 @@ function AskPageContent() {
                         const display = cleanTitle || (sid ? sid.slice(0, 10) + "..." : "会话");
                         return (
                           <option key={sid} value={sid} style={{ background: "var(--aurora-surface-solid)", color: "var(--aurora-fg1)" }}>
-                            💬 {display.length > 25 ? display.slice(0, 25) + "..." : display}{size}
+                            {display.length > 25 ? display.slice(0, 25) + "..." : display}{size}
                           </option>
                         );
                       })}

@@ -713,25 +713,25 @@ export default function SkillsPage() {
         {!isPanelCollapsed && (
           <div className="max-lg:fixed max-lg:inset-0 max-lg:z-50 max-lg:rounded-none max-lg:border-none lg:col-span-7 h-full flex flex-col min-h-0 bg-[var(--aurora-surface)] rounded-3xl border border-[var(--aurora-border)] shadow-2xl overflow-hidden animate-in fade-in max-lg:slide-in-from-bottom-6 duration-300">
             {/* A. 顶部仪表盘概览与 Tab 导航区 (Sticky Header) */}
-            <div className="p-3 bg-gradient-to-r from-[var(--aurora-surface-solid)] via-[var(--aurora-surface)] to-[var(--aurora-chip)] border-b border-[var(--aurora-border)] shrink-0 space-y-2.5">
+            <div className="p-3 bg-[var(--aurora-thinking-header)] border-b border-[var(--aurora-border)] shrink-0 space-y-2.5">
               {/* Mobile Back Button to 3D */}
-              <div className="flex items-center justify-between lg:hidden pb-1 border-b border-white/10">
+              <div className="flex items-center justify-between lg:hidden pb-1.5 border-b border-[var(--aurora-border)]">
                 <button
                   onClick={() => setIsPanelCollapsed(true)}
-                  className="px-2.5 py-1 rounded-xl bg-white/10 hover:bg-white/20 text-xs font-semibold flex items-center gap-1.5 shrink-0 text-white"
+                  className="px-2.5 py-1 rounded-lg bg-[var(--aurora-chip)] hover:bg-[var(--aurora-accent-soft)] text-xs font-semibold flex items-center gap-1.5 shrink-0 text-[var(--aurora-fg1)] border border-[var(--aurora-border)]"
                 >
                   <Icon name="arrow_left" size={14} />
                   <span>返回 3D 科技树</span>
                 </button>
-                <span className="text-[11px] font-mono text-white/50">技能管理中枢</span>
+                <span className="text-[11px] font-mono text-[var(--aurora-fg3)]">技能管理中枢</span>
               </div>
               {/* 三列高级 KPI 态势磁贴 */}
               <div className="grid grid-cols-3 gap-2">
                 {/* Tile 1: 活跃上线技能 */}
-                <div className="p-2 rounded-xl bg-[var(--aurora-surface)]/80 border border-[var(--aurora-border)] flex items-center justify-between">
+                <div className="p-2 rounded-xl bg-[var(--aurora-surface-solid)] border border-[var(--aurora-border)] flex items-center justify-between">
                   <div>
-                    <div className="text-[10px] text-[var(--aurora-fg4)]">活跃上线技能</div>
-                    <div className="text-xs font-bold text-[#10B981] font-mono mt-0.5">
+                    <div className="text-[10px] text-[var(--aurora-fg3)]">活跃上线技能</div>
+                    <div className="text-xs font-bold text-[#10B981] font-mono mt-0.5 tabular-nums">
                       {published.length} <span className="text-[10px] font-normal text-[var(--aurora-fg3)]">个</span>
                     </div>
                   </div>
@@ -743,10 +743,10 @@ export default function SkillsPage() {
                 </div>
 
                 {/* Tile 2: 待审草稿与演进 */}
-                <div className="p-2 rounded-xl bg-[var(--aurora-surface)]/80 border border-[var(--aurora-border)] flex items-center justify-between">
+                <div className="p-2 rounded-xl bg-[var(--aurora-surface-solid)] border border-[var(--aurora-border)] flex items-center justify-between">
                   <div>
-                    <div className="text-[10px] text-[var(--aurora-fg4)]">待审草稿与演进</div>
-                    <div className="text-xs font-bold text-[#F59E0B] font-mono mt-0.5">
+                    <div className="text-[10px] text-[var(--aurora-fg3)]">待审草稿与演进</div>
+                    <div className="text-xs font-bold text-[#F59E0B] font-mono mt-0.5 tabular-nums">
                       {drafts.length} <span className="text-[10px] font-normal text-[var(--aurora-fg3)]">个</span>
                     </div>
                   </div>
@@ -758,15 +758,15 @@ export default function SkillsPage() {
                 </div>
 
                 {/* Tile 3: 5 端受护运行时 */}
-                <div className="p-2 rounded-xl bg-[var(--aurora-surface)]/80 border border-[var(--aurora-border)] flex items-center justify-between">
+                <div className="p-2 rounded-xl bg-[var(--aurora-surface-solid)] border border-[var(--aurora-border)] flex items-center justify-between">
                   <div>
-                    <div className="text-[10px] text-[var(--aurora-fg4)]">全息注入终端</div>
-                    <div className="text-xs font-bold text-[#3B82F6] font-mono mt-0.5">
+                    <div className="text-[10px] text-[var(--aurora-fg3)]">全息注入终端</div>
+                    <div className="text-xs font-bold text-[var(--aurora-accent)] font-mono mt-0.5 tabular-nums">
                       5 <span className="text-[10px] font-normal text-[var(--aurora-fg3)]">端在线</span>
                     </div>
                   </div>
                   <div className="text-right">
-                    <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-[rgba(59,130,246,0.1)] text-[#3B82F6]">
+                    <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-[var(--aurora-accent-soft)] text-[var(--aurora-accent)]">
                       全部激活
                     </span>
                   </div>
@@ -775,23 +775,24 @@ export default function SkillsPage() {
 
               {/* Navigation Tabs Bar */}
               <div className="flex items-center justify-between gap-2 overflow-x-auto pb-0.5">
-                <div className="flex items-center gap-1.5">
-                  {[
-                    { id: "published", label: `⚡ 活跃技能 (${published.length})`, color: "#10B981" },
-                    { id: "drafts", label: `📝 演进草稿 (${drafts.length})`, color: "#F59E0B" },
-                    { id: "reviews", label: `🔄 审查动态 ${reviewRunning ? "· 进行中" : ""}`, color: "#3B82F6" },
-                    { id: "archived", label: `📦 历史归档 (${archived.length})`, color: "#64748B" },
-                  ].map((tb) => (
+                <div className="flex items-center gap-1">
+                  {([
+                    { id: "published", icon: "zap" as const, label: `活跃技能 (${published.length})` },
+                    { id: "drafts", icon: "edit" as const, label: `演进草稿 (${drafts.length})` },
+                    { id: "reviews", icon: "refresh" as const, label: `审查动态${reviewRunning ? " · 进行中" : ""}` },
+                    { id: "archived", icon: "box" as const, label: `历史归档 (${archived.length})` },
+                  ] as const).map((tb) => (
                     <button
                       key={tb.id}
-                      onClick={() => setActiveTab(tb.id as typeof activeTab)}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-medium whitespace-nowrap transition-all border ${
+                      onClick={() => setActiveTab(tb.id)}
+                      className={`px-2.5 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-all border flex items-center gap-1.5 cursor-pointer ${
                         activeTab === tb.id
-                          ? "bg-[var(--aurora-surface-solid)] text-[var(--aurora-fg1)] border-[var(--aurora-border-strong)] shadow-xs font-bold"
-                          : "border-transparent text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-surface-solid)]/60"
+                          ? "bg-[var(--aurora-accent-soft)] text-[var(--aurora-accent)] border-[var(--aurora-accent)]/30 font-semibold"
+                          : "border-transparent text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)]"
                       }`}
                     >
-                      {tb.label}
+                      <Icon name={tb.icon} size={12.5} />
+                      <span>{tb.label}</span>
                     </button>
                   ))}
                 </div>

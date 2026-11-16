@@ -663,8 +663,9 @@ export default function ActiveRunsMonitor() {
                 // over the middle of every page, over cards and inputs); expanded, the list opens up from there
                 { left: 12, bottom: 152, width: collapsed ? (sidebarCollapsed ? 44 : 216) : 390 }
               : isMobile
-                ? // Phones: a small chip just under the top bar's right end, not over the middle of the content
-                  { top: "calc(env(safe-area-inset-top, 0px) + 52px)", right: "10px", maxWidth: "calc(100vw - 20px)", width: collapsed ? "auto" : "calc(100vw - 20px)" }
+                ? // Phones: a small chip in the top bar, left of its theme button (on /ask, whose bar is full of
+                  // buttons, just under it), not over the middle of the content or a page's action buttons
+                  { top: pathname?.startsWith("/ask") ? "calc(env(safe-area-inset-top, 0px) + 52px)" : "calc(env(safe-area-inset-top, 0px) + 8px)", right: pathname?.startsWith("/ask") ? "10px" : "56px", maxWidth: "calc(100vw - 20px)", width: collapsed ? "auto" : "calc(100vw - 20px)" }
                 : {
                   top: "48%",
                   right: `calc(var(--inspector-width, 0px) + ${collapsed ? 16 : 20}px)`,

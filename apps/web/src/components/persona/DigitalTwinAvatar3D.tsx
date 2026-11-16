@@ -1441,7 +1441,7 @@ export default function DigitalTwinAvatar3D({
           </button>
 
           {/* Level & Evolution Status Pill */}
-          <div className="flex items-center gap-1.5 sm:gap-2.5 bg-black/65 backdrop-blur-xl px-2.5 sm:px-3.5 py-1 sm:py-1.5 rounded-full border border-white/15 shadow-xl shrink-0">
+          <div className="hidden sm:flex items-center gap-1.5 sm:gap-2.5 bg-black/65 backdrop-blur-xl px-2.5 sm:px-3.5 py-1 sm:py-1.5 rounded-full border border-white/15 shadow-xl shrink-0">
             <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-[#10B981] animate-ping" />
             <div className="flex items-center gap-1.5 sm:gap-2 text-[11px] sm:text-xs">
               <span className="font-bold text-transparent bg-clip-text bg-gradient-to-r from-[#F59E0B] via-[#EC4899] to-[#8B5CF6] font-mono tracking-wide">

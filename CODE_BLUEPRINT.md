@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `fix/env-fingerprint-auto` · Commit: `4e21217a` · Updated: `2026-11-16`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `06e2be7e` · Updated: `2026-11-16`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,8 +16,8 @@
 - 规模 (Scale): 9 个子系统 · 35 组 API 路由 / 237 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 218 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `03480911` (2026-11-17): fix(画像): 手机上 3D 工具栏只留共鸣、自转、2D、侧边面板，不再被截掉
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 56（✅ 56 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-DEVICE-ENV-PROFILE`, `R-MEDIA-VIEW`, `R-PERSONA-ONBOARD`, `R-WECHAT-DRAFT`
+- 最近改动 (Latest): `e50ec760` (2026-11-17): fix(部署): 回写镜像 tag 和别的 run 撞在同一行时，在最新 main 上重来，不把线上退回旧提交
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 56（✅ 56 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-CI-KUSTOMIZE-PINNED`, `R-DEPLOY-AFTER-CI`, `R-DEPLOY-BUMP-RACE`, `R-DEVICE-ENV-PROFILE`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -619,8 +619,8 @@ erDiagram
 - [`apps/web/src/components/viewers/MediaInspectorPanel.tsx`](apps/web/src/components/viewers/MediaInspectorPanel.tsx) (7 commits)
 - [`apps/web/src/app/app/page.tsx`](apps/web/src/app/app/page.tsx) (6 commits)
 - [`apps/web/src/app/memory/persona/page.tsx`](apps/web/src/app/memory/persona/page.tsx) (6 commits)
-- [`packages/daemon/assets/workbuddy_cli.mjs`](packages/daemon/assets/workbuddy_cli.mjs) (6 commits)
 - [`apps/web/src/components/ask/AskTopBar.tsx`](apps/web/src/components/ask/AskTopBar.tsx) (5 commits)
+- [`apps/web/src/components/persona/DigitalTwinAvatar3D.tsx`](apps/web/src/components/persona/DigitalTwinAvatar3D.tsx) (5 commits)
 
 ## 8. Development & Verification Commands
 
@@ -643,12 +643,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `e50ec760` (2026-11-17): fix(部署): 回写镜像 tag 和别的 run 撞在同一行时，在最新 main 上重来，不把线上退回旧提交
 - `03480911` (2026-11-17): fix(画像): 手机上 3D 工具栏只留共鸣、自转、2D、侧边面板，不再被截掉
 - `fa7ecbf5` (2026-11-17): fix(问答): 设备选「自动」时，新会话拿到的是实际落到的那台设备的环境信息
 - `dfbea6f4` (2026-11-17): perf(web): 项目对话和时间线的长会话随滚动逐段渲染，手机不再卡死
 - `5669c06b` (2026-11-17): fix(web): 按严格适配检查修复——画像 3D 工具栏和顶部按钮在手机/平板溢出、项目对话标签超出、隐私页说明不换行；剩余单独 emoji 图标换成线性图标
 - `31291e1f` (2026-11-17): fix(web): 全面检查发现的问题——帮助/隐私页白字看不见、工具页 0 B 和 NaN、多页顶栏显示 Memento、完成提示堆叠、手机运行条压内容
-- `e72f3828` (2026-11-16): feat(画像): 个人画像默认显示 3D 形象，和长期记忆、技能进化一致
 
 ## 10. Key Environment Variables & Configuration
 
@@ -671,8 +671,8 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ### 最近提交碰到的业务条目（改动后复查它们还成不成立）
 
+- `e50ec760` fix(部署): 回写镜像 tag 和别的 run 撞在同一行时，在最新 main 上重来，不把线上退回旧提交 → `R-CI-KUSTOMIZE-PINNED`, `R-DEPLOY-AFTER-CI`, `R-DEPLOY-BUMP-RACE`
 - `fa7ecbf5` fix(问答): 设备选「自动」时，新会话拿到的是实际落到的那台设备的环境信息 → `R-DEVICE-ENV-PROFILE`
-- `5669c06b` fix(web): 按严格适配检查修复——画像 3D 工具栏和顶部按钮在手机/平板溢出、项目对话标签超出、隐私页说明不换行；剩余单独 emoji 图标换成线性图 → `R-MEDIA-VIEW`, `R-PERSONA-ONBOARD`, `R-WECHAT-DRAFT`
 
 ---
 _Auto-maintained by `scripts/project_blueprint.mjs` (v20261126) & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._

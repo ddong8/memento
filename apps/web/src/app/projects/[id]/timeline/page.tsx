@@ -1,6 +1,7 @@
 "use client";
 
 import { memo, useEffect, useRef, useState } from "react";
+import { useProgressiveCount } from "@/lib/use-progressive";
 import dynamic from "next/dynamic";
 import { useParams } from "next/navigation";
 import Link from "next/link";
@@ -220,6 +221,8 @@ const SessionMessages = memo(function SessionMessages({
       groups.push({ type: "msg", item });
     }
   }
+  // An expanded session of thousands of messages is built a slice at a time as the reader scrolls
+  const { count: shownGroups, done: allShown, sentinelRef } = useProgressiveCount(groups.length);
 
   return (
     <>
@@ -318,7 +321,7 @@ const SessionMessages = memo(function SessionMessages({
       {expanded && (
       /* Messages with subagent groups collapsed inline */
       <div className="space-y-4 max-w-3xl mx-auto">
-        {groups.map((g, gIdx) => {
+        {(allShown ? groups : groups.slice(0, shownGroups)).map((g, gIdx) => {
           if (g.type === "msg") {
             const m = g.item.msg;
             const cm: ConversationMessage = {
@@ -371,11 +374,16 @@ const SessionMessages = memo(function SessionMessages({
             </details>
           );
         })}
+        {!allShown && (
+          <div ref={sentinelRef} style={{ textAlign: "center", color: "var(--aurora-fg4)", fontSize: 12, padding: "16px 0" }}>
+            {t.loading}
+          </div>
+        )}
       </div>
       )}
 
-      {/* Artifacts inline — only when session expanded */}
-      {expanded && session.artifacts.length > 0 && (
+      {/* Artifacts inline — only when session expanded, after its last message */}
+      {expanded && allShown && session.artifacts.length > 0 && (
         <div className="space-y-2 my-4 max-w-3xl mx-auto">
           {session.artifacts.map((art) => (
             <InlineArtifact key={art.id} artifact={art} />

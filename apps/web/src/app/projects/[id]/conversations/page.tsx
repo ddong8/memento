@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { authFetch, getApiBase } from "@/lib/api-client";
@@ -9,6 +9,7 @@ import { ChatBubble } from "@/components/viewers/ConversationViewer";
 import MarkdownViewer from "@/components/viewers/MarkdownViewer";
 import { Icon } from "@/components/aurora/Icon";
 import { Btn, TopBar } from "@/components/aurora/primitives";
+import { useProgressiveCount } from "@/lib/use-progressive";
 
 interface Message {
   role: string;
@@ -57,6 +58,11 @@ export default function ProjectConversationsPage() {
   const [hasMore, setHasMore] = useState(true);
   const [order, setOrder] = useState<"asc" | "desc">("asc");
   const offsetRef = useRef(0);
+  // How many messages are on the page. A session can hold thousands (one here has 5,520): rendering
+  // the whole page of five at once built 115k DOM nodes and froze a phone for ~4 s. Nothing is cut:
+  // more are rendered as the reader scrolls toward the end.
+  const loadedMessages = useMemo(() => sessions.reduce((n, s) => n + s.messages.length, 0), [sessions]);
+  const { count: budget, done: allRendered, sentinelRef, reset: resetBudget } = useProgressiveCount(loadedMessages);
 
   const loadMore = async (reset = false) => {
     setLoading(true);
@@ -87,6 +93,7 @@ export default function ProjectConversationsPage() {
     offsetRef.current = 0;
     setHasMore(true);
     setSessions([]);
+    resetBudget();
     loadMore(true);
   }, [projectId, order]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -109,7 +116,7 @@ export default function ProjectConversationsPage() {
       </div>
       <TopBar
         title={`${data?.project?.title || ""} · ${t.conversations}`}
-        subtitle={`${data?.project?.source_path || ""} · ${data?.total_sessions || 0} sessions`}
+        subtitle={`${data?.project?.source_path || ""} · ${locale === "zh-CN" ? `${data?.total_sessions || 0} 个会话` : `${data?.total_sessions || 0} sessions`}`}
         right={
           <Btn variant="glass" size="sm" icon={order === "asc" ? "arrow_up" : "arrow_down"}
                onClick={() => setOrder(order === "asc" ? "desc" : "asc")}>
@@ -120,19 +127,33 @@ export default function ProjectConversationsPage() {
 
       {/* Continuous conversation flow */}
       <div className="space-y-0">
-        {sessions.map((session, sIdx) => (
-          <SessionBlock key={session.session_id || sIdx} session={session} dateFmt={dateFmt} locale={locale} t={t} />
-        ))}
+        {(() => {
+          let left = budget;
+          return sessions.map((session, sIdx) => {
+            if (left <= 0 && sIdx > 0) return null;
+            const limit = Math.min(session.messages.length, Math.max(left, 0));
+            left -= session.messages.length;
+            return (
+              <SessionBlock key={session.session_id || sIdx} session={session} limit={limit} dateFmt={dateFmt} locale={locale} t={t} />
+            );
+          });
+        })()}
       </div>
 
-      {hasMore && (
+      {!allRendered && (
+        <div ref={sentinelRef} style={{ textAlign: "center", color: "var(--aurora-fg4)", fontSize: 12, padding: "20px 0" }}>
+          {t.loading}
+        </div>
+      )}
+
+      {allRendered && hasMore && (
         <div style={{ textAlign: "center", marginTop: 24 }}>
           <Btn variant="glass" size="sm" onClick={() => loadMore()} disabled={loading}>
             {loading ? t.loading : t.timeline.loadMore}
           </Btn>
         </div>
       )}
-      {!hasMore && sessions.length > 0 && (
+      {allRendered && !hasMore && sessions.length > 0 && (
         <div style={{ textAlign: "center", color: "var(--aurora-fg4)", fontSize: 12, marginTop: 20 }}>{t.timeline.allLoaded}</div>
       )}
     </div>
@@ -140,13 +161,26 @@ export default function ProjectConversationsPage() {
 }
 
 const SessionBlock = memo(function SessionBlock({
-  session, dateFmt, locale, t,
+  session, limit, dateFmt, locale, t,
 }: {
   session: Session;
+  /** Messages rendered so far; the page raises it as the reader scrolls */
+  limit: number;
   dateFmt: string;
   locale: string;
   t: ReturnType<typeof useI18n>["t"];
 }) {
+  // Each reply's "took N s" needs the question before it: one pass, not a walk back per message
+  const prevUserTs = useMemo(() => {
+    const out: (string | null)[] = [];
+    let last: string | null = null;
+    for (const m of session.messages) {
+      out.push(last);
+      if (m.role === "user" && !m.content?.startsWith("[Result]")) last = m.timestamp || null;
+    }
+    return out;
+  }, [session.messages]);
+  const shown = limit >= session.messages.length ? session.messages : session.messages.slice(0, limit);
   return (
     <div style={{ marginBottom: 8 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "24px 0" }}>
@@ -177,14 +211,7 @@ const SessionBlock = memo(function SessionBlock({
 
       {/* Messages */}
       <div className="space-y-3">
-        {session.messages.map((msg, idx) => {
-          let prevUserTs: string | null = null;
-          for (let j = idx - 1; j >= 0; j--) {
-            if (session.messages[j].role === "user" && !session.messages[j].content?.startsWith("[Result]")) {
-              prevUserTs = session.messages[j].timestamp || null;
-              break;
-            }
-          }
+        {shown.map((msg, idx) => {
           return (
             <ChatBubble
               key={idx}
@@ -197,15 +224,15 @@ const SessionBlock = memo(function SessionBlock({
                 tool_input: msg.tool_input,
                 timestamp: msg.timestamp || null,
               }}
-              prevUserTimestamp={prevUserTs}
+              prevUserTimestamp={prevUserTs[idx]}
               locale={locale}
               t={t}
             />
           );
         })}
 
-        {/* Artifacts inline */}
-        {session.artifacts.length > 0 && (
+        {/* Artifacts inline, once the session is fully on the page */}
+        {shown.length === session.messages.length && session.artifacts.length > 0 && (
           <div className="space-y-2 my-4">
             {session.artifacts.map((art) => (
               <InlineArtifact key={art.id} artifact={art} />

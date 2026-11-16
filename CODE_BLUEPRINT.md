@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `54a0bba9` · Updated: `2026-11-15`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `3b1f1013` · Updated: `2026-11-15`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -13,11 +13,11 @@
 - 类型 (Type): Monorepo (Workspaces)
 - 技术栈 (Stack): TypeScript/JavaScript, Python, Shell / Bash · React, Electron, Next.js, TailwindCSS, Model Context Protocol (MCP), FastAPI, SQLAlchemy, Celery
 - 基础设施 (Infra): PostgreSQL, pgvector (Vector DB), Redis, MinIO / S3 Object Storage, Celery Task Queue
-- 规模 (Scale): 9 个子系统 · 35 组 API 路由 / 237 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 211 个测试文件
+- 规模 (Scale): 9 个子系统 · 35 组 API 路由 / 237 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 212 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `54a0bba9` (2026-11-15): fix(蓝图): 旧客户端的守护进程启动新生成器时按旧方式写 PROJECT_BLUEPRINT.md，不再把整台设备换成新名字
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 51（✅ 49 · ⚠️ 2 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `F-BLUEPRINT`, `R-CODE-BLUEPRINT-NAME`, `T-BLUEPRINT`, `R-APP-NAME`, `R-PUBLIC-REPO-CLEAN`, `R-CI-KUSTOMIZE-PINNED`, `R-DEPLOY-AFTER-CI`, `R-ALL-TYPESCRIPT`
+- 最近改动 (Latest): `3b1f1013` (2026-11-15): fix(问答): 修复配置按钮展开回弹、移动端配置面板横向裁切与字号撑破及智能体图标错位
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 51（✅ 51 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-REPLY-VISIBLE`, `S-MODEL-CHOICE`, `F-BLUEPRINT`, `R-CODE-BLUEPRINT-NAME`, `T-BLUEPRINT`, `R-APP-NAME`, `R-PUBLIC-REPO-CLEAN`, `R-CI-KUSTOMIZE-PINNED`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -31,7 +31,7 @@
 | 8. Development & Verification Commands | L624-L641 |
 | 9. Recent Architectural Evolutions | L643-L650 |
 | 10. Key Environment Variables & Configuration | L652-L664 |
-| 11. 业务蓝图核对 (Business Blueprint Check) | L666-L680 |
+| 11. 业务蓝图核对 (Business Blueprint Check) | L666-L676 |
 
 ## 1. Project Overview & Tech Stack
 
@@ -602,7 +602,7 @@ erDiagram
 | :--- | :--- | :--- | :--- |
 | server/tests (pytest) | [`server/tests`](server/tests) | 114 | `test_agent_limits.py`, `test_agent_login.py`, `test_agent_run_states.py`, `test_ai_provider.py`, `test_artifact_media_stream.py` |
 | packages/daemon/test (vitest / jest) | [`packages/daemon/test`](packages/daemon/test) | 57 | `agent-args.test.ts`, `agent-login.test.ts`, `agent-stream.test.ts`, `agy-models.test.ts`, `agy-project-folder.test.ts` |
-| apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 34 | `api-client.test.ts`, `ask-top-bar.test.tsx`, `auth-fetch.test.ts`, `build-update.test.ts`, `business-blueprint-card.test.ts` |
+| apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 35 | `api-client.test.ts`, `ask-reading-and-persona-rules.test.tsx`, `ask-top-bar.test.tsx`, `auth-fetch.test.ts`, `build-update.test.ts` |
 | apps/mobile/test (vitest / jest) | [`apps/mobile/test`](apps/mobile/test) | 2 | `deeplink.test.ts`, `webview-props.test.ts` |
 | packages/core/test (vitest / jest) | [`packages/core/test`](packages/core/test) | 2 | `ask-stream.test.ts`, `task-events.test.ts` |
 | apps/desktop/test (vitest / jest) | [`apps/desktop/test`](apps/desktop/test) | 1 | `helpers.test.ts` |
@@ -614,12 +614,12 @@ erDiagram
 - [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (13 commits)
 - [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (10 commits)
 - [`apps/desktop/src/main.ts`](apps/desktop/src/main.ts) (6 commits)
+- [`apps/web/src/app/globals.css`](apps/web/src/app/globals.css) (6 commits)
 - [`apps/web/src/components/viewers/MediaInspectorPanel.tsx`](apps/web/src/components/viewers/MediaInspectorPanel.tsx) (6 commits)
-- [`apps/web/src/app/globals.css`](apps/web/src/app/globals.css) (5 commits)
 - [`apps/web/src/components/ExecutionCard.tsx`](apps/web/src/components/ExecutionCard.tsx) (5 commits)
 - [`apps/web/src/components/TaskTimeline.tsx`](apps/web/src/components/TaskTimeline.tsx) (5 commits)
 - [`apps/web/src/lib/api-client.ts`](apps/web/src/lib/api-client.ts) (5 commits)
-- [`packages/core/src/events.ts`](packages/core/src/events.ts) (5 commits)
+- [`server/server/services/orchestrator.py`](server/server/services/orchestrator.py) (5 commits)
 
 ## 8. Development & Verification Commands
 
@@ -642,12 +642,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `3b1f1013` (2026-11-15): fix(问答): 修复配置按钮展开回弹、移动端配置面板横向裁切与字号撑破及智能体图标错位
 - `54a0bba9` (2026-11-15): fix(蓝图): 旧客户端的守护进程启动新生成器时按旧方式写 PROJECT_BLUEPRINT.md，不再把整台设备换成新名字
 - `400ee8b8` (2026-11-15): feat(蓝图): 代码蓝图改名 CODE_BLUEPRINT.md，和业务蓝图成对；个人蓝图读取各项目的业务蓝图；升级客户端版本至 v1.0.134
 - `d0f56ff3` (2026-11-14): fix(蓝图): 业务蓝图只认名字正好是 BUSINESS_BLUEPRINT.md 的文件；规则按分号拆开逐条比对；补齐 memento 的全部 35 条项目规则
 - `65be5009` (2026-11-14): feat(蓝图): 新增业务蓝图，把用户定的规则挂到代码和测试上并随提交核对；修复微信扫码登录在多副本下最多 15 秒读到旧状态；升级客户端版本至 v1.0.133
 - `ea7f2e9d` (2026-11-14): fix(问答): 追问送达后从输入区移到回答里显示
-- `10ccd5ef` (2026-11-14): fix(问答): 回答时稳定跟到最底部
 
 ## 10. Key Environment Variables & Configuration
 
@@ -665,16 +665,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 11. 业务蓝图核对 (Business Blueprint Check)
 
-- 业务蓝图：[BUSINESS_BLUEPRINT.md](BUSINESS_BLUEPRINT.md) · 规则 51（✅ 49 · ⚠️ 2 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
-- 结论：✅ 没有失效或违规 · ⚠️ 2 条缺测试 / 代码位置 / 来源
-
-### 需要处理
-
-- ⚠️ `R-THINKING-FULL` 思考过程始终铺满显示，回答正文字号统一（L370）：没有测试或检查保证
-- ⚠️ `R-PERSONA-ONBOARD` 个人画像首次进入引导设性别和卡通形象，可上传照片生成，默认全屏动画、3D 默认不选，手机端完整显示（L391）：没有测试或检查保证
+- 业务蓝图：[BUSINESS_BLUEPRINT.md](BUSINESS_BLUEPRINT.md) · 规则 51（✅ 51 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
+- 结论：✅ 没有失效或违规
 
 ### 最近提交碰到的业务条目（改动后复查它们还成不成立）
 
+- `3b1f1013` fix(问答): 修复配置按钮展开回弹、移动端配置面板横向裁切与字号撑破及智能体图标错位 → `R-REPLY-VISIBLE`, `S-MODEL-CHOICE`
 - `54a0bba9` fix(蓝图): 旧客户端的守护进程启动新生成器时按旧方式写 PROJECT_BLUEPRINT.md，不再把整台设备换成新名字 → `F-BLUEPRINT`, `R-CODE-BLUEPRINT-NAME`
 - `400ee8b8` feat(蓝图): 代码蓝图改名 CODE_BLUEPRINT.md，和业务蓝图成对；个人蓝图读取各项目的业务蓝图；升级客户端版本至 v1.0.134 → `T-BLUEPRINT`, `F-BLUEPRINT`, `R-APP-NAME`, `R-CODE-BLUEPRINT-NAME`, `R-PUBLIC-REPO-CLEAN`, `R-CI-KUSTOMIZE-PINNED`, `R-DEPLOY-AFTER-CI`, `R-ALL-TYPESCRIPT`, `R-PERSONA-ONBOARD`, `S-CLIENT-VERSION`
 - `d0f56ff3` fix(蓝图): 业务蓝图只认名字正好是 BUSINESS_BLUEPRINT.md 的文件；规则按分号拆开逐条比对；补齐 memento 的全部 35 条项目 → `R-BUSINESS-CHECKED`

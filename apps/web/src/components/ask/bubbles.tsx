@@ -14,7 +14,7 @@ import { showInAppToast, triggerHapticFeedback } from "@/lib/native-notify";
 import { api } from "@/lib/api-client";
 import { useMediaInspector, extractMediaFromMarkdown } from "@/components/viewers/MediaInspectorContext";
 
-function ThinkingBlock({ thinking, isLive }: { thinking: string; isLive?: boolean }) {
+export function ThinkingBlock({ thinking, isLive }: { thinking: string; isLive?: boolean }) {
   const { t } = useI18n();
   const [userToggled, setUserToggled] = useState<boolean>(false);
   const [manualExpanded, setManualExpanded] = useState<boolean>(false);
@@ -39,8 +39,9 @@ function ThinkingBlock({ thinking, isLive }: { thinking: string; isLive?: boolea
     }
   }, [isLive, finalDuration]);
 
-  // 当正在流式推演时（isLive），默认完全舒展铺满；推演完成后平滑收拢为精致指标胶囊（用户可点击胶囊手动展开）
-  const expanded = userToggled ? manualExpanded : Boolean(isLive);
+  // 用户规则「思考过程始终铺满全屏」：推演中和推演完都展开铺满，只有用户点胶囊才收起。
+  // 10-31 一次无关提交（5af514f1）把它改回了"推演完自动收拢"，业务蓝图 R-THINKING-FULL 现由测试守着
+  const expanded = userToggled ? manualExpanded : true;
 
   if (!thinking && !isLive) return null;
 

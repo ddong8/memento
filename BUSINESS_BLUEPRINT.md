@@ -3,16 +3,16 @@
 <!-- memento:business-index:start (自动生成，勿手改) -->
 > 先读这一段定位；要细节时按下表行号只读对应章节。改了「代码位置」里的文件，先看对应条目还成不成立。
 
-- 汇总：规则 51（✅ 49 · ⚠️ 2 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
-- 核对：全部通过 · ⚠️ 2 条待补（详见末尾「自动核对」）
+- 汇总：规则 51（✅ 51 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
+- 核对：全部通过（详见末尾「自动核对」）
 
 | 章节 | 行号 |
 | :--- | :--- |
 | 1. 业务对象与术语 | L21-L65 |
 | 2. 关键流程 | L67-L124 |
-| 3. 业务规则 | L126-L412 |
-| 4. 状态归属 | L414-L459 |
-| 自动核对 (Auto Check) | L462-L554 |
+| 3. 业务规则 | L126-L416 |
+| 4. 状态归属 | L418-L463 |
+| 自动核对 (Auto Check) | L466-L557 |
 <!-- memento:business-index:end -->
 > 业务蓝图：memento 应该做成什么样，每一条落在哪段代码、由哪个测试或检查保证。和代码蓝图 [CODE_BLUEPRINT.md](CODE_BLUEPRINT.md)（代码长什么样）配合看：代码蓝图回答"在哪里"，这份回答"应该怎样、为什么"。
 > 规则来自用户的原话和纠正（CLAUDE.md、长期记忆、每晚复盘），不是从代码里反推的；代码和这里对不上，先当成代码的问题查。
@@ -369,8 +369,10 @@
 
 ### R-THINKING-FULL 思考过程始终铺满显示，回答正文字号统一
 - 来源: CLAUDE.md（memento）「思考过程始终铺满全屏」「回答正文字号统一」
-- 说明: 还没有测试或可检查的写法守着（纯样式），改气泡和 Markdown 样式时要截图看。
+- 说明: 思考块推演中和推演完都展开、宽度铺满，只有用户点胶囊才收起；思考、回答正文、段落和列表都是 14px。10-31 的 5af514f1（无关的检索改动）曾把它改回"推演完自动收拢"，11-16 改回并补测试。
 - 代码: `apps/web/src/components/ask/bubbles.tsx#ThinkingBlock`, `apps/web/src/components/ask/bubbles.tsx#AssistantBubble`, `apps/web/src/components/viewers/MarkdownViewer.tsx`
+- 测试: `apps/web/test/ask-reading-and-persona-rules.test.tsx#shows the whole thinking text after thinking is done`, `apps/web/test/ask-reading-and-persona-rules.test.tsx#paragraphs and list items of an answer are all 14px`
+- 禁止: `userToggled ? manualExpanded : Boolean(isLive)` @ `apps/web/src/components/ask/bubbles.tsx`
 
 ### R-PASTE-IMAGE-ONCE 粘贴图片不重复
 - 来源: CLAUDE.md（memento）「粘贴图片不重复」
@@ -390,8 +392,10 @@
 
 ### R-PERSONA-ONBOARD 个人画像首次进入引导设性别和卡通形象，可上传照片生成，默认全屏动画、3D 默认不选，手机端完整显示
 - 来源: CLAUDE.md（memento）「个人画像首次进入引导设置性别和卡通形象，可上传照片生成，默认全屏动画，3D 默认不选中，手机端自动缩放完整显示」
-- 说明: 还没有测试守着；改画像页和形象引导时要在手机宽度截图看。
-- 代码: `apps/web/src/components/persona/AvatarOnboardingModal.tsx#AvatarOnboardingModal`, `apps/web/src/components/persona/avatarPresets.ts`, `apps/web/src/app/memory/persona/page.tsx`
+- 说明: 首次进入（服务端没形象、本机没跳过）弹一次引导，跳过后把默认形象存回服务端；舞台默认面板收起（全屏动画）、2D 不选 3D；弹窗在手机上可滚动、舞台高度按视口缩放。
+- 代码: `apps/web/src/lib/persona/onboarding.ts#shouldOfferAvatarOnboarding`, `apps/web/src/lib/persona/onboarding.ts#PERSONA_STAGE_DEFAULTS`, `apps/web/src/components/persona/AvatarOnboardingModal.tsx#AvatarOnboardingModal`, `apps/web/src/components/persona/avatarPresets.ts#getPresetsByGender`, `apps/web/src/app/memory/persona/page.tsx`
+- 测试: `apps/web/test/ask-reading-and-persona-rules.test.tsx#opens once on first visit`, `apps/web/test/ask-reading-and-persona-rules.test.tsx#starts as a full-screen 2D animation with 3D not selected`, `apps/web/test/ask-reading-and-persona-rules.test.tsx#has cartoon figures for every gender choice`
+- 要求: `PERSONA_STAGE_DEFAULTS.threeD` @ `apps/web/src/app/memory/persona/page.tsx`; `shouldOfferAvatarOnboarding(` @ `apps/web/src/app/memory/persona/page.tsx`; `accept="image/*"` @ `apps/web/src/components/persona/AvatarOnboardingModal.tsx`; `overflow-y-auto` @ `apps/web/src/components/persona/AvatarOnboardingModal.tsx`; `max-h-[30vh] sm:max-h-[42vh]` @ `apps/web/src/components/persona/CartoonPersonaStage.tsx`
 
 ### R-ASK-INSTANT AI 执事区域刷新尽量零延迟
 - 来源: CLAUDE.md（memento）「AI 执事区域刷新尽量零延迟」；全局技术偏好「要求交互零延迟」
@@ -463,7 +467,7 @@
 
 > 生成器随每次提交核对：代码位置还在不在、测试还在不在、禁止 / 要求的写法满不满足。✅ 通过 · ⚠️ 缺代码位置、测试或来源 · ❌ 位置失效或违反规则（CI 会拦下）。
 
-- 汇总：规则 51（✅ 49 · ⚠️ 2 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
+- 汇总：规则 51（✅ 51 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
 
 | 编号 | 名称 | 代码位置 | 测试 | 检查 | 结论 |
 | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -530,11 +534,11 @@
 | `R-LOGIN-PERSIST` | 客户端登录永久记住 | 3/3 | — | 1/1 | ✅ |
 | `R-MENU-KEEPALIVE` | 记住上次菜单状态，切换菜单不重新加载 | 2/2 | 2/2 | — | ✅ |
 | `R-MAC-TRAY` | Mac 客户端支持最小化到托盘，关窗口不退出 | 1/1 | — | 1/1 | ✅ |
-| `R-THINKING-FULL` | 思考过程始终铺满显示，回答正文字号统一 | 3/3 | — | — | ⚠️ |
+| `R-THINKING-FULL` | 思考过程始终铺满显示，回答正文字号统一 | 3/3 | 2/2 | 1/1 | ✅ |
 | `R-PASTE-IMAGE-ONCE` | 粘贴图片不重复 | 1/1 | — | 1/1 | ✅ |
 | `R-MEDIA-VIEW` | 图片可点击放大；视频可预览、全屏、播放后缓存；工作台能看图片和 ppt/excel/word/md 等产物 | 5/5 | 5/5 | — | ✅ |
 | `R-LLM-IN-PROFILE` | 大模型配置放在个人设置里 | 2/2 | — | 1/1 | ✅ |
-| `R-PERSONA-ONBOARD` | 个人画像首次进入引导设性别和卡通形象，可上传照片生成，默认全屏动画、3D 默认不选，手机端完整显示 | 3/3 | — | — | ⚠️ |
+| `R-PERSONA-ONBOARD` | 个人画像首次进入引导设性别和卡通形象，可上传照片生成，默认全屏动画、3D 默认不选，手机端完整显示 | 5/5 | 3/3 | 5/5 | ✅ |
 | `R-ASK-INSTANT` | AI 执事区域刷新尽量零延迟 | 3/3 | 2/2 | — | ✅ |
 | `R-WECHAT-DRAFT` | 工作台文本可多次润色，确认后推到公众号草稿，文章带官网链接 | 2/2 | — | 2/2 | ✅ |
 | `R-BUSINESS-CHECKED` | 业务规则挂到代码和测试上，每次提交自动核对 | 6/6 | 4/4 | 1/1 | ✅ |
@@ -550,6 +554,5 @@
 
 ### 需要处理
 
-- ⚠️ `R-THINKING-FULL` 思考过程始终铺满显示，回答正文字号统一（L370）：没有测试或检查保证
-- ⚠️ `R-PERSONA-ONBOARD` 个人画像首次进入引导设性别和卡通形象，可上传照片生成，默认全屏动画、3D 默认不选，手机端完整显示（L391）：没有测试或检查保证
+- 没有。
 <!-- memento:business-check:end -->

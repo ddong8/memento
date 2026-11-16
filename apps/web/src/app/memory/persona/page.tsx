@@ -14,6 +14,7 @@ import LearnedCorrections from "@/components/persona/LearnedCorrections";
 import CompletionGuard from "@/components/persona/CompletionGuard";
 import CognitiveCompass from "@/components/memory/CognitiveCompass";
 import AvatarOnboardingModal from "@/components/persona/AvatarOnboardingModal";
+import { PERSONA_STAGE_DEFAULTS, shouldBackfillDefaultAvatar, shouldOfferAvatarOnboarding } from "@/lib/persona/onboarding";
 import CartoonPersonaStage from "@/components/persona/CartoonPersonaStage";
 import type { PersonaDimension, SynapsePulse } from "@/components/persona/DigitalTwinAvatar3D";
 
@@ -422,9 +423,9 @@ export default function PersonaPage() {
   } | null>(null);
 
   // Fullscreen Theater & Panel Collapse State (Default: True for 100% full-screen Avatar animation)
-  const [isPanelCollapsed, setIsPanelCollapsed] = useState(true);
+  const [isPanelCollapsed, setIsPanelCollapsed] = useState<boolean>(PERSONA_STAGE_DEFAULTS.panelCollapsed);
   // 3D 舞台默认不选中，首选极速轻量 2D 卡通立绘动画，避免手机发热与掉帧
-  const [is3DMode, setIs3DMode] = useState<boolean>(false);
+  const [is3DMode, setIs3DMode] = useState<boolean>(PERSONA_STAGE_DEFAULTS.threeD);
   const cockpitRef = useRef<HTMLDivElement>(null);
 
   // Digital Twin Cartoon Avatar Onboarding & Customization State
@@ -501,7 +502,8 @@ export default function PersonaPage() {
           return avatar;
         });
         // 关键防护：仅在服务端未初始化、且本地从未跳过或设置过、且本次应用运行未曾检测过时，才允许单次静默延迟唤起
-        if (!avatar.is_initialized && !isAvatarOnboardingDismissed() && !hasCheckedAvatarOnboardingRef.current) {
+        const onboarding = { initialized: Boolean(avatar.is_initialized), dismissed: isAvatarOnboardingDismissed(), checked: hasCheckedAvatarOnboardingRef.current };
+        if (shouldOfferAvatarOnboarding(onboarding)) {
           hasCheckedAvatarOnboardingRef.current = true;
           setIsAvatarFirstTime(true);
           setTimeout(() => {
@@ -509,7 +511,7 @@ export default function PersonaPage() {
               setIsAvatarModalOpen(true);
             }
           }, 600);
-        } else if (!avatar.is_initialized && isAvatarOnboardingDismissed()) {
+        } else if (shouldBackfillDefaultAvatar(onboarding)) {
           // 本地已跳过但服务端尚未写回，后台静默自动保存默认形象同步服务端状态
           api.saveAvatarSettings(avatar).catch(() => {});
         }

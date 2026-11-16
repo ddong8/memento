@@ -5868,7 +5868,7 @@ function AskPageContent() {
                       alignItems: "center",
                       gap: 6,
                       background: "var(--aurora-chip)",
-                      border: "1px solid var(--aurora-accent)",
+                      border: "1px solid var(--aurora-border)",
                       borderRadius: 10,
                       padding: "4px 10px",
                       flex: 1,

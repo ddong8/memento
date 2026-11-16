@@ -1,0 +1,98 @@
+# Fleet 卡住自动重同步。
+# Fleet 经 fleet-proxy 克隆 GitHub，偶尔某个出口连不上（2026-11-16 17:46 vps1 出口 REALITY 握手失败、连接被重置），
+# gitrepo 就停在 Stalled，新镜像 tag 一直不部署，deploy.yml 的 verify 等 15 分钟后失败；以前要人手
+# `kubectl -n fleet-local patch gitrepo memento ... forceSyncGeneration+1`。
+# 这里每 3 分钟看一次：Stalled 持续 3 分钟以上、且距上次自动重同步 5 分钟以上，就把 forceSyncGeneration 加 1
+# （Fleet 另起任务重新连接，多数时候立刻恢复），上次重同步的时间记在 gitrepo 的注解里。
+# 用 server 镜像自带的 Python 标准库直接调 k8s API：不额外拉镜像，tag 跟着 kustomization 的 images 走。
+# 权限只到 fleet-local 里名叫 memento 的那个 gitrepo（ClusterRole + resourceNames；kustomization 的
+# namespace: memento 会改写命名空间级对象的命名空间，所以不用 fleet-local 里的 Role）。
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: fleet-watchdog
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: memento-fleet-watchdog
+rules:
+- apiGroups: ["fleet.cattle.io"]
+  resources: ["gitrepos"]
+  resourceNames: ["memento"]
+  verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: memento-fleet-watchdog
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: memento-fleet-watchdog
+subjects:
+- kind: ServiceAccount
+  name: fleet-watchdog
+  namespace: memento
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: fleet-watchdog
+spec:
+  schedule: "*/3 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 120
+      ttlSecondsAfterFinished: 3600
+      template:
+        spec:
+          serviceAccountName: fleet-watchdog
+          restartPolicy: Never
+          containers:
+          - name: watchdog
+            image: ghcr.io/ddong8/memento-server:latest
+            imagePullPolicy: IfNotPresent
+            resources:
+              requests: {cpu: 10m, memory: 32Mi}
+              limits: {cpu: 200m, memory: 128Mi}
+            command: ["python3", "-c"]
+            args:
+            - |
+              import json, os, ssl, time, urllib.request
+              from datetime import datetime, timezone
+
+              SA = "/var/run/secrets/kubernetes.io/serviceaccount"
+              URL = "https://%s:%s/apis/fleet.cattle.io/v1alpha1/namespaces/fleet-local/gitrepos/memento" % (
+                  os.environ["KUBERNETES_SERVICE_HOST"], os.environ["KUBERNETES_SERVICE_PORT"])
+              ANN = "memento.ihasy.com/watchdog-resync-at"
+              STALLED_FOR, GAP = 180, 300
+              token = open(SA + "/token").read().strip()
+              ctx = ssl.create_default_context(cafile=SA + "/ca.crt")
+
+              def call(method, body=None, ctype="application/json"):
+                  req = urllib.request.Request(URL, method=method, data=json.dumps(body).encode() if body else None,
+                                               headers={"Authorization": "Bearer " + token, "Content-Type": ctype})
+                  with urllib.request.urlopen(req, context=ctx, timeout=20) as r:
+                      return json.load(r)
+
+              def ts(s):
+                  return datetime.strptime(s, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).timestamp()
+
+              g = call("GET")
+              now = time.time()
+              cond = next((c for c in g.get("status", {}).get("conditions", []) if c.get("type") == "Stalled"), {})
+              if cond.get("status") != "True":
+                  print("ok: not stalled"); raise SystemExit(0)
+              stalled = now - ts(cond["lastUpdateTime"])
+              last = float((g["metadata"].get("annotations") or {}).get(ANN) or 0)
+              if stalled < STALLED_FOR or now - last < GAP:
+                  print("stalled %ds, last resync %ds ago: wait" % (stalled, now - last)); raise SystemExit(0)
+              gen = int(g["spec"].get("forceSyncGeneration") or 0) + 1
+              call("PATCH", {"metadata": {"annotations": {ANN: str(int(now))}}, "spec": {"forceSyncGeneration": gen}},
+                   "application/merge-patch+json")
+              print("stalled %ds (%s): forceSyncGeneration -> %d" % (stalled, (cond.get("message") or "")[:200], gen))

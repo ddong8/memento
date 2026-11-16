@@ -25,7 +25,7 @@
 - 发版:提交里把 apps/desktop/package.json 的版本号升上去即可,main 上 CI 通过后 auto-release.yml 自动打 `v<版本号>` 标签并触发 desktop-release.yml(已有这个标签就不动)。不需要手动打标签,执行机上的提交也能发版。
 - Android APK 在单独的 android.yml 里构建(发版时被调用,不挡桌面端发布,APK 构建好后补传到 Release);main 上原生依赖变了或每周一会跑一次,给发版预热 Gradle 缓存。
 - Fleet 每 15 秒轮询一次(deploy/fleet/gitrepo.yaml,这个对象不归 Fleet 管,改了要在集群里同步)。
-- gitrepo 显示 `Stalled` / `GitPolling=False` 时,Fleet 其实仍在定时轮询,只是每次都经 fleet-proxy 访问 GitHub 超时(2026-10-17 查实:当时代理只用一个出口,这个出口时好时坏,连续 17 分钟全部超时)。2026-10-18 起代理的两个出口都启用,每 30 秒健康检查、自动走可用且延迟低的那个。仍遇到卡住就按下面的办法强制重同步:它另起一个任务重新连接,多数时候能立刻部署。
+- gitrepo 显示 `Stalled` / `GitPolling=False` 时,Fleet 其实仍在定时轮询,只是每次都经 fleet-proxy 访问 GitHub 超时(2026-10-17 查实:当时代理只用一个出口,这个出口时好时坏,连续 17 分钟全部超时)。2026-10-18 起代理的两个出口都启用,每 30 秒健康检查、自动走可用且延迟低的那个。仍遇到卡住就按下面的办法强制重同步:它另起一个任务重新连接,多数时候能立刻部署。2026-11-16 起集群里的 CronJob `fleet-watchdog`(deploy/k8s/fleet-watchdog.yaml)每 3 分钟检查一次,Stalled 超过 3 分钟就自动做这一步(两次之间至少隔 5 分钟,时间记在 gitrepo 注解 `memento.ihasy.com/watchdog-resync-at`),一般不用再手动;看它做了什么:`kubectl -n memento logs job/<最近的 fleet-watchdog-xxx>`。
 - CI 装 kustomize 用「release CDN 直接下载固定版」(`releases/download/.../kustomize_v5.4.3_...`),**不要改回 `install_kustomize.sh`**——它查 GitHub API,共享 runner 上会撞限流导致部署失败。
 - 镜像 tag 由 CI 自动 bump,**不要手改**。
 - 服务端 Python 依赖锁在 `server/uv.lock`,Docker 安装的是由它导出的 `server/requirements.lock`(带哈希)。改了 `server/pyproject.toml` 的依赖后:`cd server && uv lock && uv export --frozen --no-dev --no-emit-project --no-header --format requirements-txt -o requirements.lock`;升级依赖用 `uv lock --upgrade` 再导出。CI 会检查两者一致。

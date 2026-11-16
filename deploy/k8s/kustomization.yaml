@@ -8,6 +8,7 @@ resources:
 - celery.yaml
 - web.yaml
 - ingress.yaml
+- fleet-watchdog.yaml
 
 # memento-config 用 generator:内容变化时名字带新 hash → 自动滚动 api/worker/beat,
 # 避免改了 EMBEDDING_* / AI_MODEL 却不生效。kustomize 会自动把各 Deployment

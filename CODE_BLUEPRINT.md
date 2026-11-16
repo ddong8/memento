@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `5fae7391` · Updated: `2026-11-16`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `54527d30` · Updated: `2026-11-16`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,7 +16,7 @@
 - 规模 (Scale): 9 个子系统 · 35 组 API 路由 / 237 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 213 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `5fae7391` (2026-11-16): fix(问答): /compact 的摘要和本地命令回显不再当成在 Claude Code 里说的话并进对话
+- 最近改动 (Latest): `54527d30` (2026-11-16): fix(问答): 智能体提问时先写了几句话，选项不再变成点不动
 - 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 53（✅ 53 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `F-RESUME`, `R-SESSION-TIMELINE`, `R-SELF-EVOLVE`, `R-WS-BIG-UNTRACKED`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `S-CLIENT-VERSION`
 
 | 章节 (Section) | 行号 (Lines) |
@@ -27,11 +27,11 @@
 | 4. Key Entry Points & API Endpoints | L95-L463 |
 | 5. Core Domain Services & Background Schedules | L465-L505 |
 | 6.5. AST Call Graph, DTO Schemas & CLI Entrypoints | L507-L579 |
-| 7. CI/CD Pipelines, Code Hotspots & Test Suites | L581-L622 |
-| 8. Development & Verification Commands | L624-L641 |
-| 9. Recent Architectural Evolutions | L643-L650 |
-| 10. Key Environment Variables & Configuration | L652-L664 |
-| 11. 业务蓝图核对 (Business Blueprint Check) | L666-L674 |
+| 7. CI/CD Pipelines, Code Hotspots & Test Suites | L581-L623 |
+| 8. Development & Verification Commands | L625-L642 |
+| 9. Recent Architectural Evolutions | L644-L651 |
+| 10. Key Environment Variables & Configuration | L653-L665 |
+| 11. 业务蓝图核对 (Business Blueprint Check) | L667-L675 |
 
 ## 1. Project Overview & Tech Stack
 
@@ -592,6 +592,7 @@ erDiagram
 | K8s / GitOps | `gitrepo.yaml` | [`deploy/fleet/gitrepo.yaml`](deploy/fleet/gitrepo.yaml) | Resources: GitRepo |
 | K8s / GitOps | `api.yaml` | [`deploy/k8s/api.yaml`](deploy/k8s/api.yaml) | Resources: Deployment, Service |
 | K8s / GitOps | `celery.yaml` | [`deploy/k8s/celery.yaml`](deploy/k8s/celery.yaml) | Resources: Deployment |
+| K8s / GitOps | `fleet-watchdog.yaml` | [`deploy/k8s/fleet-watchdog.yaml`](deploy/k8s/fleet-watchdog.yaml) | Resources: ServiceAccount, ClusterRole, ClusterRoleBinding, CronJob |
 | K8s / GitOps | `ingress.yaml` | [`deploy/k8s/ingress.yaml`](deploy/k8s/ingress.yaml) | Resources: Ingress |
 | K8s / GitOps | `kustomization.yaml` | [`deploy/k8s/kustomization.yaml`](deploy/k8s/kustomization.yaml) | Resources: Kustomization |
 | K8s / GitOps | `web.yaml` | [`deploy/k8s/web.yaml`](deploy/k8s/web.yaml) | Resources: Deployment, Service |
@@ -611,12 +612,12 @@ erDiagram
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
 - [`packages/daemon/assets/workbuddy_cli.mjs`](packages/daemon/assets/workbuddy_cli.mjs) (17 commits)
-- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (16 commits)
-- [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (10 commits)
+- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (15 commits)
+- [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (9 commits)
 - [`apps/desktop/src/main.ts`](apps/desktop/src/main.ts) (6 commits)
 - [`apps/web/src/app/globals.css`](apps/web/src/app/globals.css) (6 commits)
+- [`apps/web/src/components/ExecutionCard.tsx`](apps/web/src/components/ExecutionCard.tsx) (6 commits)
 - [`apps/web/src/components/viewers/MediaInspectorPanel.tsx`](apps/web/src/components/viewers/MediaInspectorPanel.tsx) (6 commits)
-- [`apps/web/src/components/ExecutionCard.tsx`](apps/web/src/components/ExecutionCard.tsx) (5 commits)
 - [`apps/web/src/components/TaskTimeline.tsx`](apps/web/src/components/TaskTimeline.tsx) (5 commits)
 - [`apps/web/src/components/ask/bubbles.tsx`](apps/web/src/components/ask/bubbles.tsx) (5 commits)
 - [`packages/daemon/src/blueprint/meta.ts`](packages/daemon/src/blueprint/meta.ts) (5 commits)
@@ -642,12 +643,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `54527d30` (2026-11-16): fix(问答): 智能体提问时先写了几句话，选项不再变成点不动
 - `5fae7391` (2026-11-16): fix(问答): /compact 的摘要和本地命令回显不再当成在 Claude Code 里说的话并进对话
 - `42529daa` (2026-11-16): fix(projects): 名字叫 scratch 的用户目录不再被当成无效项目
 - `7ed62cc5` (2026-11-16): feat(问答): 续接会话的对话与会话保持同步，工具自己应用里的问答按时间并进对话 (#20)
 - `894debf8` (2026-11-16): fix(工作区): 跨设备改代码时没进 .gitignore 的大文件留在源设备上，不再让任务失败；升级客户端版本至 v1.0.135
 - `7e8ed066` (2026-11-16): fix(问答): 手机上会话上下文预览默认收起，展开配置后不用再往下滑
-- `a85a7e9a` (2026-11-16): fix(问答): 展开的配置项完整显示，不再被压成一半要往下滑；会话上下文仍在自己的区域里滚动
 
 ## 10. Key Environment Variables & Configuration
 

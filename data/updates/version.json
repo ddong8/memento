@@ -4,22 +4,22 @@
   "release_notes": "1. 在另一台设备上改代码时，项目里没提交、也没写进 .gitignore 的大文件（单个超过 50MB，或合计超过 300MB 的部分）不再让任务直接失败：这些文件留在源设备上不带过去，同步照常进行，任务过程里列出没带上的文件\n2. 业务蓝图核对：要求/禁止里带分号的写法能正确识别，读不懂的写法判为不通过而不是默认通过\n3. 手机端版本号与客户端统一为 1.0.135",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.134-win-x64.zip",
-      "size": 158300313,
-      "sha256": "3348aeca7a6f50121f70abd300f202b7f89e68a1012670624bb91cc4eedafd7d",
-      "sha512": "EYVeiAcNnPCg9pbZXhMOMCPatju54EjxNBV6Qs8GJHisoQEMdKrZ1CFP+WXMBaFQQeCsotyeKH4I4GjGwIU58w=="
+      "asset_name": "Memento-1.0.135-win-x64.zip",
+      "size": 158302289,
+      "sha256": "d8cba535c0d28785a2b208379b206658b27dbdcad2025758680964c8751595a1",
+      "sha512": "gmUXkTaiRuslmMvlGfp2b6ghUCBPb3nkBbJrklrQ0n/evN9Aq0mAFXuqWx/nhSX3YFJsE3c+p7P60QZe+J49Qw=="
     },
     "macos": {
-      "asset_name": "Memento-1.0.134-mac-arm64.zip",
-      "size": 132789483,
-      "sha256": "670f387a8273d65eb25a70f6f1297ddde3fce6513b0f8763f0a1288afa23ff3b",
-      "sha512": "ago38l589KJbZ/rU3UFp/jP4ZZIzsyxfONebGbYZbwDseuD+PwMAI+dj2WptAhMsJwpc3beGud3K/znBCXlG3w=="
+      "asset_name": "Memento-1.0.135-mac-arm64.zip",
+      "size": 132791192,
+      "sha256": "767adbb85a633857cb3acb2621008d723b998e2e2ee09f9f07c382a59911b9dd",
+      "sha512": "NjvLk1HfNP30ru1tuWswQeQGt67tMdfXqRVA2kB3rIAt9v31a4mLaWpqeAcYA5tK5VQNOK7qJnFYdgVfooQ1Yw=="
     },
     "linux": {
-      "asset_name": "Memento-1.0.134-linux-x64.tar.gz",
-      "size": 132066397,
-      "sha256": "db49be75b8322ccc5947fa2d3a750ccf0f45f46da635c044f5ded10be2672929",
-      "sha512": "9qG8m8kQeMfYkkfnmCpdcze3gO1mF0gIeE7aV9lPiG9/5uPNJkHntT/SUuFi1cpd8Qv9Zue6Zw3pbWKqk2Z7Bg=="
+      "asset_name": "Memento-1.0.135-linux-x64.tar.gz",
+      "size": 132068062,
+      "sha256": "4386fb002340b7a6d72d42ab474b4298ca99dd9f961c8f8ace3e6a9f8dbf2ef1",
+      "sha512": "kBxWHvAP7dVlvdeNdM6un8txEOi1ss9cqA6JZTsYcsoGQJKPtkqy8MfMztyWUyd7Fu3t/Q0KP2xiWVsTJktGxw=="
     }
   }
 }

@@ -4,22 +4,22 @@
   "release_notes": "1. 修复 Antigravity 接着聊时一直报「Timed out waiting for Antigravity response log」：智能体读到的代码里有 session_id: \"\" 这类文字时，会被误当成会话号记下，之后每一轮都续接不上；现在只认执行脚本自己报的会话号\n2. 续接前先确认这台设备上真有这个 Antigravity 会话，没有就直接新开会话接着做，不再空等 20 秒后失败，也不会在 Antigravity 里留下以乱码命名的空会话\n3. 修复 Mac 上的任务没在选的目录里跑：服务端把设备名里的「Darwin」误判成 Windows，改写了工作目录，Antigravity 实际在用户主目录里干活\n4. 手机端版本号与客户端统一为 1.0.136",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.135-win-x64.zip",
-      "size": 158302289,
-      "sha256": "d8cba535c0d28785a2b208379b206658b27dbdcad2025758680964c8751595a1",
-      "sha512": "gmUXkTaiRuslmMvlGfp2b6ghUCBPb3nkBbJrklrQ0n/evN9Aq0mAFXuqWx/nhSX3YFJsE3c+p7P60QZe+J49Qw=="
+      "asset_name": "Memento-1.0.136-win-x64.zip",
+      "size": 158304887,
+      "sha256": "0c06bbca236987700b0a99fbf6a9f8e4623fff8cfc522b859db99d9efc39274c",
+      "sha512": "X6UCqe609HsbZ/eDvpFJe2jl88TA8extUZj726iPNjtmRKW2zqoAEjYDVo04hg47cxda+tbRkHwBxj5RkyupFQ=="
     },
     "macos": {
-      "asset_name": "Memento-1.0.135-mac-arm64.zip",
-      "size": 132791192,
-      "sha256": "767adbb85a633857cb3acb2621008d723b998e2e2ee09f9f07c382a59911b9dd",
-      "sha512": "NjvLk1HfNP30ru1tuWswQeQGt67tMdfXqRVA2kB3rIAt9v31a4mLaWpqeAcYA5tK5VQNOK7qJnFYdgVfooQ1Yw=="
+      "asset_name": "Memento-1.0.136-mac-arm64.zip",
+      "size": 132794256,
+      "sha256": "badc14f67963515bb65a33ece17bfc1b11c683eb0d1b08b165a15e308bbeb872",
+      "sha512": "PSB2EgE2xEbqG2f9pCLUQOf3MVC4f60RUR1+fdv0jKO7MSeLW6VG3c8987mq5FB3BZ3nlCj5obnU/jpr+IXX5A=="
     },
     "linux": {
-      "asset_name": "Memento-1.0.135-linux-x64.tar.gz",
-      "size": 132068062,
-      "sha256": "4386fb002340b7a6d72d42ab474b4298ca99dd9f961c8f8ace3e6a9f8dbf2ef1",
-      "sha512": "kBxWHvAP7dVlvdeNdM6un8txEOi1ss9cqA6JZTsYcsoGQJKPtkqy8MfMztyWUyd7Fu3t/Q0KP2xiWVsTJktGxw=="
+      "asset_name": "Memento-1.0.136-linux-x64.tar.gz",
+      "size": 132068473,
+      "sha256": "3016685f70254fd729db2ba7d9c017e668ffcbd802a6967dd0cd62e61101b793",
+      "sha512": "VAQNgtcAhsD5ttmHkPoHHUYIcaWWttpzr3w6j/G0dP5dyI1tquteJMGFKekQYCMAvjVGU3Mh55wOMnVkZ/OfBg=="
     }
   }
 }

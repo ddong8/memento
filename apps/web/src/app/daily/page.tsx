@@ -198,7 +198,6 @@ export default function DailyPage() {
                 letterSpacing: "-0.03em",
                 lineHeight: 1.05,
                 fontVariantNumeric: "tabular-nums",
-                fontVariantNumeric: "tabular-nums",
               }}
             >
               {loading ? "…" : monthTotal.toLocaleString()}

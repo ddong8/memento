@@ -275,12 +275,14 @@ export default function Dashboard() {
           {/* 7-day activity bars */}
           <Glass padding={22} radius={22}>
             <SectionLabel style={{ margin: "0 0 16px" }}>{t.dashboard.weeklyActivity}</SectionLabel>
-            <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: 88 }}>
+            <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: 120 }}>
               {daily.map((d) => {
                 const h = Math.max((d.count / maxDaily) * 100, 4);
                 return (
-                  <div key={d.date} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+                  <div key={d.date} style={{ flex: 1, height: "100%", display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
                     <span style={{ fontSize: 10, color: "var(--aurora-fg4)" }}>{d.count}</span>
+                    {/* The bar's % height needs a parent with a height: this box takes what the labels leave */}
+                    <div style={{ flex: 1, minHeight: 0, width: "100%", display: "flex", alignItems: "flex-end" }}>
                     <div
                       style={{
                         width: "100%",
@@ -290,6 +292,7 @@ export default function Dashboard() {
                         boxShadow: "0 4px 12px -4px color-mix(in srgb, var(--aurora-accent) 45%, transparent)",
                       }}
                     />
+                    </div>
                     <span style={{ fontSize: 10, color: "var(--aurora-fg4)" }}>{d.date.slice(5)}</span>
                   </div>
                 );

@@ -6915,10 +6915,11 @@ function AskPageContent() {
                   disabled={!input.trim() && attachedImages.length === 0}
                   icon="message"
                   title={isZh ? "追问：正在运行的智能体会在下一步读到，读不了的等这轮结束后接着发" : "Follow up"}
-                  className="!h-[44px] sm:!h-[42px] !px-3.5 sm:!px-4 !rounded-xl"
+                  className="!h-[44px] sm:!h-[42px] !w-[44px] sm:!w-auto !px-0 sm:!px-4 !justify-center !rounded-xl"
                   style={{ flexShrink: 0 }}
                 >
-                  <span className="font-semibold text-xs sm:text-sm">{isZh ? "追问" : "Follow up"}</span>
+                  {/* Icon only on a phone: with Stop beside it the words left the input three characters wide */}
+                  <span className="hidden sm:inline font-semibold text-sm">{isZh ? "追问" : "Follow up"}</span>
                 </Btn>
               )}
               {streaming ? (
@@ -6926,7 +6927,8 @@ function AskPageContent() {
                   variant="danger"
                   icon="close"
                   onClick={stopRun}
-                  className="!h-[44px] sm:!h-[42px] !px-3.5 sm:!px-4 !rounded-xl"
+                  title={t.ask.stop}
+                  className="!h-[44px] sm:!h-[42px] !w-[44px] sm:!w-auto !px-0 sm:!px-4 !justify-center !rounded-xl"
                   style={{
                     flexShrink: 0,
                     background: "rgba(239, 68, 68, 0.18)",
@@ -6934,7 +6936,7 @@ function AskPageContent() {
                     color: "#ef4444",
                   }}
                 >
-                  {t.ask.stop}
+                  <span className="hidden sm:inline">{t.ask.stop}</span>
                 </Btn>
               ) : (
                 <Btn

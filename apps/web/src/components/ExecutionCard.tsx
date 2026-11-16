@@ -368,7 +368,7 @@ const ExecutionCard = memo(function ExecutionCard({
               }}
             >
               <Icon name="devices" size={11.5} style={{ color: "var(--aurora-fg3)", flexShrink: 0 }} />
-              <span>{machineName.replace(/\.local\b/i, "")}</span>
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{machineName.replace(/\.local\b/i, "")}</span>
             </span>
           )}
 
@@ -659,7 +659,7 @@ const ExecutionCard = memo(function ExecutionCard({
                   title={cwd}
                 >
                   <Icon name="folder" size={11.5} style={{ color: "var(--aurora-accent)", flexShrink: 0 }} />
-                  <span>{formatShortPath(cwd)}</span>
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{formatShortPath(cwd)}</span>
                 </span>
               )}
             </div>

@@ -161,6 +161,23 @@ describe("checking", () => {
     expect(rule.problems.join("\n")).toContain("缺少要求的写法");
   });
 
+  it("a pattern may hold ';', and a check it can't read fails instead of passing unchecked", () => {
+    write("src/a.ts", "if (x) { stop(); open(true); }\n");
+    write(
+      "BUSINESS_BLUEPRINT.md",
+      "# Business Blueprint: demo\n\n## 3. 业务规则\n\n### R-SEMI 带分号的写法\n- 来源: 用户\n- 代码: `src/a.ts`\n" +
+        "- 要求: `/stop\\(\\); open\\(true\\)/` @ `src/a.ts`; `{ stop(); open(true); }` @ `src/a.ts`\n\n" +
+        "### R-BROKEN 写错的检查\n- 来源: 用户\n- 代码: `src/a.ts`\n- 要求: `open(true)` 在 src/a.ts\n",
+    );
+    const r = checkBusinessBlueprint(root)!;
+    const semi = r.entries.find((e) => e.id === "R-SEMI")!;
+    expect(semi.verdict).toBe("ok");
+    expect(semi.required.map((c) => c.ok)).toEqual([true, true]);
+    const broken = r.entries.find((e) => e.id === "R-BROKEN")!;
+    expect(broken.verdict).toBe("fail");
+    expect(broken.problems.join("\n")).toContain("写法格式不对");
+  });
+
   it("fails a missing file and a duplicated ID", () => {
     write("BUSINESS_BLUEPRINT.md", BLUEPRINT.replace("`src/store.ts#ProjectStore`", "`src/gone.ts#ProjectStore`") + "\n### R-NOTEST again\n- 代码: `src/start.ts`\n");
     const r = checkBusinessBlueprint(root)!;

@@ -994,6 +994,7 @@ function AskPageContent() {
   // Declared further down; loadConversation reaches it through this ref.
   const attachRunRef = useRef<((convId: string, question: string, baseTurns: Turn[], runImages?: string[]) => Promise<void>) | null>(null);
 
+  const pendingConfigPatchRef = useRef<{ convId: string; patch: Record<string, any> } | null>(null);
   // Helper to persist updated configuration for current conversation if one is active
   const persistCurrentConfig = useCallback((patch: Record<string, any>) => {
     const convId = activeConversationIdRef.current;
@@ -1015,9 +1016,22 @@ function AskPageContent() {
           : c
       )
     );
-    if (streamingRef.current) return;
+    if (streamingRef.current) {
+      // Not saved mid-run (the run's own save at its end would write over it): kept and sent once it ends,
+      // so a setting changed while an answer streams isn't lost on the next open
+      const pending = pendingConfigPatchRef.current;
+      pendingConfigPatchRef.current = { convId, patch: { ...(pending?.convId === convId ? pending.patch : {}), ...patch } };
+      return;
+    }
     api.updateAskConversation(convId, patch).catch(() => {});
   }, []);
+  useEffect(() => {
+    if (streaming) return;
+    const pending = pendingConfigPatchRef.current;
+    if (!pending) return;
+    pendingConfigPatchRef.current = null;
+    api.updateAskConversation(pending.convId, pending.patch).catch(() => {});
+  }, [streaming]);
 
   const normalizeDeviceId = useCallback(
     (devStr?: string | null) => {
@@ -4715,11 +4729,14 @@ function AskPageContent() {
     for (let i = turns.length - 1; i >= 0; i--) {
       const t = turns[i] as any;
       const tMode = String(t?.execution_mode || t?.executionMode || "").toLowerCase().trim();
-      if (!turnInferredMode && tMode && tMode !== "ai") {
-        turnInferredMode = tMode;
-      }
       if (!turnInferredModel && t?.model) {
         turnInferredModel = String(t.model);
+      }
+      // The latest answer that recorded its mode decides, "ai" included: an AI answer's calls name the agent
+      // it dispatched (binary "claude"), which is not the conversation's tool
+      if (!turnInferredMode && tMode) {
+        turnInferredMode = tMode;
+        break;
       }
       const tcs = t?.toolCalls || t?.tool_calls;
       if (!turnInferredMode && Array.isArray(tcs)) {
@@ -4758,7 +4775,9 @@ function AskPageContent() {
     const effectiveMode =
       executionMode && executionMode !== "ai"
         ? executionMode
-        : turnInferredMode || (savedMode && savedMode !== "ai" ? savedMode : executionMode || savedMode);
+        : (turnInferredMode && turnInferredMode !== "ai" ? turnInferredMode : "") ||
+          (turnInferredMode === "ai" ? "ai" : "") ||
+          (savedMode && savedMode !== "ai" ? savedMode : executionMode || savedMode);
 
     const effectiveModel =
       selectedModel || turnInferredModel || activeConversation?.config?.model || "";
@@ -5238,7 +5257,8 @@ function AskPageContent() {
             <div
               className="ask-footer-extras"
               style={{
-                maxHeight: viewportBottomOffset > 0 ? "24dvh" : "min(42dvh, 420px)",
+                // 11-14 capped so the settings don't cover the reply (119ba986); 3b1f1013 raised it again
+                maxHeight: viewportBottomOffset > 0 ? "22dvh" : "min(36dvh, 400px)",
                 overflowY: "auto",
                 overflowX: "hidden",
                 overscrollBehavior: "contain",
@@ -5296,13 +5316,16 @@ function AskPageContent() {
 
                     const modeQuota = getModeQuotaSummary(executionMode);
 
+                    const isAgentMode = ["antigravity", "claude", "codex", "workbuddy"].includes(executionMode);
                     return (
                       <span
                         onMouseEnter={() => {
-                          if (["antigravity", "claude", "codex", "workbuddy"].includes(executionMode)) {
-                            void api.getAgentQuotas(selectedDevice);
-                          }
+                          if (isAgentMode) void api.getAgentQuotas(selectedDevice);
                         }}
+                        // The agent chip opens its quota (as it did before 3b1f1013): only the rest of the bar
+                        // expands the settings. Phones have no hover, so the quotas are fetched on the tap too.
+                        onClick={(e) => { if (isAgentMode) { e.stopPropagation(); void api.getAgentQuotas(selectedDevice); setQuotaOpen(true); } }}
+                        data-testid="ask-mode-chip"
                         style={{
                           display: "inline-flex",
                           alignItems: "center",
@@ -5318,7 +5341,7 @@ function AskPageContent() {
                           flexShrink: 0,
                           cursor: "pointer",
                         }}
-                        title={isZh ? "点击展开配置或切换智能体" : "Click to expand configuration"}
+                        title={isAgentMode ? (isZh ? "点击查看 AI 订阅与额度详情" : "Click to view AI quota details") : (isZh ? "点击展开配置或切换智能体" : "Click to expand configuration")}
                       >
                         {currentMode.brandId ? (
                           <BrandMark id={currentMode.brandId} size={13} colored />
@@ -5328,11 +5351,6 @@ function AskPageContent() {
                         <span>{currentMode.label}</span>
                         {modeQuota && (
                           <span
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setQuotaOpen(true);
-                            }}
-                            title={isZh ? "点击查看 AI 订阅与额度详情" : "Click to view AI quota details"}
                             style={{
                               fontSize: 10,
                               fontWeight: 700,

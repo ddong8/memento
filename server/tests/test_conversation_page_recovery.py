@@ -217,6 +217,30 @@ class ConversationPageRecoveryTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual((await db.get(AskConversation, self.conv_id)).config["session_id"], "")
 
 
+    async def test_an_ai_orchestrated_answer_keeps_the_conversation_in_ai_mode(self) -> None:
+        """3b1f1013 read the agent an AI answer dispatched (run_on_device, binary claude) as the conversation's
+        mode: the conversation reopened as Claude Code. The run says its mode; the calls only fill in when it doesn't."""
+        from server.db.models import AskConversation
+        from server.services import ask_store
+
+        async with self.Session() as db:
+            conv = await db.get(AskConversation, self.conv_id)
+            conv.config = {"execution_mode": "ai"}
+            await db.commit()
+        dispatched = [{"id": "c1", "name": "run_on_device", "args": {"action": "agent", "binary": "claude", "prompt": "跑测试"}}]
+        with patch.object(ask_store, "async_session_factory", self.Session):
+            await ask_store.append_conversation_turns(conv_id=self.conv_id, user_content="q", assistant_content="a",
+                                                      tool_calls=dispatched, config={"execution_mode": "ai"})
+            async with self.Session() as db:
+                conv = await db.get(AskConversation, self.conv_id)
+                self.assertEqual(conv.config["execution_mode"], "ai")
+                self.assertEqual(conv.turns[-1]["execution_mode"], "ai")
+            # A run that didn't say (an older client) is still read from its calls
+            await ask_store.append_conversation_turns(conv_id=self.conv_id, user_content="q2", assistant_content="a2",
+                                                      tool_calls=dispatched)
+            async with self.Session() as db:
+                self.assertEqual((await db.get(AskConversation, self.conv_id)).turns[-1]["execution_mode"], "claude")
+
     async def test_a_running_task_keeps_its_session_from_the_start(self) -> None:
         from server.api import tasks
         from server.db.models import DeviceTask

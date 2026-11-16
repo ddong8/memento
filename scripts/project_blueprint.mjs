@@ -6126,7 +6126,7 @@ function detectVerificationCommands(root) {
 }
 
 // packages/daemon/src/blueprint/meta.ts
-var BLUEPRINT_SCRIPT_VERSION = 20261125;
+var BLUEPRINT_SCRIPT_VERSION = 20261126;
 var BLUEPRINT_FILE = "CODE_BLUEPRINT.md";
 var LEGACY_BLUEPRINT_FILE = "PROJECT_BLUEPRINT.md";
 var CODE_BLUEPRINT_FILES = [BLUEPRINT_FILE, LEGACY_BLUEPRINT_FILE];
@@ -6185,14 +6185,32 @@ function anchorsIn(text) {
 }
 function patternClauses(text) {
   const out = [];
-  for (const clause of text.split(/[;；]/)) {
+  for (const raw of splitOutsideTicks(text)) {
+    const clause = raw.trim();
+    if (!clause) continue;
     const at = clause.search(/\s@\s/);
-    if (at < 0) continue;
-    const pat = [...clause.slice(0, at).matchAll(TICKED_RE)].map((m) => m[1])[0];
-    const paths = [...clause.slice(at).matchAll(TICKED_RE)].map((m) => splitRef(m[1])[0]).filter(Boolean);
+    const pat = at < 0 ? void 0 : [...clause.slice(0, at).matchAll(TICKED_RE)].map((m) => m[1])[0];
+    const paths = at < 0 ? [] : [...clause.slice(at).matchAll(TICKED_RE)].map((m) => splitRef(m[1])[0]).filter(Boolean);
     if (pat && paths.length) out.push({ pattern: pat, paths });
+    else out.push({ pattern: clause, paths: [], reason: "写法格式不对，应为 `文本或/正则/` @ `路径`" });
   }
   return out;
+}
+function splitOutsideTicks(text) {
+  const parts = [];
+  let cur = "";
+  let inTick = false;
+  for (const ch of text) {
+    if (ch === "`") inTick = !inTick;
+    if (!inTick && (ch === ";" || ch === "；")) {
+      parts.push(cur);
+      cur = "";
+      continue;
+    }
+    cur += ch;
+  }
+  parts.push(cur);
+  return parts;
 }
 function parseBusinessBlueprint(text) {
   const lines = text.split("\n");
@@ -6333,6 +6351,7 @@ function patternTester(pattern) {
 var CODE_EXT = /\.(?:[cm]?[jt]sx?|py|ya?ml|sh|bash|css|scss|go|rs|java|kt|swift|rb|toml)$/i;
 var COMMENT_LINE = /^\s*(?:\/\/|#(?!!)|\/?\*|<!--)/;
 function scanPattern(root, c, forbid) {
+  if (c.reason) return { ...c, ok: false, hits: [] };
   const test = patternTester(c.pattern);
   const missing = c.paths.filter((p) => !exists(pjoin(root, p)));
   if (missing.length) return { ...c, ok: false, hits: [], reason: `路径不存在: ${missing.join(", ")}` };

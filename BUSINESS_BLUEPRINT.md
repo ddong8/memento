@@ -10,9 +10,9 @@
 | :--- | :--- |
 | 1. 业务对象与术语 | L21-L65 |
 | 2. 关键流程 | L67-L124 |
-| 3. 业务规则 | L126-L416 |
-| 4. 状态归属 | L418-L463 |
-| 自动核对 (Auto Check) | L466-L557 |
+| 3. 业务规则 | L126-L418 |
+| 4. 状态归属 | L420-L465 |
+| 自动核对 (Auto Check) | L468-L559 |
 <!-- memento:business-index:end -->
 > 业务蓝图：memento 应该做成什么样，每一条落在哪段代码、由哪个测试或检查保证。和代码蓝图 [CODE_BLUEPRINT.md](CODE_BLUEPRINT.md)（代码长什么样）配合看：代码蓝图回答"在哪里"，这份回答"应该怎样、为什么"。
 > 规则来自用户的原话和纠正（CLAUDE.md、长期记忆、每晚复盘），不是从代码里反推的；代码和这里对不上，先当成代码的问题查。
@@ -165,7 +165,8 @@
 - 来源: 用户 2026-11-14「额度能根据当前会话使用的模型显示吗，有的会话，像antigravity 里的多个模型额度是不一样的」
 - 代码: `apps/web/src/lib/ask/model-limits.ts#modelQuotaOf`, `apps/web/src/app/ask/page.tsx#quotaModelId`, `apps/web/src/components/quota/AgentQuotaPopover.tsx#AgentQuotaPopover`
 - 测试: `apps/web/test/model-limits.test.ts#gives the quota of the model a conversation runs on, not the default model's`
-- 要求: `modelQuotaOf(quotasData` @ `apps/web/src/app/ask/page.tsx`
+- 说明: 输入框上方收起的配置栏里，点智能体胶囊（如「Claude Code 94%」）打开额度详情，点栏的其它地方才展开配置；3b1f1013 曾去掉胶囊的点击，导致点它弹出配置表单（用户 2026-11-16 截图反馈）。
+- 要求: `modelQuotaOf(quotasData` @ `apps/web/src/app/ask/page.tsx`; `/onClick=\{\(e\) => \{ if \(isAgentMode\) \{ e\.stopPropagation\(\)[^}]*setQuotaOpen\(true\)/` @ `apps/web/src/app/ask/page.tsx`
 
 ### R-MODEL-SWITCH 某个模型额度用完，能换同一工具的其它模型，三个工具都要支持
 - 来源: 用户 2026-11-11「antigravity有多个模型可以选择啊……是不是应该可以切换模型？」「还有你目前只处理了antigravity，codex和Claude处理了吗」
@@ -202,8 +203,9 @@
 
 ### R-RESTORE-CONFIG 选中历史会话恢复当时的工具、项目、会话配置
 - 来源: CLAUDE.md（memento）「选中历史会话要恢复当时的工具、项目、会话配置」
-- 代码: `apps/web/src/lib/ask/cascade.ts#cascadeOf`, `apps/web/src/app/ask/page.tsx#applyCachedCascade`
-- 测试: `apps/web/test/cascade.test.ts#takes every field from the conversation, empty ones included`, `apps/web/test/cascade.test.ts#tells a cleared project or session from one never saved`, `server/tests/test_ask_cascade.py#test_cleared_session_is_not_inferred_back_from_earlier_turns`
+- 说明: 工具以回答记下的模式为准，AI 编排也算：AI 编排派出的任务带 binary claude / action shell，不能当成这个对话用的是 Claude Code 或终端（3b1f1013 曾这样把 AI 编排对话存成 Claude Code）。只有没记模式的老回答才从工具调用推断。
+- 代码: `apps/web/src/lib/ask/cascade.ts#cascadeOf`, `apps/web/src/app/ask/page.tsx#applyCachedCascade`, `server/server/services/ask_store.py#infer_conversation_config`, `server/server/services/ask_store.py#append_conversation_turns`
+- 测试: `apps/web/test/cascade.test.ts#takes every field from the conversation, empty ones included`, `apps/web/test/cascade.test.ts#tells a cleared project or session from one never saved`, `server/tests/test_ask_cascade.py#test_cleared_session_is_not_inferred_back_from_earlier_turns`, `server/tests/test_ask_cascade.py#test_an_answer_saved_as_ai_is_not_read_as_the_agent_it_dispatched`, `server/tests/test_conversation_page_recovery.py#test_an_ai_orchestrated_answer_keeps_the_conversation_in_ai_mode`
 
 ### R-DEVICE-SESSION-MAP 设备与会话映射正确：会话只在它所在的设备上续
 - 来源: CLAUDE.md（memento）「设备与会话映射正确」
@@ -239,7 +241,7 @@
 - 来源: 用户 2026-11-14「有后台任务的时候撑高的输入区域会遮盖回答区域」「回答问题时怎么不会自动滑动到页面最底下啊，有时还要手动往上滑一下」
 - 说明: 只有用户自己往上滚才算离开底部；内容后来长高（代码高亮、图片、工具卡片）也要跟。输入区上方的配置和会话上下文限高内部滚动。
 - 代码: `apps/web/src/app/ask/page.tsx#chatScrollRef`, `apps/web/src/app/ask/page.tsx#userScrolledAwayRef`
-- 要求: `ro.observe(content)` @ `apps/web/src/app/ask/page.tsx`; `ask-footer-extras` @ `apps/web/src/app/ask/page.tsx`
+- 要求: `ro.observe(content)` @ `apps/web/src/app/ask/page.tsx`; `ask-footer-extras` @ `apps/web/src/app/ask/page.tsx`; `maxHeight: viewportBottomOffset > 0 ? "22dvh" : "min(36dvh, 400px)"` @ `apps/web/src/app/ask/page.tsx`
 - 禁止: `/distFromBottom > 80\) \{$/` @ `apps/web/src/app/ask/page.tsx`
 
 ### R-SHOW-TIMES 对话显示发送和回复时间
@@ -497,20 +499,20 @@
 | `R-ISLAND-CLEANUP` | 任务结束必须清掉灵动岛状态 | 3/3 | 3/3 | — | ✅ |
 | `R-MULTI-DEVICE-STABLE` | 多机任务并发执行，过程和结果稳定回传 | 4/4 | 4/4 | — | ✅ |
 | `R-RUN-OUTLIVES-PAGE` | 运行不因页面关闭、切后台、发版而中断 | 2/2 | 4/4 | — | ✅ |
-| `R-QUOTA-PER-MODEL` | 额度按当前对话用的模型显示 | 3/3 | 1/1 | 1/1 | ✅ |
+| `R-QUOTA-PER-MODEL` | 额度按当前对话用的模型显示 | 3/3 | 1/1 | 2/2 | ✅ |
 | `R-MODEL-SWITCH` | 某个模型额度用完，能换同一工具的其它模型，三个工具都要支持 | 4/4 | 3/3 | — | ✅ |
 | `R-MODELS-DYNAMIC` | 模型列表从工具实际能力动态获取，不硬编码过时模型 | 3/3 | 2/2 | — | ✅ |
 | `R-QUOTA-NO-RETRY` | 账号额度用完就停，不反复重试 | 2/2 | 2/2 | — | ✅ |
 | `R-PLAN-QUOTA-GATE` | 协作任务启动前定好设备、智能体、模型，额度不够的模型不派 | 2/2 | 3/3 | — | ✅ |
 | `R-RESUME-LABEL` | 只有从历史里挑的会话才叫「续」 | 2/2 | — | 2/2 | ✅ |
 | `R-PREVIEW-ONLY-EMPTY` | 会话预览只在服务端确认对话没有回合时显示 | 2/2 | 2/2 | 1/1 | ✅ |
-| `R-RESTORE-CONFIG` | 选中历史会话恢复当时的工具、项目、会话配置 | 2/2 | 3/3 | — | ✅ |
+| `R-RESTORE-CONFIG` | 选中历史会话恢复当时的工具、项目、会话配置 | 4/4 | 5/5 | — | ✅ |
 | `R-DEVICE-SESSION-MAP` | 设备与会话映射正确：会话只在它所在的设备上续 | 2/2 | 4/4 | — | ✅ |
 | `R-TITLE-CONSISTENT` | 会话标题所有设备一致，以用户提问提取的标题为准 | 3/3 | 3/3 | — | ✅ |
 | `R-DELETE-GONE-EVERYWHERE` | 删除的对话立即在所有页面、所有副本都看不到 | 3/3 | 2/2 | 2/2 | ✅ |
 | `R-REPLICA-STATE` | 会变的状态不放进单个 api 副本的内存 | 3/3 | 1/1 | 2/2 | ✅ |
 | `R-FOLLOWUP-NOT-LOST` | 追问不丢；送达的显示在回答里，不留在输入区 | 4/4 | 5/5 | 1/1 | ✅ |
-| `R-REPLY-VISIBLE` | 回答区不被输入区遮住，回答时跟到最底部 | 2/2 | — | 3/3 | ✅ |
+| `R-REPLY-VISIBLE` | 回答区不被输入区遮住，回答时跟到最底部 | 2/2 | — | 4/4 | ✅ |
 | `R-SHOW-TIMES` | 对话显示发送和回复时间 | 2/2 | 2/2 | — | ✅ |
 | `R-NO-STDERR` | 回复里不输出无用的 stderr | 2/2 | 2/2 | — | ✅ |
 | `R-CLAUDE-TUI-SYNC` | memento 里的 Claude Code 对话要能在 Claude Code 的 TUI 里续上 | 3/3 | 2/2 | 1/1 | ✅ |
@@ -533,7 +535,7 @@
 | `R-PLAN-THEN-FINISH` | 规划周全后一次性全部完成，追求好用，界面高级精致 | — | — | — | ✅ 约定 |
 | `R-LOGIN-PERSIST` | 客户端登录永久记住 | 3/3 | — | 1/1 | ✅ |
 | `R-MENU-KEEPALIVE` | 记住上次菜单状态，切换菜单不重新加载 | 2/2 | 2/2 | — | ✅ |
-| `R-MAC-TRAY` | Mac 客户端支持最小化到托盘，关窗口不退出 | 1/1 | — | 1/1 | ✅ |
+| `R-MAC-TRAY` | Mac 客户端支持最小化到托盘，关窗口不退出 | 1/1 | — | 2/2 | ✅ |
 | `R-THINKING-FULL` | 思考过程始终铺满显示，回答正文字号统一 | 3/3 | 2/2 | 1/1 | ✅ |
 | `R-PASTE-IMAGE-ONCE` | 粘贴图片不重复 | 1/1 | — | 1/1 | ✅ |
 | `R-MEDIA-VIEW` | 图片可点击放大；视频可预览、全屏、播放后缓存；工作台能看图片和 ppt/excel/word/md 等产物 | 5/5 | 5/5 | — | ✅ |

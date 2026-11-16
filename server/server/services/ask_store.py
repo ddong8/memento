@@ -510,6 +510,12 @@ async def append_conversation_turns(
                     else:
                         clean_tool_calls.append(tc)
                     asst_turn["toolCalls"] = clean_tool_calls
+            # The run says which mode it ran in: AI orchestration dispatches agents too (run_on_device with
+            # binary "claude"), and reading that as "this is a Claude Code conversation" switched the
+            # conversation out of AI mode on its next open (3b1f1013). Guess from the calls only when unsaid.
+            run_mode_said = bool(config and config.get("execution_mode"))
+            if run_mode_said:
+                inferred_tc_mode = None
             if inferred_tc_mode and (not asst_turn.get("execution_mode") or asst_turn.get("execution_mode") == "ai"):
                 asst_turn["execution_mode"] = inferred_tc_mode
             turns.append(asst_turn)
@@ -696,6 +702,18 @@ def infer_conversation_config(conv: AskConversation, sample_turns: list[dict] | 
     inferred: dict = {}
     loaded_turns = conv.__dict__.get("turns") if hasattr(conv, "__dict__") else None
     turns_source = sample_turns if sample_turns is not None else (loaded_turns or [])
+    # The latest answer that recorded its mode decides it, "ai" included: an AI-orchestrated answer's calls
+    # name the agent it dispatched (binary "claude", action "shell"), which isn't the conversation's mode
+    last_said = next(
+        (
+            str(t.get("execution_mode") or t.get("executionMode")).lower().strip()
+            for t in reversed(turns_source)
+            if isinstance(t, dict) and t.get("role") == "assistant" and (t.get("execution_mode") or t.get("executionMode"))
+        ),
+        "",
+    )
+    if last_said == "ai":
+        mode_needed = False
     for turn in reversed(turns_source):
         if isinstance(turn, dict):
             t_mode = str(turn.get("execution_mode") or turn.get("executionMode") or "").lower().strip()

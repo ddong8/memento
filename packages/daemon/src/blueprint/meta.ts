@@ -3,7 +3,7 @@
 
 // Monotonically increasing generator version for cross-device OTA synchronization. Bump it with
 // every change to what the generator writes: the daemon regenerates blueprints from older versions.
-export const BLUEPRINT_SCRIPT_VERSION = 20261125;
+export const BLUEPRINT_SCRIPT_VERSION = 20261126;
 
 /** The code blueprint (named PROJECT_BLUEPRINT.md until 20261124; the generator moves its own old copy over) */
 export const BLUEPRINT_FILE = "CODE_BLUEPRINT.md";

@@ -39,6 +39,25 @@ class ClearedChoiceTests(unittest.TestCase):
         # A run that brought no session back (device offline, say) doesn't drop the conversation's one
         self.assertTrue(_skip_config_value("session_id", "", _RUN_EMPTY_IS_A_CHOICE))
 
+    def test_an_answer_saved_as_ai_is_not_read_as_the_agent_it_dispatched(self) -> None:
+        dispatched = {"name": "run_on_device", "args": {"action": "agent", "binary": "claude", "session_id": "s1"}}
+        conv = AskConversation(id=uuid.uuid4(), title="t", config={"execution_mode": "ai"}, turns=[
+            {"role": "assistant", "content": "a", "execution_mode": "ai", "toolCalls": [dispatched]},
+        ])
+        cfg, _ = infer_conversation_config(conv)
+        self.assertEqual(cfg["execution_mode"], "ai")
+        # Older answers that never recorded their mode are still read from their calls
+        legacy = AskConversation(id=uuid.uuid4(), title="t", config={"execution_mode": "ai"}, turns=[
+            {"role": "assistant", "content": "a", "toolCalls": [dispatched]},
+        ])
+        self.assertEqual(infer_conversation_config(legacy)[0]["execution_mode"], "claude")
+        # The latest recorded mode decides: an AI answer after a Claude Code one stays AI
+        mixed = AskConversation(id=uuid.uuid4(), title="t", config={"execution_mode": "ai"}, turns=[
+            {"role": "assistant", "content": "a", "execution_mode": "claude", "toolCalls": [dispatched]},
+            {"role": "assistant", "content": "b", "execution_mode": "ai", "toolCalls": [dispatched]},
+        ])
+        self.assertEqual(infer_conversation_config(mixed)[0]["execution_mode"], "ai")
+
     def test_cleared_session_is_not_inferred_back_from_earlier_turns(self) -> None:
         # The user switched to a new session: reopening must not bring the old one back from the tool call
         conv = AskConversation(

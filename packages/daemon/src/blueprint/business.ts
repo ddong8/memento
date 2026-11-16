@@ -121,16 +121,38 @@ function anchorsIn(text: string): string[] {
 }
 
 /** `text` @ `path`, `path2`; `/re/` @ `dir/` → one check per clause. */
-function patternClauses(text: string): Array<{ pattern: string; paths: string[] }> {
-  const out: Array<{ pattern: string; paths: string[] }> = [];
-  for (const clause of text.split(/[;；]/)) {
+function patternClauses(text: string): Array<{ pattern: string; paths: string[]; reason?: string }> {
+  const out: Array<{ pattern: string; paths: string[]; reason?: string }> = [];
+  for (const raw of splitOutsideTicks(text)) {
+    const clause = raw.trim();
+    if (!clause) continue;
     const at = clause.search(/\s@\s/);
-    if (at < 0) continue;
-    const pat = [...clause.slice(0, at).matchAll(TICKED_RE)].map((m) => m[1]!)[0];
-    const paths = [...clause.slice(at).matchAll(TICKED_RE)].map((m) => splitRef(m[1]!)[0]).filter(Boolean);
+    const pat = at < 0 ? undefined : [...clause.slice(0, at).matchAll(TICKED_RE)].map((m) => m[1]!)[0];
+    const paths = at < 0 ? [] : [...clause.slice(at).matchAll(TICKED_RE)].map((m) => splitRef(m[1]!)[0]).filter(Boolean);
     if (pat && paths.length) out.push({ pattern: pat, paths });
+    // A clause that doesn't parse used to be dropped, so a check written wrong passed forever (2026-11-16: a
+    // regex holding ";" was cut in two and nothing was checked). Now it fails and says why.
+    else out.push({ pattern: clause, paths: [], reason: "写法格式不对，应为 `文本或/正则/` @ `路径`" });
   }
   return out;
+}
+
+/** Split on ; / ； that are outside backticks: a pattern may contain them. */
+function splitOutsideTicks(text: string): string[] {
+  const parts: string[] = [];
+  let cur = "";
+  let inTick = false;
+  for (const ch of text) {
+    if (ch === "`") inTick = !inTick;
+    if (!inTick && (ch === ";" || ch === "；")) {
+      parts.push(cur);
+      cur = "";
+      continue;
+    }
+    cur += ch;
+  }
+  parts.push(cur);
+  return parts;
 }
 
 /** The entries of a business blueprint, in file order. Text inside the generated regions is skipped. */
@@ -293,6 +315,7 @@ const CODE_EXT = /\.(?:[cm]?[jt]sx?|py|ya?ml|sh|bash|css|scss|go|rs|java|kt|swif
 const COMMENT_LINE = /^\s*(?:\/\/|#(?!!)|\/?\*|<!--)/;
 
 function scanPattern(root: string, c: PatternCheck, forbid: boolean): PatternCheck {
+  if (c.reason) return { ...c, ok: false, hits: [] };
   const test = patternTester(c.pattern);
   const missing = c.paths.filter((p) => !exists(pjoin(root, p)));
   if (missing.length) return { ...c, ok: false, hits: [], reason: `路径不存在: ${missing.join(", ")}` };

@@ -500,14 +500,15 @@ const ExecutionCard = memo(function ExecutionCard({
                 fontWeight: 600,
                 padding: "2px 8px",
                 borderRadius: 9999,
-                background: "rgba(245, 158, 11, 0.12)",
-                border: "1px solid rgba(245, 158, 11, 0.25)",
-                color: "#d97706",
+                background: "var(--aurora-warn-soft)",
+                border: "1px solid transparent",
+                color: "var(--aurora-warn)",
                 flexShrink: 0,
                 whiteSpace: "nowrap",
               }}
             >
-              ⏳ {hasParentContent ? (t.ask.statusBackgroundLeft || "留有后台任务") : (t.ask.statusStillRunning || "后台执行中")}
+              <Icon name="clock" size={11} strokeWidth={2.2} />
+              {hasParentContent ? (t.ask.statusBackgroundLeft || "留有后台任务") : (t.ask.statusStillRunning || "后台执行中")}
             </span>
           )}
 
@@ -521,9 +522,9 @@ const ExecutionCard = memo(function ExecutionCard({
                 fontWeight: 600,
                 padding: "2px 8px",
                 borderRadius: 9999,
-                background: "rgba(16, 185, 129, 0.12)",
-                border: "1px solid rgba(16, 185, 129, 0.25)",
-                color: "#059669",
+                background: "var(--aurora-success-soft)",
+                border: "1px solid transparent",
+                color: "var(--aurora-success)",
                 flexShrink: 0,
                 whiteSpace: "nowrap",
               }}
@@ -543,9 +544,9 @@ const ExecutionCard = memo(function ExecutionCard({
                 fontWeight: 600,
                 padding: "2px 8px",
                 borderRadius: 9999,
-                background: "rgba(239, 68, 68, 0.12)",
-                border: "1px solid rgba(239, 68, 68, 0.25)",
-                color: "#dc2626",
+                background: "var(--aurora-danger-soft)",
+                border: "1px solid transparent",
+                color: "var(--aurora-danger)",
                 flexShrink: 0,
                 whiteSpace: "nowrap",
               }}
@@ -567,9 +568,9 @@ const ExecutionCard = memo(function ExecutionCard({
                 fontWeight: 600,
                 padding: "2px 8px",
                 borderRadius: 9999,
-                background: "rgba(245, 158, 11, 0.12)",
-                border: "1px solid rgba(245, 158, 11, 0.25)",
-                color: "#d97706",
+                background: "var(--aurora-warn-soft)",
+                border: "1px solid transparent",
+                color: "var(--aurora-warn)",
                 flexShrink: 0,
                 whiteSpace: "nowrap",
               }}

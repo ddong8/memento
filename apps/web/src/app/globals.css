@@ -75,6 +75,29 @@ code, kbd, samp, pre, .font-mono {
    Variables are abstract so components work across all skins.
    ========================================================================= */
 
+/* Status colors: one set for every skin, so success / warning / failure / info read the same everywhere
+   (they were hard-coded hex values per component, several greens and reds side by side). */
+:root {
+  --aurora-success: #059669;
+  --aurora-success-soft: rgba(5, 150, 105, 0.10);
+  --aurora-warn: #B45309;
+  --aurora-warn-soft: rgba(217, 119, 6, 0.12);
+  --aurora-danger: #DC2626;
+  --aurora-danger-soft: rgba(220, 38, 38, 0.10);
+  --aurora-info: #2563EB;
+  --aurora-info-soft: rgba(37, 99, 235, 0.10);
+}
+:root[data-theme="dark"] {
+  --aurora-success: #34D399;
+  --aurora-success-soft: rgba(52, 211, 153, 0.14);
+  --aurora-warn: #FBBF24;
+  --aurora-warn-soft: rgba(251, 191, 36, 0.14);
+  --aurora-danger: #F87171;
+  --aurora-danger-soft: rgba(248, 113, 113, 0.14);
+  --aurora-info: #60A5FA;
+  --aurora-info-soft: rgba(96, 165, 250, 0.14);
+}
+
 /* Default light (aurora) */
 :root,
 :root[data-skin="aurora"][data-theme="light"] {

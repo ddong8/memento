@@ -164,7 +164,7 @@ export default function DailyPage() {
                     textTransform: "uppercase",
                     letterSpacing: "0.06em",
                     fontWeight: 600,
-                    fontFamily: "var(--font-mono)",
+                    fontVariantNumeric: "tabular-nums",
                   }}
                 >
                   {d}
@@ -197,7 +197,7 @@ export default function DailyPage() {
                 color: "var(--aurora-fg1)",
                 letterSpacing: "-0.03em",
                 lineHeight: 1.05,
-                fontFamily: "var(--font-mono)",
+                fontVariantNumeric: "tabular-nums",
                 fontVariantNumeric: "tabular-nums",
               }}
             >
@@ -287,7 +287,7 @@ function DayCell({
           className="text-[9px] sm:text-[11px] flex-shrink-0"
           style={{
             color: hot ? "rgba(255,255,255,0.85)" : "var(--aurora-fg3)",
-            fontFamily: "var(--font-mono)",
+            fontVariantNumeric: "tabular-nums",
           }}
         >
           {String(cell.day).padStart(2, "0")}
@@ -298,7 +298,7 @@ function DayCell({
             fontWeight: 500,
             letterSpacing: "-0.03em",
             color: active ? textColor : "var(--aurora-fg5)",
-            fontFamily: "var(--font-mono)",
+            fontVariantNumeric: "tabular-nums",
           }}
         >
           {active ? cell.count : "·"}
@@ -336,7 +336,7 @@ function StatRow({ label, value }: { label: string; value: string }) {
         style={{
           color: "var(--aurora-fg1)",
           fontWeight: 500,
-          fontFamily: "var(--font-mono)",
+          fontVariantNumeric: "tabular-nums",
         }}
       >
         {value}

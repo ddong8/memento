@@ -55,9 +55,9 @@ export function Chip({ children, tone = "neutral", icon, style, className }: Chi
   const toneStyle: CSSProperties = {
     neutral: { background: "var(--aurora-chip)", color: "var(--aurora-fg2)" },
     accent: { background: "var(--aurora-accent-soft)", color: "var(--aurora-accent)" },
-    success: { background: "rgba(16,185,129,0.12)", color: "#10B981" },
-    warn: { background: "rgba(245,158,11,0.14)", color: "#D97706" },
-    danger: { background: "rgba(239,68,68,0.14)", color: "#DC2626" },
+    success: { background: "var(--aurora-success-soft)", color: "var(--aurora-success)" },
+    warn: { background: "var(--aurora-warn-soft)", color: "var(--aurora-warn)" },
+    danger: { background: "var(--aurora-danger-soft)", color: "var(--aurora-danger)" },
   }[tone];
 
   return (

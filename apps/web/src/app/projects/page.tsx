@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useI18n } from "@/lib/i18n";
 import { getApiBase, authFetch } from "@/lib/api-client";
 import { Icon, ToolGlyph } from "@/components/aurora/Icon";
-import { Glass, TopBar, SectionLabel, Chip } from "@/components/aurora/primitives";
+import { Glass, TopBar, SectionLabel } from "@/components/aurora/primitives";
+import { timeAgo } from "@/lib/constants";
 
 interface ProjectItem {
   id: string;
@@ -18,12 +19,38 @@ interface ProjectItem {
   updated_at: string | null;
 }
 
+const TOOL_NAMES: Record<string, string> = {
+  claude_code: "Claude Code", codex: "Codex", antigravity: "Antigravity", workbuddy: "WorkBuddy",
+  openclaw: "OpenClaw", obsidian: "Obsidian", cursor: "Cursor", windsurf: "Windsurf", vscode: "VS Code", hermes: "Hermes",
+};
+
+/** Directories made by tools, not projects a person works on: executor clones, WorkBuddy's dated task folders, scratch repos. */
+function isScratch(p: ProjectItem): boolean {
+  const path = (p.source_path || "").replace(/\\/g, "/");
+  return (
+    /\/\.memento\/workspaces\//.test(path) ||
+    /^memento-workspaces-/.test(p.title) ||
+    /\/WorkBuddy\/\d{4}-\d{2}-\d{2}-/i.test(path) ||
+    /^_repo\d*$/.test(p.title)
+  );
+}
+
+/** The path as a person reads it: the home directory as ~. */
+function shortPath(path: string): string {
+  return (path || "")
+    .replace(/^\/Users\/[^/]+/, "~")
+    .replace(/^\/home\/[^/]+/, "~")
+    .replace(/^[A-Za-z]:[\\/]Users[\\/][^\\/]+/, "~");
+}
+
 export default function ProjectsPage() {
   const [projects, setProjects] = useState<ProjectItem[]>([]);
   const [filterTool, setFilterTool] = useState("");
   const [filterDevice, setFilterDevice] = useState("");
   const [devices, setDevices] = useState<Array<{ id: string; name: string; device_id: string }>>([]);
   const { t } = useI18n();
+  const [query, setQuery] = useState("");
+  const [showScratch, setShowScratch] = useState(false);
 
   useEffect(() => {
     authFetch(`${getApiBase()}/api/devices`)
@@ -40,23 +67,36 @@ export default function ProjectsPage() {
     authFetch(url).then((r) => r.json()).then(setProjects).catch(console.error);
   }, [filterTool, filterDevice]);
 
+  const scratchCount = useMemo(() => projects.filter(isScratch).length, [projects]);
+  const shown = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return projects
+      .filter((p) => showScratch || !isScratch(p))
+      .filter((p) => !q || p.title.toLowerCase().includes(q) || (p.source_path || "").toLowerCase().includes(q))
+      // Most recently active first
+      .sort((a, b) => new Date(b.updated_at || b.created_at).getTime() - new Date(a.updated_at || a.created_at).getTime());
+  }, [projects, query, showScratch]);
   const byTool: Record<string, ProjectItem[]> = {};
-  for (const p of projects) (byTool[p.tool_id] ??= []).push(p);
+  for (const p of shown) (byTool[p.tool_id] ??= []).push(p);
 
   return (
     <div className="max-w-6xl mx-auto">
       <TopBar
         title={t.projectPage.title}
-        subtitle={`${projects.length} ${t.projects}`}
+        subtitle={`${shown.length} ${t.projects}`}
         right={
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <label className="aurora-input" style={{ padding: "8px 14px", minWidth: 200 }}>
+              <Icon name="search" size={14} style={{ color: "var(--aurora-fg3)" }} />
+              <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="搜索项目名或路径" />
+            </label>
             <label className="aurora-input" style={{ padding: "8px 14px", minWidth: 160 }}>
               <Icon name="devices" size={14} style={{ color: "var(--aurora-fg3)" }} />
               <select value={filterDevice} onChange={(e) => setFilterDevice(e.target.value)}>
                 <option value="">全部设备</option>
                 {devices.map((d) => (
                   <option key={d.device_id} value={d.device_id}>
-                    {d.name} ({d.device_id.slice(0, 6)})
+                    {d.name}
                   </option>
                 ))}
               </select>
@@ -78,7 +118,16 @@ export default function ProjectsPage() {
         }
       />
 
-      {projects.length === 0 ? (
+      {scratchCount > 0 && (
+        <div style={{ margin: "-6px 4px 14px", fontSize: 12, color: "var(--aurora-fg4)" }}>
+          {showScratch ? "已显示" : "已隐藏"} {scratchCount} 个工具自动生成的临时目录（执行机工作区、WorkBuddy 任务目录等）·{" "}
+          <button type="button" onClick={() => setShowScratch((v) => !v)} style={{ color: "var(--aurora-accent)", background: "none", border: 0, cursor: "pointer", padding: 0, fontSize: 12 }}>
+            {showScratch ? "隐藏" : "显示"}
+          </button>
+        </div>
+      )}
+
+      {shown.length === 0 ? (
         <Glass padding={40} radius={22} style={{ textAlign: "center" }}>
           <p style={{ color: "var(--aurora-fg4)", fontSize: 13 }}>{t.projectPage.noProjects}</p>
         </Glass>
@@ -88,7 +137,7 @@ export default function ProjectsPage() {
             <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "8px 4px 12px" }}>
               <ToolGlyph id={toolId} size={26} />
               <SectionLabel style={{ margin: 0 }}>
-                {toolId.replace("_", " ")} <span style={{ textTransform: "none", color: "var(--aurora-fg4)", fontWeight: 400 }}>({toolProjects.length})</span>
+                <span style={{ textTransform: "none" }}>{TOOL_NAMES[toolId] || toolId}</span> <span style={{ textTransform: "none", color: "var(--aurora-fg4)", fontWeight: 400 }}>{toolProjects.length}</span>
               </SectionLabel>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -119,11 +168,14 @@ export default function ProjectsPage() {
                         marginBottom: 12,
                       }}
                     >
-                      {p.source_path}
+                      {shortPath(p.source_path)}
                     </div>
                   </Link>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-                    <Chip>{p.document_count} {t.files}</Chip>
+                    <span style={{ fontSize: 11.5, color: "var(--aurora-fg3)", fontVariantNumeric: "tabular-nums" }}>
+                      {p.document_count} {t.files}
+                      {(p.updated_at || p.created_at) && <> · {timeAgo(p.updated_at || p.created_at)}</>}
+                    </span>
                     <Link
                       href={`/projects/${p.id}/timeline`}
                       style={{

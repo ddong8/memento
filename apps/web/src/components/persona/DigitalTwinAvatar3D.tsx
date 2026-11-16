@@ -1355,7 +1355,7 @@ export default function DigitalTwinAvatar3D({
           }`}
         >
           <span className="w-1.5 h-1.5 rounded-full bg-[#EF4444] animate-ping" />
-          <span>脑核铁律</span>
+          <span>铁律</span>
           <span className="opacity-60">({ruleStats.ironLaws})</span>
         </button>
 

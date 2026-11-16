@@ -163,9 +163,9 @@ export default function CartoonPersonaStage({
       {/* 底部五维心智神经特征快捷锚点 (点击下钻至对应心智分类) */}
       <div className="relative z-10 p-2 sm:p-3 flex items-center justify-center gap-1.5 sm:gap-2 flex-wrap bg-black/40 backdrop-blur-md border-t border-white/10">
         {[
-          { id: "brain", label: "脑核铁律", count: ruleStats.ironLaws, color: "#EF4444" },
+          { id: "brain", label: "铁律", count: ruleStats.ironLaws, color: "#EF4444" },
           { id: "communication", label: "沟通风格", count: ruleStats.communication, color: "#06B6D4" },
-          { id: "tech", label: "架构心核", count: ruleStats.tech, color: "#F59E0B" },
+          { id: "tech", label: "架构偏好", count: ruleStats.tech, color: "#F59E0B" },
           { id: "execution", label: "工作习惯", count: ruleStats.execution, color: "#10B981" },
           { id: "project", label: "项目专属", count: ruleStats.project, color: "#8B5CF6" },
         ].map((item) => {

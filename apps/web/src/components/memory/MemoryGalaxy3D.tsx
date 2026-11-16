@@ -54,6 +54,11 @@ const TYPE_COLOR_HEX: Record<string, string> = {
 // Module-level CanvasTexture cache to avoid redrawing 2D canvases & re-uploading textures on filter/tab switch
 const galaxyTextTextureCache = new Map<string, THREE.CanvasTexture>();
 
+/** Entity types as shown in the legend */
+const TYPE_LABEL: Record<string, string> = {
+  project: "项目", technology: "技术", concept: "概念", tool: "工具", rule: "规则", person: "人物", default: "其它",
+};
+
 /** Labels shown all the time (the best connected nodes); others appear on hover/selection. */
 const LABEL_HUBS = 16;
 
@@ -1088,14 +1093,14 @@ export default function MemoryGalaxy3D({
       {/* Bottom Floating Legend Dock */}
       <div className="relative z-10 pb-3 px-3 flex justify-center pointer-events-auto">
         <div className="bg-black/65 backdrop-blur-xl border border-white/10 rounded-2xl p-1 shadow-2xl flex items-center gap-1.5 overflow-x-auto scrollbar-none text-[10px] font-medium">
-          <span className="text-white/40 px-2">图例:</span>
+          <span className="text-white/40 px-2">图例：</span>
           {Object.entries(TYPE_COLOR_HEX).map(([k, hex]) => (
             <div
               key={k}
               className="px-2 py-0.8 rounded-lg flex items-center gap-1.5 bg-white/5 border border-white/10 text-white/80"
             >
               <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: hex }} />
-              <span className="capitalize">{k}</span>
+              <span>{TYPE_LABEL[k] || k}</span>
             </div>
           ))}
         </div>

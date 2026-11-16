@@ -498,7 +498,7 @@ export default function MemoryPage() {
             icon="external_link"
             onClick={() => setShareOpen(true)}
           >
-            分享星云
+            分享图谱
           </Btn>
         </div>
       </div>

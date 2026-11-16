@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `54527d30` · Updated: `2026-11-16`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `e720be1d` · Updated: `2026-11-16`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -17,7 +17,7 @@
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
 - 最近改动 (Latest): `54527d30` (2026-11-16): fix(问答): 智能体提问时先写了几句话，选项不再变成点不动
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 53（✅ 53 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `F-RESUME`, `R-SESSION-TIMELINE`, `R-SELF-EVOLVE`, `R-WS-BIG-UNTRACKED`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `S-CLIENT-VERSION`
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 53（✅ 53 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-PUBLIC-REPO-CLEAN`, `F-RESUME`, `R-SESSION-TIMELINE`, `R-SELF-EVOLVE`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -613,14 +613,14 @@ erDiagram
 
 - [`packages/daemon/assets/workbuddy_cli.mjs`](packages/daemon/assets/workbuddy_cli.mjs) (17 commits)
 - [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (15 commits)
-- [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (9 commits)
+- [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (8 commits)
 - [`apps/desktop/src/main.ts`](apps/desktop/src/main.ts) (6 commits)
 - [`apps/web/src/app/globals.css`](apps/web/src/app/globals.css) (6 commits)
-- [`apps/web/src/components/ExecutionCard.tsx`](apps/web/src/components/ExecutionCard.tsx) (6 commits)
 - [`apps/web/src/components/viewers/MediaInspectorPanel.tsx`](apps/web/src/components/viewers/MediaInspectorPanel.tsx) (6 commits)
-- [`apps/web/src/components/TaskTimeline.tsx`](apps/web/src/components/TaskTimeline.tsx) (5 commits)
+- [`apps/web/src/components/ExecutionCard.tsx`](apps/web/src/components/ExecutionCard.tsx) (5 commits)
 - [`apps/web/src/components/ask/bubbles.tsx`](apps/web/src/components/ask/bubbles.tsx) (5 commits)
 - [`packages/daemon/src/blueprint/meta.ts`](packages/daemon/src/blueprint/meta.ts) (5 commits)
+- [`scripts/project_blueprint.mjs`](scripts/project_blueprint.mjs) (5 commits)
 
 ## 8. Development & Verification Commands
 
@@ -671,8 +671,8 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ### 最近提交碰到的业务条目（改动后复查它们还成不成立）
 
+- `e720be1d` ci(deploy): Fleet 卡在 Stalled 超过 3 分钟时集群内自动重同步，不用再手动 patch → `R-PUBLIC-REPO-CLEAN`
 - `7ed62cc5` feat(问答): 续接会话的对话与会话保持同步，工具自己应用里的问答按时间并进对话 (#20) → `F-RESUME`, `R-SESSION-TIMELINE`, `R-SELF-EVOLVE`
-- `894debf8` fix(工作区): 跨设备改代码时没进 .gitignore 的大文件留在源设备上，不再让任务失败；升级客户端版本至 v1.0.135 → `R-WS-BIG-UNTRACKED`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `S-CLIENT-VERSION`
 
 ---
 _Auto-maintained by `scripts/project_blueprint.mjs` (v20261126) & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._

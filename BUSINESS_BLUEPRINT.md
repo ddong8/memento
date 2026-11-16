@@ -210,10 +210,10 @@
 
 ### R-SESSION-TIMELINE 在工具自己的应用里接着聊的，也出现在续接它的对话里
 - 来源: 用户 2026-11-16「能在两边接续，确实算是 memento 的一项实用功能」；issue #20：先在 Memento 发起 Antigravity 会话、再到 Antigravity 应用里接着聊，回到 Memento 后那些回合看不到，换会话再切回来也补不回来
-- 说明: 会话（设备采集的完整记录，Memento 发的提问也在里面）是唯一完整的时间线；对话只多出 Memento 自己运行时才知道的东西。会话里不是 Memento 自己运行的问答，按时间并进对话、标上在哪个工具里说的；按运行的时间窗口（设备时钟差几分钟时按同一句问题）认出 Memento 自己的运行，不重复。会话一有新内容（采集）、对话一打开就对齐；对话正在运行时不并。
-- 代码: `server/server/services/session_timeline.py#merge_session`, `server/server/services/session_timeline.py#sync_conversation`, `server/server/services/session_timeline.py#schedule_for_document`, `server/server/api/ask_conversations.py#get_conversation`, `server/server/services/ask_store.py#append_conversation_turns`, `apps/web/src/components/ask/bubbles.tsx#OriginChip`
-- 测试: `server/tests/test_session_timeline.py#test_exchanges_in_the_app_go_in_between_mementos_runs_by_time`, `server/tests/test_session_timeline.py#test_a_device_clock_a_few_minutes_off_still_knows_memento_s_question`, `server/tests/test_session_timeline.py#test_turns_copied_from_the_session_before_are_not_copied_again`, `server/tests/test_session_timeline.py#test_an_exchange_still_being_written_is_rebuilt_not_repeated`, `server/tests/test_session_timeline.py#test_a_run_saved_after_its_copy_was_merged_replaces_the_copy`, `server/tests/test_session_timeline.py#test_the_app_s_exchange_comes_in_once_and_not_while_a_run_goes`
-- 要求: `session_timeline.sync_quietly(cid` @ `server/server/api/ask_conversations.py`; `schedule_for_document(` @ `server/server/api/ingest.py`
+- 说明: 会话（设备采集的完整记录，Memento 发的提问也在里面）是唯一完整的时间线；对话只多出 Memento 自己运行时才知道的东西。会话里不是 Memento 自己运行的问答，按时间并进对话、标上在哪个工具里说的；按运行的时间窗口（设备时钟差几分钟时按同一句问题）认出 Memento 自己的运行，不重复。并进来的回答和 Memento 自己的回答长得一样：一问一答，命令是一张卡片里「过程」的各步（用户 11-16「antigravity 里的对话每个命令都占一行，和 memento 里的不一样」）。会话一有新内容（采集）、对话一打开就对齐；对话正在运行时不并。
+- 代码: `server/server/services/session_timeline.py#merge_session`, `server/server/services/session_timeline.py#fold_exchange`, `server/server/services/session_timeline.py#sync_conversation`, `server/server/services/session_timeline.py#schedule_for_document`, `server/server/api/ask_conversations.py#get_conversation`, `server/server/services/ask_store.py#append_conversation_turns`, `apps/web/src/components/ask/bubbles.tsx#OriginChip`
+- 测试: `server/tests/test_session_timeline.py#test_an_answer_in_the_app_shows_as_one_answer_with_its_commands_as_steps_like_memento_s`, `server/tests/test_session_timeline.py#test_exchanges_in_the_app_go_in_between_mementos_runs_by_time`, `server/tests/test_session_timeline.py#test_a_device_clock_a_few_minutes_off_still_knows_memento_s_question`, `server/tests/test_session_timeline.py#test_turns_copied_from_the_session_before_are_not_copied_again`, `server/tests/test_session_timeline.py#test_an_exchange_still_being_written_is_rebuilt_not_repeated`, `server/tests/test_session_timeline.py#test_a_run_saved_after_its_copy_was_merged_replaces_the_copy`, `server/tests/test_session_timeline.py#test_the_app_s_exchange_comes_in_once_and_not_while_a_run_goes`
+- 要求: `session_timeline.sync_quietly(cid` @ `server/server/api/ask_conversations.py`; `schedule_for_document(` @ `server/server/api/ingest.py`; `new_turns = fold_exchange(messages_to_turns(group)` @ `server/server/services/session_timeline.py`
 
 ### R-RESTORE-CONFIG 选中历史会话恢复当时的工具、项目、会话配置
 - 来源: CLAUDE.md（memento）「选中历史会话要恢复当时的工具、项目、会话配置」
@@ -521,7 +521,7 @@
 | `R-PLAN-QUOTA-GATE` | 协作任务启动前定好设备、智能体、模型，额度不够的模型不派 | 2/2 | 3/3 | — | ✅ |
 | `R-RESUME-LABEL` | 只有从历史里挑的会话才叫「续」 | 2/2 | — | 2/2 | ✅ |
 | `R-PREVIEW-ONLY-EMPTY` | 会话预览只在服务端确认对话没有回合时显示 | 2/2 | 2/2 | 1/1 | ✅ |
-| `R-SESSION-TIMELINE` | 在工具自己的应用里接着聊的，也出现在续接它的对话里 | 6/6 | 6/6 | 2/2 | ✅ |
+| `R-SESSION-TIMELINE` | 在工具自己的应用里接着聊的，也出现在续接它的对话里 | 7/7 | 7/7 | 3/3 | ✅ |
 | `R-RESTORE-CONFIG` | 选中历史会话恢复当时的工具、项目、会话配置 | 4/4 | 5/5 | — | ✅ |
 | `R-DEVICE-SESSION-MAP` | 设备与会话映射正确：会话只在它所在的设备上续 | 2/2 | 4/4 | — | ✅ |
 | `R-TITLE-CONSISTENT` | 会话标题所有设备一致，以用户提问提取的标题为准 | 3/3 | 3/3 | — | ✅ |

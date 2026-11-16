@@ -227,6 +227,58 @@ def messages_to_turns(msgs: list[Msg]) -> list[dict]:
     return turns
 
 
+# The agent binary a tool's run card names (ExecutionCard picks the brand from it)
+_BINARY_OF_TOOL = {"claude_code": "claude", "codex": "codex", "antigravity": "agy", "workbuddy": "workbuddy"}
+
+
+def fold_exchange(turns: list[dict], origin: str, line: int) -> list[dict]:
+    """One exchange's turns (its question, then the assistant messages the tool wrote one by one) as
+    Memento shows its own runs: the question and one answer, whose commands are the steps of a single
+    run card (the "过程" timeline) and whose text is everything the agent said, in order. Without this
+    every command of the app's answer was a turn of its own, a card per line."""
+    question = next((t for t in turns if t.get("role") == "user"), None)
+    answers = [t for t in turns if t.get("role") == "assistant"]
+    if len(answers) <= 1 and not any(t.get("toolCalls") for t in answers):
+        return turns
+    texts = [str(t.get("content") or "").strip() for t in answers]
+    thinking = "\n\n".join(str(t["thinking"]) for t in answers if t.get("thinking"))
+    events: list[dict] = []
+    for t in answers:
+        for c in t.get("toolCalls") or []:
+            r = c.get("result") or {}
+            ev: dict = {"kind": "tool", "id": f"{origin}_{line}_{len(events)}", "name": c.get("name") or "tool", "status": "done"}
+            detail = str((c.get("args") or {}).get("command") or "")
+            if detail:
+                ev["detail"] = detail
+            if r.get("stdout"):
+                ev["output"] = r["stdout"]
+            if r.get("status") == "failed":
+                ev["status"] = "failed"
+            if t.get("created_at"):
+                ev["at"] = t["created_at"]
+            events.append(ev)
+    content = "\n\n".join(x for x in texts if x)
+    answer: dict = {"role": "assistant", "content": content, "created_at": answers[-1].get("created_at") or answers[0].get("created_at")}
+    started = next((t.get("started_at") for t in answers if t.get("started_at")), None)
+    if started:
+        answer["started_at"] = started
+    if thinking:
+        answer["thinking"] = thinking[:THINKING_CHARS]
+    if events:
+        binary = _BINARY_OF_TOOL.get(origin, origin)
+        prompt = str((question or {}).get("content") or "")
+        answer["toolCalls"] = [{
+            "id": f"session_{origin}_{line}",
+            "name": "run_on_device",
+            "action": "agent",
+            "binary": binary,
+            "args": {"action": "agent", "binary": binary, "prompt": prompt},
+            "result": {"status": "succeeded", "exit_code": 0, "stdout": content, "events": events},
+        }]
+    out = [question] if question else []
+    return out + [answer]
+
+
 # ── merging a session into its conversation ────────────────────────────────────────────────────────
 
 def _memento_runs(turns: list[dict]) -> tuple[list[tuple[datetime, datetime]], list[tuple[datetime | None, str]]]:
@@ -323,7 +375,7 @@ def merge_session(
         if _is_memento_exchange(question, windows, questions):
             open_line = None
             continue
-        new_turns = messages_to_turns(group)
+        new_turns = fold_exchange(messages_to_turns(group), origin, question.line)
         if not new_turns:
             continue
         for t in new_turns:

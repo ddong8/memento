@@ -84,6 +84,38 @@ class TurnsTests(unittest.TestCase):
         self.assertEqual(call["result"]["exit_code"], 0)
         self.assertEqual(turns[2]["content"], "有一个文件")
 
+    def test_an_answer_in_the_app_shows_as_one_answer_with_its_commands_as_steps_like_memento_s(self) -> None:
+        # Antigravity writes an answer as many messages: a note, a command and its output, another
+        # command, the conclusion. Each used to become a turn of its own (a card per command line).
+        msgs = [
+            Msg(0, "user", "看看集群", at(0)),
+            Msg(1, "assistant", "先看节点。", at(0.1)),
+            Msg(2, "assistant", "", at(0.2), meta={"tool_name": "run_command", "tool_input": "{'CommandLine': '\"kubectl get nodes\"'}"}),
+            Msg(3, "tool", "Command exited with code 0.\nCommand output:\nnode1 Ready", at(0.3)),
+            Msg(4, "assistant", "", at(0.4), meta={"tool_name": "run_command", "tool_input": "{'CommandLine': '\"kubectl get pods\"'}"}),
+            Msg(5, "tool", "Command exited with code 1.\nCommand output:\nerror", at(0.5)),
+            Msg(6, "assistant", "节点正常，有一个 pod 异常。", at(0.9), meta={"thinking": "想一想"}),
+        ]
+        out, _, changed = merge_session([], None, msgs, SID, "antigravity")
+        self.assertTrue(changed)
+        self.assertEqual([t["role"] for t in out], ["user", "assistant"])
+        answer = out[1]
+        self.assertEqual(answer["content"], "先看节点。\n\n节点正常，有一个 pod 异常。")
+        self.assertEqual(answer["thinking"], "想一想")
+        self.assertEqual((answer[ORIGIN], answer["execution_mode"], answer["started_at"]), ("antigravity", "antigravity", iso(0)))
+        [card] = answer["toolCalls"]
+        self.assertEqual((card["name"], card["action"], card["binary"], card["args"]["prompt"]), ("run_on_device", "agent", "agy", "看看集群"))
+        self.assertEqual(card["result"]["status"], "succeeded")
+        steps = card["result"]["events"]
+        self.assertEqual([(e["kind"], e["detail"], e["status"]) for e in steps], [
+            ("tool", "kubectl get nodes", "done"), ("tool", "kubectl get pods", "failed"),
+        ])
+        self.assertEqual(steps[0]["output"], "node1 Ready")
+        # Read again with nothing new: the same turns, not merged twice
+        again, _, changed2 = merge_session(out, None, msgs, SID, "antigravity")
+        self.assertFalse(changed2)
+        self.assertEqual(again, out)
+
     def test_antigravity_and_json_tool_inputs_name_what_they_work_on(self) -> None:
         self.assertEqual(tool_detail("{'CommandLine': '\"git status\"', 'Cwd': '\"/x\"'}"), "git status")
         self.assertEqual(tool_detail('{"file_path": "/a/b.py"}'), "/a/b.py")

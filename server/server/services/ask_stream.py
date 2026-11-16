@@ -25,7 +25,6 @@ from ..services.ask_runs import RunConflict, ask_runs
 from .agent_ids import clean_session_id
 from .agent_limits import USAGE_LIMIT
 from .ask_store import append_conversation_turns, record_stopped_orphans, store_images
-from .device_reports import get_device_environment_summary
 
 logger = logging.getLogger("server.ask")
 
@@ -426,10 +425,8 @@ async def _prepare_agent_args(
             args["prompt"] = final_prompt
         args["binary"] = binary
 
-        env_summary = get_device_environment_summary(device_id, user)
-        if env_summary and not orig_session_id:
-            curr_spa = args.get("system_prompt_append") or ""
-            args["system_prompt_append"] = f"{curr_spa}\n\n【目标设备就绪环境指纹画像】\n{env_summary}".strip()
+        # The target device's environment profile is added by run_on_device once it knows the device: here
+        # an "auto" pick isn't made yet
         if orig_session_id:
             tag = "compact" if args.get("compact_mode") else ("fork" if fork else "resume")
             resume_tag = f" [{tag}:{orig_session_id[:8]}]"

@@ -47,7 +47,6 @@ class _Harness:
         stack.enter_context(patch("server.services.orchestrator.stop_orphaned_agent_tasks", self.stop_orphans))
         stack.enter_context(patch("server.services.user_filter.user_machine_ids", AsyncMock(return_value=["m1"])))
         stack.enter_context(patch.object(ask_stream, "append_conversation_turns", self.saved))
-        stack.enter_context(patch.object(ask_stream, "get_device_environment_summary", lambda *a: ""))
         return stack
 
     def saved_call(self) -> tuple[str, dict]:

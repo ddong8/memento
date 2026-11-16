@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `5669c06b` · Updated: `2026-11-17`
+> **Living Blueprint Auto-Generated** · Branch: `fix/env-fingerprint-auto` · Commit: `468f5664` · Updated: `2026-11-16`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -13,11 +13,11 @@
 - 类型 (Type): Monorepo (Workspaces)
 - 技术栈 (Stack): TypeScript/JavaScript, Python, Shell / Bash · React, Electron, Next.js, TailwindCSS, Model Context Protocol (MCP), FastAPI, SQLAlchemy, Celery
 - 基础设施 (Infra): PostgreSQL, pgvector (Vector DB), Redis, MinIO / S3 Object Storage, Celery Task Queue
-- 规模 (Scale): 9 个子系统 · 35 组 API 路由 / 237 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 216 个测试文件
+- 规模 (Scale): 9 个子系统 · 35 组 API 路由 / 237 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 217 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `5669c06b` (2026-11-17): fix(web): 按严格适配检查修复——画像 3D 工具栏和顶部按钮在手机/平板溢出、项目对话标签超出、隐私页说明不换行；剩余单独 emoji 图标换成线性图标
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 54（✅ 54 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-MEDIA-VIEW`, `R-PERSONA-ONBOARD`, `R-WECHAT-DRAFT`, `F-ASK`, `R-ISLAND-CLEANUP`, `R-UI-COMMERCIAL`, `S-RUN-STATE`
+- 最近改动 (Latest): `dfbea6f4` (2026-11-17): perf(web): 项目对话和时间线的长会话随滚动逐段渲染，手机不再卡死
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 55（✅ 55 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-MEDIA-VIEW`, `R-PERSONA-ONBOARD`, `R-WECHAT-DRAFT`, `F-ASK`, `R-ISLAND-CLEANUP`, `R-UI-COMMERCIAL`, `S-RUN-STATE`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -601,7 +601,7 @@ erDiagram
 
 | Suite | Directory | Files | Sample Tests |
 | :--- | :--- | :--- | :--- |
-| server/tests (pytest) | [`server/tests`](server/tests) | 116 | `test_agent_ids.py`, `test_agent_limits.py`, `test_agent_login.py`, `test_agent_run_states.py`, `test_ai_provider.py` |
+| server/tests (pytest) | [`server/tests`](server/tests) | 117 | `test_agent_ids.py`, `test_agent_limits.py`, `test_agent_login.py`, `test_agent_run_states.py`, `test_ai_provider.py` |
 | packages/daemon/test (vitest / jest) | [`packages/daemon/test`](packages/daemon/test) | 57 | `agent-args.test.ts`, `agent-login.test.ts`, `agent-stream.test.ts`, `agy-models.test.ts`, `agy-project-folder.test.ts` |
 | apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 37 | `api-client.test.ts`, `ask-reading-and-persona-rules.test.tsx`, `ask-top-bar.test.tsx`, `auth-fetch.test.ts`, `build-update.test.ts` |
 | apps/mobile/test (vitest / jest) | [`apps/mobile/test`](apps/mobile/test) | 2 | `deeplink.test.ts`, `webview-props.test.ts` |
@@ -620,7 +620,7 @@ erDiagram
 - [`packages/daemon/assets/workbuddy_cli.mjs`](packages/daemon/assets/workbuddy_cli.mjs) (7 commits)
 - [`apps/web/src/app/app/page.tsx`](apps/web/src/app/app/page.tsx) (6 commits)
 - [`apps/web/src/app/memory/persona/page.tsx`](apps/web/src/app/memory/persona/page.tsx) (6 commits)
-- [`apps/web/src/components/ask/AskTopBar.tsx`](apps/web/src/components/ask/AskTopBar.tsx) (6 commits)
+- [`apps/web/src/components/ask/AskTopBar.tsx`](apps/web/src/components/ask/AskTopBar.tsx) (5 commits)
 
 ## 8. Development & Verification Commands
 
@@ -643,12 +643,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `dfbea6f4` (2026-11-17): perf(web): 项目对话和时间线的长会话随滚动逐段渲染，手机不再卡死
 - `5669c06b` (2026-11-17): fix(web): 按严格适配检查修复——画像 3D 工具栏和顶部按钮在手机/平板溢出、项目对话标签超出、隐私页说明不换行；剩余单独 emoji 图标换成线性图标
 - `31291e1f` (2026-11-17): fix(web): 全面检查发现的问题——帮助/隐私页白字看不见、工具页 0 B 和 NaN、多页顶栏显示 Memento、完成提示堆叠、手机运行条压内容
 - `e72f3828` (2026-11-16): feat(画像): 个人画像默认显示 3D 形象，和长期记忆、技能进化一致
 - `78c5d2b9` (2026-11-16): style(web): 手机上项目搜索框和筛选框一样宽
 - `8e908d73` (2026-11-16): style(web): 知识图谱图例和分享按钮改中文，个人画像分类用平实叫法
-- `f713b8d3` (2026-11-16): style(web): 侧栏用户卡片的角色标签不再折成两行
 
 ## 10. Key Environment Variables & Configuration
 
@@ -666,7 +666,7 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 11. 业务蓝图核对 (Business Blueprint Check)
 
-- 业务蓝图：[BUSINESS_BLUEPRINT.md](BUSINESS_BLUEPRINT.md) · 规则 54（✅ 54 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
+- 业务蓝图：[BUSINESS_BLUEPRINT.md](BUSINESS_BLUEPRINT.md) · 规则 55（✅ 55 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
 - 结论：✅ 没有失效或违规
 
 ### 最近提交碰到的业务条目（改动后复查它们还成不成立）

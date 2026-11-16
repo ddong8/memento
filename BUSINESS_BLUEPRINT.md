@@ -3,16 +3,16 @@
 <!-- memento:business-index:start (自动生成，勿手改) -->
 > 先读这一段定位；要细节时按下表行号只读对应章节。改了「代码位置」里的文件，先看对应条目还成不成立。
 
-- 汇总：规则 54（✅ 54 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
+- 汇总：规则 55（✅ 55 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
 - 核对：全部通过（详见末尾「自动核对」）
 
 | 章节 | 行号 |
 | :--- | :--- |
 | 1. 业务对象与术语 | L21-L65 |
 | 2. 关键流程 | L67-L124 |
-| 3. 业务规则 | L126-L440 |
-| 4. 状态归属 | L442-L487 |
-| 自动核对 (Auto Check) | L490-L584 |
+| 3. 业务规则 | L126-L447 |
+| 4. 状态归属 | L449-L494 |
+| 自动核对 (Auto Check) | L497-L592 |
 <!-- memento:business-index:end -->
 > 业务蓝图：memento 应该做成什么样，每一条落在哪段代码、由哪个测试或检查保证。和代码蓝图 [CODE_BLUEPRINT.md](CODE_BLUEPRINT.md)（代码长什么样）配合看：代码蓝图回答"在哪里"，这份回答"应该怎样、为什么"。
 > 规则来自用户的原话和纠正（CLAUDE.md、长期记忆、每晚复盘），不是从代码里反推的；代码和这里对不上，先当成代码的问题查。
@@ -226,6 +226,13 @@
 - 说明: 会话号只认智能体自己报的（执行脚本在 stderr 上的「session id:」一行），不从回答和工具输出里找；不是会话号的值不续接、改开新会话。2026-11-16 Antigravity 读到的源码里有 `session_id: ""`，守护进程把 `\"\"` 当成会话号，之后每一轮都卡 20 秒报「Timed out waiting for Antigravity response log」。
 - 代码: `server/server/services/ask_stream.py#_session_elsewhere`, `server/server/services/ask_stream.py#_can_carry_session`, `packages/daemon/src/agent-stream.ts#cleanSessionId`, `packages/daemon/src/agy-runner/runner.ts#conversationExists`, `server/server/services/agent_ids.py#clean_session_id`, `server/server/services/agent_ids.py#reported_session_id`
 - 测试: `packages/daemon/test/antigravity-task.test.ts#Antigravity task: ids the reply quotes never become the session; the runner's own report does`, `packages/daemon/test/antigravity-task.test.ts#Antigravity task: a conversation this device doesn't have goes on in a new one instead of waiting out a reply`, `packages/daemon/test/antigravity-runner.test.ts#doesn't resume what isn't a conversation here: says so in words the daemon takes for a missing session`, `server/tests/test_agent_ids.py#test_a_conversation_never_goes_on_in_text_taken_for_its_session`, `server/tests/test_agent_ids.py#test_a_turn_asked_with_a_broken_session_starts_a_new_one`, `server/tests/test_ask_cascade.py#test_session_on_another_device_is_not_resumed_there`, `server/tests/test_ask_cascade.py#test_session_on_the_device_picked_is_resumed`, `server/tests/test_ask_cascade.py#test_session_of_another_tool_is_not_resumed`, `server/tests/test_ask_ensure_by_session.py#test_looks_up_and_creates_under_a_lock_per_user_and_session`
+
+### R-DEVICE-ENV-PROFILE 新会话拿到的环境信息是它实际所在设备的
+- 来源: CLAUDE.md（memento）「设备与会话映射正确」；2026-11-17 设备选「自动」的任务落到 Mac 上，系统提示里的「目标设备就绪环境指纹画像」写的却是 vps3 的 linux (arm64)、用户 opc，还叫智能体不必再用 which/--version 核对
+- 说明: 问答入口在选设备之前就取环境指纹，没指定设备或选「自动」时能力缓存返回第一台设备的数据。现在由 run_on_device 选定设备后按实际设备注入，只给新会话；没指定设备时一律不出指纹。
+- 代码: `server/server/services/device_reports.py#get_device_environment_summary`, `server/server/services/orchestrator.py#_tool_run_on_device`
+- 测试: `server/tests/test_device_env_fingerprint.py#test_no_profile_without_a_named_device`, `server/tests/test_device_env_fingerprint.py#test_auto_dispatch_tells_the_task_about_the_device_it_landed_on`, `server/tests/test_device_env_fingerprint.py#test_a_resumed_session_is_not_told_again`
+- 禁止: `get_device_environment_summary` @ `server/server/services/ask_stream.py`
 
 ### R-TITLE-CONSISTENT 会话标题所有设备一致，以用户提问提取的标题为准
 - 来源: CLAUDE.md（memento）「会话标题所有设备一致」；记忆「会话标题以用户提问提取的标题为唯一事实源，由守护进程写回 Antigravity 本地 SQLite 与注解文件并同步平台」
@@ -491,7 +498,7 @@
 
 > 生成器随每次提交核对：代码位置还在不在、测试还在不在、禁止 / 要求的写法满不满足。✅ 通过 · ⚠️ 缺代码位置、测试或来源 · ❌ 位置失效或违反规则（CI 会拦下）。
 
-- 汇总：规则 54（✅ 54 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
+- 汇总：规则 55（✅ 55 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
 
 | 编号 | 名称 | 代码位置 | 测试 | 检查 | 结论 |
 | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -532,6 +539,7 @@
 | `R-SESSION-TIMELINE` | 在工具自己的应用里接着聊的，也出现在续接它的对话里 | 7/7 | 7/7 | 3/3 | ✅ |
 | `R-RESTORE-CONFIG` | 选中历史会话恢复当时的工具、项目、会话配置 | 4/4 | 5/5 | — | ✅ |
 | `R-DEVICE-SESSION-MAP` | 设备与会话映射正确：会话只在它所在的设备上续 | 6/6 | 9/9 | — | ✅ |
+| `R-DEVICE-ENV-PROFILE` | 新会话拿到的环境信息是它实际所在设备的 | 2/2 | 3/3 | 1/1 | ✅ |
 | `R-TITLE-CONSISTENT` | 会话标题所有设备一致，以用户提问提取的标题为准 | 3/3 | 3/3 | — | ✅ |
 | `R-DELETE-GONE-EVERYWHERE` | 删除的对话立即在所有页面、所有副本都看不到 | 3/3 | 2/2 | 2/2 | ✅ |
 | `R-REPLICA-STATE` | 会变的状态不放进单个 api 副本的内存 | 3/3 | 1/1 | 2/2 | ✅ |

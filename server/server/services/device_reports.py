@@ -79,7 +79,13 @@ def device_has_feature(name: str | None, feature: str, user: User | None = None)
 
 
 def get_device_environment_summary(device_id: str | None = None, user: User | None = None) -> str | None:
-    """Format a compact environment profile string for system prompts and tool contexts."""
+    """Format a compact environment profile string for system prompts and tool contexts.
+
+    Only for one named device. With no device or "auto" the capability lookup hands back whichever device
+    comes first, and its profile went into tasks that ran somewhere else (a Mac told it was Linux as opc).
+    """
+    if not device_id or device_id in ("auto", "ask_only", "all"):
+        return None
     caps = get_cached_device_capabilities(device_id, user=user)
     if not caps or not isinstance(caps, dict):
         return None

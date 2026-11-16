@@ -888,6 +888,16 @@ async def _tool_run_on_device(db: AsyncSession, user: User, args: dict, *, class
                 payload["fork"] = args["fork"]
             if args.get("system_prompt_append"):
                 payload["system_prompt_append"] = args["system_prompt_append"]
+            # A new session learns the environment of the device it really runs on, picked above (also for
+            # "auto"); a resumed one has it already
+            if not sess_id:
+                from . import device_reports
+                env_summary = device_reports.get_device_environment_summary(device_id, user) or (
+                    device_reports.get_device_environment_summary(mach_name, user) if mach_name else None
+                )
+                if env_summary:
+                    cur_append = payload.get("system_prompt_append") or ""
+                    payload["system_prompt_append"] = f"{cur_append}\n\n【目标设备就绪环境指纹画像】\n{env_summary}".strip()
             if args.get("worktree"):
                 payload["worktree"] = True
             if args.get("conversation_id"):

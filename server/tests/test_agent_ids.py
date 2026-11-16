@@ -85,7 +85,6 @@ def test_a_turn_asked_with_a_broken_session_starts_a_new_one():
         patch("server.services.orchestrator.stop_orphaned_agent_tasks", AsyncMock(return_value=[])),
         patch("server.services.user_filter.user_machine_ids", AsyncMock(return_value=["m1"])),
         patch.object(ask_stream, "append_conversation_turns", saved),
-        patch.object(ask_stream, "get_device_environment_summary", lambda *a: ""),
     ):
         asyncio.run(run())
     assert "session_id" not in sent[0]

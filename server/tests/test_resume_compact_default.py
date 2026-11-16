@@ -48,8 +48,7 @@ def _dispatch(compact_mode, cost, execution_mode="claude", fork=None, mode=None,
          patch("server.services.session_compactor.build_compacted_continuation",
                AsyncMock(return_value={"injected_context": "【前序会话核心记忆快照】……"})), \
          patch.object(ask_stream, "_can_carry_session", lambda *a: carry), \
-         patch.object(ask_stream, "append_conversation_turns", AsyncMock()), \
-         patch.object(ask_stream, "get_device_environment_summary", lambda *a: ""):
+         patch.object(ask_stream, "append_conversation_turns", AsyncMock()):
         out = asyncio.run(collect())
     if events is not None:
         events.extend(out)

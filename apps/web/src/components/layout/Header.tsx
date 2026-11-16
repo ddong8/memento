@@ -80,15 +80,15 @@ export default function Header({ onMenuToggle, className = "" }: { onMenuToggle:
               width: 22,
               height: 22,
               borderRadius: 6,
-              background: "var(--aurora-accent-soft)",
-              border: "1px solid color-mix(in srgb, var(--aurora-accent) 22%, transparent)",
+              background: "var(--aurora-brand-grad)",
+              boxShadow: "0 2px 8px -2px rgba(124,58,237,0.4), inset 0 1px 0 rgba(255,255,255,0.28)",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
               flexShrink: 0,
             }}
           >
-            <Icon name={pageMeta.icon} size={12} style={{ color: "var(--aurora-accent)" }} strokeWidth={2} />
+            <Icon name={pageMeta.icon} size={12} style={{ color: "#fff" }} strokeWidth={2.2} />
           </div>
           <span
             className="truncate text-[13px] sm:text-[13.5px]"

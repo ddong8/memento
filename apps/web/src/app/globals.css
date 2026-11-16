@@ -873,10 +873,12 @@ html[data-skin="baseline"][data-theme="light"] aside {
 
 /* Windows desktop app: the system's minimize / maximize / close buttons are drawn over the right end of the
    top bar (the window has no title bar of its own); the bar's content keeps clear of them. env() is the area
-   left of the buttons, 0 in a browser and in a client with the system title bar. */
+   left of the buttons, 0 in a browser and in a client with the system title bar. Windows only: macOS keeps its
+   traffic lights at the left (see Sidebar), Linux has the system title bar above the page, so nothing overlaps. */
 html[data-client="desktop"][data-os="windows"] header,
 html[data-client="desktop"][data-os="windows"] [data-window-controls] {
-  padding-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw) + 12px) !important;
+  /* 24px clear of the minimize button: at 12 the bar's last icon (the workbench's ×) read as part of them */
+  padding-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw) + 24px) !important;
 }
 /* With the workbench docked as the third column, its bar is the one at the window's right end (it keeps clear
    of the buttons above); the center column's header stops short of them and needs no gap. */

@@ -31,6 +31,7 @@ import {
   FiSliders,
   FiLayers,
   FiSearch,
+  FiMoreHorizontal,
 } from "react-icons/fi";
 import { useMediaInspector, type MediaItem } from "./MediaInspectorContext";
 import { VideoPlayer, AudioPlayer, ImagePreview, MediaAttachmentCard, resolveMediaUrl, safeDecodePath, getFilenameFromUrl, isLocalFilePath, dirOfPath, useDirectSrc } from "./MediaPreview";
@@ -96,6 +97,14 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
     return 460;
   });
   const [isExpandedFull, setIsExpandedFull] = useState<boolean>(false);
+  // Windows client: its minimize/maximize/close sit over this bar's right end, so the row keeps fewer icons
+  // and the rest go under "⋯" (all of them didn't fit: they spilled under the system buttons, 11-16)
+  const [compactBar, setCompactBar] = useState<boolean>(false);
+  const [moreOpen, setMoreOpen] = useState<boolean>(false);
+  useEffect(() => {
+    const d = document.documentElement.dataset;
+    setCompactBar(d.client === "desktop" && d.os === "windows");
+  }, []);
   const [isLandscape, setIsLandscape] = useState<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
   const isDraggingRef = useRef<boolean>(false);
@@ -409,6 +418,9 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
               <FiRefreshCw className="w-3.5 h-3.5" />
             </button>
 
+            {(() => {
+              const secondary = (
+                <>
             {resolved.localPath && (
               <button
                 type="button"
@@ -446,6 +458,30 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
             >
               <FiExternalLink className="w-3.5 h-3.5" />
             </button>
+                </>
+              );
+              if (!compactBar) return secondary;
+              return (
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setMoreOpen((o) => !o)}
+                    title="更多操作"
+                    className="p-1.5 rounded-lg text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)] transition-colors"
+                  >
+                    <FiMoreHorizontal className="w-3.5 h-3.5" />
+                  </button>
+                  {moreOpen && (
+                    <div
+                      onClick={() => setMoreOpen(false)}
+                      className="absolute right-0 top-full mt-1.5 z-50 flex items-center gap-0.5 p-1 rounded-lg border border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)] shadow-lg"
+                    >
+                      {secondary}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* 手机/横屏满屏旋转 */}
             <button

@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `8f7d0d95` · Updated: `2026-11-16`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `212823b7` · Updated: `2026-11-16`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,7 +16,7 @@
 - 规模 (Scale): 9 个子系统 · 35 组 API 路由 / 237 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 214 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `71dfc40c` (2026-11-16): fix(桌面端): Windows 上打开工作台时系统窗口按钮不再压住工作台工具栏，按钮高度和 48px 顶栏一致；升级客户端版本至 v1.0.137
+- 最近改动 (Latest): `7d7ca182` (2026-11-16): style(桌面端): Windows 上顶栏最后一个按钮离系统窗口按钮留 24px，不再挨在一起
 - 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 53（✅ 53 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `R-MEDIA-VIEW`, `R-WECHAT-DRAFT`, `S-CLIENT-VERSION`
 
 | 章节 (Section) | 行号 (Lines) |
@@ -613,14 +613,14 @@ erDiagram
 
 - [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (19 commits)
 - [`packages/daemon/assets/workbuddy_cli.mjs`](packages/daemon/assets/workbuddy_cli.mjs) (12 commits)
-- [`apps/web/src/app/globals.css`](apps/web/src/app/globals.css) (9 commits)
+- [`apps/web/src/app/globals.css`](apps/web/src/app/globals.css) (10 commits)
 - [`apps/web/src/components/layout/Sidebar.tsx`](apps/web/src/components/layout/Sidebar.tsx) (9 commits)
 - [`apps/web/src/components/ask/bubbles.tsx`](apps/web/src/components/ask/bubbles.tsx) (7 commits)
-- [`apps/web/src/components/viewers/MediaInspectorPanel.tsx`](apps/web/src/components/viewers/MediaInspectorPanel.tsx) (7 commits)
 - [`apps/desktop/src/main.ts`](apps/desktop/src/main.ts) (6 commits)
 - [`apps/web/src/components/ask/AskTopBar.tsx`](apps/web/src/components/ask/AskTopBar.tsx) (6 commits)
-- [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (6 commits)
+- [`apps/web/src/components/viewers/MediaInspectorPanel.tsx`](apps/web/src/components/viewers/MediaInspectorPanel.tsx) (6 commits)
 - [`apps/web/src/app/app/page.tsx`](apps/web/src/app/app/page.tsx) (5 commits)
+- [`apps/web/src/components/ExecutionCard.tsx`](apps/web/src/components/ExecutionCard.tsx) (5 commits)
 
 ## 8. Development & Verification Commands
 
@@ -643,12 +643,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `7d7ca182` (2026-11-16): style(桌面端): Windows 上顶栏最后一个按钮离系统窗口按钮留 24px，不再挨在一起
 - `71dfc40c` (2026-11-16): fix(桌面端): Windows 上打开工作台时系统窗口按钮不再压住工作台工具栏，按钮高度和 48px 顶栏一致；升级客户端版本至 v1.0.137
 - `889735d7` (2026-11-16): style(web): Mac 客户端左栏品牌和红绿灯留 16px 间距（按实测位置）
 - `e9a4db46` (2026-11-16): style(web): Mac 客户端左栏品牌离红绿灯再远一点，不再贴着
 - `e6ca4f3a` (2026-11-16): style(web): Mac 客户端左栏顶部收进 48px 和中右两栏顶栏对齐；用户消息气泡恢复原来的淡紫底样式
 - `62f0ece6` (2026-11-16): style(问答): 项目目录输入框也用中性边框，和其它配置项一致
-- `321c978b` (2026-11-16): style(web): 三栏对齐与减色：思考区去掉紫色竖线，配置项只给改过默认的加紫框，运行中浮条不再压住工作台，记忆星云只常显核心标签
 
 ## 10. Key Environment Variables & Configuration
 

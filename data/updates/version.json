@@ -4,22 +4,22 @@
   "release_notes": "1. Windows 客户端右上角的最小化、最大化、关闭按钮高度和顶栏一致（48px），打开工作台时不再压住工作台工具栏右边的按钮\n2. Mac 客户端左栏顶部和中右两栏顶栏对齐，品牌放在红绿灯右边\n3. 手机端版本号与客户端统一为 1.0.137",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.136-win-x64.zip",
-      "size": 158304887,
-      "sha256": "0c06bbca236987700b0a99fbf6a9f8e4623fff8cfc522b859db99d9efc39274c",
-      "sha512": "X6UCqe609HsbZ/eDvpFJe2jl88TA8extUZj726iPNjtmRKW2zqoAEjYDVo04hg47cxda+tbRkHwBxj5RkyupFQ=="
+      "asset_name": "Memento-1.0.137-win-x64.zip",
+      "size": 158304502,
+      "sha256": "9d8f90a8bd2d75d4975c42f47ec481726534056fff2fd90d4aeb8d058919c0ee",
+      "sha512": "+ZFCFef/JamfJIybgFOPFamKilZbjLR2smhoPJQ2siYp5h21gloA4MCmIa7RA+QxPAzFgs2nchKCK6ouLBnEog=="
     },
     "macos": {
-      "asset_name": "Memento-1.0.136-mac-arm64.zip",
-      "size": 132794256,
-      "sha256": "badc14f67963515bb65a33ece17bfc1b11c683eb0d1b08b165a15e308bbeb872",
-      "sha512": "PSB2EgE2xEbqG2f9pCLUQOf3MVC4f60RUR1+fdv0jKO7MSeLW6VG3c8987mq5FB3BZ3nlCj5obnU/jpr+IXX5A=="
+      "asset_name": "Memento-1.0.137-mac-arm64.zip",
+      "size": 132794374,
+      "sha256": "849449ad01cb91641c95a9bdd94e8bdd4a5b9677506a9c3376354f9bba06dee3",
+      "sha512": "hkQW9uUsflzly9BsrP96C2SeRE3X5D/26pnuo68CgZa+B6UOw4wx+A5aMLBgPM6qRZDZB50W7UvBmJNTKpLseQ=="
     },
     "linux": {
-      "asset_name": "Memento-1.0.136-linux-x64.tar.gz",
-      "size": 132068473,
-      "sha256": "3016685f70254fd729db2ba7d9c017e668ffcbd802a6967dd0cd62e61101b793",
-      "sha512": "VAQNgtcAhsD5ttmHkPoHHUYIcaWWttpzr3w6j/G0dP5dyI1tquteJMGFKekQYCMAvjVGU3Mh55wOMnVkZ/OfBg=="
+      "asset_name": "Memento-1.0.137-linux-x64.tar.gz",
+      "size": 132068103,
+      "sha256": "5ebf462251d49b331760835c38d213dac330df2ac4ac7b7e133ee1135ceb4531",
+      "sha512": "T29Vr6s+yBYq+oaXxXYOoMfYEDHcwnMVM9tq/IOsZ10NfMiUj0NNO6/fzmTUX+LuU5xc7I1SPSgavEfQec2bpQ=="
     }
   }
 }

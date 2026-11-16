@@ -239,9 +239,9 @@
 
 ### R-REPLY-VISIBLE 回答区不被输入区遮住，回答时跟到最底部
 - 来源: 用户 2026-11-14「有后台任务的时候撑高的输入区域会遮盖回答区域」「回答问题时怎么不会自动滑动到页面最底下啊，有时还要手动往上滑一下」
-- 说明: 只有用户自己往上滚才算离开底部；内容后来长高（代码高亮、图片、工具卡片）也要跟。输入区上方的配置和会话上下文限高内部滚动。
+- 说明: 只有用户自己往上滚才算离开底部；内容后来长高（代码高亮、图片、工具卡片）也要跟。展开的配置完整显示（用户 2026-11-16「展开配置项只弹开一半，下面的要向下滑动才能看到」），会话上下文的消息列表在自己 170px 里滚动，外层只兜底（桌面 72dvh、手机键盘弹起 40dvh）。
 - 代码: `apps/web/src/app/ask/page.tsx#chatScrollRef`, `apps/web/src/app/ask/page.tsx#userScrolledAwayRef`
-- 要求: `ro.observe(content)` @ `apps/web/src/app/ask/page.tsx`; `ask-footer-extras` @ `apps/web/src/app/ask/page.tsx`; `maxHeight: viewportBottomOffset > 0 ? "22dvh" : "min(36dvh, 400px)"` @ `apps/web/src/app/ask/page.tsx`
+- 要求: `ro.observe(content)` @ `apps/web/src/app/ask/page.tsx`; `ask-footer-extras` @ `apps/web/src/app/ask/page.tsx`; `maxHeight: viewportBottomOffset > 0 ? "40dvh" : "min(72dvh, 760px)"` @ `apps/web/src/app/ask/page.tsx`; `maxHeight: "min(170px, 25vh)"` @ `apps/web/src/components/ask/SessionResumeBanner.tsx`
 - 禁止: `/distFromBottom > 80\) \{$/` @ `apps/web/src/app/ask/page.tsx`
 
 ### R-SHOW-TIMES 对话显示发送和回复时间
@@ -512,7 +512,7 @@
 | `R-DELETE-GONE-EVERYWHERE` | 删除的对话立即在所有页面、所有副本都看不到 | 3/3 | 2/2 | 2/2 | ✅ |
 | `R-REPLICA-STATE` | 会变的状态不放进单个 api 副本的内存 | 3/3 | 1/1 | 2/2 | ✅ |
 | `R-FOLLOWUP-NOT-LOST` | 追问不丢；送达的显示在回答里，不留在输入区 | 4/4 | 5/5 | 1/1 | ✅ |
-| `R-REPLY-VISIBLE` | 回答区不被输入区遮住，回答时跟到最底部 | 2/2 | — | 4/4 | ✅ |
+| `R-REPLY-VISIBLE` | 回答区不被输入区遮住，回答时跟到最底部 | 2/2 | — | 5/5 | ✅ |
 | `R-SHOW-TIMES` | 对话显示发送和回复时间 | 2/2 | 2/2 | — | ✅ |
 | `R-NO-STDERR` | 回复里不输出无用的 stderr | 2/2 | 2/2 | — | ✅ |
 | `R-CLAUDE-TUI-SYNC` | memento 里的 Claude Code 对话要能在 Claude Code 的 TUI 里续上 | 3/3 | 2/2 | 1/1 | ✅ |

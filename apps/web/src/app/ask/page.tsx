@@ -5257,8 +5257,10 @@ function AskPageContent() {
             <div
               className="ask-footer-extras"
               style={{
-                // 11-14 capped so the settings don't cover the reply (119ba986); 3b1f1013 raised it again
-                maxHeight: viewportBottomOffset > 0 ? "22dvh" : "min(36dvh, 400px)",
+                // Expanded on purpose, the settings show whole (min(36dvh, 400px) cut them in half under the session
+                // context, 11-16). The context's message list scrolls in its own 170px; this is only a backstop so
+                // the reply keeps most of the screen, tighter with the phone keyboard up.
+                maxHeight: viewportBottomOffset > 0 ? "40dvh" : "min(72dvh, 760px)",
                 overflowY: "auto",
                 overflowX: "hidden",
                 overscrollBehavior: "contain",

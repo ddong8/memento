@@ -3,16 +3,16 @@
 <!-- memento:business-index:start (自动生成，勿手改) -->
 > 先读这一段定位；要细节时按下表行号只读对应章节。改了「代码位置」里的文件，先看对应条目还成不成立。
 
-- 汇总：规则 55（✅ 55 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
+- 汇总：规则 56（✅ 56 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
 - 核对：全部通过（详见末尾「自动核对」）
 
 | 章节 | 行号 |
 | :--- | :--- |
 | 1. 业务对象与术语 | L21-L65 |
 | 2. 关键流程 | L67-L124 |
-| 3. 业务规则 | L126-L447 |
-| 4. 状态归属 | L449-L494 |
-| 自动核对 (Auto Check) | L497-L592 |
+| 3. 业务规则 | L126-L454 |
+| 4. 状态归属 | L456-L501 |
+| 自动核对 (Auto Check) | L504-L600 |
 <!-- memento:business-index:end -->
 > 业务蓝图：memento 应该做成什么样，每一条落在哪段代码、由哪个测试或检查保证。和代码蓝图 [CODE_BLUEPRINT.md](CODE_BLUEPRINT.md)（代码长什么样）配合看：代码蓝图回答"在哪里"，这份回答"应该怎样、为什么"。
 > 规则来自用户的原话和纠正（CLAUDE.md、长期记忆、每晚复盘），不是从代码里反推的；代码和这里对不上，先当成代码的问题查。
@@ -359,6 +359,13 @@
 - 代码: `.github/workflows/deploy.yml`
 - 要求: `needs: [changes, wait-ci, build]` @ `.github/workflows/deploy.yml`
 
+### R-DEPLOY-BUMP-RACE 回写镜像 tag 撞车时在最新 main 上重来，不把线上退回旧提交
+- 来源: CLAUDE.md（memento）「部署流水线必须等 CI 通过」「改动需应用到所有 pod，并确认发布」；2026-11-17 被取消的旧 run 在取消前已推出 server 的回写，新 run 改的是同一行，rebase 冲突、三次重试都失败，03480911 的网页没上线
+- 说明: bump 推送失败时放弃这次 rebase，在最新的 main 上重新改 tag；main 上已是更新提交的镜像不覆盖（用 compare 接口判断先后，判断不了就报错停下）；verify 只等实际回写成本次提交的镜像。
+- 代码: `.github/workflows/deploy.yml`
+- 测试: `server/tests/test_deploy_bump.py#test_goes_through_when_a_cancelled_run_pushed_the_same_line_first`, `server/tests/test_deploy_bump.py#test_a_late_older_run_never_moves_production_back`, `server/tests/test_deploy_bump.py#test_stops_when_it_cannot_tell_which_commit_is_newer`
+- 要求: `pin check` @ `.github/workflows/deploy.yml`
+
 ### R-ALL-TYPESCRIPT 客户端全 TypeScript，Electron + React，不混入 Flutter、Tauri 等框架
 - 来源: CLAUDE.md（memento）「全 TypeScript，Electron + React（参考 Paseo），不要混入 Flutter、Tauri 等框架」；记忆「客户端迁移 TypeScript」（阶段 5 起设备上不要 Python）
 - 代码: `apps/desktop/package.json`, `packages/daemon/src/index.ts`
@@ -498,7 +505,7 @@
 
 > 生成器随每次提交核对：代码位置还在不在、测试还在不在、禁止 / 要求的写法满不满足。✅ 通过 · ⚠️ 缺代码位置、测试或来源 · ❌ 位置失效或违反规则（CI 会拦下）。
 
-- 汇总：规则 55（✅ 55 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
+- 汇总：规则 56（✅ 56 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
 
 | 编号 | 名称 | 代码位置 | 测试 | 检查 | 结论 |
 | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -562,6 +569,7 @@
 | `R-CI-KUSTOMIZE-PINNED` | CI 装 kustomize 用固定版直链，不用 install_kustomize.sh | 1/1 | — | 1/1 | ✅ |
 | `R-COMMIT-CONVENTION` | 提交用中文 Conventional Commits，不加 Claude 共同作者尾注，历史保持线性 | — | — | — | ✅ 约定 |
 | `R-DEPLOY-AFTER-CI` | 部署流水线必须等 CI 通过 | 1/1 | — | 1/1 | ✅ 约定 |
+| `R-DEPLOY-BUMP-RACE` | 回写镜像 tag 撞车时在最新 main 上重来，不把线上退回旧提交 | 1/1 | 3/3 | 1/1 | ✅ |
 | `R-ALL-TYPESCRIPT` | 客户端全 TypeScript，Electron + React，不混入 Flutter、Tauri 等框架 | 2/2 | — | 2/2 | ✅ |
 | `R-SELF-EVOLVE` | 越用越了解用户、能自进化 | 4/4 | 1/1 | — | ✅ |
 | `R-PLAN-THEN-FINISH` | 规划周全后一次性全部完成，追求好用，界面高级精致 | — | — | — | ✅ 约定 |

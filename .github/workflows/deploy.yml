@@ -192,6 +192,9 @@ jobs:
       !cancelled() && needs.build.result == 'success' &&
       (needs.wait-ci.result == 'success' || needs.wait-ci.result == 'skipped')
     runs-on: ubuntu-latest
+    outputs:
+      server: ${{ steps.pin.outputs.server }}
+      web: ${{ steps.pin.outputs.web }}
     steps:
       - uses: actions/checkout@v4
 
@@ -210,10 +213,12 @@ jobs:
           kustomize version
 
       - name: Pin image tags & push (triggers Fleet)
+        id: pin
         env:
           SHA: ${{ github.sha }}
           SERVER: ${{ needs.changes.outputs.server }}
           WEB: ${{ needs.changes.outputs.web }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           SHA_SHORT="${SHA:0:12}"
           images=()
@@ -225,29 +230,57 @@ jobs:
           done
           git config user.name  'github-actions[bot]'
           git config user.email 'github-actions[bot]@users.noreply.github.com'
-          # 只改这次构建了的镜像,没构建的保持原 tag
-          ( cd deploy/k8s && for image in "${images[@]}"; do
-              kustomize edit set image "${REGISTRY}/${OWNER}/${image}=${REGISTRY}/${OWNER}/${image}:${SHA_SHORT}"
-            done )
-          # 断言 tag 确实回写成功
-          for image in "${images[@]}"; do
-            tag=$(awk -v n="${REGISTRY}/${OWNER}/$image" '$1=="-" && $2=="name:" {cur=$3} $1=="newTag:" && cur==n {gsub(/"/,"",$2); print $2; exit}' deploy/k8s/kustomization.yaml)
-            [ "$tag" = "$SHA_SHORT" ] || { echo "$image 镜像 tag 回写失败(现在是 ${tag:-空})"; exit 1; }
-          done
+          tag_of() {
+            awk -v n="${REGISTRY}/${OWNER}/$1" '$1=="-" && $2=="name:" {cur=$3} $1=="newTag:" && cur==n {gsub(/"/,"",$2); print $2; exit}' deploy/k8s/kustomization.yaml
+          }
+          # 只改这次构建了的镜像,没构建的保持原 tag。传 check:清单里已是比本次更新的提交就不动
+          # (晚到的旧 run 不能把线上退回去),比较不出来就报错停下
+          pin() {
+            pinned=()
+            for image in "${images[@]}"; do
+              cur=$(tag_of "$image")
+              if [ "$1" = check ] && [ -n "$cur" ] && [ "$cur" != "$SHA_SHORT" ]; then
+                rel=$(gh api "repos/${GITHUB_REPOSITORY}/compare/${cur}...${SHA}" --jq .status 2>/dev/null || echo "查询失败")
+                case "$rel" in
+                  ahead) ;;
+                  behind|diverged) echo "$image: main 上已是 ${cur},本次 ${SHA_SHORT} 相对它是 ${rel},不覆盖"; continue ;;
+                  *) echo "$image: 比较 ${cur} 和 ${SHA_SHORT} 失败(${rel})"; return 1 ;;
+                esac
+              fi
+              ( cd deploy/k8s && kustomize edit set image "${REGISTRY}/${OWNER}/${image}=${REGISTRY}/${OWNER}/${image}:${SHA_SHORT}" )
+              # 断言 tag 确实回写成功
+              tag=$(tag_of "$image")
+              [ "$tag" = "$SHA_SHORT" ] || { echo "$image 镜像 tag 回写失败(现在是 ${tag:-空})"; return 1; }
+              pinned+=("$image")
+            done
+          }
+          # verify 只等真正指向本次提交的镜像
+          finish() {
+            s=false; w=false
+            for image in "${pinned[@]}"; do
+              [ "$image" = memento-server ] && s=true
+              [ "$image" = memento-web ] && w=true
+            done
+            { echo "server=$s"; echo "web=$w"; } >> "$GITHUB_OUTPUT"
+            echo "$1"; exit 0
+          }
+          pin || exit 1
           git add deploy/k8s/kustomization.yaml
-          if git diff --cached --quiet; then
-            echo "镜像 tag 未变,跳过提交"
-            exit 0
-          fi
-          git commit -m "ci(deploy): memento 镜像 -> ${SHA_SHORT} (${images[*]#memento-}) [skip ci]"
+          git diff --cached --quiet && finish "镜像 tag 未变,跳过提交"
+          git commit -q -m "ci(deploy): memento 镜像 -> ${SHA_SHORT} (${pinned[*]#memento-}) [skip ci]"
           # 串行 run 之间可能有新 commit 落到 main,push 前先 rebase,失败重试
           for i in 1 2 3; do
-            if git pull --rebase origin main && git push; then
-              echo "已回写并推送,Fleet 将拉取部署"
-              exit 0
-            fi
+            git pull --rebase origin main && git push && finish "已回写并推送,Fleet 将拉取部署"
             echo "push 撞车,重试 $i ..."
+            # 别的 run 刚改过同一行 tag 时 rebase 冲突,之后每次都拉不下来(2026-11-17:被取消的旧 run 取消前已推出
+            # 回写,新 run 三次重试都卡在冲突上,新提交没上线)。放弃这次 rebase,在最新的 main 上重新改
+            git rebase --abort 2>/dev/null || true
             sleep 3
+            git fetch -q origin main && git reset -q --hard origin/main || continue
+            pin check || exit 1
+            git add deploy/k8s/kustomization.yaml
+            git diff --cached --quiet && finish "main 上的镜像 tag 已是本次或更新的提交,不用再回写"
+            git commit -q -m "ci(deploy): memento 镜像 -> ${SHA_SHORT} (${pinned[*]#memento-}) [skip ci]"
           done
           echo "回写 push 失败"; exit 1
 
@@ -264,8 +297,9 @@ jobs:
       - name: Wait for production to run this commit
         env:
           SHA: ${{ github.sha }}
-          SERVER: ${{ needs.changes.outputs.server }}
-          WEB: ${{ needs.changes.outputs.web }}
+          # bump 实际回写成本次 tag 的镜像(main 上已有更新提交的镜像它不覆盖,这里也就不等)
+          SERVER: ${{ needs.bump.outputs.server }}
+          WEB: ${{ needs.bump.outputs.web }}
         run: |
           SHA_SHORT="${SHA:0:12}"
           server_live() {

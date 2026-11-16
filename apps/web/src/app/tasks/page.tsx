@@ -113,7 +113,7 @@ export default function TasksPage() {
     }[s] || s);
 
   return (
-    <div className="max-w-4xl mx-auto">
+    <div className="max-w-6xl mx-auto">
       <TopBar title={t.tasks.title} subtitle={t.tasks.subtitle} />
 
       <Glass padding={18} radius={18} style={{ marginBottom: 18 }}>

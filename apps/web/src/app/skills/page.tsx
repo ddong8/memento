@@ -489,11 +489,11 @@ export default function SkillsPage() {
           </div>
           <div className="flex items-center gap-1.5 min-w-0">
             <h1 className="text-xs sm:text-base font-bold text-[var(--aurora-fg1)] tracking-tight truncate">
-              技能进化 · 科技树
+              技能进化
             </h1>
             <span className="text-[10px] px-2 py-0.2 rounded-full font-medium bg-[rgba(16,185,129,0.12)] text-[#10B981] hidden md:flex items-center gap-1 font-mono shrink-0">
               <span className="w-1.5 h-1.5 rounded-full bg-[#10B981] breathing-glow-emerald" />
-              Agent Skill 协议就绪 · 5 端全息注入
+              已同步到 5 个工具
             </span>
           </div>
         </div>
@@ -587,7 +587,7 @@ export default function SkillsPage() {
                           : "bg-amber-500/20 text-amber-300 border border-amber-500/30"
                       }`}
                     >
-                      {selectedSkillObj.status === "published" ? "✓ 生产运行中" : "⚡ 演进草稿"}
+                      {selectedSkillObj.status === "published" ? "生产运行中" : "演进草稿"}
                     </span>
                     <span className="text-[10px] font-mono text-white/50 px-1.5 py-0.5 rounded bg-white/10">
                       v{selectedSkillObj.version}
@@ -644,7 +644,7 @@ export default function SkillsPage() {
               {/* Scrollable SOP Markdown Instructions Content */}
               <div className="flex-1 min-h-0 overflow-y-auto p-3.5 space-y-3 custom-scrollbar text-xs leading-relaxed text-white/90">
                 <div className="text-[11px] font-mono text-white/50 flex items-center justify-between">
-                  <span>📄 标准作业程序 (SOP) 执行指令</span>
+                  <span>标准作业程序 (SOP) 执行指令</span>
                   <span>{selectedSkillObj.body?.length || 0} 字符</span>
                 </div>
                 {selectedSkillObj.body ? (
@@ -703,7 +703,7 @@ export default function SkillsPage() {
           {!selectedSkillObj && (
             <div className="absolute bottom-3 left-3 right-3 pointer-events-none text-center">
               <span className="text-[10px] font-mono text-white/70 bg-black/60 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/15 pointer-events-auto shadow-lg">
-                点击技能晶核发射激光束注入 5 端基座并在场景内查看 SOP · 滚轮缩放 · 左键旋转
+                点击技能查看说明 · 滚轮缩放 · 左键拖动旋转
               </span>
             </div>
           )}
@@ -721,7 +721,7 @@ export default function SkillsPage() {
                   className="px-2.5 py-1 rounded-lg bg-[var(--aurora-chip)] hover:bg-[var(--aurora-accent-soft)] text-xs font-semibold flex items-center gap-1.5 shrink-0 text-[var(--aurora-fg1)] border border-[var(--aurora-border)]"
                 >
                   <Icon name="arrow_left" size={14} />
-                  <span>返回 3D 科技树</span>
+                  <span>返回技能图谱</span>
                 </button>
                 <span className="text-[11px] font-mono text-[var(--aurora-fg3)]">技能管理中枢</span>
               </div>
@@ -760,7 +760,7 @@ export default function SkillsPage() {
                 {/* Tile 3: 5 端受护运行时 */}
                 <div className="p-2 rounded-xl bg-[var(--aurora-surface-solid)] border border-[var(--aurora-border)] flex items-center justify-between">
                   <div>
-                    <div className="text-[10px] text-[var(--aurora-fg3)]">全息注入终端</div>
+                    <div className="text-[10px] text-[var(--aurora-fg3)]">已同步的工具</div>
                     <div className="text-xs font-bold text-[var(--aurora-accent)] font-mono mt-0.5 tabular-nums">
                       5 <span className="text-[10px] font-normal text-[var(--aurora-fg3)]">端在线</span>
                     </div>
@@ -824,7 +824,7 @@ export default function SkillsPage() {
                   <button
                     onClick={() => setIsPanelCollapsed(true)}
                     className="p-1.5 rounded-lg text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)] border border-[var(--aurora-border)] transition-all shadow-2xs"
-                    title="收起右侧面板，3D 科技树铺满全屏"
+                    title="收起右侧面板，图谱铺满"
                   >
                     <Icon name="sidebar" size={13} />
                   </button>

@@ -561,7 +561,7 @@ export const ChatBubble = memo(function ChatBubble({
                 fontFamily: "var(--font-mono)",
               }}
             >
-              ⚠️ {msg.error}
+              {msg.error}
             </div>
           )}
           {displayInput && (

@@ -618,7 +618,7 @@ function ConversationItemCard({
                     className="hover:text-[var(--aurora-accent)] cursor-pointer transition-colors px-1"
                     title="复制消息内容"
                   >
-                    {copiedIndex === idx ? "✓ 已复制" : "复制"}
+                    {copiedIndex === idx ? "已复制" : "复制"}
                   </button>
                 </div>
               </div>

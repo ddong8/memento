@@ -260,10 +260,10 @@ export const WeChatPublishModal = memo(function WeChatPublishModal({
   const handleCopyRedbook = async () => {
     const lines = markdown.split("\n").filter((l) => l.trim().length > 3);
     const keyPoints = lines.slice(0, 4).map((l) => `✨ ${l.replace(/^[#\-*\d\.\s]+/, "").slice(0, 42)}`).join("\n");
-    const redText = `🔥 告别信息碎片！${title || "数字心智进化指南"}\n\n` +
-      `💡 为什么你需要一个具备生命节律的数字外脑？\n\n` +
-      `📌 核心要点速览：\n${keyPoints}\n\n` +
-      `🚀 真正的生产力飞跃，是让 AI 终身记住你的习惯与思考。\n\n` +
+    const redText = `告别信息碎片！${title || "数字心智进化指南"}\n\n` +
+      `为什么你需要一个具备生命节律的数字外脑？\n\n` +
+      `核心要点速览：\n${keyPoints}\n\n` +
+      `真正的生产力飞跃，是让 AI 终身记住你的习惯与思考。\n\n` +
       `#生产力工具 #AI神器 #知识管理 #独立开发者 #程序员日常 #数字心智 #Memento`;
     await navigator.clipboard.writeText(redText);
     setCopiedPlatform("redbook");
@@ -440,9 +440,9 @@ export const WeChatPublishModal = memo(function WeChatPublishModal({
               <div>
                 <label className="block font-medium text-[var(--aurora-fg2)] mb-1">小红书文案预览</label>
                 <div className="p-3 rounded-xl bg-black/20 border border-[var(--aurora-border)] text-[12px] text-[var(--aurora-fg1)] leading-relaxed select-text space-y-2">
-                  <p className="font-bold text-rose-400">🔥 告别信息碎片！{title || "数字心智进化指南"}</p>
-                  <p className="text-[11px] text-[var(--aurora-fg3)]">💡 为什么你需要一个具备生命节律的数字外脑？</p>
-                  <p className="text-[11px] font-semibold text-[var(--aurora-fg2)]">📌 核心要点速览：</p>
+                  <p className="font-bold text-rose-400">告别信息碎片！{title || "数字心智进化指南"}</p>
+                  <p className="text-[11px] text-[var(--aurora-fg3)]">为什么你需要一个具备生命节律的数字外脑？</p>
+                  <p className="text-[11px] font-semibold text-[var(--aurora-fg2)]">核心要点速览：</p>
                   <ul className="text-[11px] text-[var(--aurora-fg3)] space-y-1 pl-1">
                     {markdown.split("\n").filter((l) => l.trim().length > 3).slice(0, 3).map((l, i) => (
                       <li key={i}>✨ {l.replace(/^[#\-*\d\.\s]+/, "").slice(0, 40)}</li>

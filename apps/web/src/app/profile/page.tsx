@@ -1,5 +1,6 @@
 "use client";
 
+import { roleLabel } from "@/components/UserMenu";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
@@ -106,7 +107,7 @@ function ProfileContent() {
   ];
 
   return (
-    <div className="max-w-4xl mx-auto pb-28 sm:pb-20">
+    <div className="max-w-6xl mx-auto pb-28 sm:pb-20">
       <TopBar title={t.profile.title || "个人设置"} subtitle={t.profile.subtitle || "全天候智能执事、大模型底座、生活作息与终端运维"} />
 
       {/* Tabs navigation with frosted glass & smooth pill active style */}
@@ -414,10 +415,10 @@ function AccountTab() {
         </form>
 
         <Row label={t.profile.email} value={user.email} />
-        <Row label={t.profile.role} valueNode={<Chip>{user.role}</Chip>} />
+        <Row label={t.profile.role} valueNode={<Chip>{roleLabel(user.role)}</Chip>} />
         <Row
           label={t.profile.status}
-          valueNode={<Chip tone={user.status === "active" ? "success" : "warn"}>{user.status}</Chip>}
+          valueNode={<Chip tone={user.status === "active" ? "success" : "warn"}>{({ active: "正常", disabled: "已停用", pending: "待激活" } as Record<string, string>)[user.status] || user.status}</Chip>}
         />
 
         {profileMsg && (

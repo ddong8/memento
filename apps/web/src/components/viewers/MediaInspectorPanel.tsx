@@ -1318,7 +1318,7 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
                     className="text-[10px] font-semibold mb-1 z-10"
                     style={{ color: activeTheme.color }}
                   >
-                    ★ MEMENTO · 深度心智特稿
+                    MEMENTO · 深度心智特稿
                   </div>
                   <p className="text-sm font-bold text-white leading-snug drop-shadow-md line-clamp-2 z-10">
                     {content.split("\n")[0].replace(/^[#\s]+/, "") || "公众号推文"}
@@ -2435,7 +2435,7 @@ function OfficeDocViewer({ item }: { item: MediaItem }) {
       </div>
 
       <div className="p-3 rounded-xl bg-[var(--aurora-chip)]/20 border border-[var(--aurora-border)] text-[11px] text-[var(--aurora-fg3)] leading-relaxed">
-        💡 提示：Memento 工作台已全面支持应用内直接预览 PPT、Excel、Word 与 PDF。手机端可通过 iOS QuickLook 直接翻阅幻灯片，桌面端可联动本地系统应用无损排版编辑。
+        提示：Memento 工作台已全面支持应用内直接预览 PPT、Excel、Word 与 PDF。手机端可通过 iOS QuickLook 直接翻阅幻灯片，桌面端可联动本地系统应用无损排版编辑。
       </div>
     </div>
   );

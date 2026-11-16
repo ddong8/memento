@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { api, forgetRunStatus, type AskRunSummary } from "@/lib/api-client";
+import { useSidebar } from "@/lib/sidebar-context";
 import { Icon } from "@/components/aurora/Icon";
 import { useAuth } from "@/lib/auth-context";
 import { sendLocalNotification } from "@/lib/native-notify";
@@ -63,11 +64,16 @@ export default function ActiveRunsMonitor() {
   const [now, setNow] = useState<number>(() => Date.now());
   const [collapsed, setCollapsed] = useState<boolean>(true);
   const [isMobile, setIsMobile] = useState<boolean>(false);
+  const [isWide, setIsWide] = useState<boolean>(false);
+  const { collapsed: sidebarCollapsed } = useSidebar();
   const [dismissedNotificationIds, setDismissedNotificationIds] = useState<Set<string>>(new Set());
   const [cancellingId, setCancellingId] = useState<string | null>(null);
 
   useEffect(() => {
-    const updateSize = () => setIsMobile(window.innerWidth < 768);
+    const updateSize = () => {
+      setIsMobile(window.innerWidth < 768);
+      setIsWide(window.innerWidth >= 1024);
+    };
     updateSize();
     window.addEventListener("resize", updateSize);
     return () => window.removeEventListener("resize", updateSize);
@@ -134,7 +140,7 @@ export default function ActiveRunsMonitor() {
             const summaryText = (r.question || r.title || "任务执行完成").trim().slice(0, 60);
             const bodyText = r.device_name ? `${r.device_name}：${summaryText}` : summaryText;
             void sendLocalNotification(
-              r.failed ? "❌ 任务出错" : "✅ 任务完成",
+              r.failed ? "任务出错" : "任务完成",
               bodyText,
               `/ask?id=${r.conversation_id}&scroll=bottom`,
               { skipInAppToast: true, serverBacked: true }
@@ -209,7 +215,7 @@ export default function ActiveRunsMonitor() {
             const summaryText = (target.question || target.title || "任务执行完成").trim().slice(0, 60);
             const bodyText = target.device_name ? `${target.device_name}：${summaryText}` : summaryText;
             void sendLocalNotification(
-              target.failed ? "❌ 任务出错" : "✅ 任务完成",
+              target.failed ? "任务出错" : "任务完成",
               bodyText,
               `/ask?id=${convId}&scroll=bottom`,
               { skipInAppToast: true, serverBacked: true }
@@ -449,6 +455,10 @@ export default function ActiveRunsMonitor() {
     return true;
   });
   const showFloatingDock = unobservedActiveRuns.length > 0;
+  // The sidebar is always shown from lg up: the dock sits in it there
+  const docked = isWide;
+  // A collapsed sidebar is 68px wide: just the pulsing dot
+  const iconOnly = docked && sidebarCollapsed && collapsed;
 
   // Handle task stop/cancel
   const handleCancel = async (e: React.MouseEvent, convId: string) => {
@@ -561,13 +571,13 @@ export default function ActiveRunsMonitor() {
     };
   };
 
-  const getStepIcon = (type?: string) => {
-    if (type === "tool_call" || type === "executing") return "⚡";
-    if (type === "thinking") return "🧠";
-    if (type === "generating") return "✨";
-    if (type === "done") return "✅";
-    if (type === "error") return "❌";
-    return "⚙️";
+  const getStepIcon = (type?: string): Parameters<typeof Icon>[0]["name"] => {
+    if (type === "tool_call" || type === "executing") return "terminal";
+    if (type === "thinking") return "brain";
+    if (type === "generating") return "sparkles";
+    if (type === "done") return "check";
+    if (type === "error") return "close";
+    return "activity";
   };
 
   return (
@@ -592,42 +602,38 @@ export default function ActiveRunsMonitor() {
                 <div
                   key={`notice-${r.conversation_id}`}
                   onClick={() => jumpToChat(r.conversation_id)}
-                  className="group cursor-pointer rounded-2xl p-3.5 shadow-2xl backdrop-blur-xl transition-all duration-200 hover:scale-[1.02] w-full"
+                  className="group cursor-pointer rounded-2xl p-3.5 transition-all duration-200 hover:scale-[1.02] w-full"
                   style={{
-                    background: isError
-                      ? "linear-gradient(135deg, rgba(239, 68, 68, 0.22), rgba(15, 23, 42, 0.95))"
-                      : "linear-gradient(135deg, rgba(16, 185, 129, 0.22), rgba(15, 23, 42, 0.95))",
+                    background: "var(--aurora-surface-solid)",
                     border: isError
                       ? "1px solid rgba(239, 68, 68, 0.4)"
                       : "1px solid rgba(16, 185, 129, 0.4)",
-                    boxShadow: isError
-                      ? "0 10px 30px -5px rgba(239, 68, 68, 0.3)"
-                      : "0 10px 30px -5px rgba(16, 185, 129, 0.3)",
+                    boxShadow: "var(--aurora-card-shadow-hover)",
                   }}
                 >
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
-                      <span className="text-base">{isError ? "❌" : "✅"}</span>
-                      <span className="text-xs font-semibold text-white tracking-wide">
+                      <Icon name={isError ? "close" : "check"} size={14} style={{ color: isError ? "#DC2626" : "#059669" }} />
+                      <span className="text-xs font-semibold text-[var(--aurora-fg1)] tracking-wide">
                         {isError ? "智能体任务出错" : "智能体任务已完成"}
                       </span>
-                      <span className="text-[11px] text-gray-400">
+                      <span className="text-[11px] text-[var(--aurora-fg3)]">
                         ({formatDuration(r.started_at, r.finished_at)})
                       </span>
                     </div>
                     <div className="flex items-center gap-1.5">
-                      <span className="text-[11px] font-medium text-emerald-400 group-hover:underline flex items-center gap-0.5">
+                      <span className="text-[11px] font-medium text-[var(--aurora-accent)] group-hover:underline flex items-center gap-0.5">
                         查看成果 <Icon name="arrow_right" size={12} />
                       </span>
                       <button
                         onClick={(e) => handleDismissNotice(e, r.conversation_id)}
-                        className="p-1 text-gray-400 hover:text-white rounded-lg transition-colors ml-1"
+                        className="p-1 text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] rounded-lg transition-colors ml-1"
                       >
                         <Icon name="close" size={13} />
                       </button>
                     </div>
                   </div>
-                  <p className="mt-1 text-xs text-gray-300 line-clamp-1 pl-6">
+                  <p className="mt-1 text-xs text-[var(--aurora-fg2)] line-clamp-1 pl-6">
                     {r.question || r.title || "（无描述）"}
                   </p>
                 </div>
@@ -641,24 +647,29 @@ export default function ActiveRunsMonitor() {
       {showFloatingDock && (
         <div
           className="fixed z-50 pointer-events-none transition-all duration-300 ease-out"
-          style={{
-            top: "48%",
-            // Beside the docked workbench column, not over it (--inspector-width is set while it's open)
-            right: isMobile ? (collapsed ? "8px" : "12px") : `calc(var(--inspector-width, 0px) + ${collapsed ? 16 : 20}px)`,
-            transform: "translateY(-50%)",
-            maxWidth: isMobile ? "calc(100vw - 24px)" : "390px",
-            width: collapsed ? "auto" : (isMobile ? "calc(100vw - 24px)" : "390px"),
-          }}
+          style={
+            docked
+              ? // Wide screens: a status row at the bottom of the sidebar, above the devices chip (it used to float
+                // over the middle of every page, over cards and inputs); expanded, the list opens up from there
+                { left: 12, bottom: 152, width: collapsed ? (sidebarCollapsed ? 44 : 216) : 390 }
+              : {
+                  top: "48%",
+                  right: isMobile ? (collapsed ? "8px" : "12px") : `calc(var(--inspector-width, 0px) + ${collapsed ? 16 : 20}px)`,
+                  transform: "translateY(-50%)",
+                  maxWidth: isMobile ? "calc(100vw - 24px)" : "390px",
+                  width: collapsed ? "auto" : (isMobile ? "calc(100vw - 24px)" : "390px"),
+                }
+          }
         >
-          <div className="pointer-events-auto flex flex-col items-end">
+          <div className={`pointer-events-auto flex flex-col ${docked ? "items-stretch" : "items-end"}`}>
             {collapsed ? (
               <div
                 onClick={() => setCollapsed(false)}
-                className="cursor-pointer flex items-center gap-2 px-3 py-1.5 rounded-full shadow-2xl backdrop-blur-2xl border transition-all duration-200 hover:scale-[1.04] ml-auto group"
+                className={`cursor-pointer flex items-center gap-2 px-3 py-1.5 border transition-colors duration-150 group ${docked ? "w-full rounded-lg" : "rounded-full ml-auto"} ${iconOnly ? "justify-center px-0" : ""}`}
                 style={{
-                  background: "linear-gradient(135deg, rgba(15, 23, 42, 0.95), rgba(30, 41, 59, 0.92))",
-                  borderColor: "rgba(56, 189, 248, 0.45)",
-                  boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.6), 0 0 15px rgba(56, 189, 248, 0.25)",
+                  background: "var(--aurora-surface-solid)",
+                  borderColor: "var(--aurora-border)",
+                  boxShadow: docked ? "none" : "var(--aurora-card-shadow)",
                 }}
                 title="点击展开查看后台智能体任务详情"
               >
@@ -666,41 +677,39 @@ export default function ActiveRunsMonitor() {
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                   <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
                 </span>
-                <span className="text-xs font-semibold text-white tracking-wide whitespace-nowrap">
+                <span className={`text-xs font-medium text-[var(--aurora-fg1)] whitespace-nowrap ${docked ? "flex-1" : ""} ${iconOnly ? "hidden" : ""}`}>
                   智能体运行中
                 </span>
-                <span className="text-[11px] font-mono text-emerald-400 bg-emerald-950/60 px-1.5 py-0.2 rounded-full border border-emerald-500/30 whitespace-nowrap">
+                <span className={`text-[11px] tabular-nums text-[var(--aurora-fg3)] whitespace-nowrap ${iconOnly ? "hidden" : ""}`}>
                   {formatDuration(unobservedActiveRuns[0].started_at)}
                 </span>
-                {unobservedActiveRuns.length > 1 && (
-                  <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-sky-500/25 text-sky-300 font-mono">
+                {unobservedActiveRuns.length > 1 && !iconOnly && (
+                  <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-[var(--aurora-accent-soft)] text-[var(--aurora-accent)] font-mono">
                     +{unobservedActiveRuns.length - 1}
                   </span>
                 )}
-                <span className="text-[11px] text-sky-400 flex items-center gap-0.5 opacity-90 font-medium whitespace-nowrap pl-0.5 group-hover:underline">
-                  展开 <Icon name="chevron_down" size={12} />
-                </span>
+                {!iconOnly && <Icon name={docked ? "chevron_up" : "chevron_down"} size={12} style={{ color: "var(--aurora-fg4)" }} />}
               </div>
             ) : (
               <div
-                className="rounded-2xl shadow-2xl backdrop-blur-2xl transition-all duration-300 overflow-hidden w-full flex flex-col"
+                className="rounded-2xl transition-all duration-300 overflow-hidden w-full flex flex-col"
                 style={{
-                  background: "linear-gradient(145deg, rgba(15, 23, 42, 0.96), rgba(30, 41, 59, 0.94))",
-                  border: "1px solid rgba(56, 189, 248, 0.35)",
-                  boxShadow: "0 20px 45px -10px rgba(0, 0, 0, 0.7), 0 0 25px rgba(56, 189, 248, 0.2)",
+                  background: "var(--aurora-surface-solid)",
+                  border: "1px solid var(--aurora-border)",
+                  boxShadow: "var(--aurora-card-shadow-hover)",
                   maxHeight: "min(480px, 70vh)",
                 }}
               >
                 {/* Header bar */}
-                <div className="flex items-center justify-between px-3.5 py-2.5 bg-white/5 border-b border-white/10 shrink-0">
+                <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-[var(--aurora-border)] shrink-0">
                   <div className="flex items-center gap-2.5">
                     <span className="relative flex h-2.5 w-2.5">
                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                       <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
                     </span>
-                    <span className="text-xs font-semibold text-white tracking-wide flex items-center gap-1.5">
+                    <span className="text-xs font-semibold text-[var(--aurora-fg1)] tracking-wide flex items-center gap-1.5">
                       后台智能体运行中
-                      <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-sky-500/20 text-sky-300 font-mono">
+                      <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-[var(--aurora-accent-soft)] text-[var(--aurora-accent)] font-mono">
                         {unobservedActiveRuns.length}
                       </span>
                     </span>
@@ -711,7 +720,7 @@ export default function ActiveRunsMonitor() {
                       type="button"
                       onClick={() => setCollapsed(true)}
                       title="收起为精简胶囊"
-                      className="px-2 py-1 rounded-lg text-gray-300 hover:text-white hover:bg-white/10 transition-colors flex items-center gap-1 text-[11px]"
+                      className="px-2 py-1 rounded-lg text-[var(--aurora-fg2)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)] transition-colors flex items-center gap-1 text-[11px]"
                     >
                       <span>收起</span>
                       <Icon name="chevron_up" size={13} />
@@ -721,7 +730,7 @@ export default function ActiveRunsMonitor() {
 
                 {/* Expanded list of active runs */}
                 <div
-                  className="divide-y divide-white/5 overflow-y-auto flex-1"
+                  className="divide-y divide-[var(--aurora-border)] overflow-y-auto flex-1"
                   style={{
                     overscrollBehavior: "contain",
                     WebkitOverflowScrolling: "touch",
@@ -735,7 +744,7 @@ export default function ActiveRunsMonitor() {
                     return (
                       <div
                         key={run.conversation_id}
-                        className="p-3.5 flex flex-col gap-2 hover:bg-white/[0.03] transition-colors"
+                        className="p-3.5 flex flex-col gap-2 hover:bg-[var(--aurora-chip)] transition-colors"
                       >
                         {/* Top status info line */}
                         <div className="flex items-center justify-between gap-2">
@@ -754,26 +763,26 @@ export default function ActiveRunsMonitor() {
 
                             {/* Model or device info */}
                             {run.model && (
-                              <span className="px-1.5 py-0.5 rounded text-[10px] bg-white/5 text-gray-300 font-mono border border-white/10">
+                              <span className="px-1.5 py-0.5 rounded text-[10px] bg-[var(--aurora-chip)] text-[var(--aurora-fg2)] font-mono border border-[var(--aurora-border)]">
                                 {run.model}
                               </span>
                             )}
                             {run.device_name && (
-                              <span className="px-1.5 py-0.5 rounded text-[10px] bg-white/5 text-gray-400 border border-white/10">
-                                💻 {run.device_name}
+                              <span className="px-1.5 py-0.5 rounded text-[10px] bg-[var(--aurora-chip)] text-[var(--aurora-fg3)] border border-[var(--aurora-border)]">
+                                {run.device_name}
                               </span>
                             )}
                           </div>
 
                           {/* Live Timer */}
-                          <div className="flex items-center gap-1 font-mono text-xs text-emerald-400 bg-emerald-950/40 px-2 py-0.5 rounded-full border border-emerald-500/30 flex-shrink-0">
+                          <div className="flex items-center gap-1 font-mono text-xs text-emerald-600 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/25 flex-shrink-0">
                             <Icon name="clock" size={11} />
                             <span>{formatDuration(run.started_at)}</span>
                           </div>
                         </div>
 
                         {/* Question / Task title */}
-                        <div className="text-xs font-medium text-white line-clamp-1">
+                        <div className="text-xs font-medium text-[var(--aurora-fg1)] line-clamp-1">
                           {run.question || run.title || "后台长任务"}
                         </div>
 
@@ -781,22 +790,20 @@ export default function ActiveRunsMonitor() {
                         <div
                           className="rounded-xl px-2.5 py-2 flex items-center gap-2 border"
                           style={{
-                            background: "rgba(15, 23, 42, 0.6)",
-                            borderColor: "rgba(56, 189, 248, 0.2)",
+                            background: "var(--aurora-chip)",
+                            borderColor: "var(--aurora-border)",
                           }}
                         >
-                          <span className="text-sm flex-shrink-0 animate-pulse">
-                            {getStepIcon(run.step_type)}
-                          </span>
-                          <span className="text-[11px] text-sky-200 line-clamp-1 font-mono flex-1">
-                            {run.current_step || "正在深度思考与执行任务..."}
+                          <Icon name={getStepIcon(run.step_type)} size={12} className="flex-shrink-0 animate-pulse" style={{ color: "var(--aurora-accent)" }} />
+                          <span className="text-[11px] text-[var(--aurora-fg2)] line-clamp-1 font-mono flex-1">
+                            {run.current_step || "正在执行…"}
                           </span>
                         </div>
 
                         {/* Action buttons */}
                         <div className="flex items-center justify-between gap-2 pt-1">
-                          <span className="text-[10px] text-gray-400">
-                            已接收 {run.events} 个事件帧
+                          <span className="text-[10px] text-[var(--aurora-fg3)]">
+                            {run.events} 步
                           </span>
 
                           <div className="flex items-center gap-1.5">
@@ -806,11 +813,9 @@ export default function ActiveRunsMonitor() {
                               onClick={() => jumpToChat(run.conversation_id)}
                               className="px-2.5 py-1 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all"
                               style={{
-                                background: isCurrentChat
-                                  ? "rgba(255, 255, 255, 0.1)"
-                                  : "linear-gradient(135deg, rgba(56, 189, 248, 0.2), rgba(99, 102, 241, 0.2))",
-                                border: "1px solid rgba(56, 189, 248, 0.4)",
-                                color: isCurrentChat ? "#94a3b8" : "#38bdf8",
+                                background: isCurrentChat ? "var(--aurora-chip)" : "var(--aurora-accent-soft)",
+                                border: "1px solid var(--aurora-border)",
+                                color: isCurrentChat ? "var(--aurora-fg3)" : "var(--aurora-accent)",
                               }}
                             >
                               <span>{isCurrentChat ? "当前所在对话" : "直达对话"}</span>
@@ -822,7 +827,7 @@ export default function ActiveRunsMonitor() {
                               type="button"
                               disabled={isCancelling}
                               onClick={(e) => handleCancel(e, run.conversation_id)}
-                              className="px-2 py-1 rounded-lg text-xs font-medium text-rose-300 hover:text-white bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 transition-all flex items-center gap-1"
+                              className="px-2 py-1 rounded-lg text-xs font-medium text-rose-600 hover:text-rose-700 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 transition-all flex items-center gap-1"
                             >
                               <span>{isCancelling ? "停止中..." : "终止"}</span>
                             </button>

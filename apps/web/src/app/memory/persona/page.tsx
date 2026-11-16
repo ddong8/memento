@@ -337,7 +337,7 @@ export interface SandboxPreset {
 export const SANDBOX_PRESETS: SandboxPreset[] = [
   {
     id: "rollback",
-    name: "🚨 回滚红线实测",
+    name: "回滚红线实测",
     scenario: "rollback_check",
     badge: "P0 红线测试",
     badgeColor: "#EF4444",
@@ -346,7 +346,7 @@ export const SANDBOX_PRESETS: SandboxPreset[] = [
   },
   {
     id: "language",
-    name: "🌐 语言铁律实测",
+    name: "语言铁律实测",
     scenario: "language_check",
     badge: "P0 语言测试",
     badgeColor: "#06B6D4",
@@ -355,7 +355,7 @@ export const SANDBOX_PRESETS: SandboxPreset[] = [
   },
   {
     id: "concurrency",
-    name: "⚡ 架构并发实测",
+    name: "架构并发实测",
     scenario: "architecture_check",
     badge: "P1 架构规范",
     badgeColor: "#F59E0B",
@@ -364,7 +364,7 @@ export const SANDBOX_PRESETS: SandboxPreset[] = [
   },
   {
     id: "release",
-    name: "🚀 发版三位一体实测",
+    name: "发版三位一体实测",
     scenario: "release_check",
     badge: "P1 工程基线",
     badgeColor: "#10B981",
@@ -683,9 +683,9 @@ export default function PersonaPage() {
         );
 
         if (res.compliance_status === "intercepted") {
-          setNotice("⚠️ 已触发脑核绝对红线拦截！3D 数字孪生已执行拒止姿势并进行语音宣导。");
+          setNotice("已触发脑核绝对红线拦截！3D 数字孪生已执行拒止姿势并进行语音宣导。");
         } else {
-          setNotice(`✅ 画像实测完成（${res.latency_ms}ms），已遵照画像工程规范合规响应！`);
+          setNotice(`画像实测完成（${res.latency_ms}ms），已遵照画像工程规范合规响应！`);
         }
       } catch (err) {
         setError(`心智实测调用异常: ${(err as Error).message}`);
@@ -704,12 +704,12 @@ export default function PersonaPage() {
     else setActiveTab(dim as ChapterTab);
 
     const labels: Record<string, string> = {
-      brain: "🧠 脑核铁律激活 · 抚眉深思态",
-      communication: "💬 沟通风格聚焦 · 从容伸掌述职态",
-      tech: "⚡ 架构心核激荡 · 全息操控算力态",
-      execution: "🛠️ 工作习惯协同 · 沉稳抱胸把关态",
-      project: "🎯 项目专属锁定 · 托举记忆晶核态",
-      evolution: "✨ 每日自进化 · 仰首拥抱星芒态",
+      brain: "脑核铁律激活 · 抚眉深思态",
+      communication: "沟通风格聚焦 · 从容伸掌述职态",
+      tech: "架构心核激荡 · 全息操控算力态",
+      execution: "工作习惯协同 · 沉稳抱胸把关态",
+      project: "项目专属锁定 · 托举记忆晶核态",
+      evolution: "每日自进化 · 仰首拥抱星芒态",
     };
     if (labels[dim]) {
       triggerSynapse(labels[dim], dim);
@@ -733,10 +733,10 @@ export default function PersonaPage() {
   // Spark Evolution Ritual
   const handleSparkEvolution = () => {
     triggerSynapse(
-      `✨ 今日心智已强化 · 连续自进化 ${evolutionData.activeDays} 天 · 契合度 99.8%`,
+      `今日画像已更新 · 已连续更新 ${evolutionData.activeDays} 天`,
       "evolution"
     );
-    setNotice("已触发今日心智进化共鸣，全端认知突触已完成自适应重聚！");
+    setNotice("已刷新今日画像");
   };
 
   // Add rule item
@@ -750,7 +750,7 @@ export default function PersonaPage() {
     });
     const newMarkdown = assembleMarkdown(nextSections, activeContent);
     await saveDraft(newMarkdown);
-    triggerSynapse(`✨ 新增认知准则：「${itemText.slice(0, 20)}...」`);
+    triggerSynapse(`新增认知准则：「${itemText.slice(0, 20)}...」`);
     setNewItemText("");
     setIsAddingItem(false);
   };
@@ -767,7 +767,7 @@ export default function PersonaPage() {
     const newMarkdown = assembleMarkdown(nextSections, activeContent);
     await saveDraft(newMarkdown);
     if (targetItem) {
-      triggerSynapse(`🗑️ 剪枝遗忘准则：「${targetItem.slice(0, 16)}...」`);
+      triggerSynapse(`剪枝遗忘准则：「${targetItem.slice(0, 16)}...」`);
     }
   };
 
@@ -814,19 +814,19 @@ export default function PersonaPage() {
   }, [structuredSections, activeTab, priorityFilter, searchQuery]);
 
   const CHAPTER_TABS: Array<{ id: ChapterTab; label: string; count?: number; color: string }> = [
-    { id: "blueprint", label: "🗺️ 个人蓝图", count: userBlueprint?.projects?.length || undefined, color: "#6366F1" },
-    { id: "brain", label: "🧠 绝对铁律", count: ruleStats.ironLaws, color: "#EF4444" },
-    { id: "communication", label: "💬 沟通风格", count: ruleStats.communication, color: "#06B6D4" },
-    { id: "tech", label: "⚡ 架构偏好", count: ruleStats.tech, color: "#F59E0B" },
-    { id: "execution", label: "🛠️ 工作习惯", count: ruleStats.execution, color: "#10B981" },
-    { id: "project", label: "🎯 项目专属", count: ruleStats.project, color: "#8B5CF6" },
-    { id: "sandbox", label: "🧪 心智实测", count: 4, color: "#EC4899" },
-    { id: "privileges", label: "🎖️ 特权矩阵", count: 10, color: "#3B82F6" },
-    { id: "evolution", label: "✨ 每日进化", count: dailyHistory.length, color: "#FACC15" },
-    { id: "all", label: "🌐 全景总览", count: totalRulesCount, color: "#A855F7" },
-    { id: "matrix", label: "🛡️ 终端矩阵", count: 5, color: "#10B981" },
-    { id: "learned", label: "💡 避坑纠偏", count: pending.length, color: "#EC4899" },
-    { id: "source", label: "📝 源码比对", color: "#6B7280" },
+    { id: "blueprint", label: "个人蓝图", count: userBlueprint?.projects?.length || undefined, color: "#6366F1" },
+    { id: "brain", label: "绝对铁律", count: ruleStats.ironLaws, color: "#EF4444" },
+    { id: "communication", label: "沟通风格", count: ruleStats.communication, color: "#06B6D4" },
+    { id: "tech", label: "架构偏好", count: ruleStats.tech, color: "#F59E0B" },
+    { id: "execution", label: "工作习惯", count: ruleStats.execution, color: "#10B981" },
+    { id: "project", label: "项目专属", count: ruleStats.project, color: "#8B5CF6" },
+    { id: "sandbox", label: "心智实测", count: 4, color: "#EC4899" },
+    { id: "privileges", label: "特权矩阵", count: 10, color: "#3B82F6" },
+    { id: "evolution", label: "每日进化", count: dailyHistory.length, color: "#FACC15" },
+    { id: "all", label: "全景总览", count: totalRulesCount, color: "#A855F7" },
+    { id: "matrix", label: "终端矩阵", count: 5, color: "#10B981" },
+    { id: "learned", label: "避坑纠偏", count: pending.length, color: "#EC4899" },
+    { id: "source", label: "源码比对", color: "#6B7280" },
   ];
 
   return (
@@ -841,11 +841,11 @@ export default function PersonaPage() {
           </div>
           <div className="flex items-center gap-1.5 min-w-0">
             <h1 className="text-xs sm:text-base font-bold text-[var(--aurora-fg1)] tracking-tight truncate">
-              个人画像 · 数字孪生
+              个人画像
             </h1>
             <span className="text-[10px] px-2 py-0.2 rounded-full font-medium bg-[rgba(16,185,129,0.12)] text-[#10B981] hidden md:flex items-center gap-1 font-mono shrink-0">
               <span className="w-1.5 h-1.5 rounded-full bg-[#10B981] breathing-glow-emerald" />
-              v{published?.version || 9} · 5 端实时热守护
+              v{published?.version || 9} · 已同步到 5 个工具
             </span>
           </div>
         </div>
@@ -858,7 +858,7 @@ export default function PersonaPage() {
             onClick={() => setIsPanelCollapsed(!isPanelCollapsed)}
             title={isPanelCollapsed ? "展开画像特征管理面板" : "3D 数字人铺满全屏"}
           >
-            {isPanelCollapsed ? "📋 画像规则" : "🎭 3D 满屏"}
+            {isPanelCollapsed ? "画像规则" : "3D 满屏"}
           </Btn>
           <Btn
             variant="glass"
@@ -870,7 +870,7 @@ export default function PersonaPage() {
             }}
             title="定制与重塑数字孪生形象：设置性别、卡通人物形象，或上传照片制作"
           >
-            🎨 形象定制
+            形象定制
           </Btn>
           <Btn
             variant="glass"
@@ -1009,12 +1009,12 @@ export default function PersonaPage() {
                   </div>
                   <h3 className="text-sm font-bold text-white truncate tracking-tight flex items-center gap-1.5">
                     <span>
-                      {activeDimension === "brain" && "🧠 脑核绝对铁律"}
-                      {activeDimension === "communication" && "💬 沟通风格准则"}
-                      {activeDimension === "tech" && "⚡ 架构技术规范"}
-                      {activeDimension === "execution" && "🛠️ 工作习惯协同"}
-                      {activeDimension === "project" && "🎯 项目专属约束"}
-                      {activeDimension === "evolution" && "✨ 每日自进化记录"}
+                      {activeDimension === "brain" && "脑核绝对铁律"}
+                      {activeDimension === "communication" && "沟通风格准则"}
+                      {activeDimension === "tech" && "架构技术规范"}
+                      {activeDimension === "execution" && "工作习惯协同"}
+                      {activeDimension === "project" && "项目专属约束"}
+                      {activeDimension === "evolution" && "每日自进化记录"}
                     </span>
                   </h3>
                   <p className="text-[11px] text-white/70 truncate">
@@ -1034,7 +1034,7 @@ export default function PersonaPage() {
               <div className="px-3.5 py-1.5 bg-black/40 border-b border-white/5 flex items-center justify-between text-[10px] font-mono shrink-0">
                 <span className="text-white/60 flex items-center gap-1.5">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 breathing-glow-emerald" />
-                  已热守护 5 端终端
+                  已同步到 5 个工具
                 </span>
                 <span className="text-white/40">点击条目联动 3D 动作</span>
               </div>
@@ -1084,7 +1084,7 @@ export default function PersonaPage() {
                       <div
                         key={idx}
                         onClick={() => {
-                          triggerSynapse(`✨ 心智进化回顾（${item.date}）：已巩固准则，经验值 +${item.document_count}`, "evolution");
+                          triggerSynapse(`心智进化回顾（${item.date}）：沉淀 ${item.document_count} 篇文档`, "evolution");
                         }}
                         className="p-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 cursor-pointer transition-all"
                       >
@@ -1188,7 +1188,7 @@ export default function PersonaPage() {
                   className="px-2 py-1 rounded-lg text-[10px] font-medium bg-[#FACC15]/15 hover:bg-[#FACC15]/25 text-[#FACC15] border border-[#FACC15]/30 flex items-center gap-1 transition-all"
                   title="激发今日共鸣"
                 >
-                  <span>⚡ 共鸣</span>
+                  <span>共鸣</span>
                 </button>
               </div>
             </div>
@@ -1204,7 +1204,7 @@ export default function PersonaPage() {
                       onClick={() => {
                         setActiveTab(tab.id);
                         if (["brain", "communication", "tech", "execution", "project"].includes(tab.id)) {
-                          triggerSynapse(`⚡ 聚焦维度：${tab.label}`, tab.id);
+                          triggerSynapse(`聚焦维度：${tab.label}`, tab.id);
                         }
                       }}
                       className={`px-2.5 py-1 rounded-xl text-[11px] font-medium transition-all shrink-0 flex items-center gap-1.5 border ${
@@ -1328,7 +1328,7 @@ export default function PersonaPage() {
                   title="一键切到沙盒并执行回滚红线拒止实测"
                 >
                   <span className="w-1.5 h-1.5 rounded-full bg-[#EF4444] animate-ping" />
-                  <span>🧪 验证红线拒止</span>
+                  <span>验证红线拒止</span>
                 </button>
               </div>
             )}
@@ -1498,7 +1498,7 @@ export default function PersonaPage() {
                                   className="px-1.5 py-0.5 rounded-md text-[10px] font-mono font-medium flex items-center gap-0.5 text-[var(--aurora-accent)] bg-[var(--aurora-accent)]/10 hover:bg-[var(--aurora-accent)]/20 transition-all border border-[var(--aurora-accent)]/30"
                                   title="联动 3D 形象执行此准则标志姿态与神经共鸣"
                                 >
-                                  <span>⚡ 3D联动</span>
+                                  <span>3D联动</span>
                                 </button>
                                 <button
                                   onClick={(e) => {
@@ -1677,12 +1677,12 @@ export default function PersonaPage() {
                         {sandboxResult.compliance_status === "intercepted" ? (
                           <div className="flex items-center gap-1.5 text-xs font-bold text-[#EF4444]">
                             <span className="w-2 h-2 rounded-full bg-[#EF4444] animate-ping" />
-                            <span>🚨 P0 绝对红线已生效拦截 (Intercepted)</span>
+                            <span>P0 绝对红线已生效拦截 (Intercepted)</span>
                           </div>
                         ) : (
                           <div className="flex items-center gap-1.5 text-xs font-bold text-[#10B981]">
                             <span className="w-2 h-2 rounded-full bg-[#10B981] animate-ping" />
-                            <span>✅ 画像工程规范合规响应 (Adapted)</span>
+                            <span>画像工程规范合规响应 (Adapted)</span>
                           </div>
                         )}
                         <span className="text-[10px] font-mono px-2 py-0.2 rounded-full bg-[var(--aurora-chip)] text-[var(--aurora-fg3)]">
@@ -1702,7 +1702,7 @@ export default function PersonaPage() {
                           className="px-2 py-0.8 rounded-lg text-[10px] font-mono font-medium text-[var(--aurora-accent)] bg-[var(--aurora-accent)]/15 hover:bg-[var(--aurora-accent)]/25 border border-[var(--aurora-accent)]/30 flex items-center gap-1 transition-all"
                           title="驱动 3D 虚拟形象重新执行该动作与拟态语音"
                         >
-                          <span>⚡ 联动 3D & 语音</span>
+                          <span>联动 3D & 语音</span>
                         </button>
                       </div>
                     </div>
@@ -1809,7 +1809,7 @@ export default function PersonaPage() {
                                   : "bg-black/20 text-[var(--aurora-fg4)]"
                               }`}
                             >
-                              {isUnlocked ? "✓ 已激活" : "未解锁"}
+                              {isUnlocked ? "已激活" : "未解锁"}
                             </span>
                           </div>
 
@@ -1862,7 +1862,7 @@ export default function PersonaPage() {
                     onClick={handleSparkEvolution}
                     className="px-2.5 py-1 rounded-xl text-[11px] font-medium bg-[#FACC15]/20 hover:bg-[#FACC15]/30 text-[#FACC15] border border-[#FACC15]/40 flex items-center gap-1 transition-all shadow-xs shrink-0"
                   >
-                    <span>⚡ 激发今日共鸣</span>
+                    <span>激发今日共鸣</span>
                   </button>
                 </div>
 
@@ -1876,7 +1876,7 @@ export default function PersonaPage() {
                           key={item.date}
                           onClick={() =>
                             triggerSynapse(
-                              `📅 回溯 ${item.date} 进化点 · 沉淀文档 ${item.document_count} 篇`,
+                              `回溯 ${item.date} 进化点 · 沉淀文档 ${item.document_count} 篇`,
                               "evolution"
                             )
                           }
@@ -2184,7 +2184,7 @@ export default function PersonaPage() {
                     <div className="p-3.5 rounded-2xl border border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)] space-y-2.5">
                       <div className="flex items-center justify-between">
                         <span className="text-xs font-bold text-[var(--aurora-fg1)]">
-                          🎓 学科交叉与专业领域 ({userBlueprint.disciplines.length})
+                          学科交叉与专业领域 ({userBlueprint.disciplines.length})
                         </span>
                         <span className="text-[10px] font-mono text-[var(--aurora-fg4)]">
                           基于代码库 AST、图谱实体与领域规则自动推断
@@ -2194,7 +2194,7 @@ export default function PersonaPage() {
                         {userBlueprint.disciplines.map((d) => (
                           <div
                             key={d.id}
-                            onClick={() => triggerSynapse(`🎓 学科维度：${d.name}`, "brain")}
+                            onClick={() => triggerSynapse(`学科维度：${d.name}`, "brain")}
                             className="p-3 rounded-xl border border-[var(--aurora-border)] bg-[var(--aurora-surface)] hover:border-[#6366F1] transition-all cursor-pointer space-y-1.5"
                           >
                             <div className="flex items-center justify-between gap-2">
@@ -2224,14 +2224,14 @@ export default function PersonaPage() {
                     <div className="p-3.5 rounded-2xl border border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)] space-y-2.5">
                       <div className="flex items-center justify-between">
                         <span className="text-xs font-bold text-[var(--aurora-fg1)]">
-                          💼 核心业务版图与应用场景 ({userBlueprint.business_domains.length})
+                          核心业务版图与应用场景 ({userBlueprint.business_domains.length})
                         </span>
                       </div>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         {userBlueprint.business_domains.map((b) => (
                           <div
                             key={b.id}
-                            onClick={() => triggerSynapse(`💼 业务板块：${b.name}`, "project")}
+                            onClick={() => triggerSynapse(`业务板块：${b.name}`, "project")}
                             className="p-3 rounded-xl border border-[var(--aurora-border)] bg-[var(--aurora-surface)] hover:border-[#10B981] transition-all cursor-pointer space-y-1.5"
                           >
                             <div className="text-xs font-bold text-[var(--aurora-fg1)]">{b.name}</div>
@@ -2256,7 +2256,7 @@ export default function PersonaPage() {
                     {/* 3. 全域技术栈雷达 */}
                     <div className="p-3.5 rounded-2xl border border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)] space-y-2.5">
                       <span className="text-xs font-bold text-[var(--aurora-fg1)] block">
-                        ⚡ 全域技术栈与工程底座雷达
+                        全域技术栈与工程底座雷达
                       </span>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         {Object.entries(userBlueprint.tech_radar).map(([key, cat]) =>
@@ -2285,7 +2285,7 @@ export default function PersonaPage() {
                     {/* 4. 跨项目架构蓝图矩阵 */}
                     <div className="p-3.5 rounded-2xl border border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)] space-y-2.5">
                       <span className="text-xs font-bold text-[var(--aurora-fg1)] block">
-                        🏗️ 跨项目架构蓝图矩阵 ({userBlueprint.projects.length})
+                        跨项目架构蓝图矩阵 ({userBlueprint.projects.length})
                       </span>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         {userBlueprint.projects.map((p) => (
@@ -2333,7 +2333,7 @@ export default function PersonaPage() {
                     <Glass padding={14} radius={16}>
                       <div className="flex items-center justify-between mb-2">
                         <span className="text-xs font-bold text-[var(--aurora-fg1)]">
-                          📄 完整个人蓝图文档 (USER_BLUEPRINT.md)
+                          完整个人蓝图文档 (USER_BLUEPRINT.md)
                         </span>
                         <Btn
                           variant="ghost"
@@ -2470,8 +2470,8 @@ export default function PersonaPage() {
           markAvatarOnboardingDismissed();
           hasCheckedAvatarOnboardingRef.current = true;
           setAvatarSettings(newSettings);
-          triggerSynapse(`✨ 数字孪生形象已激活 · ${newSettings.nickname} · 神经突触已同步`);
-          setNotice(`✅ 数字孪生形象「${newSettings.nickname}」已同步激活！`);
+          triggerSynapse(`形象已保存 · ${newSettings.nickname}`);
+          setNotice(`数字孪生形象「${newSettings.nickname}」已同步激活！`);
         }}
       />
     </div>

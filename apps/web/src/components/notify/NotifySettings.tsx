@@ -104,7 +104,7 @@ export default function NotifySettings() {
       setLocalPermission(getLocalNotificationPermission());
       if (granted) {
         await sendLocalNotification(
-          "🎉 系统通知已就绪",
+          "系统通知已就绪",
           "已成功开启 Memento 通知权限，您将在此实时接收日程与关键任务更新！"
         );
         setMessage({ text: "系统通知权限已开启！", error: false });
@@ -138,7 +138,7 @@ export default function NotifySettings() {
       // 桌面端或纯网页端触发本机通知权限测试
       if (!isMobileApp) {
         await sendLocalNotification(
-          "🔔 Memento 通知演示",
+          "Memento 通知演示",
           "系统通知通道通畅，任务完成、健康睡眠分析与重要简报将直接在此弹出。",
           "/profile?tab=account"
         );
@@ -152,7 +152,7 @@ export default function NotifySettings() {
         console.warn("Test notification dispatch returned:", e);
       }
 
-      setMessage({ text: "✅ 通知演示已发出，请留意横幅提醒", error: false });
+      setMessage({ text: "通知演示已发出，请留意横幅提醒", error: false });
     });
 
   const barkConfigured = settings?.bark_configured === true;
@@ -177,7 +177,7 @@ export default function NotifySettings() {
         <div className="mb-4 p-4 rounded-xl bg-[var(--aurora-chip)] border border-[var(--aurora-border)] leading-relaxed">
           <div className="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
             <span className="text-sm font-semibold text-[var(--aurora-fg1)] flex items-center gap-1.5">
-              📱 {deviceName} 原生系统通知
+              {deviceName} 原生系统通知
             </span>
             <span className="text-xs px-2.5 py-0.5 rounded-full font-medium bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
               ● 已连接 · 系统推送已就绪
@@ -193,7 +193,7 @@ export default function NotifySettings() {
           <div className="mb-4 p-3.5 rounded-xl bg-[var(--aurora-chip)] border border-[var(--aurora-border)] leading-relaxed">
             <div className="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
               <span className="text-sm font-semibold text-[var(--aurora-fg1)] flex items-center gap-1.5">
-                {isDesktopApp ? "💻 桌面客户端系统通知" : "🌐 网页端通知"}
+                {isDesktopApp ? "桌面客户端系统通知" : "网页端通知"}
               </span>
               <div className="flex items-center gap-2">
                 <span
@@ -227,7 +227,7 @@ export default function NotifySettings() {
           <div className="mb-4 p-3.5 rounded-xl bg-[var(--aurora-chip)] border border-[var(--aurora-border)] leading-relaxed">
             <div className="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
               <span className="text-sm font-semibold text-[var(--aurora-fg1)] flex items-center gap-1.5">
-                📱 关联移动设备
+                关联移动设备
               </span>
               <span
                 className={`text-xs px-2 py-0.5 rounded-full font-medium ${
@@ -251,7 +251,7 @@ export default function NotifySettings() {
       {/* 2. 操作与高级通道 */}
       <div className="flex items-center gap-3 mb-4 flex-wrap">
         <Btn variant="glass" size="sm" disabled={busy} onClick={test} className="cursor-pointer font-medium text-xs">
-          🔔 发送通知效果演示
+          发送通知效果演示
         </Btn>
         <button
           type="button"
@@ -266,7 +266,7 @@ export default function NotifySettings() {
       {(showFallback || barkConfigured) && (
         <div className="mb-4 p-3.5 rounded-xl border border-[var(--aurora-border-strong)] bg-[var(--aurora-surface-solid)]/40">
           <div className="text-xs font-semibold text-[var(--aurora-fg2)] mb-1.5 flex items-center gap-1">
-            🔔 外部第三方推送通道 (可选备用)
+            外部第三方推送通道 (可选备用)
           </div>
           <div className="text-xs text-[var(--aurora-fg3)] mb-2 space-y-0.5">
             <div>如需通过第三方 webhook 接收通知，可选填 Bark (iOS) 或 ntfy (Android) 推送地址：</div>

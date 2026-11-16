@@ -278,7 +278,7 @@ export function AgentQuotaCard({ deviceId, activeTool, recentTools }: AgentQuota
         <div style={{ display: "flex", justifyContent: "space-between", color: "var(--aurora-fg3)" }}>
           <span>授权状态</span>
           <span style={{ color: claude?.available ? "#22C55E" : "var(--aurora-fg4)", fontWeight: 500 }}>
-            {claude?.available ? "✓ 正常登录授权" : "未检测到凭证"}
+            {claude?.available ? "正常登录授权" : "未检测到凭证"}
           </span>
         </div>
         <div style={{ display: "flex", justifyContent: "space-between", color: "var(--aurora-fg3)" }}>
@@ -370,7 +370,7 @@ export function AgentQuotaCard({ deviceId, activeTool, recentTools }: AgentQuota
         <div style={{ display: "flex", justifyContent: "space-between", color: "var(--aurora-fg3)" }}>
           <span>授权状态</span>
           <span style={{ color: codex?.available ? "#22C55E" : "var(--aurora-fg4)", fontWeight: 500 }}>
-            {codex?.available ? "✓ 正常登录授权" : "未检测到凭证"}
+            {codex?.available ? "正常登录授权" : "未检测到凭证"}
           </span>
         </div>
         <div style={{ display: "flex", justifyContent: "space-between", color: "var(--aurora-fg3)" }}>
@@ -452,7 +452,7 @@ export function AgentQuotaCard({ deviceId, activeTool, recentTools }: AgentQuota
         <div style={{ display: "flex", justifyContent: "space-between", color: "var(--aurora-fg3)" }}>
           <span>授权状态</span>
           <span style={{ color: workbuddy?.available ? "#22C55E" : "var(--aurora-fg4)", fontWeight: 500 }}>
-            {workbuddy?.available ? "✓ 正常登录授权" : "未检测到凭证"}
+            {workbuddy?.available ? "正常登录授权" : "未检测到凭证"}
           </span>
         </div>
         <div style={{ display: "flex", justifyContent: "space-between", color: "var(--aurora-fg3)" }}>

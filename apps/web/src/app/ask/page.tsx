@@ -1689,7 +1689,7 @@ function AskPageContent() {
 
     turns.forEach((t, i) => {
       if (t.role === "user") {
-        lines.push(`### 👤 用户提问 #${Math.floor(i / 2) + 1}`);
+        lines.push(`### 用户提问 #${Math.floor(i / 2) + 1}`);
         lines.push("");
         lines.push(t.content || "");
         if (t.images && t.images.length > 0) {
@@ -1699,15 +1699,15 @@ function AskPageContent() {
       } else {
         const modelLabel = t.model ? ` [${t.model}]` : t.execution_mode && t.execution_mode !== "ai" ? ` [${t.execution_mode}]` : "";
         const durLabel = t.duration_ms ? ` (${(t.duration_ms / 1000).toFixed(1)}s)` : "";
-        lines.push(`### 🤖 AI 执事回复 #${Math.floor(i / 2) + 1}${modelLabel}${durLabel}`);
+        lines.push(`### AI 执事回复 #${Math.floor(i / 2) + 1}${modelLabel}${durLabel}`);
         lines.push("");
         if (t.thinking && t.thinking.trim()) {
-          lines.push(`<details><summary>🧠 思考过程 (${t.thinking.trim().length} 字)</summary>\n`);
+          lines.push(`<details><summary>思考过程 (${t.thinking.trim().length} 字)</summary>\n`);
           lines.push(t.thinking.trim());
           lines.push("\n</details>\n");
         }
         if (t.toolCalls && t.toolCalls.length > 0) {
-          lines.push("#### 🛠️ 设备执行记录");
+          lines.push("#### 设备执行记录");
           t.toolCalls.forEach((call, cidx) => {
             const cmd = (call.args?.command as string) || (call.args?.prompt as string) || call.name;
             lines.push(`- **步骤 ${cidx + 1}**: \`${call.name}\` (${call.device_name || "auto"})`);
@@ -1725,7 +1725,7 @@ function AskPageContent() {
           });
           lines.push("");
         }
-        lines.push("#### 📋 总结与分析");
+        lines.push("#### 总结与分析");
         lines.push("");
         lines.push(t.content || "任务执行完成。");
         lines.push("");
@@ -2662,9 +2662,9 @@ function AskPageContent() {
         bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
       }, 80);
       const msg = isZh
-        ? "已为您呼出键盘，点击键盘右下角「麦克风」🎤 即可开始语音吩咐！"
-        : "Keyboard opened. Tap the mic 🎤 on your keyboard to dictate.";
-      showInAppToast(isZh ? "🎙️ 语音吩咐已就绪" : "Voice Input Ready", msg);
+        ? "已为您呼出键盘，点击键盘右下角「麦克风」即可开始语音吩咐！"
+        : "Keyboard opened. Tap the mic on your keyboard to dictate.";
+      showInAppToast(isZh ? "语音输入已就绪" : "Voice Input Ready", msg);
       setSpeechHint(msg);
       if (speechHintTimer.current) clearTimeout(speechHintTimer.current);
       speechHintTimer.current = setTimeout(() => setSpeechHint(null), 5000);
@@ -2681,7 +2681,7 @@ function AskPageContent() {
       const msg = isZh
         ? "当前环境暂不支持浏览器内置语音转录，请直接键入文本"
         : "Speech recognition not supported in this browser.";
-      showInAppToast(isZh ? "🎙️ 提示" : "Notice", msg);
+      showInAppToast(isZh ? "提示" : "Notice", msg);
       return;
     }
 
@@ -2722,7 +2722,7 @@ function AskPageContent() {
           const fallbackMsg = isZh
             ? "未开启麦克风权限：请在浏览器设置中允许麦克风访问"
             : "Microphone blocked. Please grant microphone access in browser settings.";
-          showInAppToast(isZh ? "🎙️ 麦克风提示" : "Microphone Notice", fallbackMsg);
+          showInAppToast(isZh ? "麦克风提示" : "Microphone Notice", fallbackMsg);
           setSpeechHint(fallbackMsg);
           if (speechHintTimer.current) clearTimeout(speechHintTimer.current);
           speechHintTimer.current = setTimeout(() => setSpeechHint(null), 5000);
@@ -2740,9 +2740,9 @@ function AskPageContent() {
       setIsRecordingVoice(false);
       inputElRef.current?.focus();
       const fallbackMsg = isZh
-        ? "已为您呼出键盘，点击键盘右下角「麦克风」🎤 即可开始语音吩咐！"
-        : "Keyboard opened. Tap the mic 🎤 on your keyboard to dictate.";
-      showInAppToast(isZh ? "🎙️ 语音吩咐已就绪" : "Voice Input Ready", fallbackMsg);
+        ? "已为您呼出键盘，点击键盘右下角「麦克风」即可开始语音吩咐！"
+        : "Keyboard opened. Tap the mic on your keyboard to dictate.";
+      showInAppToast(isZh ? "语音输入已就绪" : "Voice Input Ready", fallbackMsg);
       setSpeechHint(fallbackMsg);
       if (speechHintTimer.current) clearTimeout(speechHintTimer.current);
       speechHintTimer.current = setTimeout(() => setSpeechHint(null), 5000);
@@ -5792,7 +5792,7 @@ function AskPageContent() {
                       flexShrink: 0,
                     }}
                   >
-                    ⚠️ {isZh ? "离线" : "Offline"}
+                    {isZh ? "离线" : "Offline"}
                   </span>
                 )}
               </div>
@@ -6070,7 +6070,7 @@ function AskPageContent() {
                         const seen = new Set<string>();
                         const defItem = baseList.find((m) => m.id === "") || {
                           id: "",
-                          name: `⚡ 默认模型 (跟随客户端配置: ${liveQuotaModels[0]?.label || "Antigravity"})`,
+                          name: `默认模型（跟随客户端配置：${liveQuotaModels[0]?.label || "Antigravity"}）`,
                           desc: "使用当前 Antigravity 客户端默认模型",
                         };
                         merged.push(defItem);
@@ -6105,7 +6105,7 @@ function AskPageContent() {
                         );
                       })}
                       <option value="__custom__" style={{ background: "var(--aurora-surface-solid)", color: "var(--aurora-accent)" }}>
-                        {isZh ? "✏️ 自定义输入任意模型..." : "✏️ Custom model..."}
+                        {isZh ? "自定义输入任意模型…" : "Custom model…"}
                       </option>
                     </select>
                     <button
@@ -6181,7 +6181,7 @@ function AskPageContent() {
                     {(capabilities?.effort_options && capabilities.effort_options.length > 0
                       ? capabilities.effort_options
                       : [
-                          { id: "", name: isZh ? "⚡ 默认 Effort (跟随配置)" : "⚡ Default Effort" },
+                          { id: "", name: isZh ? "默认思考强度（跟随配置）" : "Default effort" },
                           { id: "low", name: "Low (快速/轻量思考)" },
                           { id: "medium", name: "Medium (标准思考量)" },
                           { id: "high", name: "High (深度推理/高思考量)" },
@@ -6458,7 +6458,7 @@ function AskPageContent() {
               >
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                   <span className="w-2 h-2 rounded-full bg-[#ef4444] animate-ping" />
-                  <span style={{ fontWeight: 600 }}>{isZh ? "🎙️ 正在倾听吩咐... 实时转写中" : "Listening & transcribing..."}</span>
+                  <span style={{ fontWeight: 600 }}>{isZh ? "正在听…实时转写中" : "Listening & transcribing..."}</span>
                 </div>
                 <button
                   type="button"
@@ -6494,7 +6494,7 @@ function AskPageContent() {
                 }}
               >
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <span>🎙️</span>
+                  <Icon name="microphone" size={13} />
                   <span>{speechHint}</span>
                 </div>
                 <button
@@ -6734,7 +6734,7 @@ function AskPageContent() {
                 }}
               >
                 <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
-                  <span style={{ color: "var(--aurora-accent)" }}>💡</span>
+                  <Icon name="sparkles" size={13} style={{ color: "var(--aurora-accent)" }} />
                   <span style={{ color: "var(--aurora-fg2)" }}>
                     {suggestedDevice.reason}，{isZh ? "建议切换目标设备至：" : "recommended target device:"}
                   </span>

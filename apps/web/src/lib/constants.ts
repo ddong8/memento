@@ -9,15 +9,19 @@ export function formatBytes(bytes: number): string {
   return `${(bytes / Math.pow(k, i)).toFixed(i > 0 ? 1 : 0)} ${sizes[i]}`;
 }
 
-/** Format timestamp to relative time string. */
+/** Format timestamp to relative time string, in the interface's language (Chinese unless English was picked). */
 export function timeAgo(dateStr: string): string {
   const d = new Date(dateStr);
   const diff = Date.now() - d.getTime();
   const mins = Math.floor(diff / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
+  let en = false;
+  try {
+    en = typeof window !== "undefined" && localStorage.getItem("dr_locale") === "en-US";
+  } catch {}
+  if (mins < 1) return en ? "just now" : "刚刚";
+  if (mins < 60) return en ? `${mins}m ago` : `${mins} 分钟前`;
   const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
+  if (hrs < 24) return en ? `${hrs}h ago` : `${hrs} 小时前`;
   const days = Math.floor(hrs / 24);
-  return `${days}d ago`;
+  return en ? `${days}d ago` : `${days} 天前`;
 }

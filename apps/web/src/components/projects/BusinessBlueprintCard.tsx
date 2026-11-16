@@ -118,9 +118,9 @@ export function BusinessBlueprintCard({
         {check ? (
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
             {chip(`${isZh ? "规则" : "Rules"} ${check.rules}`, "var(--aurora-fg2)")}
-            {chip(`✅ ${check.ok}`, "#10b981")}
-            {chip(`⚠️ ${check.warn}`, "#d97706")}
-            {chip(`❌ ${check.fail}`, check.fail ? "#dc2626" : "var(--aurora-fg3)")}
+            {chip(`${check.ok}`, "#10b981")}
+            {chip(`${check.warn}`, "#d97706")}
+            {chip(`${check.fail}`, check.fail ? "#dc2626" : "var(--aurora-fg3)")}
             {chip(`${isZh ? "流程" : "Flows"} ${check.flows}`, "var(--aurora-fg3)")}
             {chip(`${isZh ? "术语" : "Terms"} ${check.terms}`, "var(--aurora-fg3)")}
             {chip(`${isZh ? "状态" : "States"} ${check.states}`, "var(--aurora-fg3)")}

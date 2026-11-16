@@ -162,17 +162,17 @@ export function ProactiveAgentView() {
       setTestMessage(null);
       // Immediately trigger local native notification popup on this computer / device
       await sendLocalNotification(
-        "🌅 早上好！今日晨间简报",
+        "早上好！今日晨间简报",
         "今日待办与在线设备状态已同步，AI 执事全天候为您就绪！",
         "/profile?tab=proactive"
       );
       await api.testMorningBrief();
-      setTestMessage("✅ 晨间简报已成功合成并触发推送！");
+      setTestMessage("晨间简报已成功合成并触发推送！");
       setTimeout(() => setTestMessage(null), 4000);
     } catch (e: unknown) {
       console.error("Test brief failed:", e);
       const msg = e instanceof Error ? e.message : String(e);
-      setTestMessage(`❌ 推送异常: ${msg || "请检查网络连接"}`);
+      setTestMessage(`推送异常: ${msg || "请检查网络连接"}`);
     } finally {
       setTestingBrief(false);
     }
@@ -184,8 +184,8 @@ export function ProactiveAgentView() {
       setTestMessage(null);
       const res = await api.testEveningReflection();
       if (res.status === "ok") {
-        await sendLocalNotification("🌙 今日复盘", res.message, "/daily");
-        setTestMessage(`✅ 已推送：${res.message}`);
+        await sendLocalNotification("今日复盘", res.message, "/daily");
+        setTestMessage(`已推送：${res.message}`);
       } else {
         setTestMessage(`ℹ️ ${res.message}`);
       }
@@ -193,7 +193,7 @@ export function ProactiveAgentView() {
     } catch (e: unknown) {
       console.error("Test reflection failed:", e);
       const msg = e instanceof Error ? e.message : String(e);
-      setTestMessage(`❌ 复盘执行异常: ${msg || "网络错误"}`);
+      setTestMessage(`复盘执行异常: ${msg || "网络错误"}`);
     } finally {
       setTestingReflection(false);
     }
@@ -700,11 +700,11 @@ export function ProactiveAgentView() {
                         }}
                       >
                         {m.status === "waiting_approval"
-                          ? "⚠️ 待您授权"
+                          ? "待您授权"
                           : m.status === "running"
                           ? "● 正在执行"
                           : m.status === "succeeded"
-                          ? "✓ 已完成"
+                          ? "已完成"
                           : m.status}
                       </span>
                     </div>
@@ -740,7 +740,7 @@ export function ProactiveAgentView() {
                         disabled={approvingId === m.id}
                         className="px-3.5 py-1 rounded-lg text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 shadow-sm transition-all"
                       >
-                        {approvingId === m.id ? "放行中..." : "✓ 允许放行"}
+                        {approvingId === m.id ? "放行中..." : "允许放行"}
                       </button>
                     </div>
                   </div>

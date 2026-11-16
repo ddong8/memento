@@ -2237,7 +2237,7 @@ export function VideoPlayer({
           <div className="absolute top-4 inset-x-0 flex items-center justify-center pointer-events-none z-30">
             <div className="flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-black/85 border border-amber-400/40 text-white text-xs font-semibold backdrop-blur-md shadow-2xl animate-pulse">
               <span className="text-amber-400 font-bold">
-                {longPressSpeed === 0.5 ? "🐢 0.5x" : "⚡ 2.0x"}
+                {longPressSpeed === 0.5 ? "0.5x" : "2.0x"}
               </span>
               <span>{longPressSpeed === 0.5 ? "长按慢放细品中" : "长按倍速播放中"}</span>
             </div>

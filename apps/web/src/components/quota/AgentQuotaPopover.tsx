@@ -305,7 +305,7 @@ export function AgentQuotaPopover({
             <div style={{ fontSize: 11.5, color: "var(--aurora-fg3)", marginTop: 1, display: "flex", alignItems: "center", gap: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{agy?.account_email || agy?.account_name || (agy?.available ? "已关联本地服务" : "未检测到本地服务")}</span>
               {agy?.probe_source && (
-                <span style={{ fontSize: 10, color: "var(--aurora-fg4)", flexShrink: 0 }}>· 📡 {agy.probe_source}</span>
+                <span style={{ fontSize: 10, color: "var(--aurora-fg4)", flexShrink: 0 }}>· {agy.probe_source}</span>
               )}
             </div>
           </div>
@@ -383,7 +383,7 @@ export function AgentQuotaPopover({
             </div>
             {resetTime && (
               <div style={{ fontSize: 11, color: "var(--aurora-fg4)", marginTop: 5, textAlign: "right" }}>
-                ⏳ {formatRelativeReset(resetTime)}
+                {formatRelativeReset(resetTime)}
               </div>
             )}
           </div>
@@ -520,7 +520,7 @@ export function AgentQuotaPopover({
             <div style={{ fontSize: 11.5, color: "var(--aurora-fg3)", marginTop: 1, display: "flex", alignItems: "center", gap: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{claude?.account_email || claude?.account_name || (claude?.available ? "已授权 Anthropic 智能体" : "未检测到本地凭据")}</span>
               {claude?.probe_source && (
-                <span style={{ fontSize: 10, color: "var(--aurora-fg4)", flexShrink: 0 }}>· 📡 {claude.probe_source}</span>
+                <span style={{ fontSize: 10, color: "var(--aurora-fg4)", flexShrink: 0 }}>· {claude.probe_source}</span>
               )}
             </div>
           </div>
@@ -621,7 +621,7 @@ export function AgentQuotaPopover({
                     </div>
                     {claude.details?.seven_day_resets_at && (
                       <span style={{ fontSize: 10.5, color: "var(--aurora-fg3)", marginTop: 2 }}>
-                        ⏳ {formatRelativeReset(claude.details.seven_day_resets_at)}
+                        {formatRelativeReset(claude.details.seven_day_resets_at)}
                       </span>
                     )}
                   </div>
@@ -640,7 +640,7 @@ export function AgentQuotaPopover({
                     </div>
                     {claude.details?.five_hour_resets_at && (
                       <span style={{ fontSize: 10.5, color: "var(--aurora-fg3)", marginTop: 2 }}>
-                        ⏳ {formatRelativeReset(claude.details.five_hour_resets_at)}
+                        {formatRelativeReset(claude.details.five_hour_resets_at)}
                       </span>
                     )}
                   </div>
@@ -802,7 +802,7 @@ export function AgentQuotaPopover({
             <div style={{ fontSize: 11.5, color: "var(--aurora-fg3)", marginTop: 1, display: "flex", alignItems: "center", gap: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{codex?.account_email ? `${codex.account_name ? codex.account_name + " · " : ""}${codex.account_email}` : (codex?.available ? "Codex 智能体" : "未检测到本地凭据")}</span>
               {codex?.probe_source && (
-                <span style={{ fontSize: 10, color: "var(--aurora-fg4)", flexShrink: 0 }}>· 📡 {codex.probe_source}</span>
+                <span style={{ fontSize: 10, color: "var(--aurora-fg4)", flexShrink: 0 }}>· {codex.probe_source}</span>
               )}
             </div>
           </div>
@@ -961,7 +961,7 @@ export function AgentQuotaPopover({
                   : (workbuddy?.available ? "腾讯全场景智能体工作台" : "未检测到本地凭据")}
               </span>
               {workbuddy?.probe_source && (
-                <span style={{ fontSize: 10, color: "var(--aurora-fg4)", flexShrink: 0 }}>· 📡 {workbuddy.probe_source}</span>
+                <span style={{ fontSize: 10, color: "var(--aurora-fg4)", flexShrink: 0 }}>· {workbuddy.probe_source}</span>
               )}
             </div>
           </div>

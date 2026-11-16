@@ -79,7 +79,7 @@ export default function PlansPage() {
   } as const;
 
   return (
-    <div className="w-full max-w-4xl mx-auto pb-16 min-w-0">
+    <div className="w-full max-w-6xl mx-auto pb-16 min-w-0">
       <TopBar title="协作任务" subtitle="大任务自动拆开，按智能体特点和设备额度分派到多台设备并行完成，最后复查汇总" />
 
       <Glass padding="clamp(14px, 3vw, 20px)" radius={16} style={{ marginBottom: 16 }}>

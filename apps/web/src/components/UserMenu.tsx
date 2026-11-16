@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
-import { useI18n } from "@/lib/i18n";
+import { useI18n, locales, type Locale } from "@/lib/i18n";
+import { useTheme, type Skin } from "@/lib/theme-context";
 import { Icon } from "@/components/aurora/Icon";
 import { desktop } from "@/lib/desktop";
 import { openServerSwitchModal } from "@/lib/api-client";
@@ -25,7 +26,8 @@ interface UserMenuProps {
  */
 export function UserMenu({ variant = "sidebar", collapsed = false, onNavClick }: UserMenuProps) {
   const { user, logout } = useAuth();
-  const { t } = useI18n();
+  const { t, locale, setLocale } = useI18n();
+  const { skin, setSkin } = useTheme();
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [isDesktop, setIsDesktop] = useState(false);
@@ -74,10 +76,17 @@ export function UserMenu({ variant = "sidebar", collapsed = false, onNavClick }:
       ...(isDesktop ? ([["/profile?tab=collector", t.profile.tabs?.collector || "本机采集"]] as [string, string][]) : []),
     ];
     const items: NativeMenuItem[] = [
-      { id: "me", label: `${user.name || user.email} · ${user.role}`, enabled: false },
+      { id: "me", label: `${user.name || user.email} · ${roleLabel(user.role)}`, enabled: false },
       { type: "separator" },
       ...links.map(([href, label]) => ({ id: href, label })),
       ...(admin ? ([{ type: "separator" }, { id: "/admin", label: t.nav.admin || "管理后台" }] as NativeMenuItem[]) : []),
+      // Language and skin live here, not in every page's top bar (a setting, not a page action)
+      { type: "separator" },
+      { id: "-lang", label: "界面语言", enabled: false },
+      ...(Object.keys(locales) as Locale[]).map((l) => ({ id: `locale:${l}`, label: locales[l].label, checked: locale === l })),
+      { type: "separator" },
+      { id: "-skin", label: "界面风格", enabled: false },
+      ...SKINS.map((k) => ({ id: `skin:${k.id}`, label: k.label, checked: skin === k.id })),
       { type: "separator" },
       { id: "server", label: t.serverSwitch?.title || "切换服务器" },
       { id: "logout", label: t.profile.logout },
@@ -88,7 +97,9 @@ export function UserMenu({ variant = "sidebar", collapsed = false, onNavClick }:
       return;
     }
     if (!id) return;
-    if (id === "server") openServerSwitchModal();
+    if (id.startsWith("locale:")) setLocale(id.slice(7) as Locale);
+    else if (id.startsWith("skin:")) setSkin(id.slice(5) as Skin);
+    else if (id === "server") openServerSwitchModal();
     else if (id === "logout") logout();
     else if (id.startsWith("/")) {
       router.push(id);
@@ -273,7 +284,7 @@ export function UserMenu({ variant = "sidebar", collapsed = false, onNavClick }:
                     textTransform: "uppercase",
                   }}
                 >
-                  {user.role}
+                  {roleLabel(user.role)}
                 </span>
               </div>
             </div>
@@ -444,7 +455,7 @@ export function UserMenu({ variant = "sidebar", collapsed = false, onNavClick }:
                   fontWeight: 500,
                 }}
               >
-                {user.role}
+                {roleLabel(user.role)}
               </div>
             </div>
           </div>
@@ -482,6 +493,16 @@ export function UserMenu({ variant = "sidebar", collapsed = false, onNavClick }:
 
           <div style={{ height: 1, background: "var(--aurora-border)", margin: "4px 8px" }} />
 
+          <SegmentRow
+            label="界面语言"
+            value={locale}
+            options={(Object.keys(locales) as Locale[]).map((l) => ({ id: l, label: locales[l].label }))}
+            onChange={(v) => setLocale(v as Locale)}
+          />
+          <SegmentRow label="界面风格" value={skin} options={SKINS} onChange={(v) => setSkin(v as Skin)} />
+
+          <div style={{ height: 1, background: "var(--aurora-border)", margin: "4px 8px" }} />
+
           <MenuButton
             icon="server"
             onClick={() => {
@@ -504,6 +525,51 @@ export function UserMenu({ variant = "sidebar", collapsed = false, onNavClick }:
           </MenuButton>
         </div>
       )}
+    </div>
+  );
+}
+
+/** Roles in plain words: "owner" read as an untranslated leftover. */
+export function roleLabel(role: string | undefined): string {
+  return ({ owner: "所有者", admin: "管理员", member: "成员", user: "成员", viewer: "只读" } as Record<string, string>)[role || ""] || role || "";
+}
+
+const SKINS: { id: Skin; label: string }[] = [
+  { id: "aurora", label: "极光" },
+  { id: "arc", label: "纸感" },
+  { id: "baseline", label: "经典" },
+];
+
+/** A setting picked in place: its name, then a small segmented control. */
+function SegmentRow({ label, value, options, onChange }: { label: string; value: string; options: { id: string; label: string }[]; onChange: (id: string) => void }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "6px 12px" }}>
+      <span style={{ fontSize: 12.5, color: "var(--aurora-fg2)" }}>{label}</span>
+      <div style={{ display: "inline-flex", padding: 2, gap: 2, background: "var(--aurora-chip)", border: "1px solid var(--aurora-border)", borderRadius: 8 }}>
+        {options.map((o) => {
+          const active = o.id === value;
+          return (
+            <button
+              key={o.id}
+              type="button"
+              onClick={() => onChange(o.id)}
+              style={{
+                padding: "3px 9px",
+                fontSize: 11.5,
+                fontWeight: active ? 600 : 500,
+                border: 0,
+                borderRadius: 6,
+                cursor: "pointer",
+                background: active ? "var(--aurora-surface-solid)" : "transparent",
+                color: active ? "var(--aurora-fg1)" : "var(--aurora-fg3)",
+                boxShadow: active ? "0 1px 2px rgba(0,0,0,0.06)" : "none",
+              }}
+            >
+              {o.label}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }

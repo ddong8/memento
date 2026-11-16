@@ -323,10 +323,10 @@ async function copyTextToClipboard(text: string): Promise<boolean> {
     triggerHapticFeedback(10);
     const lines = content.split("\n").filter((l) => l.trim().length > 3);
     const keyPoints = lines.slice(0, 4).map((l) => `✨ ${l.replace(/^[#\-*\d\.\s]+/, "").slice(0, 42)}`).join("\n");
-    const redText = `🔥 告别信息碎片！${title || "数字心智进化指南"}\n\n` +
-      `💡 为什么你需要一个具备生命节律的数字外脑？\n\n` +
-      `📌 核心要点速览：\n${keyPoints}\n\n` +
-      `🚀 真正的生产力飞跃，是让 AI 终身记住你的习惯与思考。\n\n` +
+    const redText = `告别信息碎片！${title || "数字心智进化指南"}\n\n` +
+      `为什么你需要一个具备生命节律的数字外脑？\n\n` +
+      `核心要点速览：\n${keyPoints}\n\n` +
+      `真正的生产力飞跃，是让 AI 终身记住你的习惯与思考。\n\n` +
       `#生产力工具 #AI神器 #知识管理 #独立开发者 #程序员日常 #数字心智 #Memento`;
     const ok = await copyTextToClipboard(redText);
     if (ok) {

@@ -460,11 +460,11 @@ export default function MemoryPage() {
           </div>
           <div className="flex items-center gap-1.5 min-w-0">
             <h1 className="text-xs sm:text-base font-bold text-[var(--aurora-fg1)] tracking-tight truncate">
-              长期记忆 · 认知星云
+              长期记忆
             </h1>
             <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-[rgba(16,185,129,0.12)] text-[#10B981] hidden md:flex items-center gap-1 font-mono shrink-0">
               <span className="w-1.5 h-1.5 rounded-full bg-[#10B981] breathing-glow-emerald" />
-              {nodes.length || stats?.entities || 0} 实体 · {edges.length || stats?.relations || 0} 突触
+              {nodes.length || stats?.entities || 0} 实体 · {edges.length || stats?.relations || 0} 关联
             </span>
           </div>
         </div>
@@ -628,13 +628,13 @@ export default function MemoryPage() {
                 {/* 突触拓扑互联 (Outgoing) */}
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between text-[11px] font-bold text-white/70">
-                    <span>指向关联突触 (Outgoing)</span>
+                    <span>指向的实体</span>
                     <span className="text-[10px] font-mono text-white/40">
                       {selectedEntity.outgoing_relations.length} 条
                     </span>
                   </div>
                   {selectedEntity.outgoing_relations.length === 0 ? (
-                    <div className="text-[10px] text-white/40 py-1 pl-1">暂无主动突触</div>
+                    <div className="text-[10px] text-white/40 py-1 pl-1">暂无</div>
                   ) : (
                     <div className="space-y-1">
                       {selectedEntity.outgoing_relations.map((rel, idx) => (
@@ -664,13 +664,13 @@ export default function MemoryPage() {
                 {/* 突触拓扑互联 (Incoming) */}
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between text-[11px] font-bold text-white/70">
-                    <span>被指关联突触 (Incoming)</span>
+                    <span>被指向自</span>
                     <span className="text-[10px] font-mono text-white/40">
                       {selectedEntity.incoming_relations.length} 条
                     </span>
                   </div>
                   {selectedEntity.incoming_relations.length === 0 ? (
-                    <div className="text-[10px] text-white/40 py-1 pl-1">暂无被指突触</div>
+                    <div className="text-[10px] text-white/40 py-1 pl-1">暂无</div>
                   ) : (
                     <div className="space-y-1">
                       {selectedEntity.incoming_relations.map((rel, idx) => (
@@ -731,7 +731,7 @@ export default function MemoryPage() {
 
               {/* 视窗 Footer 操作栏 */}
               <div className="p-2.5 bg-white/5 border-t border-white/10 flex items-center justify-between shrink-0 text-[11px] font-mono">
-                <span className="text-white/40">知识星晶已锁定 · 突触双向飞跃</span>
+                <span className="text-white/40">已选中</span>
                 <div className="flex items-center gap-1.5">
                   <button
                     onClick={() => {
@@ -811,7 +811,7 @@ export default function MemoryPage() {
                   </div>
                   <div className="text-right">
                     <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-[rgba(56,189,248,0.1)] text-[#38BDF8]">
-                      {edges.length || stats?.relations || 0} 突触
+                      {edges.length || stats?.relations || 0} 关联
                     </span>
                   </div>
                 </div>
@@ -1070,11 +1070,11 @@ export default function MemoryPage() {
                         <div className="flex items-center justify-between text-xs font-bold text-[var(--aurora-fg2)]">
                           <span>指向关联 (Outgoing)</span>
                           <span className="text-[10px] font-mono text-[var(--aurora-fg4)]">
-                            {selectedEntity.outgoing_relations.length} 突触
+                            {selectedEntity.outgoing_relations.length} 个关联
                           </span>
                         </div>
                         {selectedEntity.outgoing_relations.length === 0 ? (
-                          <div className="text-[11px] text-[var(--aurora-fg4)] py-2 text-center">暂无主动突触</div>
+                          <div className="text-[11px] text-[var(--aurora-fg4)] py-2 text-center">暂无</div>
                         ) : (
                           <div className="space-y-1.5">
                             {selectedEntity.outgoing_relations.map((rel, idx) => (
@@ -1105,11 +1105,11 @@ export default function MemoryPage() {
                         <div className="flex items-center justify-between text-xs font-bold text-[var(--aurora-fg2)]">
                           <span>被指关联 (Incoming)</span>
                           <span className="text-[10px] font-mono text-[var(--aurora-fg4)]">
-                            {selectedEntity.incoming_relations.length} 突触
+                            {selectedEntity.incoming_relations.length} 个关联
                           </span>
                         </div>
                         {selectedEntity.incoming_relations.length === 0 ? (
-                          <div className="text-[11px] text-[var(--aurora-fg4)] py-2 text-center">暂无入向突触</div>
+                          <div className="text-[11px] text-[var(--aurora-fg4)] py-2 text-center">暂无</div>
                         ) : (
                           <div className="space-y-1.5">
                             {selectedEntity.incoming_relations.map((rel, idx) => (
@@ -1278,7 +1278,7 @@ export default function MemoryPage() {
               <div className="space-y-3 animate-in fade-in">
                 <div className="p-3 rounded-2xl bg-gradient-to-r from-[rgba(168,85,247,0.12)] via-[var(--aurora-surface-solid)] to-transparent border border-[var(--aurora-border)] flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <span className="text-base">🌙</span>
+                    <Icon name="moon" size={15} />
                     <div>
                       <div className="text-xs font-bold text-[var(--aurora-fg1)]">
                         记忆梦境提炼 · 深度自进化
@@ -1414,7 +1414,7 @@ export default function MemoryPage() {
         onClose={() => setShareOpen(false)}
         kind="memory"
         targetId="all"
-        title="分享 3D 认知星云"
+        title="分享知识图谱"
       />
     </div>
   );

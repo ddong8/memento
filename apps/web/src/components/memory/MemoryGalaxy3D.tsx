@@ -967,8 +967,8 @@ export default function MemoryGalaxy3D({
           <div className="flex items-center gap-1.5 bg-black/65 backdrop-blur-xl px-2 sm:px-3 py-1 sm:py-1.5 rounded-full border border-white/10 shadow-lg pointer-events-auto shrink-0">
             <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-[#38BDF8] animate-ping" />
             <span className="text-[11px] sm:text-xs font-bold text-white tracking-wide">
-              <span className="sm:hidden">🌌 </span>
-              <span className="hidden sm:inline">3D 认知星云 · </span>
+              
+              <span className="hidden sm:inline">知识图谱 · </span>
               {activeNodes.length}
             </span>
           </div>
@@ -1010,7 +1010,7 @@ export default function MemoryGalaxy3D({
             }`}
             title="切换星云自转"
           >
-            <span className="text-xs">🔄</span>
+            <Icon name="refresh" size={12} />
             <span className="hidden sm:inline">{isRotating ? "自转中" : "已暂停"}</span>
           </button>
 
@@ -1024,7 +1024,7 @@ export default function MemoryGalaxy3D({
             className="px-2 sm:px-2.5 py-1 rounded-xl text-[11px] font-medium backdrop-blur-md border bg-black/50 text-white/70 border-white/10 hover:text-white flex items-center gap-1"
             title="重置视角对焦"
           >
-            <span className="text-xs">🎯</span>
+            <Icon name="target" size={12} />
             <span className="hidden sm:inline">重置视角</span>
           </button>
 
@@ -1032,9 +1032,9 @@ export default function MemoryGalaxy3D({
             <button
               onClick={onToggleCollapse}
               className="px-2 sm:px-2.5 py-1 rounded-xl text-[11px] font-semibold bg-black/65 hover:bg-black/90 backdrop-blur-md border border-white/20 text-white flex items-center gap-1 shadow-md transition-all active:scale-95"
-              title={isPanelCollapsed ? "打开侧边面板" : "让 3D 认知星云铺满整屏"}
+              title={isPanelCollapsed ? "打开侧边面板" : "让知识图谱铺满"}
             >
-              <span className="text-xs">{isPanelCollapsed ? "⧉" : "⛶"}</span>
+              <Icon name={isPanelCollapsed ? "sidebar" : "maximize"} size={12} />
               <span className="hidden sm:inline">{isPanelCollapsed ? "侧边面板" : "铺满整屏"}</span>
             </button>
           )}

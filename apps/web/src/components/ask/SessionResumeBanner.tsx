@@ -98,7 +98,7 @@ export function SessionResumeBanner({
         <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, overflow: "hidden" }}>
           <Icon name={compactMode ? "sparkles" : "clock"} size={14} style={{ color: compactMode ? "#10b981" : "var(--aurora-accent)", flexShrink: 0 }} />
           <span style={{ fontWeight: 600, color: compactMode ? "#10b981" : "var(--aurora-accent)", flexShrink: 0 }}>
-            {compactMode ? (isZh ? "🌟 智能瘦身续接:" : "🌟 Compact resume:") : picked ? (isZh ? "续接历史会话:" : "Resuming session:") : (isZh ? "本对话的会话:" : "This conversation's session:")}
+            {compactMode ? (isZh ? "智能瘦身续接:" : "Compact resume:") : picked ? (isZh ? "续接历史会话:" : "Resuming session:") : (isZh ? "本对话的会话:" : "This conversation's session:")}
           </span>
           <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--aurora-fg2)", fontWeight: 500 }}>
             {sessionTitle}
@@ -264,10 +264,10 @@ export function SessionResumeBanner({
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11 }}>
                       <span style={{ fontWeight: 600, color: isUser ? "var(--aurora-accent)" : "var(--aurora-fg2)" }}>
                         {isUser
-                          ? (isZh ? "👤 用户提问" : "👤 User")
+                          ? (isZh ? "用户提问" : "User")
                           : (m.subagent_name
-                              ? `🔀 ${m.subagent_name}`
-                              : `🤖 ${executionMode === "claude" ? "Claude Code" : executionMode === "codex" ? "OpenAI Codex" : executionMode === "antigravity" ? "Google Antigravity" : executionMode === "workbuddy" ? "WorkBuddy" : "Assistant"}`)}
+                              ? `${m.subagent_name}`
+                              : `${executionMode === "claude" ? "Claude Code" : executionMode === "codex" ? "OpenAI Codex" : executionMode === "antigravity" ? "Google Antigravity" : executionMode === "workbuddy" ? "WorkBuddy" : "Assistant"}`)}
                       </span>
                       {m.timestamp && (
                         <span style={{ color: "var(--aurora-fg3)", fontSize: 10 }}>

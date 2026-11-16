@@ -397,7 +397,7 @@ export default function Dashboard() {
                     title={conv.title || "Untitled"}
                     subtitle={[
                       conv.project_title,
-                      `${conv.message_count} msg`,
+                      `${conv.message_count} 条消息`,
                       timeAgo(conv.synced_at),
                     ].filter(Boolean).join(" · ")}
                     href={`/conversations/${conv.id}`}

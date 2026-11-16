@@ -1297,40 +1297,40 @@ export default function DigitalTwinAvatar3D({
   const DIMENSIONS_CONFIG = [
     {
       id: "brain" as const,
-      label: "🧠 脑核 · 绝对红线",
-      shortLabel: "🧠 铁律",
+      label: "脑核 · 绝对红线",
+      shortLabel: "铁律",
       gestureHint: "抚眉凝神",
       color: "#EF4444",
       count: ruleStats.ironLaws,
     },
     {
       id: "communication" as const,
-      label: "💬 喉核 · 交互沟通",
-      shortLabel: "💬 沟通",
+      label: "喉核 · 交互沟通",
+      shortLabel: "沟通",
       gestureHint: "述职手势",
       color: "#06B6D4",
       count: ruleStats.communication,
     },
     {
       id: "tech" as const,
-      label: "⚡ 心核 · 架构偏好",
-      shortLabel: "⚡ 架构",
+      label: "心核 · 架构偏好",
+      shortLabel: "架构",
       gestureHint: "全息操控",
       color: "#F59E0B",
       count: ruleStats.tech,
     },
     {
       id: "execution" as const,
-      label: "🛠️ 肢端 · 工作习惯",
-      shortLabel: "🛠️ 习惯",
+      label: "肢端 · 工作习惯",
+      shortLabel: "习惯",
       gestureHint: "沉稳抱胸",
       color: "#10B981",
       count: ruleStats.execution,
     },
     {
       id: "project" as const,
-      label: "🎯 靶向 · 项目规范",
-      shortLabel: "🎯 项目",
+      label: "靶向 · 项目规范",
+      shortLabel: "项目",
       gestureHint: "托举晶核",
       color: "#8B5CF6",
       count: ruleStats.project,
@@ -1355,7 +1355,7 @@ export default function DigitalTwinAvatar3D({
           }`}
         >
           <span className="w-1.5 h-1.5 rounded-full bg-[#EF4444] animate-ping" />
-          <span>🧠 脑核铁律</span>
+          <span>脑核铁律</span>
           <span className="opacity-60">({ruleStats.ironLaws})</span>
         </button>
 
@@ -1368,7 +1368,7 @@ export default function DigitalTwinAvatar3D({
           }`}
         >
           <span className="w-1.5 h-1.5 rounded-full bg-[#06B6D4] animate-ping" />
-          <span>💬 沟通风格</span>
+          <span>沟通风格</span>
           <span className="opacity-60">({ruleStats.communication})</span>
         </button>
 
@@ -1381,7 +1381,7 @@ export default function DigitalTwinAvatar3D({
           }`}
         >
           <span className="w-1.5 h-1.5 rounded-full bg-[#F59E0B] animate-ping" />
-          <span>⚡ 架构心核</span>
+          <span>架构心核</span>
           <span className="opacity-60">({ruleStats.tech})</span>
         </button>
 
@@ -1394,7 +1394,7 @@ export default function DigitalTwinAvatar3D({
           }`}
         >
           <span className="w-1.5 h-1.5 rounded-full bg-[#10B981] animate-ping" />
-          <span>🛠️ 工作习惯</span>
+          <span>工作习惯</span>
           <span className="opacity-60">({ruleStats.execution})</span>
         </button>
 
@@ -1407,7 +1407,7 @@ export default function DigitalTwinAvatar3D({
           }`}
         >
           <span className="w-1.5 h-1.5 rounded-full bg-[#8B5CF6] animate-ping" />
-          <span>🎯 项目专属</span>
+          <span>项目专属</span>
           <span className="opacity-60">({ruleStats.project})</span>
         </button>
       </div>
@@ -1596,8 +1596,8 @@ export default function DigitalTwinAvatar3D({
               >
                 <span>
                   {hudSynapse.complianceStatus === "intercepted"
-                    ? "🛡️ P0 绝对红线已生效拦截"
-                    : "⚡ 神经突触实时共鸣"}
+                    ? "P0 绝对红线已生效拦截"
+                    : "实时同步"}
                 </span>
                 <span className="text-white/40 font-normal">· 已沉淀至长时记忆</span>
               </span>
@@ -1620,7 +1620,7 @@ export default function DigitalTwinAvatar3D({
                 : "border-transparent text-white/70 hover:text-white hover:bg-white/10"
             }`}
           >
-            🌐 全景
+            全景
           </button>
 
           {DIMENSIONS_CONFIG.map((dim) => {

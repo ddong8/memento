@@ -1022,15 +1022,15 @@ export default function SkillMatrix3D({
           <div className="flex items-center gap-1.5 bg-black/65 backdrop-blur-xl px-2 sm:px-3 py-1 sm:py-1.5 rounded-full border border-white/10 shadow-lg pointer-events-auto shrink-0">
             <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-[#F59E0B] animate-pulse" />
             <span className="text-[11px] sm:text-xs font-bold text-white tracking-wide">
-              <span className="sm:hidden">⚡ </span>
-              <span className="hidden sm:inline">3D 科技树 · </span>
+              
+              <span className="hidden sm:inline">技能图谱 · </span>
               {skills.length}
             </span>
           </div>
 
           <div className="flex items-center gap-1 bg-black/60 backdrop-blur-md px-2 py-0.5 sm:py-1 rounded-full border border-white/10 text-[9px] sm:text-[10px] font-medium text-white/80 pointer-events-auto shrink-0">
             <span className="w-1.5 h-1.5 rounded-full bg-[#10B981] breathing-glow-emerald" />
-            <span className="hidden sm:inline">5/5 端基座实时能量注入</span>
+            <span className="hidden sm:inline">已同步到 5 个工具</span>
             <span className="sm:hidden">5端热注</span>
           </div>
         </div>
@@ -1046,7 +1046,7 @@ export default function SkillMatrix3D({
             }`}
             title="切换科技树自转"
           >
-            <span className="text-xs">🔄</span>
+            <Icon name="refresh" size={12} />
             <span className="hidden sm:inline">{isRotating ? "自转中" : "已暂停"}</span>
           </button>
 
@@ -1060,7 +1060,7 @@ export default function SkillMatrix3D({
             className="px-2 sm:px-2.5 py-1 rounded-xl text-[11px] font-medium backdrop-blur-md border bg-black/50 text-white/70 border-white/10 hover:text-white flex items-center gap-1"
             title="重置技能对焦"
           >
-            <span className="text-xs">🎯</span>
+            <Icon name="target" size={12} />
             <span className="hidden sm:inline">重置对焦</span>
           </button>
 
@@ -1068,9 +1068,9 @@ export default function SkillMatrix3D({
             <button
               onClick={onToggleCollapse}
               className="px-2 sm:px-2.5 py-1 rounded-xl text-[11px] font-semibold bg-black/65 hover:bg-black/90 backdrop-blur-md border border-white/20 text-white flex items-center gap-1 shadow-md transition-all active:scale-95"
-              title={isPanelCollapsed ? "打开管理面板" : "让 3D 科技树铺满整屏"}
+              title={isPanelCollapsed ? "打开管理面板" : "让技能图谱铺满"}
             >
-              <span className="text-xs">{isPanelCollapsed ? "⧉" : "⛶"}</span>
+              <Icon name={isPanelCollapsed ? "sidebar" : "maximize"} size={12} />
               <span className="hidden sm:inline">{isPanelCollapsed ? "侧边面板" : "铺满整屏"}</span>
             </button>
           )}
@@ -1127,7 +1127,7 @@ export default function SkillMatrix3D({
       {/* Bottom Floating Terminals & Legend Dock */}
       <div className="relative z-10 pb-3 px-3 flex justify-center pointer-events-auto">
         <div className="bg-black/65 backdrop-blur-xl border border-white/10 rounded-2xl p-1.5 shadow-2xl flex items-center gap-2 overflow-x-auto scrollbar-none text-[10px] font-medium">
-          <span className="text-white/40 px-1">全息基座:</span>
+          <span className="text-white/40 px-1">已接入：</span>
           {TERMINAL_TARGETS.map((t) => (
             <div
               key={t.id}

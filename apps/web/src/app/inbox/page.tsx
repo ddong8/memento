@@ -38,7 +38,7 @@ export default function InboxPage() {
     k;
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
+    <div className="max-w-6xl mx-auto space-y-6">
       <TopBar title={t.nav.inbox || "工作待办"} />
       <TodoPanel />
 

@@ -562,7 +562,7 @@ export function LLMSettingsView() {
               }}
             >
               <Icon name="activity" size={14} />
-              <span>{testing ? "正在测速..." : "⚡ 测试连通性"}</span>
+              <span>{testing ? "正在测速..." : "测试连通性"}</span>
             </button>
           </div>
 
@@ -577,7 +577,7 @@ export function LLMSettingsView() {
             >
               <div className="flex items-center justify-between font-semibold">
                 <span className={testResult.success ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}>
-                  {testResult.success ? "✅ 模型握手成功 (Connection Verified)" : "❌ 连通性测试未通过"}
+                  {testResult.success ? "模型握手成功 (Connection Verified)" : "连通性测试未通过"}
                 </span>
                 <span className="font-mono text-[11px] px-2 py-0.5 rounded bg-black/5 dark:bg-white/10">
                   耗时: {testResult.latency_ms} ms

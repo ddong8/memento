@@ -68,9 +68,8 @@ export default function CartoonPersonaStage({
             className="px-2.5 py-1 rounded-xl text-xs font-semibold backdrop-blur-md border border-white/20 bg-white/10 hover:bg-white/20 text-white flex items-center gap-1.5 transition-all shadow-md active:scale-95"
             title="定制个人专属卡通立绘与性格特征"
           >
-            <span>🎭</span>
+            <Icon name="user" size={13} />
             <span>{avatarSettings?.nickname || "心智立绘"}</span>
-            <span className="text-[10px] opacity-60">Lv.{evolutionLevel || 1}</span>
           </button>
         </div>
 
@@ -82,7 +81,7 @@ export default function CartoonPersonaStage({
             className="px-2 sm:px-2.5 py-1 rounded-xl text-[11px] font-semibold transition-all backdrop-blur-md border bg-[#3186FF]/20 hover:bg-[#3186FF]/35 text-[#60A5FA] border-[#3186FF]/40 flex items-center gap-1 shadow-md active:scale-95"
             title="开启 3D WebGL 深度全息舞台（消耗更多 GPU）"
           >
-            <span>🧊</span>
+            <Icon name="cube" size={13} />
             <span className="hidden sm:inline">3D 全息</span>
           </button>
 
@@ -92,7 +91,7 @@ export default function CartoonPersonaStage({
               title="激发今日心智进化共鸣"
               className="px-2 sm:px-2.5 py-1 rounded-xl text-[11px] font-medium transition-all backdrop-blur-md border bg-gradient-to-r from-[#F59E0B]/20 to-[#EC4899]/20 hover:from-[#F59E0B]/35 hover:to-[#EC4899]/35 text-[#F59E0B] border-[#F59E0B]/40 hover:scale-102 flex items-center gap-1 shadow-md"
             >
-              <span>⚡</span>
+              <Icon name="lightning" size={13} />
               <span className="hidden sm:inline">共鸣</span>
             </button>
           )}
@@ -103,7 +102,7 @@ export default function CartoonPersonaStage({
               className="px-2 sm:px-2.5 py-1 rounded-xl text-[11px] font-semibold bg-black/65 hover:bg-black/90 backdrop-blur-md border border-white/20 text-white flex items-center gap-1 shadow-md transition-all active:scale-95"
               title={isPanelCollapsed ? "打开右侧管理面板" : "让卡通形象铺满整屏"}
             >
-              <span>{isPanelCollapsed ? "⧉" : "⛶"}</span>
+              <Icon name={isPanelCollapsed ? "sidebar" : "maximize"} size={13} />
               <span className="hidden sm:inline">{isPanelCollapsed ? "打开侧边面板" : "铺满整屏"}</span>
             </button>
           )}
@@ -156,7 +155,7 @@ export default function CartoonPersonaStage({
         <div className="mt-3 sm:mt-4 text-center z-10 max-w-sm px-2">
           <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-white/5 border border-white/10 text-[11px] text-white/80">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
-            <span>2D 极速轻量渲染模式 (零发热/省电)</span>
+            <span>2D 模式</span>
           </div>
         </div>
       </div>
@@ -164,11 +163,11 @@ export default function CartoonPersonaStage({
       {/* 底部五维心智神经特征快捷锚点 (点击下钻至对应心智分类) */}
       <div className="relative z-10 p-2 sm:p-3 flex items-center justify-center gap-1.5 sm:gap-2 flex-wrap bg-black/40 backdrop-blur-md border-t border-white/10">
         {[
-          { id: "brain", label: "脑核铁律", icon: "🧠", count: ruleStats.ironLaws, color: "#EF4444" },
-          { id: "communication", label: "沟通风格", icon: "💬", count: ruleStats.communication, color: "#06B6D4" },
-          { id: "tech", label: "架构心核", icon: "⚡", count: ruleStats.tech, color: "#F59E0B" },
-          { id: "execution", label: "工作习惯", icon: "🛠️", count: ruleStats.execution, color: "#10B981" },
-          { id: "project", label: "项目专属", icon: "🎯", count: ruleStats.project, color: "#8B5CF6" },
+          { id: "brain", label: "脑核铁律", count: ruleStats.ironLaws, color: "#EF4444" },
+          { id: "communication", label: "沟通风格", count: ruleStats.communication, color: "#06B6D4" },
+          { id: "tech", label: "架构心核", count: ruleStats.tech, color: "#F59E0B" },
+          { id: "execution", label: "工作习惯", count: ruleStats.execution, color: "#10B981" },
+          { id: "project", label: "项目专属", count: ruleStats.project, color: "#8B5CF6" },
         ].map((item) => {
           const isSelected = activeDimension === item.id;
           return (
@@ -181,7 +180,7 @@ export default function CartoonPersonaStage({
                   : "bg-white/5 border-white/10 text-white/70 hover:text-white hover:bg-white/10"
               }`}
             >
-              <span>{item.icon}</span>
+              
               <span>{item.label}</span>
               <span className="opacity-60 text-[9px]">({item.count})</span>
             </button>

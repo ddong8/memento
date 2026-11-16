@@ -457,11 +457,11 @@ const ExecutionCard = memo(function ExecutionCard({
                 }}
               />
               {waitingQuestion
-                ? (locale === "zh-CN" ? "❓ 等待回复选择..." : "Waiting for response...")
+                ? (locale === "zh-CN" ? "等待回复选择..." : "Waiting for response...")
                 : result?.status === "queued"
                 ? (t.ask.statusWaitingPoll || "等待设备拉取...")
                 : (result?.stdout || result?.stderr) && isRunning
-                ? (t.ask.statusStreaming || "⚡ 实时输出中...")
+                ? (t.ask.statusStreaming || "实时输出中...")
                 : result?.status === "running"
                 ? (t.ask.statusDeviceRunning || "设备运行中...")
                 : result?.status === "still_running"
@@ -528,7 +528,8 @@ const ExecutionCard = memo(function ExecutionCard({
                 whiteSpace: "nowrap",
               }}
             >
-              ✓ {result?.exit_code !== undefined ? `exit ${result.exit_code}` : (t.ask.statusSucceeded || "完成")}
+              <Icon name="check" size={11} strokeWidth={2.4} />
+              {result?.exit_code !== undefined ? `exit ${result.exit_code}` : (t.ask.statusSucceeded || "完成")}
             </span>
           )}
 
@@ -549,7 +550,8 @@ const ExecutionCard = memo(function ExecutionCard({
                 whiteSpace: "nowrap",
               }}
             >
-              ✕ {result?.error_type === "usage_limit"
+              <Icon name="close" size={11} strokeWidth={2.4} />
+              {result?.error_type === "usage_limit"
                 ? (t.ask.statusUsageLimit || "额度已用完")
                 : result?.exit_code !== undefined ? `exit ${result.exit_code}` : (t.ask.statusFailed || "失败")}
             </span>
@@ -918,7 +920,7 @@ const ExecutionCard = memo(function ExecutionCard({
               }}
             >
               <div style={{ fontWeight: 600, color: "#f59e0b", marginBottom: 4 }}>
-                ⚠️ Claude Code 历史会话超出上下文限制 (Prompt is too long)
+                Claude Code 历史会话超出上下文限制 (Prompt is too long)
               </div>
               <div style={{ color: "var(--aurora-fg2)", lineHeight: 1.5 }}>
                 “Prompt is too long” 并非指您输入的提问过长，而是当前续接的历史会话已累计大量消息与工具记录（超过了 200,000 Token 上下文限制）。
@@ -950,7 +952,7 @@ const ExecutionCard = memo(function ExecutionCard({
                     }}
                   >
                     <Icon name="sparkles" size={13} />
-                    <span>⚡ 立即智能瘦身并重试 (Smart Compact & Retry)</span>
+                    <span>立即智能瘦身并重试 (Smart Compact & Retry)</span>
                   </button>
                 </div>
               )}
@@ -1016,7 +1018,7 @@ const ExecutionCard = memo(function ExecutionCard({
               }}
             >
               <div style={{ fontSize: 12, color: "#ef4444", display: "flex", alignItems: "center", gap: 6 }}>
-                <span>✕ 任务执行遇到错误 {result?.exit_code !== undefined ? `(exit ${result.exit_code})` : ""}</span>
+                <span>任务执行遇到错误 {result?.exit_code !== undefined ? `(exit ${result.exit_code})` : ""}</span>
               </div>
               <button
                 type="button"
@@ -1051,7 +1053,7 @@ const ExecutionCard = memo(function ExecutionCard({
                 title="自动将此报错交给执事分析并尝试自动修复"
               >
                 <Icon name="sparkles" size={12} />
-                <span>⚡ 请求执事分析并修复</span>
+                <span>请求执事分析并修复</span>
               </button>
             </div>
           )}

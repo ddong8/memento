@@ -35,12 +35,12 @@ export function LifeRhythmView() {
       const res = await api.syncLifeRhythm(7);
       await loadData();
       setFeedback({
-        text: `✨ 采集器同步完成！已基于全终端事件流推导 ${res.synced_days} 天真实作息与工具精力分布。`,
+        text: `采集器同步完成！已基于全终端事件流推导 ${res.synced_days} 天真实作息与工具精力分布。`,
       });
       setTimeout(() => setFeedback(null), 4000);
     } catch (e: any) {
       setFeedback({
-        text: `❌ 同步失败: ${e.message || "请确认后端服务连接"}`,
+        text: `同步失败: ${e.message || "请确认后端服务连接"}`,
         error: true,
       });
     } finally {
@@ -69,7 +69,7 @@ export function LifeRhythmView() {
       setPopulating(true);
       await api.populateSampleLifeRhythm();
       await loadData();
-      setFeedback({ text: "✨ 已载入示例作息与时间分配数据！" });
+      setFeedback({ text: "已载入示例作息与时间分配数据！" });
       setTimeout(() => setFeedback(null), 3000);
     } catch (e) {
       alert("生成示例数据失败");
@@ -84,7 +84,7 @@ export function LifeRhythmView() {
       setClearing(true);
       await api.clearLifeRhythms();
       await loadData();
-      setFeedback({ text: "🗑️ 已清空作息数据，等待设备真实数据同步..." });
+      setFeedback({ text: "已清空作息数据，等待设备真实数据同步..." });
       setTimeout(() => setFeedback(null), 3000);
     } catch (e) {
       alert("清空数据失败");
@@ -110,12 +110,12 @@ export function LifeRhythmView() {
       const res = await api.parseScreenTimeImage(base64);
       await loadData();
       setFeedback({
-        text: `✅ 成功解析屏幕时间截图！已识别 ${res.apps_count} 个应用，总屏幕时长 ${Math.floor(res.total_screen_minutes / 60)}h ${res.total_screen_minutes % 60}m。`,
+        text: `成功解析屏幕时间截图！已识别 ${res.apps_count} 个应用，总屏幕时长 ${Math.floor(res.total_screen_minutes / 60)}h ${res.total_screen_minutes % 60}m。`,
       });
       setTimeout(() => setFeedback(null), 5000);
     } catch (err: any) {
       setFeedback({
-        text: `❌ 截图解析失败: ${err.message || "请确保截图中清晰展示了应用时长"}`,
+        text: `截图解析失败: ${err.message || "请确保截图中清晰展示了应用时长"}`,
         error: true,
       });
     } finally {
@@ -179,7 +179,7 @@ export function LifeRhythmView() {
               disabled={syncing}
               className="text-xs py-1.5"
             >
-              {syncing ? "⚡ 正在计算采集数据..." : "🔄 从采集器同步作息"}
+              {syncing ? "正在计算采集数据..." : "从采集器同步作息"}
             </Btn>
 
             <input
@@ -196,7 +196,7 @@ export function LifeRhythmView() {
               disabled={parsingImage}
               className="text-xs py-1.5"
             >
-              {parsingImage ? "AI 视觉解析中..." : "📸 手机截图解析"}
+              {parsingImage ? "AI 视觉解析中..." : "手机截图解析"}
             </Btn>
 
             {rhythms.length > 0 && (
@@ -206,7 +206,7 @@ export function LifeRhythmView() {
                 disabled={clearing}
                 className="text-xs py-1.5 text-rose-500 hover:text-rose-600"
               >
-                {clearing ? "清空中..." : "🗑️ 清空数据"}
+                {clearing ? "清空中..." : "清空数据"}
               </Btn>
             )}
 
@@ -217,7 +217,7 @@ export function LifeRhythmView() {
                 disabled={populating}
                 className="text-xs py-1.5"
               >
-                {populating ? "生成中..." : "✨ 体验示例作息数据"}
+                {populating ? "生成中..." : "体验示例作息数据"}
               </Btn>
             )}
 
@@ -228,7 +228,7 @@ export function LifeRhythmView() {
                 disabled={generatingAdvice}
                 className="text-xs py-1.5"
               >
-                {generatingAdvice ? "AI 深度推演中..." : "💡 重新推演决策建议"}
+                {generatingAdvice ? "AI 深度推演中..." : "重新推演决策建议"}
               </Btn>
             )}
           </div>
@@ -269,7 +269,7 @@ export function LifeRhythmView() {
                   fontWeight: active ? 600 : 450,
                 }}
               >
-                📅 {r.date} {idx === 0 ? "（今天）" : ""}
+                {r.date} {idx === 0 ? "（今天）" : ""}
               </button>
             );
           })}
@@ -283,28 +283,28 @@ export function LifeRhythmView() {
             {/* Sleep Rhythm Grid */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <div className="p-3.5 rounded-2xl bg-[var(--aurora-card)] border border-[var(--aurora-border)]">
-                <div className="text-[11px] text-[var(--aurora-fg4)] mb-1">🌅 起床时间</div>
+                <div className="text-[11px] text-[var(--aurora-fg4)] mb-1">起床时间</div>
                 <div className="text-base font-bold text-[var(--aurora-fg1)] font-mono">
                   {currentDay.wakeup_time || "未记录"}
                 </div>
               </div>
 
               <div className="p-3.5 rounded-2xl bg-[var(--aurora-card)] border border-[var(--aurora-border)]">
-                <div className="text-[11px] text-[var(--aurora-fg4)] mb-1">🌙 入睡时间</div>
+                <div className="text-[11px] text-[var(--aurora-fg4)] mb-1">入睡时间</div>
                 <div className="text-base font-bold text-[var(--aurora-fg1)] font-mono">
                   {currentDay.bedtime || "未记录"}
                 </div>
               </div>
 
               <div className="p-3.5 rounded-2xl bg-[var(--aurora-card)] border border-[var(--aurora-border)]">
-                <div className="text-[11px] text-[var(--aurora-fg4)] mb-1">💤 睡眠时长</div>
+                <div className="text-[11px] text-[var(--aurora-fg4)] mb-1">睡眠时长</div>
                 <div className="text-base font-bold text-indigo-400 font-mono">
                   {currentDay.sleep_hours ? `${currentDay.sleep_hours} 小时` : "未知"}
                 </div>
               </div>
 
               <div className="p-3.5 rounded-2xl bg-[var(--aurora-card)] border border-[var(--aurora-border)]">
-                <div className="text-[11px] text-[var(--aurora-fg4)] mb-1">📱 总屏幕时长</div>
+                <div className="text-[11px] text-[var(--aurora-fg4)] mb-1">总屏幕时长</div>
                 <div className="text-base font-bold text-[var(--aurora-accent)] font-mono">
                   {Math.floor(currentDay.total_screen_minutes / 60)}h {currentDay.total_screen_minutes % 60}m
                 </div>
@@ -427,7 +427,7 @@ export function LifeRhythmView() {
                       disabled={generatingAdvice}
                       className="text-xs py-1.5"
                     >
-                      {generatingAdvice ? "正在分析中..." : "💡 立即生成 AI 决策建议"}
+                      {generatingAdvice ? "正在分析中..." : "立即生成 AI 决策建议"}
                     </Btn>
                   </div>
                 )}
@@ -435,7 +435,7 @@ export function LifeRhythmView() {
 
               {/* Data Sync Channels Info */}
               <div className="mt-6 pt-4 border-t border-[var(--aurora-border)] text-[11px] text-[var(--aurora-fg4)] space-y-2">
-                <div className="font-semibold text-[var(--aurora-fg2)]">⚡ 作息节律与精力分配推算原理</div>
+                <div className="font-semibold text-[var(--aurora-fg2)]">作息节律与精力分配推算原理</div>
                 <div className="leading-relaxed">
                   • <b className="text-[var(--aurora-fg2)]">全终端采集器真实事件流</b>：实时基于 Claude Code、Cursor、VS Code、Antigravity 等终端采集器收集的真实会话交互与代码保存事件，无需前台监控后台常驻或截屏打卡。
                 </div>
@@ -465,7 +465,7 @@ export function LifeRhythmView() {
               disabled={syncing}
               className="text-xs py-2 px-4"
             >
-              {syncing ? "⚡ 正在计算采集数据..." : "🔄 立即从采集器同步作息"}
+              {syncing ? "正在计算采集数据..." : "立即从采集器同步作息"}
             </Btn>
             <Btn
               variant="glass"
@@ -473,7 +473,7 @@ export function LifeRhythmView() {
               disabled={parsingImage}
               className="text-xs py-2 px-3"
             >
-              {parsingImage ? "AI 视觉解析中..." : "📸 手机截图解析"}
+              {parsingImage ? "AI 视觉解析中..." : "手机截图解析"}
             </Btn>
             <Btn
               variant="glass"
@@ -481,7 +481,7 @@ export function LifeRhythmView() {
               disabled={populating}
               className="text-xs py-2 px-3"
             >
-              {populating ? "生成中..." : "✨ 体验示例作息数据"}
+              {populating ? "生成中..." : "体验示例作息数据"}
             </Btn>
           </div>
         </div>

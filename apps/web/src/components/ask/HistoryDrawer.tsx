@@ -1430,7 +1430,7 @@ export const HistoryDrawer = memo(function HistoryDrawer({
                   transition: "all 0.15s ease",
                 }}
               >
-                🌐 全部设备
+                全部设备
               </button>
               <button
                 type="button"
@@ -1455,7 +1455,7 @@ export const HistoryDrawer = memo(function HistoryDrawer({
                   transition: "all 0.15s ease",
                 }}
               >
-                🖥️ 当前设备 ({currentDevName})
+                当前设备 ({currentDevName})
               </button>
             </div>
           )}

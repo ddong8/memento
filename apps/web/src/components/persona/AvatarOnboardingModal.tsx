@@ -482,7 +482,7 @@ export default function AvatarOnboardingModal({
                         : "text-white/60 hover:text-white"
                     }`}
                   >
-                    <span>🎭 精选卡通人物形象库</span>
+                    <span>精选卡通人物形象库</span>
                     <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-black/10">
                       {currentPresets.length} 种
                     </span>
@@ -496,7 +496,7 @@ export default function AvatarOnboardingModal({
                         : "text-white/60 hover:text-white"
                     }`}
                   >
-                    <span>📸 上传照片 AI 定制人物形象</span>
+                    <span>上传照片 AI 定制人物形象</span>
                     <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-pink-500/20 text-pink-400">
                       AI 多模态
                     </span>
@@ -610,7 +610,7 @@ export default function AvatarOnboardingModal({
                           </button>
                           <span className="text-white/30">|</span>
                           <span className="text-xs text-emerald-400 font-mono">
-                            ✓ 照片已加载就绪
+                            照片已加载就绪
                           </span>
                         </div>
                       </div>
@@ -639,7 +639,7 @@ export default function AvatarOnboardingModal({
                       <div className="flex items-center justify-between gap-2">
                         <div className="space-y-0.5">
                           <h4 className="text-xs font-bold text-purple-200 flex items-center gap-1.5">
-                            <span>✨ AI 多模态视觉卡通化生成</span>
+                            <span>AI 多模态视觉卡通化生成</span>
                           </h4>
                           <p className="text-[11px] text-purple-300/70">
                             通过视觉认知模型分析面部与气质，智能匹配专属卡通立绘与 3D 光学配色
@@ -658,7 +658,7 @@ export default function AvatarOnboardingModal({
                             </>
                           ) : (
                             <>
-                              <span>✨ 开始生成</span>
+                              <span>开始生成</span>
                             </>
                           )}
                         </button>
@@ -685,7 +685,7 @@ export default function AvatarOnboardingModal({
                               : "text-white/60 hover:text-white"
                           }`}
                         >
-                          📸 专属自拍照徽章
+                          专属自拍照徽章
                         </button>
                         <button
                           onClick={() => setAvatarMode("preset")}
@@ -695,7 +695,7 @@ export default function AvatarOnboardingModal({
                               : "text-white/60 hover:text-white"
                           }`}
                         >
-                          🎭 AI 匹配卡通立绘
+                          AI 匹配卡通立绘
                         </button>
                       </div>
                     </div>
@@ -883,7 +883,7 @@ export default function AvatarOnboardingModal({
                   </>
                 ) : (
                   <>
-                    <span>⚡ 激活数字孪生形象</span>
+                    <span>激活数字孪生形象</span>
                   </>
                 )}
               </button>

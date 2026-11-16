@@ -407,7 +407,7 @@ describe("Adversarial Verification: HistoryDrawer, Tag Decoupling and Scalabilit
       const buttons = Array.from(host.querySelectorAll("button"));
       const currentDevBtn = buttons.find((b) => b.textContent?.includes("当前设备"));
       expect(currentDevBtn).toBeDefined();
-      expect(currentDevBtn?.textContent).toContain("🖥️ 当前设备 (当前设备)");
+      expect(currentDevBtn?.textContent).toContain("当前设备 (当前设备)");
       expect(currentDevBtn?.textContent).not.toContain("memento-");
     });
 

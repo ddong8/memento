@@ -746,9 +746,11 @@ export default function MemoryPage() {
             </div>
             </>
           ) : (
-            <div className="absolute bottom-3 left-3 right-3 pointer-events-none text-center">
-              <span className="text-[10px] font-mono text-white/50 bg-black/40 backdrop-blur-xs px-3 py-1 rounded-full border border-white/10 pointer-events-auto">
-                按住左键 360° 旋转 · 滚轮缩放 · 点击星晶在 3D 页面直接展开全息详情
+            // Above the galaxy's legend dock (it sat right on top of it), touch wording on a phone
+            <div className="absolute bottom-[52px] left-3 right-3 pointer-events-none text-center">
+              <span className="inline-block max-w-full truncate align-bottom text-[10px] font-mono text-white/50 bg-black/40 backdrop-blur-xs px-3 py-1 rounded-full border border-white/10 pointer-events-auto">
+                <span className="sm:hidden">单指拖动旋转 · 双指缩放 · 点击星晶展开详情</span>
+                <span className="hidden sm:inline">按住左键 360° 旋转 · 滚轮缩放 · 点击星晶在 3D 页面直接展开全息详情</span>
               </span>
             </div>
           )}

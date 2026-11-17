@@ -1092,12 +1092,13 @@ export default function MemoryGalaxy3D({
 
       {/* Bottom Floating Legend Dock */}
       <div className="relative z-10 pb-3 px-3 flex justify-center pointer-events-auto">
-        <div className="bg-black/65 backdrop-blur-xl border border-white/10 rounded-2xl p-1 shadow-2xl flex items-center gap-1.5 overflow-x-auto scrollbar-none text-[10px] font-medium">
-          <span className="text-white/40 px-2">图例：</span>
+        {/* Labels never wrap: on a phone the chips were squeezed into one character per line */}
+        <div className="max-w-full bg-black/65 backdrop-blur-xl border border-white/10 rounded-2xl p-1 shadow-2xl flex items-center gap-1.5 overflow-x-auto scrollbar-none text-[10px] font-medium whitespace-nowrap">
+          <span className="text-white/40 px-2 shrink-0">图例：</span>
           {Object.entries(TYPE_COLOR_HEX).map(([k, hex]) => (
             <div
               key={k}
-              className="px-2 py-0.8 rounded-lg flex items-center gap-1.5 bg-white/5 border border-white/10 text-white/80"
+              className="shrink-0 px-2 py-0.5 rounded-lg flex items-center gap-1.5 bg-white/5 border border-white/10 text-white/80"
             >
               <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: hex }} />
               <span>{TYPE_LABEL[k] || k}</span>

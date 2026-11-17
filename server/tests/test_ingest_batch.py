@@ -30,6 +30,7 @@ def _run(req, ingest_side_effect):
 
     with patch.object(ingest, "ensure_device", AsyncMock(return_value=machine)), \
          patch.object(ingest, "lock_slice", AsyncMock()), \
+         patch.object(ingest, "dropped_slice", AsyncMock(return_value=False)), \
          patch.object(ingest, "ingest_file", fake_ingest):
         out = asyncio.run(ingest.ingest_files_endpoint(
             req, _collector_user=user, _throttle=None, db=db,

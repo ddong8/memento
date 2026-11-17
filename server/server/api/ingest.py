@@ -23,6 +23,7 @@ from ..db.session import get_db
 from ..middleware.auth import verify_collector_token
 from ..services.device_service import ensure_device
 from ..services.session_timeline import schedule_for_document
+from ..services.project_exclusion import ProjectExcluded, dropped_slice
 from ..services.ingest_service import (
     OffsetMismatch,
     claim_slice,
@@ -79,30 +80,36 @@ class IngestResponse(BaseModel):
 
 async def _ingest_one(db: AsyncSession, f: IngestFileRequest, machine_id: str, user_id: str) -> tuple[str, int | None]:
     """Store one file or slice of a log: (document id, where the server's copy of it ends). Raises
-    OffsetMismatch for a slice that doesn't fit what's stored."""
+    OffsetMismatch for a slice that doesn't fit what's stored. A file of a project the user doesn't
+    collect is taken and dropped: no document id."""
+    if await dropped_slice(db, user_id, machine_id, f.tool, f.relative_path, f.hash, f.offset, f.end_offset):
+        return "", f.end_offset
     if f.end_offset is not None:
         claimed = await claim_slice(db, f.tool, f.relative_path, machine_id, f.mode, f.offset, f.end_offset)
         if claimed is not None:
             return str(claimed[0]), claimed[1]  # stored already: a retry whose first upload went through
     else:
         await lock_slice(db, machine_id, f.tool, f.relative_path)  # a collector from before end_offset
-    doc = await ingest_file(
-        db=db,
-        tool_id=f.tool,
-        category=f.category,
-        content_type=f.content_type,
-        relative_path=f.relative_path,
-        content=f.content,
-        content_hash=f.hash,
-        file_size=f.file_size or len(f.content.encode("utf-8")),
-        mode=f.mode,
-        offset=f.offset,
-        metadata=f.metadata,
-        timestamp=f.timestamp,
-        machine_id=machine_id,
-        user_id=user_id,
-        end_offset=f.end_offset,
-    )
+    try:
+        doc = await ingest_file(
+            db=db,
+            tool_id=f.tool,
+            category=f.category,
+            content_type=f.content_type,
+            relative_path=f.relative_path,
+            content=f.content,
+            content_hash=f.hash,
+            file_size=f.file_size or len(f.content.encode("utf-8")),
+            mode=f.mode,
+            offset=f.offset,
+            metadata=f.metadata,
+            timestamp=f.timestamp,
+            machine_id=machine_id,
+            user_id=user_id,
+            end_offset=f.end_offset,
+        )
+    except ProjectExcluded:
+        return "", f.end_offset
     return str(doc.id), f.end_offset
 
 

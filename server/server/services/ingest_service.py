@@ -974,6 +974,13 @@ async def ingest_file(
             if row:
                 project_id = row
 
+    # A project the user doesn't collect: dropped here, whichever collector sent it (project_exclusion)
+    if project_id is not None and category not in ("discovery", "system"):
+        from .project_exclusion import drop_excluded
+
+        project_name = project.title if project_hash else await db.scalar(select(Project.title).where(Project.id == project_id))
+        await drop_excluded(db, user_id, machine_id, tool_id, relative_path, project_name, content_hash, offset, end_offset)
+
     # Find existing document
     doc_lookup_query = (
         select(Document)

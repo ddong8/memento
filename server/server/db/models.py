@@ -406,6 +406,8 @@ class User(Base):
     llm_settings: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
     # Digital twin avatar & onboarding settings: {"is_initialized", "gender", "style", "preset_id", "nickname", "avatar_url", "custom_photo_url", "theme_color", "outfit_color", "features"}
     avatar_settings: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
+    # {"excluded_projects": [...]}: projects not to collect, see services/project_exclusion.py
+    collect_settings: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -489,6 +491,9 @@ class SyncState(Base):
     # Where the last slice the collector sent ends in the file: the next one has to start there
     # (ingest_service.claim_slice). NULL when unknown (a collector from before it sent end_offset).
     last_end_offset: Mapped[int | None] = mapped_column(BigInteger)
+    # The excluded project (its key) this file belongs to: slices are taken and dropped
+    # (services/project_exclusion.py). NULL for a file that's collected.
+    excluded_project: Mapped[str | None] = mapped_column(String(255))
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     __table_args__ = (

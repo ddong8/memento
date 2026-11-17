@@ -7,6 +7,7 @@ import { formatBytes } from "@/lib/constants";
 import { useNow } from "@/lib/use-now";
 import { Btn, Chip, Glass, TopBar } from "@/components/aurora/primitives";
 import { BrandMark } from "@/components/aurora/BrandMark";
+import { ExcludedProjectsCard } from "./ProjectExclusion";
 
 const RELEASES = "https://github.com/ddong8/memento/releases/latest";
 
@@ -72,6 +73,8 @@ export function CollectorView({ hideTopBar = false }: { hideTopBar?: boolean }) 
             <Btn size="sm" icon="arrow_down">{c.download}</Btn>
           </a>
         </Glass>
+        <div style={{ height: 14 }} />
+        <ExcludedProjectsCard />
       </div>
     );
   }
@@ -115,6 +118,8 @@ export function CollectorView({ hideTopBar = false }: { hideTopBar?: boolean }) 
       </Glass>
 
       {active && status && <CollectCard stats={status.collect ?? null} />}
+
+      <ExcludedProjectsCard />
 
       {tools.length > 0 && (
         <Glass padding="clamp(14px, 3vw, 20px)" radius={18} style={{ marginBottom: 14 }}>

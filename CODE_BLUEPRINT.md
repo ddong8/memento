@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `ce81bf32` · Updated: `2026-11-17`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `354a842d` · Updated: `2026-11-17`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -13,25 +13,25 @@
 - 类型 (Type): Monorepo (Workspaces)
 - 技术栈 (Stack): TypeScript/JavaScript, Python, Shell / Bash · React, Electron, Next.js, TailwindCSS, Model Context Protocol (MCP), FastAPI, SQLAlchemy, Celery
 - 基础设施 (Infra): PostgreSQL, pgvector (Vector DB), Redis, MinIO / S3 Object Storage, Celery Task Queue
-- 规模 (Scale): 9 个子系统 · 35 组 API 路由 / 237 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 220 个测试文件
+- 规模 (Scale): 9 个子系统 · 36 组 API 路由 / 242 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 222 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `ce81bf32` (2026-11-17): feat(画像): 3D 形象按自己选的卡通预设现场搭出来，不再是通用盔甲人物
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 57（✅ 57 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-PERSONA-ONBOARD`, `R-SESSION-PREVIEW-WHOLE`, `F-ASK`, `R-ISLAND-CLEANUP`, `S-RUN-STATE`
+- 最近改动 (Latest): `354a842d` (2026-11-17): feat(web): 隐私政策和帮助页改用应用内版式，并且不登录也能打开
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 58（✅ 58 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-UI-COMMERCIAL`, `R-PERSONA-ONBOARD`, `R-SESSION-PREVIEW-WHOLE`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
 | 1. Project Overview & Tech Stack | L36-L42 |
 | 2. High-Level Architecture Topology | L44-L79 |
 | 3. Subsystem Breakdown & Responsibilities | L81-L93 |
-| 4. Key Entry Points & API Endpoints | L95-L463 |
-| 5. Core Domain Services & Background Schedules | L465-L505 |
-| 6.5. AST Call Graph, DTO Schemas & CLI Entrypoints | L507-L579 |
-| 7. CI/CD Pipelines, Code Hotspots & Test Suites | L581-L623 |
-| 8. Development & Verification Commands | L625-L642 |
-| 9. Recent Architectural Evolutions | L644-L651 |
-| 10. Key Environment Variables & Configuration | L653-L665 |
-| 11. 业务蓝图核对 (Business Blueprint Check) | L667-L677 |
+| 4. Key Entry Points & API Endpoints | L95-L471 |
+| 5. Core Domain Services & Background Schedules | L473-L513 |
+| 6.5. AST Call Graph, DTO Schemas & CLI Entrypoints | L515-L587 |
+| 7. CI/CD Pipelines, Code Hotspots & Test Suites | L589-L631 |
+| 8. Development & Verification Commands | L633-L650 |
+| 9. Recent Architectural Evolutions | L652-L659 |
+| 10. Key Environment Variables & Configuration | L661-L673 |
+| 11. 业务蓝图核对 (Business Blueprint Check) | L675-L685 |
 
 ## 1. Project Overview & Tech Stack
 
@@ -171,6 +171,14 @@ flowchart TD
 - `POST /api/auth/refresh`
 - `POST /api/auth/login`
 - _... (11 more endpoints)_
+
+#### `/api/collect/exclusions` (collect_exclusions.py)
+
+- `GET /api/collect/exclusions`
+- `GET /api/collect/exclusions/preview`
+- `POST /api/collect/exclusions`
+- `POST /api/collect/exclusions/{key}/retry`
+- `DELETE /api/collect/exclusions/{key}`
 
 #### `/api/conversations` (conversations.py)
 
@@ -552,6 +560,7 @@ erDiagram
 | `TokenResponse` | Pydantic DTO | [`server/server/api/auth.py`](server/server/api/auth.py) | `access_token: str`, `token_type: str`, `user_id: str`, `role: str` |
 | `UserResponse` | Pydantic DTO | [`server/server/api/auth.py`](server/server/api/auth.py) | `id: str`, `email: str`, `name: str \| None`, `role: str`, `status: str`, `collector_token: str \| None` |
 | `UpdateProfileRequest` | Pydantic DTO | [`server/server/api/auth.py`](server/server/api/auth.py) | `name: str \| None`, `avatar_url: str \| None` |
+| `ExclusionIn` | Pydantic DTO | [`server/server/api/collect_exclusions.py`](server/server/api/collect_exclusions.py) | `name: str` |
 | `ConversationUpdate` | Pydantic DTO | [`server/server/api/conversations.py`](server/server/api/conversations.py) | `title: str` |
 | `CompactRequest` | Pydantic DTO | [`server/server/api/conversations.py`](server/server/api/conversations.py) | `recent_turns: int`, `new_prompt: str` |
 | `P2POffer` | Pydantic DTO | [`server/server/api/devices.py`](server/server/api/devices.py) | `sdp: str` |
@@ -563,7 +572,6 @@ erDiagram
 | `ReconcileRequest` | Pydantic DTO | [`server/server/api/ingest.py`](server/server/api/ingest.py) | `files: list[ReconcileFile]` |
 | `AcceptBody` | Pydantic DTO | [`server/server/api/learning.py`](server/server/api/learning.py) | `statement: str \| None`, `general: bool` |
 | `PitfallBody` | Pydantic DTO | [`server/server/api/learning.py`](server/server/api/learning.py) | `title: str`, `symptom: str`, `fix: str`, `cause: str \| None`, `project: str \| None` |
-| `GuardBody` | Pydantic DTO | [`server/server/api/learning.py`](server/server/api/learning.py) | `enabled: bool` |
 
 ### CLI Binaries & Automation Entrypoints
 
@@ -601,9 +609,9 @@ erDiagram
 
 | Suite | Directory | Files | Sample Tests |
 | :--- | :--- | :--- | :--- |
-| server/tests (pytest) | [`server/tests`](server/tests) | 118 | `test_agent_ids.py`, `test_agent_limits.py`, `test_agent_login.py`, `test_agent_run_states.py`, `test_ai_provider.py` |
+| server/tests (pytest) | [`server/tests`](server/tests) | 119 | `test_agent_ids.py`, `test_agent_limits.py`, `test_agent_login.py`, `test_agent_run_states.py`, `test_ai_provider.py` |
 | packages/daemon/test (vitest / jest) | [`packages/daemon/test`](packages/daemon/test) | 57 | `agent-args.test.ts`, `agent-login.test.ts`, `agent-stream.test.ts`, `agy-models.test.ts`, `agy-project-folder.test.ts` |
-| apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 39 | `api-client.test.ts`, `ask-reading-and-persona-rules.test.tsx`, `ask-top-bar.test.tsx`, `auth-fetch.test.ts`, `build-update.test.ts` |
+| apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 40 | `api-client.test.ts`, `ask-reading-and-persona-rules.test.tsx`, `ask-top-bar.test.tsx`, `auth-fetch.test.ts`, `build-update.test.ts` |
 | apps/mobile/test (vitest / jest) | [`apps/mobile/test`](apps/mobile/test) | 2 | `deeplink.test.ts`, `webview-props.test.ts` |
 | packages/core/test (vitest / jest) | [`packages/core/test`](packages/core/test) | 2 | `ask-stream.test.ts`, `task-events.test.ts` |
 | apps/desktop/test (vitest / jest) | [`apps/desktop/test`](apps/desktop/test) | 1 | `helpers.test.ts` |
@@ -616,11 +624,11 @@ erDiagram
 - [`apps/web/src/components/ExecutionCard.tsx`](apps/web/src/components/ExecutionCard.tsx) (7 commits)
 - [`apps/web/src/components/ask/bubbles.tsx`](apps/web/src/components/ask/bubbles.tsx) (7 commits)
 - [`apps/web/src/components/persona/DigitalTwinAvatar3D.tsx`](apps/web/src/components/persona/DigitalTwinAvatar3D.tsx) (7 commits)
-- [`apps/web/src/components/layout/Sidebar.tsx`](apps/web/src/components/layout/Sidebar.tsx) (6 commits)
 - [`apps/web/src/components/viewers/MediaInspectorPanel.tsx`](apps/web/src/components/viewers/MediaInspectorPanel.tsx) (6 commits)
 - [`apps/web/src/app/app/page.tsx`](apps/web/src/app/app/page.tsx) (5 commits)
 - [`apps/web/src/app/memory/persona/page.tsx`](apps/web/src/app/memory/persona/page.tsx) (5 commits)
 - [`apps/web/src/components/ask/AskTopBar.tsx`](apps/web/src/components/ask/AskTopBar.tsx) (5 commits)
+- [`apps/web/src/components/layout/Sidebar.tsx`](apps/web/src/components/layout/Sidebar.tsx) (5 commits)
 
 ## 8. Development & Verification Commands
 
@@ -643,12 +651,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `354a842d` (2026-11-17): feat(web): 隐私政策和帮助页改用应用内版式，并且不登录也能打开
 - `ce81bf32` (2026-11-17): feat(画像): 3D 形象按自己选的卡通预设现场搭出来，不再是通用盔甲人物
 - `49a69dbc` (2026-11-17): perf(项目): 项目对话和时间线每个会话先带 40 条，点「展开全部」按会话取全部消息
 - `e299185b` (2026-11-17): fix(web): 手机上运行中标签放进顶栏、不再压住页面按钮；画像 3D 舞台去掉手机上的空状态胶囊
 - `e50ec760` (2026-11-17): fix(部署): 回写镜像 tag 和别的 run 撞在同一行时，在最新 main 上重来，不把线上退回旧提交
 - `03480911` (2026-11-17): fix(画像): 手机上 3D 工具栏只留共鸣、自转、2D、侧边面板，不再被截掉
-- `fa7ecbf5` (2026-11-17): fix(问答): 设备选「自动」时，新会话拿到的是实际落到的那台设备的环境信息
 
 ## 10. Key Environment Variables & Configuration
 
@@ -666,15 +674,15 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 11. 业务蓝图核对 (Business Blueprint Check)
 
-- 业务蓝图：[BUSINESS_BLUEPRINT.md](BUSINESS_BLUEPRINT.md) · 规则 57（✅ 57 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
+- 业务蓝图：[BUSINESS_BLUEPRINT.md](BUSINESS_BLUEPRINT.md) · 规则 58（✅ 58 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
 - 结论：✅ 没有失效或违规
 
 ### 最近提交碰到的业务条目（改动后复查它们还成不成立）
 
+- `354a842d` feat(web): 隐私政策和帮助页改用应用内版式，并且不登录也能打开 → `R-UI-COMMERCIAL`
 - `ce81bf32` feat(画像): 3D 形象按自己选的卡通预设现场搭出来，不再是通用盔甲人物 → `R-PERSONA-ONBOARD`
 - `49a69dbc` perf(项目): 项目对话和时间线每个会话先带 40 条，点「展开全部」按会话取全部消息 → `R-SESSION-PREVIEW-WHOLE`
 - `e299185b` fix(web): 手机上运行中标签放进顶栏、不再压住页面按钮；画像 3D 舞台去掉手机上的空状态胶囊 → `F-ASK`, `R-ISLAND-CLEANUP`, `S-RUN-STATE`
-- `e50ec760` fix(部署): 回写镜像 tag 和别的 run 撞在同一行时，在最新 main 上重来，不把线上退回旧提交 → `R-CI-KUSTOMIZE-PINNED`, `R-DEPLOY-AFTER-CI`, `R-DEPLOY-BUMP-RACE`
 
 ---
 _Auto-maintained by `scripts/project_blueprint.mjs` (v20261126) & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._

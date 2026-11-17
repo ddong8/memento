@@ -13,7 +13,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from .middleware.etag import ETagMiddleware
 from .middleware.gzip_request import GzipRequestMiddleware
 
-from .api import admin, ask, auth, conversations, daily, dashboard, data_io, devices, documents, events, health, hierarchy, ingest, install_bootstrap, learning, life_rhythm, llm, media, memory, missions, notify, plans, proactive, profile, projects, public, quotas, search, share, skills, todos, tools, updates
+from .api import admin, ask, auth, collect_exclusions, conversations, daily, dashboard, data_io, devices, documents, events, health, hierarchy, ingest, install_bootstrap, learning, life_rhythm, llm, media, memory, missions, notify, plans, proactive, profile, projects, public, quotas, search, share, skills, todos, tools, updates
 # Aliased: `server.api.tasks` (remote device task queue) is a different module
 # from the `server.tasks` package (Celery jobs). Importing it bare here would
 # read as the latter.
@@ -71,6 +71,9 @@ def _run_migrations(conn) -> None:
         sync_cols = {c["name"] for c in insp.get_columns("sync_state")}
         if "last_end_offset" not in sync_cols:
             conn.execute(text("ALTER TABLE sync_state ADD COLUMN last_end_offset BIGINT"))
+        # A file of a project the user stopped collecting: its slices are taken and dropped (project_exclusion)
+        if "excluded_project" not in sync_cols:
+            conn.execute(text("ALTER TABLE sync_state ADD COLUMN excluded_project VARCHAR(255)"))
 
     # CorrectionTopic.scope — a learned rule can hold in one project or on one device only.
     if "correction_topics" in tables:
@@ -110,6 +113,9 @@ def _run_migrations(conn) -> None:
     # User.avatar_settings — Digital twin avatar onboarding and styling settings
     if "avatar_settings" not in user_cols:
         conn.execute(text("ALTER TABLE users ADD COLUMN avatar_settings JSONB NOT NULL DEFAULT '{}'"))
+    # User.collect_settings — projects the user doesn't want collected (project_exclusion)
+    if "collect_settings" not in user_cols:
+        conn.execute(text("ALTER TABLE users ADD COLUMN collect_settings JSONB NOT NULL DEFAULT '{}'"))
 
     # AskConversation.config — stores tool/engine, project, session, model, effort, worktree, compact preferences.
     if "ask_conversations" in tables:
@@ -697,6 +703,7 @@ app.add_middleware(GzipRequestMiddleware)
 # Register routers
 app.include_router(dashboard.router)
 app.include_router(ingest.router)
+app.include_router(collect_exclusions.router)
 app.include_router(tools.router)
 app.include_router(documents.router)
 app.include_router(conversations.router)

@@ -3,16 +3,16 @@
 <!-- memento:business-index:start (自动生成，勿手改) -->
 > 先读这一段定位；要细节时按下表行号只读对应章节。改了「代码位置」里的文件，先看对应条目还成不成立。
 
-- 汇总：规则 57（✅ 57 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
+- 汇总：规则 58（✅ 58 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
 - 核对：全部通过（详见末尾「自动核对」）
 
 | 章节 | 行号 |
 | :--- | :--- |
 | 1. 业务对象与术语 | L21-L65 |
 | 2. 关键流程 | L67-L124 |
-| 3. 业务规则 | L126-L462 |
-| 4. 状态归属 | L464-L509 |
-| 自动核对 (Auto Check) | L512-L609 |
+| 3. 业务规则 | L126-L469 |
+| 4. 状态归属 | L471-L516 |
+| 自动核对 (Auto Check) | L519-L617 |
 <!-- memento:business-index:end -->
 > 业务蓝图：memento 应该做成什么样，每一条落在哪段代码、由哪个测试或检查保证。和代码蓝图 [CODE_BLUEPRINT.md](CODE_BLUEPRINT.md)（代码长什么样）配合看：代码蓝图回答"在哪里"，这份回答"应该怎样、为什么"。
 > 规则来自用户的原话和纠正（CLAUDE.md、长期记忆、每晚复盘），不是从代码里反推的；代码和这里对不上，先当成代码的问题查。
@@ -162,6 +162,13 @@
 - 代码: `packages/daemon/src/workspace.ts#untrackedToLeave`, `packages/daemon/src/workspace.ts#exportWorkspace`, `packages/daemon/src/workspace-sync.ts#prepareWorkspace`, `apps/web/src/components/TaskTimeline.tsx`
 - 测试: `packages/daemon/test/workspace.test.ts#leaves an untracked file too big to send on the source instead of failing, and says which`
 - 禁止: `加进 .gitignore 后再试` @ `packages/daemon/src/workspace.ts`
+
+### R-PROJECT-EXCLUDE 测试用的项目可以不采集，已采集的数据和从中学到的东西一并清掉
+- 来源: 用户 11-17「目前默认是所有项目都抓取的，如果用户有些项目是用来测试的，不想它被抓取……对应的记忆，画像等也要删除」
+- 说明: 在项目页点「不再采集」或在 设置 → 采集配置 里加项目名（支持 test-* 这样一次排除一类，名字按画像作用域的口径比，忽略大小写、空格、- 和 _）。所有设备、所有工具、任何版本的采集端都立即生效：服务端入库时丢弃，并在 sync_state 上标记，后续增量照收照丢、不要求整段重传。已采集的会话文件连同消息、检索索引、向量、知识图谱观察删除；相关记忆和避坑、技能、项目范围的纠正、自动待办停用，画像（发布版和草稿）里的「## 项目：」小节移除，这些都记在名单里，「恢复采集」时放回；恢复后设备上的会话有新内容时整段重新采上来。删除前弹窗列出会删什么、停用什么。
+- 代码: `server/server/services/project_exclusion.py#purge`, `server/server/services/project_exclusion.py#restore`, `server/server/services/project_exclusion.py#drop_excluded`, `server/server/services/project_exclusion.py#dropped_slice`, `server/server/api/collect_exclusions.py`, `server/server/api/ingest.py#_ingest_one`, `apps/web/src/components/collector/ProjectExclusion.tsx#ExcludeProjectDialog`, `apps/web/src/components/collector/ProjectExclusion.tsx#ExcludedProjectsCard`
+- 测试: `server/tests/test_project_exclusion.py#test_excluding_a_project_takes_away_what_it_left_and_stops_collecting_it`, `server/tests/test_project_exclusion.py#test_a_star_takes_every_project_it_fits`, `apps/web/test/project-exclusion.test.tsx#shows the preview first and excludes only on confirm`
+- 要求: `drop_excluded(` @ `server/server/services/ingest_service.py`; `<ExcludeProjectDialog` @ `apps/web/src/app/projects/[id]/page.tsx`; `<ExcludedProjectsCard />` @ `apps/web/src/components/collector/CollectorView.tsx`
 
 ### R-RUN-OUTLIVES-PAGE 运行不因页面关闭、切后台、发版而中断
 - 来源: 记忆「智能体运行状态容易丢的根因与交接修法」（10-28 查实四个根因）；CLAUDE.md「发版时旧 pod 会先等进行中的回答跑完」
@@ -513,7 +520,7 @@
 
 > 生成器随每次提交核对：代码位置还在不在、测试还在不在、禁止 / 要求的写法满不满足。✅ 通过 · ⚠️ 缺代码位置、测试或来源 · ❌ 位置失效或违反规则（CI 会拦下）。
 
-- 汇总：规则 57（✅ 57 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
+- 汇总：规则 58（✅ 58 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
 
 | 编号 | 名称 | 代码位置 | 测试 | 检查 | 结论 |
 | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -543,6 +550,7 @@
 | `R-ISLAND-CLEANUP` | 任务结束必须清掉灵动岛状态 | 3/3 | 3/3 | — | ✅ |
 | `R-MULTI-DEVICE-STABLE` | 多机任务并发执行，过程和结果稳定回传 | 4/4 | 4/4 | — | ✅ |
 | `R-WS-BIG-UNTRACKED` | 跨设备改代码时，没进 .gitignore 的大文件不让任务失败 | 4/4 | 1/1 | 1/1 | ✅ |
+| `R-PROJECT-EXCLUDE` | 测试用的项目可以不采集，已采集的数据和从中学到的东西一并清掉 | 8/8 | 3/3 | 3/3 | ✅ |
 | `R-RUN-OUTLIVES-PAGE` | 运行不因页面关闭、切后台、发版而中断 | 2/2 | 4/4 | — | ✅ |
 | `R-QUOTA-PER-MODEL` | 额度按当前对话用的模型显示 | 3/3 | 1/1 | 2/2 | ✅ |
 | `R-MODEL-SWITCH` | 某个模型额度用完，能换同一工具的其它模型，三个工具都要支持 | 4/4 | 3/3 | — | ✅ |

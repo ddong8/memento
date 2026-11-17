@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useI18n } from "@/lib/i18n";
 import { getApiBase, authFetch } from "@/lib/api-client";
@@ -9,6 +9,7 @@ import { Icon, ToolGlyph, CategoryIcon } from "@/components/aurora/Icon";
 import { Btn, Glass, TopBar, SectionLabel } from "@/components/aurora/primitives";
 import MarkdownViewer from "@/components/viewers/MarkdownViewer";
 import { BusinessBlueprintCard, type BusinessCheck } from "@/components/projects/BusinessBlueprintCard";
+import { ExcludeProjectDialog } from "@/components/collector/ProjectExclusion";
 
 interface ProjectDetail {
   id: string;
@@ -30,6 +31,8 @@ export default function ProjectDetailPage() {
   const projectId = params.id as string;
   const [project, setProject] = useState<ProjectDetail | null>(null);
   const [blueprintExpanded, setBlueprintExpanded] = useState(false);
+  const [excluding, setExcluding] = useState(false);
+  const router = useRouter();
   const { t, locale } = useI18n();
   const dateFmt = locale === "zh-CN" ? "zh-CN" : "en-US";
   const isZh = locale === "zh-CN";
@@ -100,8 +103,17 @@ export default function ProjectDetailPage() {
             <Link href={`/projects/${projectId}/timeline`} style={{ textDecoration: "none" }}>
               <Btn size="sm" icon="target">{t.timeline.title}</Btn>
             </Link>
+            <Btn variant="ghost" size="sm" icon="eye" onClick={() => setExcluding(true)} title="测试用、临时的项目可以不采集">
+              不再采集
+            </Btn>
           </>
         }
+      />
+      <ExcludeProjectDialog
+        name={project.title}
+        open={excluding}
+        onClose={() => setExcluding(false)}
+        onDone={() => router.push("/profile?tab=collector")}
       />
 
       {project.codebase_blueprint && (

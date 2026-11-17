@@ -444,6 +444,13 @@ async def list_projects(
         except Exception:
             pass
 
+    # Projects the user doesn't collect: a device's discovery keeps listing their folders
+    from ..services.project_exclusion import keys_of, match_any
+
+    skip = keys_of(_user)
+    if skip:
+        items = [it for it in items if not match_any(skip, it.get("title"))]
+
     if not sync:
         await cache_set(cache_key, items, ttl_seconds=300)
 

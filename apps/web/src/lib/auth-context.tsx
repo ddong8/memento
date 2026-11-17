@@ -29,6 +29,9 @@ const PUBLIC_PATHS = [
   "/auth/handoff",
   "/auth/callback",
   "/auth/desktop",
+  // The login page links them, and the App Store lists them: readable without an account
+  "/privacy",
+  "/support",
 ];
 
 /// Post the user's collector token to the parent window (the Memento

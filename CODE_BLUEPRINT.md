@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `49a69dbc` · Updated: `2026-11-17`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `ce81bf32` · Updated: `2026-11-17`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,8 +16,8 @@
 - 规模 (Scale): 9 个子系统 · 35 组 API 路由 / 237 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 220 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `49a69dbc` (2026-11-17): perf(项目): 项目对话和时间线每个会话先带 40 条，点「展开全部」按会话取全部消息
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 57（✅ 57 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-SESSION-PREVIEW-WHOLE`, `F-ASK`, `R-ISLAND-CLEANUP`, `S-RUN-STATE`, `R-CI-KUSTOMIZE-PINNED`, `R-DEPLOY-AFTER-CI`, `R-DEPLOY-BUMP-RACE`
+- 最近改动 (Latest): `ce81bf32` (2026-11-17): feat(画像): 3D 形象按自己选的卡通预设现场搭出来，不再是通用盔甲人物
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 57（✅ 57 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-PERSONA-ONBOARD`, `R-SESSION-PREVIEW-WHOLE`, `F-ASK`, `R-ISLAND-CLEANUP`, `S-RUN-STATE`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -615,8 +615,8 @@ erDiagram
 - [`apps/web/src/app/globals.css`](apps/web/src/app/globals.css) (9 commits)
 - [`apps/web/src/components/ExecutionCard.tsx`](apps/web/src/components/ExecutionCard.tsx) (7 commits)
 - [`apps/web/src/components/ask/bubbles.tsx`](apps/web/src/components/ask/bubbles.tsx) (7 commits)
-- [`apps/web/src/components/layout/Sidebar.tsx`](apps/web/src/components/layout/Sidebar.tsx) (7 commits)
-- [`apps/web/src/components/persona/DigitalTwinAvatar3D.tsx`](apps/web/src/components/persona/DigitalTwinAvatar3D.tsx) (6 commits)
+- [`apps/web/src/components/persona/DigitalTwinAvatar3D.tsx`](apps/web/src/components/persona/DigitalTwinAvatar3D.tsx) (7 commits)
+- [`apps/web/src/components/layout/Sidebar.tsx`](apps/web/src/components/layout/Sidebar.tsx) (6 commits)
 - [`apps/web/src/components/viewers/MediaInspectorPanel.tsx`](apps/web/src/components/viewers/MediaInspectorPanel.tsx) (6 commits)
 - [`apps/web/src/app/app/page.tsx`](apps/web/src/app/app/page.tsx) (5 commits)
 - [`apps/web/src/app/memory/persona/page.tsx`](apps/web/src/app/memory/persona/page.tsx) (5 commits)
@@ -643,12 +643,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `ce81bf32` (2026-11-17): feat(画像): 3D 形象按自己选的卡通预设现场搭出来，不再是通用盔甲人物
 - `49a69dbc` (2026-11-17): perf(项目): 项目对话和时间线每个会话先带 40 条，点「展开全部」按会话取全部消息
 - `e299185b` (2026-11-17): fix(web): 手机上运行中标签放进顶栏、不再压住页面按钮；画像 3D 舞台去掉手机上的空状态胶囊
 - `e50ec760` (2026-11-17): fix(部署): 回写镜像 tag 和别的 run 撞在同一行时，在最新 main 上重来，不把线上退回旧提交
 - `03480911` (2026-11-17): fix(画像): 手机上 3D 工具栏只留共鸣、自转、2D、侧边面板，不再被截掉
 - `fa7ecbf5` (2026-11-17): fix(问答): 设备选「自动」时，新会话拿到的是实际落到的那台设备的环境信息
-- `dfbea6f4` (2026-11-17): perf(web): 项目对话和时间线的长会话随滚动逐段渲染，手机不再卡死
 
 ## 10. Key Environment Variables & Configuration
 
@@ -671,10 +671,10 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ### 最近提交碰到的业务条目（改动后复查它们还成不成立）
 
+- `ce81bf32` feat(画像): 3D 形象按自己选的卡通预设现场搭出来，不再是通用盔甲人物 → `R-PERSONA-ONBOARD`
 - `49a69dbc` perf(项目): 项目对话和时间线每个会话先带 40 条，点「展开全部」按会话取全部消息 → `R-SESSION-PREVIEW-WHOLE`
 - `e299185b` fix(web): 手机上运行中标签放进顶栏、不再压住页面按钮；画像 3D 舞台去掉手机上的空状态胶囊 → `F-ASK`, `R-ISLAND-CLEANUP`, `S-RUN-STATE`
 - `e50ec760` fix(部署): 回写镜像 tag 和别的 run 撞在同一行时，在最新 main 上重来，不把线上退回旧提交 → `R-CI-KUSTOMIZE-PINNED`, `R-DEPLOY-AFTER-CI`, `R-DEPLOY-BUMP-RACE`
-- `fa7ecbf5` fix(问答): 设备选「自动」时，新会话拿到的是实际落到的那台设备的环境信息 → `R-DEVICE-ENV-PROFILE`
 
 ---
 _Auto-maintained by `scripts/project_blueprint.mjs` (v20261126) & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._

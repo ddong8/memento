@@ -10,9 +10,9 @@
 | :--- | :--- |
 | 1. 业务对象与术语 | L21-L65 |
 | 2. 关键流程 | L67-L124 |
-| 3. 业务规则 | L126-L461 |
-| 4. 状态归属 | L463-L508 |
-| 自动核对 (Auto Check) | L511-L608 |
+| 3. 业务规则 | L126-L462 |
+| 4. 状态归属 | L464-L509 |
+| 自动核对 (Auto Check) | L512-L609 |
 <!-- memento:business-index:end -->
 > 业务蓝图：memento 应该做成什么样，每一条落在哪段代码、由哪个测试或检查保证。和代码蓝图 [CODE_BLUEPRINT.md](CODE_BLUEPRINT.md)（代码长什么样）配合看：代码蓝图回答"在哪里"，这份回答"应该怎样、为什么"。
 > 规则来自用户的原话和纠正（CLAUDE.md、长期记忆、每晚复盘），不是从代码里反推的；代码和这里对不上，先当成代码的问题查。
@@ -384,10 +384,11 @@
 
 ### R-UI-COMMERCIAL 界面像成熟商业产品：统一外壳、平实文案、不用 emoji 当图标
 - 来源: 用户 11-16「要美观、大气、有质感，是一款成熟的商业化产品」「全部都做吧」
-- 说明: 顶栏只放页面标题和本页操作，语言、界面风格收在头像菜单；可见文字不用 emoji 当图标（统一线性图标），不写「全息注入」「热守护」这类炫技词、不写死假数据；状态色用 --aurora-success/warn/danger/info；内容页统一 max-w-6xl；加载用骨架屏。
-- 代码: `apps/web/src/components/layout/Header.tsx`, `apps/web/src/components/UserMenu.tsx#SegmentRow`, `apps/web/src/app/not-found.tsx`, `apps/web/src/components/aurora/primitives.tsx#Skeleton`
+- 说明: 顶栏只放页面标题和本页操作，语言、界面风格收在头像菜单；可见文字不用 emoji 当图标（统一线性图标），不写「全息注入」「热守护」这类炫技词、不写死假数据；状态色用 --aurora-success/warn/danger/info；内容页统一 max-w-6xl；加载用骨架屏；隐私政策和帮助页也用应用内版式（TopBar + 卡片 + 主题色，11-17 起），不登录也能打开（登录页和 App Store 都链接它们），未登录时补品牌头和边距。
+- 代码: `apps/web/src/components/layout/Header.tsx`, `apps/web/src/components/UserMenu.tsx#SegmentRow`, `apps/web/src/app/not-found.tsx`, `apps/web/src/components/aurora/primitives.tsx#Skeleton`, `apps/web/src/components/layout/PublicPageFrame.tsx#PublicPageFrame`
 - 测试: `apps/web/test/ui-polish-guard.test.ts#visible text doesn't use emoji as icons`, `apps/web/test/ui-polish-guard.test.ts#the top bar has no language or skin switcher`
-- 禁止: `契合度 99.8%` @ `apps/web/src/app/memory/persona/page.tsx`; `<SkinPicker` @ `apps/web/src/components/layout/Header.tsx`
+- 禁止: `契合度 99.8%` @ `apps/web/src/app/memory/persona/page.tsx`; `<SkinPicker` @ `apps/web/src/components/layout/Header.tsx`; `bg-gradient-to-r` @ `apps/web/src/app/support/page.tsx`; `text-purple-400` @ `apps/web/src/app/privacy/page.tsx`
+- 要求: `"/privacy",` @ `apps/web/src/lib/auth-context.tsx`; `"/support",` @ `apps/web/src/lib/auth-context.tsx`; `<PublicPageFrame>` @ `apps/web/src/app/privacy/page.tsx`; `<PublicPageFrame>` @ `apps/web/src/app/support/page.tsx`
 
 ### R-LOGIN-PERSIST 客户端登录永久记住
 - 来源: CLAUDE.md（memento）「客户端登录永久记住」
@@ -580,7 +581,7 @@
 | `R-ALL-TYPESCRIPT` | 客户端全 TypeScript，Electron + React，不混入 Flutter、Tauri 等框架 | 2/2 | — | 2/2 | ✅ |
 | `R-SELF-EVOLVE` | 越用越了解用户、能自进化 | 4/4 | 1/1 | — | ✅ |
 | `R-PLAN-THEN-FINISH` | 规划周全后一次性全部完成，追求好用，界面高级精致 | — | — | — | ✅ 约定 |
-| `R-UI-COMMERCIAL` | 界面像成熟商业产品：统一外壳、平实文案、不用 emoji 当图标 | 4/4 | 2/2 | 2/2 | ✅ |
+| `R-UI-COMMERCIAL` | 界面像成熟商业产品：统一外壳、平实文案、不用 emoji 当图标 | 5/5 | 2/2 | 8/8 | ✅ |
 | `R-LOGIN-PERSIST` | 客户端登录永久记住 | 3/3 | — | 1/1 | ✅ |
 | `R-MENU-KEEPALIVE` | 记住上次菜单状态，切换菜单不重新加载 | 2/2 | 2/2 | — | ✅ |
 | `R-MAC-TRAY` | Mac 客户端支持最小化到托盘，关窗口不退出 | 1/1 | — | 2/2 | ✅ |

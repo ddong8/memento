@@ -270,6 +270,8 @@ async def _get(data: dict[str, Any], user_id: Any) -> dict[str, Any]:
         "path": str(data.get("path") or ""),
         "file": str(data.get("file") or ""),
         "rel": str(data.get("rel") or ""),
+        # The source runs commands in several checkouts: the task's is where its files are
+        "task_id": str(data.get("task_id") or ""),
     }, GET_TIMEOUT)
     if res.get("error"):
         return {"error": res["error"], "code": res.get("code") or "failed"}

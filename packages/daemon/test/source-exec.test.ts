@@ -40,32 +40,49 @@ function patchOf(root: string, text: string): Buffer {
 }
 
 describe("the agent's commands on the device the code is on", () => {
-  it("a hung command of a stopped task is killed and no longer holds up the repository's queue", async () => {
+  it("a slow command takes one checkout; other commands, of any task, run beside it in another", async () => {
     if (process.platform === "win32") return;
     const { root, snapshot } = sourceRepo();
     const home = mkdtempSync(join(tmpdir(), "src-home-"));
-    // Task A's command hangs; task A queues another; task B's quick command waits behind both
-    // One after another, as they'd arrive: each is queued before the next is sent
     const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
-    const hung = execOnSource(root, { snapshot, rel: "", command: "sleep 60", task_id: "A", exec_id: "a1" }, { home, env });
+    // Like a scan of the home folder that ran for 10 minutes and held every later command
+    const slow = execOnSource(root, { snapshot, rel: "", command: "sleep 60", task_id: "A", exec_id: "a1" }, { home, env });
     await pause(1500);
-    const queuedA = execOnSource(root, { snapshot, rel: "", command: "echo should-not-run", task_id: "A", exec_id: "a2" }, { home, env });
-    await pause(300);
-    const quickB = execOnSource(root, { snapshot, rel: "", command: "echo b-ran", task_id: "B", exec_id: "b1" }, { home, env });
-    await pause(300);
-
     const started = Date.now();
+    const sameTask = await execOnSource(root, { snapshot, rel: "", command: "echo a-again", task_id: "A", exec_id: "a2" }, { home, env });
+    const otherTask = await execOnSource(root, { snapshot, rel: "", command: "echo b-ran", task_id: "B", exec_id: "b1" }, { home, env });
+    expect(sameTask.stdout).toContain("a-again");
+    expect(otherTask.stdout).toContain("b-ran");
+    expect(otherTask.stderr).not.toContain("等了");
+    expect(Date.now() - started).toBeLessThan(15_000);
+
+    // Stopping task A kills its slow command, and a command it still sends is not run
     expect(cancelSourceExec("A")).toBe(1);
-    const h = await hung;
+    const h = await slow;
     expect(h.exit_code).not.toBe(0);
     expect(h.stderr).toContain("任务已停止");
-    const a2 = await queuedA;
-    expect(a2.exit_code).toBe(130);
-    expect(a2.stdout).toBe("");
-    const b = await quickB;
-    expect(b.exit_code).toBe(0);
-    expect(b.stdout).toContain("b-ran");
-    expect(Date.now() - started).toBeLessThan(15_000);
+    const late = await execOnSource(root, { snapshot, rel: "", command: "echo should-not-run", task_id: "A", exec_id: "a3" }, { home, env });
+    expect(late.exit_code).toBe(130);
+    expect(late.stdout).toBe("");
+  }, 30_000);
+
+  it("get finds a file a task's command made in whichever checkout it ran in", async () => {
+    if (process.platform === "win32") return;
+    const { root, snapshot } = sourceRepo();
+    const home = mkdtempSync(join(tmpdir(), "src-home-"));
+    const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    // Task C's command runs in a spare checkout because D's holds the first one
+    const busy = execOnSource(root, { snapshot, rel: "", command: "sleep 5", task_id: "D", exec_id: "d1" }, { home, env });
+    await pause(1000);
+    const made = await execOnSource(root, { snapshot, rel: "", command: "echo shot > out.txt", task_id: "C", exec_id: "c1" }, { home, env });
+    expect(made.exit_code).toBe(0);
+    const got = await readOnSource(root, { file: "out.txt", rel: "", task_id: "C" }, { home, env });
+    expect(Buffer.from(got.data_b64, "base64").toString()).toBe("shot\n");
+    expect(got.path).not.toBe(join(checkDir(realpathSync(root), home), "out.txt"));
+    // An old executor sends no task id: the newest copy in any checkout
+    const anyCopy = await readOnSource(root, { file: "out.txt", rel: "" }, { home, env });
+    expect(anyCopy.path).toBe(got.path);
+    await busy;
   }, 30_000);
 
   it("a timed-out command's children die with it and don't hold up the queue by keeping its output open", async () => {

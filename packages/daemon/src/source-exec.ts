@@ -265,7 +265,7 @@ export class SourceExecBridge {
     const cwd = String(req.cwd ?? "") || run.mirror.workDir;
     let r: Record<string, unknown>;
     try {
-      r = await relay("get", { source_device_id: run.spec.sourceDeviceId, path: run.spec.sourcePath, file, rel: relCwd(run.mirror, cwd) }, 180_000);
+      r = await relay("get", { source_device_id: run.spec.sourceDeviceId, path: run.spec.sourcePath, file, rel: relCwd(run.mirror, cwd), task_id: taskId }, 180_000);
     } catch (e) {
       return { error: e instanceof Error ? e.message : String(e) };
     }
@@ -530,10 +530,49 @@ async function git(args: string[], cwd: string, env?: NodeJS.ProcessEnv, input?:
   return run("git", args, cwd, { env, input, timeoutMs: 120_000 });
 }
 
-/** The checkout commands for root run in: created once, reset to `snapshot` each time. */
-export function checkDir(root: string, home = homeDir()): string {
+/** The checkout commands for root run in: created once, reset to `snapshot` each time. Slot n > 0 is a spare one. */
+export function checkDir(root: string, home = homeDir(), slot = 0): string {
   const id = createHash("sha1").update(root).digest("hex").slice(0, 12);
-  return join(home, ".memento", "workspace-check", id, basename(root) || "repo");
+  const dir = join(home, ".memento", "workspace-check", id, basename(root) || "repo");
+  return slot ? `${dir}~${slot}` : dir;
+}
+
+/**
+ * Checkouts of one repository commands may run in at the same time. With one, a slow command (a scan
+ * of the home folder that took 10 minutes, a long test run) held every later command of that
+ * repository, any task's, for up to its 30 minutes; now the next one takes a free checkout.
+ */
+export const MAX_CHECKOUTS = 4;
+const busySlots = new Map<string, Set<number>>();
+const slotWaiters = new Map<string, Array<() => void>>();
+/** The checkout a task used last: its next command goes there again, and `get` looks there first. */
+const lastSlot = new Map<string, number>();
+
+async function acquireCheckout(root: string, taskId: string): Promise<{ index: number; release: () => void }> {
+  for (;;) {
+    const busy = busySlots.get(root) ?? new Set<number>();
+    busySlots.set(root, busy);
+    const pref = taskId ? lastSlot.get(`${root}|${taskId}`) : undefined;
+    const order = [...(pref !== undefined ? [pref] : []), ...Array.from({ length: MAX_CHECKOUTS }, (_, i) => i)];
+    const index = order.find((i) => !busy.has(i));
+    if (index !== undefined) {
+      busy.add(index);
+      if (taskId) lastSlot.set(`${root}|${taskId}`, index);
+      let released = false;
+      return {
+        index,
+        release: () => {
+          if (released) return;
+          released = true;
+          busy.delete(index);
+          const waiting = slotWaiters.get(root) ?? [];
+          slotWaiters.delete(root);
+          for (const wake of waiting) wake();
+        },
+      };
+    }
+    await new Promise<void>((wake) => slotWaiters.set(root, [...(slotWaiters.get(root) ?? []), wake]));
+  }
 }
 
 async function linkIgnored(root: string, wt: string, env?: NodeJS.ProcessEnv): Promise<void> {
@@ -578,8 +617,13 @@ async function patchCreates(wt: string, patch: Buffer, env: NodeJS.ProcessEnv): 
 }
 
 /** The checkout for root, reset to `commit` (ignored files such as linked dependencies and build output stay). */
-async function checkoutAt(root: string, commit: string, env: NodeJS.ProcessEnv, home?: string): Promise<string> {
-  const wt = checkDir(root, home);
+async function checkoutAt(root: string, commit: string, env: NodeJS.ProcessEnv, home?: string, slot = 0): Promise<string> {
+  // One checkout set up at a time: `git worktree add/prune` on the repository don't run side by side
+  return serialized(`${root}#setup`, () => checkoutOne(root, commit, env, home, slot));
+}
+
+async function checkoutOne(root: string, commit: string, env: NodeJS.ProcessEnv, home: string | undefined, slot: number): Promise<string> {
+  const wt = checkDir(root, home, slot);
   const create = async () => {
     await rm(wt, { recursive: true, force: true });
     await rm(addedList(wt), { force: true });
@@ -631,7 +675,8 @@ export async function execOnSource(
   const isStopped = () => keys.some((k) => stopped.has(k));
   const queued = Date.now();
 
-  return serialized(root, async () => {
+  const slot = await acquireCheckout(root, taskId);
+  try {
     if (isStopped()) {
       return { exit_code: 130, stdout: "", stderr: "任务已停止，这条命令没有执行\n", seconds: 0 };
     }
@@ -639,7 +684,7 @@ export async function execOnSource(
     if ((await git(["cat-file", "-e", `${snapshot}^{commit}`], root, env)).code !== 0) {
       throw new WorkspaceError("这台设备上找不到同步时的快照（可能已被清理），重新开始任务");
     }
-    const wt = await checkoutAt(root, snapshot, env, options.home);
+    const wt = await checkoutAt(root, snapshot, env, options.home, slot.index);
     if (patch.length) {
       await noteAdded(wt, await patchCreates(wt, patch, env));
       const ap = await git(["apply", "--binary", "--whitespace=nowarn", "-"], wt, env, patch);
@@ -666,7 +711,7 @@ export async function execOnSource(
     const r = await run(shell.exe, shell.args, cwd, { env, timeoutMs, onSpawn });
     const cancelled = !r.timedOut && isStopped();
     // Waiting behind another command of this repository is told, so a slow answer isn't taken for a hang
-    const note = waited >= 10 ? `（在这台设备上等前一个命令结束等了 ${waited} 秒）\n` : "";
+    const note = waited >= 10 ? `（这台设备上 ${MAX_CHECKOUTS} 个检出目录都有命令在跑，等了 ${waited} 秒才轮到）\n` : "";
     return {
       exit_code: r.timedOut ? 124 : r.code,
       stdout: r.stdout,
@@ -674,7 +719,9 @@ export async function execOnSource(
       ...(r.timedOut ? { timed_out: true } : {}),
       seconds: Math.round((Date.now() - started) / 100) / 10,
     };
-  });
+  } finally {
+    slot.release();
+  }
 }
 
 // ── commits made where the code is ───────────────────────────────────────
@@ -751,7 +798,9 @@ export async function commitOnSource(
   if (only.some((p) => p.split("/").includes("..") || isAbsolute(p))) throw new WorkspaceError("要提交的路径必须在仓库里");
   const patch = data.patch_b64 ? await unpackPatch(String(data.patch_b64)) : Buffer.alloc(0);
 
-  return serialized(root, async () => {
+  return serialized(`${root}#commit`, async () => {
+   const slot = await acquireCheckout(root, taskId);
+   try {
     for (const sha of [snapshot, parent, baseHead]) {
       if ((await git(["cat-file", "-e", `${sha}^{commit}`], root, env)).code !== 0) {
         throw new WorkspaceError("这台设备上找不到同步时的快照或之前的提交（可能已被清理），重新开始任务");
@@ -784,7 +833,7 @@ export async function commitOnSource(
     const nothing = (why: string): SourceCommitResult => ({ exit_code: 1, stdout: "", stderr: `${why}\n`, seconds: 0 });
     if (!paths.length) return nothing("没有要提交的改动");
 
-    const wt = await checkoutAt(root, parent, env, options.home);
+    const wt = await checkoutAt(root, parent, env, options.home, slot.index);
     const present = new Set(
       (await git(["ls-tree", "-r", "-z", "--name-only", now, "--", ...paths], root, env)).stdout.split("\0").filter(Boolean),
     );
@@ -828,11 +877,27 @@ export async function commitOnSource(
       ...(hookPatch ? { hook_patch_b64: hookPatch } : {}),
       seconds,
     };
+   } finally {
+    slot.release();
+   }
   });
 }
 
 /** Largest file `memento-source get` brings over (it travels base64 in one message). */
 export const GET_LIMIT = 8 * 1024 * 1024;
+
+/** A file the task's commands made, relative to its checkout: the one it used last, else the newest copy in any. */
+async function inCheckout(root: string, taskId: string, rel: string, file: string, home?: string): Promise<string> {
+  const pref = taskId ? lastSlot.get(`${root}|${taskId}`) : undefined;
+  const at = (slot: number) => resolve(checkDir(root, home, slot), rel, file);
+  if (pref !== undefined && existsSync(at(pref))) return at(pref);
+  let best: { path: string; mtime: number } | undefined;
+  for (let i = 0; i < MAX_CHECKOUTS; i++) {
+    const st = await stat(at(i)).catch(() => null);
+    if (st?.isFile() && (!best || st.mtimeMs > best.mtime)) best = { path: at(i), mtime: st.mtimeMs };
+  }
+  return best?.path ?? at(pref ?? 0);
+}
 
 /**
  * The source's side of `workspace_get_req`: a file the agent's commands made there (a screenshot, a
@@ -849,7 +914,7 @@ export async function readOnSource(
   if (!file) throw new WorkspaceError("没有给要取回的文件");
   const rel = String(data.rel ?? "").replaceAll("\\", "/");
   if (rel.split("/").includes("..") || isAbsolute(rel)) throw new WorkspaceError(`工作目录不对：${rel}`);
-  const at = isAbsolute(file) || /^[A-Za-z]:[\\/]/.test(file) ? file : resolve(checkDir(root, options.home), rel, file);
+  const at = isAbsolute(file) || /^[A-Za-z]:[\\/]/.test(file) ? file : await inCheckout(root, String(data.task_id ?? ""), rel, file, options.home);
   const st = await stat(at).catch(() => null);
   if (!st) throw new WorkspaceError(`这台设备上没有 ${at}`);
   if (!st.isFile()) throw new WorkspaceError(`${at} 不是文件`);

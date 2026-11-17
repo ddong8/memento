@@ -7,6 +7,18 @@ import * as SkeletonUtils from "three/examples/jsm/utils/SkeletonUtils.js";
 import { Icon } from "@/components/aurora/Icon";
 import type { AvatarSettings } from "@/lib/api-client";
 import CartoonAvatarGraphic from "./CartoonAvatarGraphic";
+import { buildCartoonAvatar, type CartoonAvatar } from "./CartoonAvatar3D";
+import { getPresetById } from "./avatarPresets";
+
+/**
+ * What the 3D figure is built from. People get a cartoon figure from their onboarding preset and
+ * colours (CartoonAvatar3D); the silicon agent presets keep the robot model.
+ */
+function avatarLookKey(s?: AvatarSettings | null): string {
+  const gender = s?.gender || "male";
+  if (gender === "agent") return "agent";
+  return [gender, s?.preset_id || "", s?.outfit_color || "", s?.theme_color || ""].join("|");
+}
 
 // 模块级 GLTF 模型与动画单例缓存池，避免切换菜单或重复渲染时从头下载与初始化
 interface CachedAvatarModel {
@@ -18,9 +30,9 @@ const gltfPreloadInflight = new Set<string>();
 
 export function preloadAvatarModel(gender: string = "male") {
   if (typeof window === "undefined") return;
-  let modelUrl = "/models/avatar_male.glb";
-  if (gender === "female") modelUrl = "/models/avatar_female.glb";
-  else if (gender === "agent") modelUrl = "/models/avatar_agent.glb";
+  // People are drawn from primitives (CartoonAvatar3D): nothing to download
+  if (gender !== "agent") return;
+  const modelUrl = "/models/avatar_agent.glb";
   if (gltfAvatarCache.has(modelUrl) || gltfPreloadInflight.has(modelUrl)) return;
   gltfPreloadInflight.add(modelUrl);
   const loader = new GLTFLoader();
@@ -249,6 +261,9 @@ export default function DigitalTwinAvatar3D({
   const currentLoadedGenderRef = useRef<string | null>(null);
   const avatarLoaderRef = useRef<GLTFLoader | null>(null);
   const activeMixerRef = useRef<THREE.AnimationMixer | null>(null);
+  const cartoonRef = useRef<CartoonAvatar | null>(null);
+  const avatarSettingsRef = useRef(avatarSettings);
+  avatarSettingsRef.current = avatarSettings;
 
   // Dynamic animation states in frame loop
   const activeDimRef = useRef<PersonaDimension>(activeDimension);
@@ -304,13 +319,13 @@ export default function DigitalTwinAvatar3D({
     }
   }, [avatarSettings]);
 
-  // Handle Dynamic Gender Switch (Male, Female, Agent)
-  const targetGender = avatarSettings?.gender || "male";
+  // Rebuild the figure when the look changes (gender, preset, colours)
+  const lookKey = avatarLookKey(avatarSettings);
   useEffect(() => {
     if (typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent("memento:switch-avatar-gender", { detail: targetGender }));
+      window.dispatchEvent(new CustomEvent("memento:switch-avatar-gender", { detail: lookKey }));
     }
-  }, [targetGender]);
+  }, [lookKey]);
 
   // Handle Synapse Pulse from Props
   useEffect(() => {
@@ -641,8 +656,11 @@ export default function DigitalTwinAvatar3D({
     }
 
     // 5. Dynamic Multi-Gender (Male, Female, Silicon Agent) 3D Model Loader with Instant Module Cache
-    const loadAvatarModel = (targetGender: string) => {
-      currentLoadedGenderRef.current = targetGender;
+    const loadAvatarModel = (lookKeyNow: string) => {
+      if (currentLoadedGenderRef.current === lookKeyNow && currentModelRef.current) return;
+      currentLoadedGenderRef.current = lookKeyNow;
+      const settings = avatarSettingsRef.current;
+      const targetGender: string = settings?.gender || "male";
 
       // 保护特效 Mesh 不随旧模型意外销毁
       if (haloMesh.parent !== avatarGroup) {
@@ -667,31 +685,54 @@ export default function DigitalTwinAvatar3D({
         avatarGroup.remove(currentModelRef.current);
         currentModelRef.current = null;
       }
+      if (cartoonRef.current) {
+        cartoonRef.current.dispose();
+        cartoonRef.current = null;
+      }
+      bonesRef.current = {};
 
-      // 三大模型映射：男 -> avatar_male.glb, 女 -> avatar_female.glb, 硅基 -> avatar_agent.glb
-      let modelUrl = "/models/avatar_male.glb";
-      if (targetGender === "female") modelUrl = "/models/avatar_female.glb";
-      else if (targetGender === "agent") modelUrl = "/models/avatar_agent.glb";
+      // People: a cartoon figure from their own preset and colours, built on the spot
+      if (targetGender !== "agent") {
+        const preset = getPresetById(settings?.preset_id || (targetGender === "female" ? "geek_female" : "geek_male"));
+        const cartoon = buildCartoonAvatar(
+          {
+            presetId: preset.gender === targetGender ? preset.id : targetGender === "female" ? "geek_female" : "geek_male",
+            gender: targetGender === "female" ? "female" : "male",
+            outfitColor: settings?.outfit_color || preset.outfitColor,
+            themeColor: settings?.theme_color || preset.themeColor,
+          },
+          preset,
+        );
+        cartoonRef.current = cartoon;
+        currentModelRef.current = cartoon.group;
+        avatarGroup.add(cartoon.group);
+        solidMannequin.visible = false;
+        cartoon.head.add(haloMesh);
+        haloMesh.position.set(0, 0.4, 0);
+        cartoon.head.add(soundWave);
+        soundWave.position.set(0, -0.1, 0.27);
+        cartoon.chest.add(chestCore);
+        chestCore.position.set(0, -0.02, 0.012);
+        return;
+      }
+
+      // 硅基智能体：机器人模型
+      const modelUrl = "/models/avatar_agent.glb";
 
       const applyModelToScene = (sourceScene: THREE.Group, animations: THREE.AnimationClip[]) => {
-        if (currentLoadedGenderRef.current !== targetGender) return;
+        if (currentLoadedGenderRef.current !== lookKeyNow) return;
 
         // 使用 SkeletonUtils.clone 快速克隆带骨架网格，保证场景间隔离与极速装配
         const model = SkeletonUtils.clone(sourceScene) as THREE.Group;
         currentModelRef.current = model;
         avatarGroup.add(model);
 
-        // Vanguard 男性模型 Mixamo 坐标系默认面向 -Z，旋转 180 度正对观察者
-        if (targetGender === "male") {
-          model.rotation.y = Math.PI;
-        }
-
         // 自动包围盒归一化与黄金高度对齐（智能体 1.55m，人类标准 1.78m）
         model.position.set(0, 0, 0);
         model.updateMatrixWorld(true);
         const box = new THREE.Box3().setFromObject(model);
         const size = box.getSize(new THREE.Vector3());
-        const targetHeight = targetGender === "agent" ? 1.55 : 1.78;
+        const targetHeight = 1.55;
         if (size.y > 0.1) {
           const scaleFactor = targetHeight / size.y;
           model.scale.setScalar(scaleFactor);
@@ -807,7 +848,7 @@ export default function DigitalTwinAvatar3D({
     window.addEventListener("memento:switch-avatar-gender", handleGenderSwitch);
 
     // 初始载入用户形象设定性别模型
-    loadAvatarModel(avatarSettings?.gender || "male");
+    loadAvatarModel(avatarLookKey(avatarSettingsRef.current));
 
     // 6. Interactive Drag, Parallax Look-At & Zoom Controls with Smooth Damping
     const mouse = new THREE.Vector2();
@@ -1080,6 +1121,17 @@ export default function DigitalTwinAvatar3D({
       }
 
       // Apply to GLB Bones
+      if (cartoonRef.current) {
+        cartoonRef.current.update({
+          elapsed,
+          dimension: isInterceptRef.current ? "intercept" : activeDim,
+          lookX: mouse.x,
+          lookY: mouse.y,
+          nod: nodAngle,
+          follow: !isDragging,
+        });
+      }
+
       const bones = bonesRef.current;
       if (bones.Head && !isDragging) {
         const lookMult = currentLoadedGenderRef.current === "male" ? -1 : 1;
@@ -1257,6 +1309,9 @@ export default function DigitalTwinAvatar3D({
         avatarGroup.remove(currentModelRef.current);
         currentModelRef.current = null;
       }
+      cartoonRef.current?.dispose();
+      cartoonRef.current = null;
+      currentLoadedGenderRef.current = null;
       window.removeEventListener("memento:switch-avatar-gender", handleGenderSwitch);
       window.removeEventListener("memento:set-cam-view", handleCamViewSwitch);
       resizeObserver.disconnect();

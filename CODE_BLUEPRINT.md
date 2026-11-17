@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `fc766793` · Updated: `2026-11-16`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `49a69dbc` · Updated: `2026-11-17`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -13,11 +13,11 @@
 - 类型 (Type): Monorepo (Workspaces)
 - 技术栈 (Stack): TypeScript/JavaScript, Python, Shell / Bash · React, Electron, Next.js, TailwindCSS, Model Context Protocol (MCP), FastAPI, SQLAlchemy, Celery
 - 基础设施 (Infra): PostgreSQL, pgvector (Vector DB), Redis, MinIO / S3 Object Storage, Celery Task Queue
-- 规模 (Scale): 9 个子系统 · 35 组 API 路由 / 237 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 219 个测试文件
+- 规模 (Scale): 9 个子系统 · 35 组 API 路由 / 237 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 220 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `e299185b` (2026-11-17): fix(web): 手机上运行中标签放进顶栏、不再压住页面按钮；画像 3D 舞台去掉手机上的空状态胶囊
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 57（✅ 57 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `F-ASK`, `R-ISLAND-CLEANUP`, `S-RUN-STATE`, `R-CI-KUSTOMIZE-PINNED`, `R-DEPLOY-AFTER-CI`, `R-DEPLOY-BUMP-RACE`, `R-DEVICE-ENV-PROFILE`
+- 最近改动 (Latest): `49a69dbc` (2026-11-17): perf(项目): 项目对话和时间线每个会话先带 40 条，点「展开全部」按会话取全部消息
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 57（✅ 57 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-SESSION-PREVIEW-WHOLE`, `F-ASK`, `R-ISLAND-CLEANUP`, `S-RUN-STATE`, `R-CI-KUSTOMIZE-PINNED`, `R-DEPLOY-AFTER-CI`, `R-DEPLOY-BUMP-RACE`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -31,7 +31,7 @@
 | 8. Development & Verification Commands | L625-L642 |
 | 9. Recent Architectural Evolutions | L644-L651 |
 | 10. Key Environment Variables & Configuration | L653-L665 |
-| 11. 业务蓝图核对 (Business Blueprint Check) | L667-L676 |
+| 11. 业务蓝图核对 (Business Blueprint Check) | L667-L677 |
 
 ## 1. Project Overview & Tech Stack
 
@@ -603,7 +603,7 @@ erDiagram
 | :--- | :--- | :--- | :--- |
 | server/tests (pytest) | [`server/tests`](server/tests) | 118 | `test_agent_ids.py`, `test_agent_limits.py`, `test_agent_login.py`, `test_agent_run_states.py`, `test_ai_provider.py` |
 | packages/daemon/test (vitest / jest) | [`packages/daemon/test`](packages/daemon/test) | 57 | `agent-args.test.ts`, `agent-login.test.ts`, `agent-stream.test.ts`, `agy-models.test.ts`, `agy-project-folder.test.ts` |
-| apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 38 | `api-client.test.ts`, `ask-reading-and-persona-rules.test.tsx`, `ask-top-bar.test.tsx`, `auth-fetch.test.ts`, `build-update.test.ts` |
+| apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 39 | `api-client.test.ts`, `ask-reading-and-persona-rules.test.tsx`, `ask-top-bar.test.tsx`, `auth-fetch.test.ts`, `build-update.test.ts` |
 | apps/mobile/test (vitest / jest) | [`apps/mobile/test`](apps/mobile/test) | 2 | `deeplink.test.ts`, `webview-props.test.ts` |
 | packages/core/test (vitest / jest) | [`packages/core/test`](packages/core/test) | 2 | `ask-stream.test.ts`, `task-events.test.ts` |
 | apps/desktop/test (vitest / jest) | [`apps/desktop/test`](apps/desktop/test) | 1 | `helpers.test.ts` |
@@ -611,16 +611,16 @@ erDiagram
 
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
-- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (19 commits)
-- [`apps/web/src/app/globals.css`](apps/web/src/app/globals.css) (10 commits)
-- [`apps/web/src/components/ExecutionCard.tsx`](apps/web/src/components/ExecutionCard.tsx) (8 commits)
+- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (18 commits)
+- [`apps/web/src/app/globals.css`](apps/web/src/app/globals.css) (9 commits)
+- [`apps/web/src/components/ExecutionCard.tsx`](apps/web/src/components/ExecutionCard.tsx) (7 commits)
 - [`apps/web/src/components/ask/bubbles.tsx`](apps/web/src/components/ask/bubbles.tsx) (7 commits)
 - [`apps/web/src/components/layout/Sidebar.tsx`](apps/web/src/components/layout/Sidebar.tsx) (7 commits)
-- [`apps/web/src/components/viewers/MediaInspectorPanel.tsx`](apps/web/src/components/viewers/MediaInspectorPanel.tsx) (7 commits)
-- [`apps/web/src/app/app/page.tsx`](apps/web/src/app/app/page.tsx) (6 commits)
-- [`apps/web/src/app/memory/persona/page.tsx`](apps/web/src/app/memory/persona/page.tsx) (6 commits)
 - [`apps/web/src/components/persona/DigitalTwinAvatar3D.tsx`](apps/web/src/components/persona/DigitalTwinAvatar3D.tsx) (6 commits)
-- [`apps/web/src/components/agent/ActiveRunsMonitor.tsx`](apps/web/src/components/agent/ActiveRunsMonitor.tsx) (5 commits)
+- [`apps/web/src/components/viewers/MediaInspectorPanel.tsx`](apps/web/src/components/viewers/MediaInspectorPanel.tsx) (6 commits)
+- [`apps/web/src/app/app/page.tsx`](apps/web/src/app/app/page.tsx) (5 commits)
+- [`apps/web/src/app/memory/persona/page.tsx`](apps/web/src/app/memory/persona/page.tsx) (5 commits)
+- [`apps/web/src/components/ask/AskTopBar.tsx`](apps/web/src/components/ask/AskTopBar.tsx) (5 commits)
 
 ## 8. Development & Verification Commands
 
@@ -643,12 +643,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `49a69dbc` (2026-11-17): perf(项目): 项目对话和时间线每个会话先带 40 条，点「展开全部」按会话取全部消息
 - `e299185b` (2026-11-17): fix(web): 手机上运行中标签放进顶栏、不再压住页面按钮；画像 3D 舞台去掉手机上的空状态胶囊
 - `e50ec760` (2026-11-17): fix(部署): 回写镜像 tag 和别的 run 撞在同一行时，在最新 main 上重来，不把线上退回旧提交
 - `03480911` (2026-11-17): fix(画像): 手机上 3D 工具栏只留共鸣、自转、2D、侧边面板，不再被截掉
 - `fa7ecbf5` (2026-11-17): fix(问答): 设备选「自动」时，新会话拿到的是实际落到的那台设备的环境信息
 - `dfbea6f4` (2026-11-17): perf(web): 项目对话和时间线的长会话随滚动逐段渲染，手机不再卡死
-- `5669c06b` (2026-11-17): fix(web): 按严格适配检查修复——画像 3D 工具栏和顶部按钮在手机/平板溢出、项目对话标签超出、隐私页说明不换行；剩余单独 emoji 图标换成线性图标
 
 ## 10. Key Environment Variables & Configuration
 
@@ -671,6 +671,7 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ### 最近提交碰到的业务条目（改动后复查它们还成不成立）
 
+- `49a69dbc` perf(项目): 项目对话和时间线每个会话先带 40 条，点「展开全部」按会话取全部消息 → `R-SESSION-PREVIEW-WHOLE`
 - `e299185b` fix(web): 手机上运行中标签放进顶栏、不再压住页面按钮；画像 3D 舞台去掉手机上的空状态胶囊 → `F-ASK`, `R-ISLAND-CLEANUP`, `S-RUN-STATE`
 - `e50ec760` fix(部署): 回写镜像 tag 和别的 run 撞在同一行时，在最新 main 上重来，不把线上退回旧提交 → `R-CI-KUSTOMIZE-PINNED`, `R-DEPLOY-AFTER-CI`, `R-DEPLOY-BUMP-RACE`
 - `fa7ecbf5` fix(问答): 设备选「自动」时，新会话拿到的是实际落到的那台设备的环境信息 → `R-DEVICE-ENV-PROFILE`

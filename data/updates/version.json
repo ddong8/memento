@@ -4,22 +4,22 @@
   "release_notes": "1. 跨设备任务里，代码所在电脑上的项目删掉后重新克隆到原路径，远程智能体在那台电脑上执行命令不再报「重置检出目录失败」，会自动重建检出目录\n2. 手机端版本号与客户端统一为 1.0.140",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.139-win-x64.zip",
-      "size": 158328767,
-      "sha256": "27921e0169125011c1535a52e82761df4b5c32ce5c59865773631144df7ae137",
-      "sha512": "DFZGX40a+nZS3a//eYP34rAWqWJ+anVhYIRKIfQfyZuDsyQnXm3IlGJlPRASO+v6jdV7s+nVOAPezvM+N0MpOg=="
+      "asset_name": "Memento-1.0.140-win-x64.zip",
+      "size": 158329285,
+      "sha256": "490e033d7b5714d05b723df2915ac575b30d5caa480d8af6e3f663b826183974",
+      "sha512": "RGGNYbivus6lkYCj8cuqkkpKtZ0e6Hb0/UjFMdLhK+31rUcDAn3oMIoQCAiEkFDNWHAeUrBIATWOyzqSfCRlUg=="
     },
     "macos": {
-      "asset_name": "Memento-1.0.139-mac-arm64.zip",
-      "size": 132818372,
-      "sha256": "578da2c2421826857e5f3dc567fe50f3e99f0c555347086f55ee113dedcfdd97",
-      "sha512": "jr5KZrarvPHSK3CX/DdhktvnAlXddG9CghMm2VgaRnKQwUH2YD4uD+bzF+pRi+vt/6U6wIRzMg1G5nTwE31XDA=="
+      "asset_name": "Memento-1.0.140-mac-arm64.zip",
+      "size": 132818450,
+      "sha256": "d0b0f794fefb11550e4f5af716aa76f0cbe088cdb824e3dad9f163441f926d01",
+      "sha512": "aVwBo8T1FIjLXpLZrbc+CqgrhDPjlEIOfmI+jDq6m+EWZlwW3ODLjfuFNA401TOtN0vEj+VczFqNEutyWvx7Mw=="
     },
     "linux": {
-      "asset_name": "Memento-1.0.139-linux-x64.tar.gz",
-      "size": 132094556,
-      "sha256": "b5d1a866f7a911553f4916304089f76b79625d818248be9827feab4d5865e3b9",
-      "sha512": "qZ3F3a+vv3JwCWomf2Uvy7SDbRFe2bRLnArSA4nQxpNf7Q3KTxoKxGpEm+5Vjd7LOhFaJQgk28LcgpJHiKB+vw=="
+      "asset_name": "Memento-1.0.140-linux-x64.tar.gz",
+      "size": 132094187,
+      "sha256": "b18ed0cfe49a4f4a1e453497ea7be8d20f426a8b9fe3440fefbecd5383c942c9",
+      "sha512": "YqujjznDsa7fcIWmKSWz/Q09ucsZGIhsX5QqpDgnLd8bQkgrRrzbpKTC+cLIFc863A1TkTjjI7cck2cDRf01rg=="
     }
   }
 }

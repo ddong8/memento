@@ -26,6 +26,7 @@ Excluding one:
 
 from __future__ import annotations
 
+import copy
 import fnmatch
 import logging
 import re
@@ -35,6 +36,7 @@ from typing import Any
 
 from sqlalchemy import delete, false, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 
 from ..db.models import (
     AccessLog,
@@ -89,7 +91,9 @@ def match_any(keys: list[str], project_name: str | None) -> str | None:
 
 
 def entries(user: User) -> list[dict]:
-    return list((user.collect_settings or {}).get("excluded_projects") or [])
+    """A copy: editing it in place would change the loaded value too, and SQLAlchemy, seeing the
+    same value assigned back, writes nothing (the cleanup's undo lists were lost that way)."""
+    return copy.deepcopy(list((user.collect_settings or {}).get("excluded_projects") or []))
 
 
 def keys_of(user: User) -> list[str]:
@@ -276,7 +280,8 @@ async def _locked_user(db: AsyncSession, user_id: uuid.UUID) -> User:
 
 
 def _save(user: User, items: list[dict]) -> None:
-    user.collect_settings = {**(user.collect_settings or {}), "excluded_projects": items}
+    user.collect_settings = {**copy.deepcopy(user.collect_settings or {}), "excluded_projects": items}
+    flag_modified(user, "collect_settings")
 
 
 async def add(db: AsyncSession, user: User, name: str) -> dict:

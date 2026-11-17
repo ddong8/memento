@@ -450,6 +450,32 @@ async function linkIgnored(root: string, wt: string, env?: NodeJS.ProcessEnv): P
   }
 }
 
+/** Where a checkout lists the files the agent's patch added to it (next to it, not in it). */
+function addedList(wt: string): string {
+  return join(dirname(wt), `${basename(wt)}.added`);
+}
+
+async function readAdded(wt: string): Promise<string[]> {
+  const text = await readFile(addedList(wt), "utf8").catch(() => "");
+  return text.split("\0").filter((p) => p && !p.split("/").includes("..") && !isAbsolute(p));
+}
+
+async function noteAdded(wt: string, paths: string[]): Promise<void> {
+  if (!paths.length) return;
+  const all = [...new Set([...(await readAdded(wt)), ...paths])];
+  await writeFile(addedList(wt), all.join("\0"));
+}
+
+/** Files a patch creates (`git apply --summary`: " create mode 100644 path"). */
+async function patchCreates(wt: string, patch: Buffer, env: NodeJS.ProcessEnv): Promise<string[]> {
+  const r = await git(["apply", "--summary", "-"], wt, env, patch);
+  return r.stdout
+    .split("\n")
+    .map((l) => /^\s*create mode \d+ (.+)$/.exec(l)?.[1]?.trim())
+    .filter((p): p is string => !!p)
+    .map((p) => (p.startsWith('"') ? (JSON.parse(p) as string) : p));
+}
+
 /** The checkout for root, reset to `commit` (ignored files such as linked dependencies and build output stay). */
 async function checkoutAt(root: string, commit: string, env: NodeJS.ProcessEnv, home?: string): Promise<string> {
   const wt = checkDir(root, home);
@@ -460,9 +486,11 @@ async function checkoutAt(root: string, commit: string, env: NodeJS.ProcessEnv, 
     const add = await git(["worktree", "add", "-q", "--detach", wt, commit], root, env);
     if (add.code !== 0) throw new WorkspaceError(`准备检出目录失败：${add.stderr.trim().slice(0, 400)}`);
   } else {
+    // Files the last patch or commit added go; what the commands made there (screenshots, logs, build output) stays for `get`
+    for (const p of await readAdded(wt)) await unlink(join(wt, p)).catch(() => {});
+    await rm(addedList(wt), { force: true });
     const co = await git(["checkout", "-q", "-f", "--detach", commit], wt, env);
     if (co.code !== 0) throw new WorkspaceError(`重置检出目录失败：${co.stderr.trim().slice(0, 400)}`);
-    await git(["clean", "-fdq"], wt, env);
   }
   await linkIgnored(root, wt, env);
   return wt;
@@ -499,6 +527,7 @@ export async function execOnSource(
     }
     const wt = await checkoutAt(root, snapshot, env, options.home);
     if (patch.length) {
+      await noteAdded(wt, await patchCreates(wt, patch, env));
       const ap = await git(["apply", "--binary", "--whitespace=nowarn", "-"], wt, env, patch);
       if (ap.code !== 0) throw new WorkspaceError(`改动在这台设备上打不上：${ap.stderr.trim().slice(0, 400)}`);
     }
@@ -633,6 +662,7 @@ export async function commitOnSource(
     const write = paths.filter((p) => present.has(p));
     const gone = paths.filter((p) => !present.has(p));
     if (write.length) {
+      await noteAdded(wt, write);
       const co = await git(["checkout", now, "--pathspec-from-file=-", "--pathspec-file-nul"], wt, env, Buffer.from(write.join("\0") + "\0"));
       if (co.code !== 0) throw new WorkspaceError(`写入改动失败：${co.stderr.trim().slice(0, 300)}`);
     }
@@ -714,6 +744,11 @@ const BLOCKED: Array<[RegExp, string]> = [
     ),
     "测试、构建和运行",
   ],
+  [
+    new RegExp(`${AT}(?:python3?(?:\\.\\d+)?|node|deno|bun|ruby|php|perl|java|bash|sh|zsh)\\s+(?:-(?![cem]\\b)\\S+\\s+)*[^\\s;&|-][^\\s;&|]*\\.(?:py|js|mjs|cjs|ts|rb|php|pl|jar|sh)(?=\\s|$|;|&|\\|)`),
+    "运行程序和脚本",
+  ],
+  [new RegExp(`(?:^|[;&|(]|&&|\\|\\|)\\s*\\./[^\\s;&|]+`), "运行程序和脚本"],
 ];
 
 /** What a shell command the agent runs on the executor would do there that belongs on the source, or undefined. */

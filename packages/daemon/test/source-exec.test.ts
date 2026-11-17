@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { checkDir, executorDenyReason, executorOnlyEdits, execOnSource, relCwd, SourceExecBridge, sourceExecHint } from "../src/source-exec.js";
+import { checkDir, executorDenyReason, readOnSource, executorOnlyEdits, execOnSource, relCwd, SourceExecBridge, sourceExecHint } from "../src/source-exec.js";
 import { packPatch } from "../src/workspace.js";
 import type { WorkspaceRun } from "../src/workspace-sync.js";
 
@@ -137,6 +137,12 @@ describe("the executor only edits code", () => {
       "./gradlew assembleRelease",
       "FOO=1 make build",
       "adb devices",
+      "python3 test_calc.py",
+      "ls && cat calc.py && python3 test_calc.py",
+      "node scripts/build.mjs --prod",
+      "./gradlew build",
+      "bash deploy.sh",
+      "java -jar app.jar",
     ]) {
       expect(executorOnlyEdits(cmd), cmd).toBeTruthy();
     }
@@ -151,6 +157,10 @@ describe("the executor only edits code", () => {
       "ls node_modules",
       'echo "make sure tests pass"',
       "sed -n 1,40p src/make.ts",
+      'python3 -c "print(1)"',
+      "node -e 'console.log(1)'",
+      "cat ./calc.py",
+      "grep -n add calc.py",
     ]) {
       expect(executorOnlyEdits(cmd), cmd).toBeUndefined();
     }
@@ -162,5 +172,25 @@ describe("the executor only edits code", () => {
   it("tells the agent where everything but editing happens", () => {
     const hint = sourceExecHint("/h/bin/memento-source", "Mac mini");
     for (const s of ["只用来读和改代码", "TestFlight", "commit -m", "--push", "get <文件>", "已拦截"]) expect(hint).toContain(s);
+  });
+});
+
+describe("files the agent's commands make on the source", () => {
+  it("stay there for get across commands, while files the last patch added are taken away", async () => {
+    const { root, snapshot } = sourceRepo();
+    const home = mkdtempSync(join(tmpdir(), "src-home-"));
+    // A patch adding new.txt, and a command that writes a screenshot next to it
+    writeFileSync(join(root, "new.txt"), "added by the agent\n");
+    execFileSync("git", ["add", "-N", "new.txt"], { cwd: root, env });
+    const added = await packPatch(execFileSync("git", ["diff", "--binary"], { cwd: root, env }));
+    execFileSync("git", ["rm", "-q", "--cached", "new.txt"], { cwd: root, env });
+    const first = await execOnSource(root, { snapshot, patch_b64: added, command: "cat new.txt && echo png > shot.png" }, { home, env });
+    expect(first.exit_code).toBe(0);
+    // The next command without that patch: new.txt is gone, the screenshot isn't
+    const next = await execOnSource(root, { snapshot, command: "ls" }, { home, env });
+    expect(next.stdout).toContain("shot.png");
+    expect(next.stdout).not.toContain("new.txt");
+    const got = await readOnSource(root, { file: "shot.png", rel: "" }, { home, env });
+    expect(Buffer.from(got.data_b64, "base64").toString()).toBe("png\n");
   });
 });

@@ -4,22 +4,22 @@
   "release_notes": "1. 跨设备任务里，智能体在代码所在电脑上运行的命令生成的文件（截图、日志、构建产物）会保留下来，之后的命令执行完也能取回查看\n2. 远程执行机上直接运行项目里的脚本（如 python3 test_calc.py、./gradlew）也会被拦下，改到代码所在的电脑上执行\n3. 手机端版本号与客户端统一为 1.0.139",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.138-win-x64.zip",
-      "size": 158327412,
-      "sha256": "a2f5eaa4d5a0b6d74e7d48b90697d49e9bfc24d992e94b4680ec20bad5d401e0",
-      "sha512": "ck3AUe0l+4bRPjgSjxoaX0Li+tJenYvEIja2qnPBWA6aGUozRIgtbS4NG+G73E7/a5IfC2Uf9cvg08icOD2kLg=="
+      "asset_name": "Memento-1.0.139-win-x64.zip",
+      "size": 158328767,
+      "sha256": "27921e0169125011c1535a52e82761df4b5c32ce5c59865773631144df7ae137",
+      "sha512": "DFZGX40a+nZS3a//eYP34rAWqWJ+anVhYIRKIfQfyZuDsyQnXm3IlGJlPRASO+v6jdV7s+nVOAPezvM+N0MpOg=="
     },
     "macos": {
-      "asset_name": "Memento-1.0.138-mac-arm64.zip",
-      "size": 132816854,
-      "sha256": "67ebe2dc31119f6421e108325ad3b75b309a01eda167add4aa636d0824f457c3",
-      "sha512": "feyPJ4xRBb+apLOUPEmTcieqrDMmIOya0jhjf3TxavE53zGa5t41xg9L0BnTGrmYRX8ZPoFUZ0zfzBGWqmHtRg=="
+      "asset_name": "Memento-1.0.139-mac-arm64.zip",
+      "size": 132818372,
+      "sha256": "578da2c2421826857e5f3dc567fe50f3e99f0c555347086f55ee113dedcfdd97",
+      "sha512": "jr5KZrarvPHSK3CX/DdhktvnAlXddG9CghMm2VgaRnKQwUH2YD4uD+bzF+pRi+vt/6U6wIRzMg1G5nTwE31XDA=="
     },
     "linux": {
-      "asset_name": "Memento-1.0.138-linux-x64.tar.gz",
-      "size": 132093808,
-      "sha256": "e274a7a51fbfbd94e793435efc64697959b6068baa96e0cb9bdac513bf301ab3",
-      "sha512": "XY1U5mYOnfknZ8sEHsWXaPVL4RwHYN/WY7cYO42qCHE1maTJg8USufEQI1JIhyhMBWkAQoL8W0kL0L/HJF7STA=="
+      "asset_name": "Memento-1.0.139-linux-x64.tar.gz",
+      "size": 132094556,
+      "sha256": "b5d1a866f7a911553f4916304089f76b79625d818248be9827feab4d5865e3b9",
+      "sha512": "qZ3F3a+vv3JwCWomf2Uvy7SDbRFe2bRLnArSA4nQxpNf7Q3KTxoKxGpEm+5Vjd7LOhFaJQgk28LcgpJHiKB+vw=="
     }
   }
 }

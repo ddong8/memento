@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { getApiBase, authFetch, api, type ProfileState } from "@/lib/api-client";
+import { type EntityDetail, fetchEntityDetail, findEntityDetail, type MemoryGet } from "@/lib/memory-entity";
 import { useI18n } from "@/lib/i18n";
 import { Icon } from "@/components/aurora/Icon";
 import { Btn, Glass, GhostInput, Chip } from "@/components/aurora/primitives";
@@ -42,18 +43,7 @@ interface MemoryStats {
   entity_types: Record<string, number>;
 }
 
-interface EntityDetail {
-  id: string;
-  name: string;
-  type: string;
-  summary: string | null;
-  stale_at?: string | null;
-  stale_reason?: string | null;
-  aliases?: { name: string; type: string; summary?: string; merged_at?: string; replaced_at?: string }[];
-  observations: { content: string; observed_at: string | null }[];
-  outgoing_relations: { target_name: string; target_type: string; relation: string; target_id?: string }[];
-  incoming_relations: { source_name: string; source_type: string; relation: string; source_id?: string }[];
-}
+const getMemory: MemoryGet = (path) => authFetch(`${getApiBase()}${path}`);
 
 interface MemoryTreeNode {
   id: string;
@@ -335,13 +325,9 @@ export default function MemoryPage() {
       return;
     }
     setSelectedNodeId(node.id);
-    try {
-      const resp = await authFetch(`${getApiBase()}/api/memory/entities/${node.id}`);
-      const detail: EntityDetail = await resp.json();
-      setSelectedEntity(detail);
-      setActiveTab("entity");
-    } catch {
-      setSelectedEntity({
+    const detail = await fetchEntityDetail(node.id, getMemory);
+    setSelectedEntity(
+      detail ?? {
         id: node.id,
         name: node.name,
         type: node.type,
@@ -349,12 +335,12 @@ export default function MemoryPage() {
         observations: [],
         outgoing_relations: [],
         incoming_relations: [],
-      });
-      setActiveTab("entity");
-    }
+      }
+    );
+    setActiveTab("entity");
   };
 
-  // Jump from right-wing relation or search into node
+  // Jump from right-wing relation, search hit or rule-tree item into node
   const handleJumpToEntity = async (entityIdOrName: string) => {
     // Try matching node in current galaxy
     const targetNode = nodes.find(
@@ -362,17 +348,17 @@ export default function MemoryPage() {
     );
     if (targetNode) {
       handleSelectNode(targetNode);
-    } else {
-      try {
-        const resp = await authFetch(`${getApiBase()}/api/memory/entities/${entityIdOrName}`);
-        const detail: EntityDetail = await resp.json();
-        setSelectedEntity(detail);
-        setSelectedNodeId(detail.id);
-        setActiveTab("entity");
-      } catch {
-        // ignore
-      }
+      return;
     }
+    const detail = await findEntityDetail(entityIdOrName, getMemory);
+    if (!detail) {
+      // e.g. a core-memory rule: its key is not an entity
+      setNotice(`图谱中没有与「${entityIdOrName}」对应的实体`);
+      return;
+    }
+    setSelectedEntity(detail);
+    setSelectedNodeId(detail.id);
+    setActiveTab("entity");
   };
 
   // 6. Tree Path helpers

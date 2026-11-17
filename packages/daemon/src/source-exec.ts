@@ -479,18 +479,22 @@ async function patchCreates(wt: string, patch: Buffer, env: NodeJS.ProcessEnv): 
 /** The checkout for root, reset to `commit` (ignored files such as linked dependencies and build output stay). */
 async function checkoutAt(root: string, commit: string, env: NodeJS.ProcessEnv, home?: string): Promise<string> {
   const wt = checkDir(root, home);
-  if (!existsSync(join(wt, ".git"))) {
+  const create = async () => {
     await rm(wt, { recursive: true, force: true });
+    await rm(addedList(wt), { force: true });
     await mkdir(dirname(wt), { recursive: true });
     await git(["worktree", "prune"], root, env);
-    const add = await git(["worktree", "add", "-q", "--detach", wt, commit], root, env);
+    const add = await git(["worktree", "add", "-q", "-f", "--detach", wt, commit], root, env);
     if (add.code !== 0) throw new WorkspaceError(`准备检出目录失败：${add.stderr.trim().slice(0, 400)}`);
-  } else {
+  };
+  if (!existsSync(join(wt, ".git"))) await create();
+  else {
     // Files the last patch or commit added go; what the commands made there (screenshots, logs, build output) stays for `get`
     for (const p of await readAdded(wt)) await unlink(join(wt, p)).catch(() => {});
     await rm(addedList(wt), { force: true });
     const co = await git(["checkout", "-q", "-f", "--detach", commit], wt, env);
-    if (co.code !== 0) throw new WorkspaceError(`重置检出目录失败：${co.stderr.trim().slice(0, 400)}`);
+    // The checkout belongs to a repository that is gone (deleted and cloned again at the same path): start it over
+    if (co.code !== 0) await create();
   }
   await linkIgnored(root, wt, env);
   return wt;

@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `cba0d77d` · Updated: `2026-11-17`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `2ea2c9a3` · Updated: `2026-11-17`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,8 +16,8 @@
 - 规模 (Scale): 9 个子系统 · 36 组 API 路由 / 242 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 228 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `cba0d77d` (2026-11-17): feat(工作区): 远程执行机只改代码，测试、构建、提交、推送都在代码所在的设备上做；升级客户端版本至 v1.0.138
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 59（✅ 59 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `T-FOLLOWUP`, `F-FOLLOWUP`, `R-WS-BIG-UNTRACKED`, `R-WS-EDIT-ONLY`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `S-CLIENT-VERSION`, `R-UI-COMMERCIAL`
+- 最近改动 (Latest): `2ea2c9a3` (2026-11-17): fix(工作区): 源设备检出目录里命令生成的文件不再被下一条命令清掉，执行机上直接运行脚本也拦下；升级客户端版本至 v1.0.139
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 59（✅ 59 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `S-CLIENT-VERSION`, `T-FOLLOWUP`, `F-FOLLOWUP`, `R-WS-BIG-UNTRACKED`, `R-WS-EDIT-ONLY`, `R-UI-COMMERCIAL`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -31,7 +31,7 @@
 | 8. Development & Verification Commands | L633-L650 |
 | 9. Recent Architectural Evolutions | L652-L659 |
 | 10. Key Environment Variables & Configuration | L661-L673 |
-| 11. 业务蓝图核对 (Business Blueprint Check) | L675-L684 |
+| 11. 业务蓝图核对 (Business Blueprint Check) | L675-L685 |
 
 ## 1. Project Overview & Tech Stack
 
@@ -619,7 +619,7 @@ erDiagram
 
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
-- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (14 commits)
+- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (13 commits)
 - [`apps/web/src/app/globals.css`](apps/web/src/app/globals.css) (8 commits)
 - [`apps/web/src/components/ExecutionCard.tsx`](apps/web/src/components/ExecutionCard.tsx) (7 commits)
 - [`apps/web/src/components/persona/DigitalTwinAvatar3D.tsx`](apps/web/src/components/persona/DigitalTwinAvatar3D.tsx) (7 commits)
@@ -651,12 +651,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `2ea2c9a3` (2026-11-17): fix(工作区): 源设备检出目录里命令生成的文件不再被下一条命令清掉，执行机上直接运行脚本也拦下；升级客户端版本至 v1.0.139
 - `cba0d77d` (2026-11-17): feat(工作区): 远程执行机只改代码，测试、构建、提交、推送都在代码所在的设备上做；升级客户端版本至 v1.0.138
 - `65b643fd` (2026-11-17): style(web): 头像菜单重新设计，桌面客户端也改用同一个面板
 - `787de51a` (2026-11-17): feat(画像): 每台设备自动检测已装的 AI 工具并注入画像，不用再按设备勾选
 - `98c1d738` (2026-11-17): fix(画像): 新设备沿用其他设备的画像注入工具，不再默认一个都不注入
 - `38546ffa` (2026-11-17): fix(web): 切换菜单不再每次闪一下浏览器式进度条，只在页面真的慢（超过 200ms）时显示
-- `360803ac` (2026-11-17): fix(记忆): 场景心智不再显示原始 JSON，准则树和 MEMORY.md 按名称、心智、关键词排版
 
 ## 10. Key Environment Variables & Configuration
 
@@ -679,6 +679,7 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ### 最近提交碰到的业务条目（改动后复查它们还成不成立）
 
+- `2ea2c9a3` fix(工作区): 源设备检出目录里命令生成的文件不再被下一条命令清掉，执行机上直接运行脚本也拦下；升级客户端版本至 v1.0.139 → `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `S-CLIENT-VERSION`
 - `cba0d77d` feat(工作区): 远程执行机只改代码，测试、构建、提交、推送都在代码所在的设备上做；升级客户端版本至 v1.0.138 → `T-FOLLOWUP`, `F-FOLLOWUP`, `R-WS-BIG-UNTRACKED`, `R-WS-EDIT-ONLY`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `S-CLIENT-VERSION`
 - `65b643fd` style(web): 头像菜单重新设计，桌面客户端也改用同一个面板 → `R-UI-COMMERCIAL`
 - `787de51a` feat(画像): 每台设备自动检测已装的 AI 工具并注入画像，不用再按设备勾选 → `T-DEVICE`, `R-DOCS-WRITE-LIGHT`, `R-PERSONA-ONBOARD`, `S-CLIENT-VERSION`

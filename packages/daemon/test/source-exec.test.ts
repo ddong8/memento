@@ -1,5 +1,5 @@
 import { execFileSync, spawn } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -194,3 +194,20 @@ describe("files the agent's commands make on the source", () => {
     expect(Buffer.from(got.data_b64, "base64").toString()).toBe("png\n");
   });
 });
+
+describe("the source's checkout", () => {
+  it("starts over when the repository was deleted and created again at the same path", async () => {
+    const { root, snapshot } = sourceRepo();
+    const home = mkdtempSync(join(tmpdir(), "src-home-"));
+    expect((await execOnSource(root, { snapshot, command: "cat a.txt" }, { home, env })).stdout).toBe("one\n");
+    // Gone and back: same path, a new repository (the old checkout points at metadata that no longer exists)
+    rmSync(join(root, ".git"), { recursive: true, force: true });
+    git(root, "init", "-q");
+    writeFileSync(join(root, "a.txt"), "again\n");
+    git(root, "add", "a.txt");
+    git(root, "commit", "-q", "-m", "again");
+    const again = await execOnSource(root, { snapshot: git(root, "rev-parse", "HEAD"), command: "cat a.txt" }, { home, env });
+    expect(again).toMatchObject({ exit_code: 0, stdout: "again\n" });
+  });
+});
+

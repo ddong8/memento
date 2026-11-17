@@ -208,7 +208,7 @@ class EndpointTests(unittest.IsolatedAsyncioTestCase):
         async with self.Session() as db:
             return await get_project_conversations(
                 self.memento_id, session_offset=0, session_limit=50, offset=None, limit=None,
-                max_messages_per_session=0, order="desc", device_id=device_id, artifacts=True, db=db, _user=self.user,
+                max_messages_per_session=0, order="desc", device_id=device_id, artifacts=True, conversation_id=None, db=db, _user=self.user,
                 as_of=None,
             )
 
@@ -281,8 +281,8 @@ class EndpointTests(unittest.IsolatedAsyncioTestCase):
             async with self.Session() as db:
                 res = await get_project_conversations(
                     self.memento_id, session_offset=0, session_limit=50, offset=None, limit=None,
-                    max_messages_per_session=5, order="desc", device_id="dev-mini", artifacts=artifacts, db=db,
-                    _user=self.user, as_of=None,
+                    max_messages_per_session=5, order="desc", device_id="dev-mini", artifacts=artifacts, conversation_id=None,
+                    db=db, _user=self.user, as_of=None,
                 )
             return next(s for s in res["sessions"] if s["session_id"] == "s-mini-1")
 
@@ -292,3 +292,16 @@ class EndpointTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(lean["truncated"])
         self.assertEqual(lean["artifacts"], [])
         self.assertEqual([a["doc_type"] for a in (await picker(True))["artifacts"]], ["task"])
+
+        # 「展开全部」: just this session, every message, oldest first
+        async with self.Session() as db:
+            full = await get_project_conversations(
+                self.memento_id, session_offset=3, session_limit=5, offset=None, limit=None,
+                max_messages_per_session=0, order="asc", device_id=None, artifacts=False,
+                conversation_id=doc.id, db=db, _user=self.user, as_of=None,
+            )
+        self.assertEqual(full["total_sessions"], 1)
+        [only] = full["sessions"]
+        self.assertEqual(only["session_id"], "s-mini-1")
+        self.assertEqual([m["content"] for m in only["messages"]], [f"第 {i} 条" for i in range(1, 61)])
+        self.assertFalse(only["truncated"])

@@ -1,9 +1,11 @@
 "use client";
 
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { authFetch, getApiBase } from "@/lib/api-client";
+import { authFetch } from "@/lib/api-client";
+import { sessionsUrl } from "@/lib/session-preview";
+import { MoreMessages } from "@/components/viewers/MoreMessages";
 import { useI18n } from "@/lib/i18n";
 import { ChatBubble } from "@/components/viewers/ConversationViewer";
 import MarkdownViewer from "@/components/viewers/MarkdownViewer";
@@ -34,6 +36,8 @@ interface Session {
   timestamp: string;
   message_count: number;
   messages: Message[];
+  /** Only a preview of the messages came; 「展开全部」 fetches the rest */
+  truncated?: boolean;
   artifacts: Artifact[];
 }
 
@@ -64,13 +68,16 @@ export default function ProjectConversationsPage() {
   const loadedMessages = useMemo(() => sessions.reduce((n, s) => n + s.messages.length, 0), [sessions]);
   const { count: budget, done: allRendered, sentinelRef, reset: resetBudget } = useProgressiveCount(loadedMessages);
 
+  // A preview's 「展开全部」: the whole session replaces it in place
+  const onWhole = useCallback((conversationId: string, messages: Message[]) => {
+    setSessions((prev) => prev.map((s) => (s.conversation_id === conversationId ? { ...s, messages, truncated: false } : s)));
+  }, []);
+
   const loadMore = async (reset = false) => {
     setLoading(true);
     try {
       const off = reset ? 0 : offsetRef.current;
-      const res = await authFetch(
-        `${getApiBase()}/api/projects/${projectId}/conversations?session_offset=${off}&session_limit=5&order=${order}`
-      ).then((r) => r.json()) as ProjectConversationsResponse;
+      const res = await authFetch(sessionsUrl(projectId, off, order)).then((r) => r.json()) as ProjectConversationsResponse;
 
       if (reset) {
         setData(res);
@@ -134,7 +141,11 @@ export default function ProjectConversationsPage() {
             const limit = Math.min(session.messages.length, Math.max(left, 0));
             left -= session.messages.length;
             return (
-              <SessionBlock key={session.session_id || sIdx} session={session} limit={limit} dateFmt={dateFmt} locale={locale} t={t} />
+              <SessionBlock
+                key={session.session_id || sIdx} session={session} limit={limit} dateFmt={dateFmt} locale={locale} t={t}
+                projectId={projectId} order={order}
+                onWhole={onWhole}
+              />
             );
           });
         })()}
@@ -161,9 +172,12 @@ export default function ProjectConversationsPage() {
 }
 
 const SessionBlock = memo(function SessionBlock({
-  session, limit, dateFmt, locale, t,
+  session, limit, dateFmt, locale, t, projectId, order, onWhole,
 }: {
   session: Session;
+  projectId: string;
+  order: "asc" | "desc";
+  onWhole: (conversationId: string, messages: Message[]) => void;
   /** Messages rendered so far; the page raises it as the reader scrolls */
   limit: number;
   dateFmt: string;
@@ -181,6 +195,13 @@ const SessionBlock = memo(function SessionBlock({
     return out;
   }, [session.messages]);
   const shown = limit >= session.messages.length ? session.messages : session.messages.slice(0, limit);
+  const hidden = session.truncated ? Math.max(session.message_count - session.messages.length, 0) : 0;
+  const more = hidden > 0 && (
+    <MoreMessages<Message>
+      projectId={projectId} conversationId={session.conversation_id} hidden={hidden}
+      order={order} locale={locale} onLoaded={(m) => onWhole(session.conversation_id, m)}
+    />
+  );
   return (
     <div style={{ marginBottom: 8 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "24px 0" }}>
@@ -211,6 +232,7 @@ const SessionBlock = memo(function SessionBlock({
 
       {/* Messages */}
       <div className="space-y-3">
+        {order === "desc" && more}
         {shown.map((msg, idx) => {
           return (
             <ChatBubble
@@ -230,6 +252,8 @@ const SessionBlock = memo(function SessionBlock({
             />
           );
         })}
+
+        {order === "asc" && shown.length === session.messages.length && more}
 
         {/* Artifacts inline, once the session is fully on the page */}
         {shown.length === session.messages.length && session.artifacts.length > 0 && (

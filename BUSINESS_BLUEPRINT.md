@@ -3,16 +3,16 @@
 <!-- memento:business-index:start (自动生成，勿手改) -->
 > 先读这一段定位；要细节时按下表行号只读对应章节。改了「代码位置」里的文件，先看对应条目还成不成立。
 
-- 汇总：规则 56（✅ 56 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
+- 汇总：规则 57（✅ 57 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
 - 核对：全部通过（详见末尾「自动核对」）
 
 | 章节 | 行号 |
 | :--- | :--- |
 | 1. 业务对象与术语 | L21-L65 |
 | 2. 关键流程 | L67-L124 |
-| 3. 业务规则 | L126-L454 |
-| 4. 状态归属 | L456-L501 |
-| 自动核对 (Auto Check) | L504-L600 |
+| 3. 业务规则 | L126-L461 |
+| 4. 状态归属 | L463-L508 |
+| 自动核对 (Auto Check) | L511-L608 |
 <!-- memento:business-index:end -->
 > 业务蓝图：memento 应该做成什么样，每一条落在哪段代码、由哪个测试或检查保证。和代码蓝图 [CODE_BLUEPRINT.md](CODE_BLUEPRINT.md)（代码长什么样）配合看：代码蓝图回答"在哪里"，这份回答"应该怎样、为什么"。
 > 规则来自用户的原话和纠正（CLAUDE.md、长期记忆、每晚复盘），不是从代码里反推的；代码和这里对不上，先当成代码的问题查。
@@ -441,6 +441,13 @@
 - 代码: `apps/web/src/lib/ask/cache.ts#getLocalConvSnapshot`, `apps/web/src/lib/ask/cache.ts#saveLocalConvSnapshot`, `apps/web/src/lib/api-client.ts#seedApiEtagCache`
 - 测试: `apps/web/test/cache-writes.test.ts#reads back a snapshot that is still waiting to be written`, `apps/web/test/cache-writes.test.ts#writes the snapshot later, once, with long tool output cut`
 
+### R-SESSION-PREVIEW-WHOLE 项目对话和时间线先带每个会话的一段，展开全部一条不丢
+- 来源: 用户 11-17「全部都做吧」（同意「先显示每个会话最近的几十条，点展开全部再加载其余部分」）；原先代码注释「每个会话展示完整消息，不做截断」；CLAUDE.md「重视性能与速度优化，要求交互零延迟、避免页面卡死」
+- 说明: 列表每个会话带 40 条（倒序看最近的，正序看最早的），会话数和消息总数照实显示；缺的那一头放「展开前面/其余 N 条」，点了按会话取全部消息原地换上。
+- 代码: `apps/web/src/lib/session-preview.ts#sessionsUrl`, `apps/web/src/lib/session-preview.ts#fetchWholeSession`, `apps/web/src/components/viewers/MoreMessages.tsx#MoreMessages`, `server/server/api/projects.py#get_project_conversations`
+- 测试: `apps/web/test/session-whole.test.tsx#loads the whole session when the reader asks for the rest`, `server/tests/test_project_placement.py#test_the_session_picker_gets_the_latest_few_messages_and_the_true_count`
+- 要求: `sessionsUrl(` @ `apps/web/src/app/projects/[id]/timeline/page.tsx`; `sessionsUrl(` @ `apps/web/src/app/projects/[id]/conversations/page.tsx`
+
 ### R-WECHAT-DRAFT 工作台文本可多次润色，确认后推到公众号草稿，文章带官网链接
 - 来源: CLAUDE.md（memento）「工作台文本支持多次编辑润色，确认无误后再推送到公众号草稿；文章带上官网链接」
 - 代码: `apps/web/src/components/viewers/WeChatPublishModal.tsx#WeChatPublishModal`, `apps/web/src/components/viewers/MediaInspectorPanel.tsx`
@@ -505,7 +512,7 @@
 
 > 生成器随每次提交核对：代码位置还在不在、测试还在不在、禁止 / 要求的写法满不满足。✅ 通过 · ⚠️ 缺代码位置、测试或来源 · ❌ 位置失效或违反规则（CI 会拦下）。
 
-- 汇总：规则 56（✅ 56 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
+- 汇总：规则 57（✅ 57 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
 
 | 编号 | 名称 | 代码位置 | 测试 | 检查 | 结论 |
 | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -583,6 +590,7 @@
 | `R-LLM-IN-PROFILE` | 大模型配置放在个人设置里 | 2/2 | — | 1/1 | ✅ |
 | `R-PERSONA-ONBOARD` | 个人画像首次进入引导设性别和卡通形象，可上传照片生成，默认全屏 3D 动画，手机端完整显示 | 5/5 | 3/3 | 5/5 | ✅ |
 | `R-ASK-INSTANT` | AI 执事区域刷新尽量零延迟 | 3/3 | 2/2 | — | ✅ |
+| `R-SESSION-PREVIEW-WHOLE` | 项目对话和时间线先带每个会话的一段，展开全部一条不丢 | 4/4 | 2/2 | 2/2 | ✅ |
 | `R-WECHAT-DRAFT` | 工作台文本可多次润色，确认后推到公众号草稿，文章带官网链接 | 2/2 | — | 2/2 | ✅ |
 | `R-BUSINESS-CHECKED` | 业务规则挂到代码和测试上，每次提交自动核对 | 6/6 | 4/4 | 1/1 | ✅ |
 | `S-CONV-LIST` | 对话列表 | 6/6 | — | — | ✅ |

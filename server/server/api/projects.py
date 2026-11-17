@@ -1133,6 +1133,7 @@ async def get_project_conversations(
     order: str = Query("asc", pattern="^(asc|desc)$"),
     device_id: str | None = None,
     artifacts: bool = Query(True, description="Each session's plan documents (5 KB each); the session picker skips them"),
+    conversation_id: uuid.UUID | None = Query(None, description="Only this session, all of its messages: a preview's 「展开全部」"),
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
     as_of: datetime | None = None,  # internal — passed by share.py to cap visibility
@@ -1185,7 +1186,7 @@ async def get_project_conversations(
     dev_key = device_id or "all"
     cache_key = (
         f"project:conv:v3:{_user.id}:{project_id}:{dev_key}:"
-        f"{session_offset}:{session_limit}:{max_messages_per_session}:{order}:{as_of_key}:{int(artifacts)}"
+        f"{session_offset}:{session_limit}:{max_messages_per_session}:{order}:{as_of_key}:{int(artifacts)}:{conversation_id or ''}"
     )
     cached = await cache_get(cache_key)
     if cached is not None:
@@ -1360,6 +1361,9 @@ async def get_project_conversations(
         key=lambda d: conv_ts.get(str(d.id)) or d.synced_at or datetime.min.replace(tzinfo=timezone.utc),
         reverse=(order != "asc"),
     )
+    if conversation_id is not None:
+        main_convs = [d for d in main_convs if d.id == conversation_id]
+        session_offset = 0
     total_sessions = len(main_convs)
 
     # Paginate by main session (subagents folded into parents)

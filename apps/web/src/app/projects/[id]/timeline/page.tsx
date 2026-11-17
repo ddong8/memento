@@ -1,11 +1,13 @@
 "use client";
 
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { useProgressiveCount } from "@/lib/use-progressive";
 import dynamic from "next/dynamic";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { getApiBase, authFetch, ConversationMessage } from "@/lib/api-client";
+import { authFetch, ConversationMessage } from "@/lib/api-client";
+import { sessionsUrl } from "@/lib/session-preview";
+import { MoreMessages } from "@/components/viewers/MoreMessages";
 import { useI18n } from "@/lib/i18n";
 import { ChatBubble } from "@/components/viewers/ConversationViewer";
 import MarkdownViewer from "@/components/viewers/MarkdownViewer";
@@ -32,6 +34,8 @@ interface Session {
   timestamp: string;
   message_count: number;
   messages: (ConversationMessage & { subagent_name?: string })[];
+  /** Only a preview of the messages came; 「展开全部」 fetches the rest */
+  truncated?: boolean;
   artifacts: Artifact[];
 }
 
@@ -55,15 +59,17 @@ export default function ProjectTimelinePage() {
   const [shareOpen, setShareOpen] = useState(false);
   const offsetRef = useRef(0);
 
+  const onWhole = useCallback((conversationId: string, messages: SessionMessage[]) => {
+    setSessions((prev) => prev.map((s) => (s.conversation_id === conversationId ? { ...s, messages, truncated: false } : s)));
+  }, []);
+
   const loadMore = async (reset = false) => {
     setLoading(true);
     try {
       const off = reset ? 0 : offsetRef.current;
-      // 每个 session 卡展示完整消息——用户优先看全貌，不做截断。
-      // 大 session（几千条）首屏会慢一点但不丢内容。
-      const res: ProjectConversationsResponse = await authFetch(
-        `${getApiBase()}/api/projects/${projectId}/conversations?session_offset=${off}&session_limit=5&order=${order}`
-      ).then((r) => r.json());
+      // 每个会话先带最近（正序时是最早）的一段，「展开全部」再取这个会话的全部消息：内容一条不丢，
+      // 首屏不再被一个几千条的长会话拖住（原来一页 880 KB，其中一个会话 840 KB）。
+      const res: ProjectConversationsResponse = await authFetch(sessionsUrl(projectId, off, order)).then((r) => r.json());
 
       if (reset) {
         setData(res);
@@ -123,7 +129,10 @@ export default function ProjectTimelinePage() {
       {/* Continuous message flow */}
       <div className="space-y-3">
         {sessions.map((session, sIdx) => (
-          <SessionMessages key={session.session_id || sIdx} session={session} dateFmt={dateFmt} locale={locale} t={t} />
+          <SessionMessages
+            key={session.session_id || sIdx} session={session} dateFmt={dateFmt} locale={locale} t={t}
+            projectId={projectId} order={order} onWhole={onWhole}
+          />
         ))}
       </div>
 
@@ -154,9 +163,12 @@ export default function ProjectTimelinePage() {
 type SessionMessage = ConversationMessage & { subagent_name?: string };
 
 const SessionMessages = memo(function SessionMessages({
-  session, dateFmt, locale, t,
+  session, dateFmt, locale, t, projectId, order, onWhole,
 }: {
   session: Session;
+  projectId: string;
+  order: "asc" | "desc";
+  onWhole: (conversationId: string, messages: SessionMessage[]) => void;
   dateFmt: string;
   locale: string;
   t: ReturnType<typeof useI18n>["t"];
@@ -223,6 +235,13 @@ const SessionMessages = memo(function SessionMessages({
   }
   // An expanded session of thousands of messages is built a slice at a time as the reader scrolls
   const { count: shownGroups, done: allShown, sentinelRef } = useProgressiveCount(groups.length);
+  const hidden = session.truncated ? Math.max(session.message_count - session.messages.length, 0) : 0;
+  const more = hidden > 0 && (
+    <MoreMessages<SessionMessage>
+      projectId={projectId} conversationId={session.conversation_id} hidden={hidden}
+      order={order} locale={locale} onLoaded={(m) => onWhole(session.conversation_id, m)}
+    />
+  );
 
   return (
     <>
@@ -321,6 +340,7 @@ const SessionMessages = memo(function SessionMessages({
       {expanded && (
       /* Messages with subagent groups collapsed inline */
       <div className="space-y-4 max-w-3xl mx-auto">
+        {order === "desc" && more}
         {(allShown ? groups : groups.slice(0, shownGroups)).map((g, gIdx) => {
           if (g.type === "msg") {
             const m = g.item.msg;
@@ -379,6 +399,7 @@ const SessionMessages = memo(function SessionMessages({
             {t.loading}
           </div>
         )}
+        {order === "asc" && allShown && more}
       </div>
       )}
 

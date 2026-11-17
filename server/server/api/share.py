@@ -487,6 +487,7 @@ async def get_public_share_data(
             order="asc",
             device_id=None,
             artifacts=True,
+            conversation_id=None,
             db=db,
             _user=owner,
             as_of=as_of,

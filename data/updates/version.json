@@ -4,22 +4,22 @@
   "release_notes": "1. 跨设备任务里，远程智能体可以改代码所在电脑上项目以外的任意文件（别的仓库、配置文件等）：取回、改好、写回，原文件自动备份到 ~/.memento/source-edits；.ssh、.env、系统配置、凭据文件等敏感位置会被拒绝\n2. 手机端版本号与客户端统一为 1.0.141",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.140-win-x64.zip",
-      "size": 158329285,
-      "sha256": "490e033d7b5714d05b723df2915ac575b30d5caa480d8af6e3f663b826183974",
-      "sha512": "RGGNYbivus6lkYCj8cuqkkpKtZ0e6Hb0/UjFMdLhK+31rUcDAn3oMIoQCAiEkFDNWHAeUrBIATWOyzqSfCRlUg=="
+      "asset_name": "Memento-1.0.141-win-x64.zip",
+      "size": 158333699,
+      "sha256": "aaeae0f199a2dbe2e994670f1bc8f2e2b5852023fcfb8eabddedf85dc2ac2a53",
+      "sha512": "GrMp6gdEJQIkKXhKhU9uJ6CCeaDdKmCf6xyHJf+o73pGEhf8iXkiuKW7aWCy6InIkQMioue1+scap+CkPgQhJQ=="
     },
     "macos": {
-      "asset_name": "Memento-1.0.140-mac-arm64.zip",
-      "size": 132818450,
-      "sha256": "d0b0f794fefb11550e4f5af716aa76f0cbe088cdb824e3dad9f163441f926d01",
-      "sha512": "aVwBo8T1FIjLXpLZrbc+CqgrhDPjlEIOfmI+jDq6m+EWZlwW3ODLjfuFNA401TOtN0vEj+VczFqNEutyWvx7Mw=="
+      "asset_name": "Memento-1.0.141-mac-arm64.zip",
+      "size": 132822690,
+      "sha256": "d82b717ad439dd72e6b017f154e57ec6c1f61e54ca3edafd02a555d58789205b",
+      "sha512": "zopPrV3Mz6lOh+q8lEPQLY5+a+79Qe+iuOqu4dgJ3/Xae2tGwmNdygB4eWVraqQQdEsEtMhjH3H8MIMzROaK2Q=="
     },
     "linux": {
-      "asset_name": "Memento-1.0.140-linux-x64.tar.gz",
-      "size": 132094187,
-      "sha256": "b18ed0cfe49a4f4a1e453497ea7be8d20f426a8b9fe3440fefbecd5383c942c9",
-      "sha512": "YqujjznDsa7fcIWmKSWz/Q09ucsZGIhsX5QqpDgnLd8bQkgrRrzbpKTC+cLIFc863A1TkTjjI7cck2cDRf01rg=="
+      "asset_name": "Memento-1.0.141-linux-x64.tar.gz",
+      "size": 132099848,
+      "sha256": "e2a2ed2cb43bf9e36a4b5d172c5d3eaecd4f67fbc568fa67ae4ad7bbdc3d333f",
+      "sha512": "UANfWmsBRP31Q6MCqh9kRzHFY2hiq83LbRlNTEVXvvZFOGiODvRvHaVHJMr5qEntMma9xWIsnRoAYwCerIDz0Q=="
     }
   }
 }

@@ -29,7 +29,7 @@ SCOPED_MAX_CHARS = 800  # each "## 项目：…" / "## 设备：…" section
 PROFILE_VOICE_DAYS = 30
 # Tools whose global instruction file a collector can carry the block in.
 # Cursor keeps its global rules in a settings database, not a file, so it isn't here.
-INJECTION_TARGETS = ("claude_code", "codex", "antigravity", "workbuddy", "openclaw", "hermes")
+from .profile_targets import INJECTION_TARGETS  # noqa: E402,F401  (re-exported)
 
 # The collector matches these same markers (mobile/lib/collector/services/profile_inject_service.dart).
 PROFILE_BEGIN = "<!-- memento:begin"

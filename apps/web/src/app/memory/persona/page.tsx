@@ -1984,6 +1984,10 @@ export default function PersonaPage() {
                   )}
                 </div>
 
+                <div className="text-[10px] text-[var(--aurora-fg4)] leading-snug">
+                  每台设备自动检测装了哪些 AI 工具，全部注入画像、记忆 MCP 和技能；点卡片可在这台设备上关掉某个工具
+                </div>
+
                 {state?.devices.map((device) => (
                   <div key={device.device_id} className="space-y-2">
                     <div className="flex items-center gap-2 text-xs font-semibold text-[var(--aurora-fg2)]">
@@ -2001,24 +2005,26 @@ export default function PersonaPage() {
                       {state.targets.map((tool) => {
                         const meta = TARGET_META[tool] || { label: tool, file: "~/.config", desc: "配置环境" };
                         const on = device.targets.includes(tool);
+                        // The daemon writes only into tools it finds installed; one installed later is picked up on its next sync
+                        const absent = on && /not installed/.test(device.status.results?.[tool] ?? "");
                         return (
                           <div
                             key={tool}
                             onClick={() => toggleTarget(device, tool)}
                             className={`p-2.5 rounded-xl border transition-all cursor-pointer flex flex-col justify-between ${
-                              on
+                              on && !absent
                                 ? "bg-[var(--aurora-surface)] border-[var(--aurora-accent)] shadow-2xs"
                                 : "bg-[var(--aurora-chip)] border-[var(--aurora-border)] opacity-70 hover:opacity-100"
                             }`}
                           >
                             <div className="flex items-center justify-between mb-1">
                               <div className="flex items-center gap-1.5">
-                                <BrandMark id={tool} size={15} colored={on} />
+                                <BrandMark id={tool} size={15} colored={on && !absent} />
                                 <span className="font-bold text-xs text-[var(--aurora-fg1)]">
                                   {meta.label}
                                 </span>
                               </div>
-                              {on && (
+                              {on && !absent && (
                                 <span className="flex items-center gap-1 text-[9px] text-[#10B981] font-medium bg-[rgba(16,185,129,0.12)] px-1.5 py-0.2 rounded-full">
                                   <span className="w-1.5 h-1.5 rounded-full bg-[#10B981] breathing-glow-emerald" />
                                   已注入
@@ -2032,8 +2038,8 @@ export default function PersonaPage() {
 
                             <div className="pt-1 border-t border-[var(--aurora-border)] flex items-center justify-between text-[9px] font-mono text-[var(--aurora-fg4)]">
                               <span className="truncate max-w-[130px]">{meta.file}</span>
-                              <span style={{ color: on ? "var(--aurora-accent)" : undefined }}>
-                                {on ? "已激活" : "未开启"}
+                              <span style={{ color: on && !absent ? "var(--aurora-accent)" : undefined }}>
+                                {absent ? "未安装，装上后自动注入" : on ? "已激活" : "已关闭"}
                               </span>
                             </div>
                           </div>

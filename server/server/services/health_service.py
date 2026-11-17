@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import Document, DreamJournal, Machine, User, UserProfile
 from . import ai_health
+from .profile_targets import profile_targets
 from .correction_service import correction_stats
 from .eval_service import eval_summary
 from .learning_eval_service import outcome_summary, regression_text
@@ -166,14 +167,14 @@ async def _profile(db: AsyncSession, user: User, now: datetime) -> dict[str, Any
     machines = (await db.execute(select(Machine).where(Machine.user_id == user.id, Machine.merged_into.is_(None), Machine.is_archived.is_(False)))).scalars().all()
     devices = []
     for m in machines:
-        if not m.profile_targets:
+        if not profile_targets(m):
             continue
         status = m.profile_status or {}
         results = status.get("results") or {}
         devices.append({
             "name": m.name,
             "online": bool(m.last_heartbeat and now - m.last_heartbeat < ONLINE_WINDOW),
-            "targets": list(m.profile_targets),
+            "targets": profile_targets(m),
             "version": status.get("version"),
             "reported_at": status.get("reported_at"),
             "synced": published is not None and status.get("version") == published.version,

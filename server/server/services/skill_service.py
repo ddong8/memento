@@ -18,6 +18,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import Machine, Skill, User
+from .profile_targets import profile_targets
 
 # Agent Skills spec: name is 1-64 chars of a-z, 0-9 and single hyphens; description up to 1024.
 SLUG_MAX = 64
@@ -206,7 +207,7 @@ def upsert_mined(
 
 async def injection_for(db: AsyncSession, user: User, machine: Machine) -> dict[str, Any]:
     """What this device should have in each tool's skills folder."""
-    dirs = sorted({SKILL_DIR_FOR_TARGET[t] for t in (machine.profile_targets or []) if t in SKILL_DIR_FOR_TARGET})
+    dirs = sorted({SKILL_DIR_FOR_TARGET[t] for t in profile_targets(machine) if t in SKILL_DIR_FOR_TARGET})
     skills = (await db.execute(
         select(Skill).where(Skill.user_id == user.id, Skill.status == "published").order_by(Skill.slug)
     )).scalars().all()

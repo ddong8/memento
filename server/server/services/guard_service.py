@@ -16,6 +16,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import GuardEvent, Machine, User
+from .profile_targets import profile_targets
 
 GUARD_TOOLS = ("claude_code", "codex")
 OUTCOMES = ("verified", "no_evidence", "failed_check", "disclosed", "unread")
@@ -32,7 +33,7 @@ def guard_tools(user: User, machine: Machine) -> list[str]:
     profile is injected into, so turning a tool off there removes the hook too."""
     if not guard_enabled(user):
         return []
-    targets = machine.profile_targets or []
+    targets = profile_targets(machine)
     return [t for t in GUARD_TOOLS if t in targets]
 
 
@@ -135,7 +136,7 @@ async def guard_overview(db: AsyncSession, user: User, days: int = 30) -> dict:
     devices = []
     for m in machines:
         status = (m.profile_status or {}).get("guards") or {}
-        tools = [t for t in GUARD_TOOLS if t in (m.profile_targets or [])]
+        tools = [t for t in GUARD_TOOLS if t in profile_targets(m)]
         if not tools and not status:
             continue
         devices.append({

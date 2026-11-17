@@ -33,6 +33,7 @@ from ..middleware.auth import get_current_user, get_current_user_or_collector, v
 from ..services import ai_health
 from ..services.cache import cache_delete_prefix, cache_get, cache_set
 from ..services.guard_service import guard_tools
+from ..services.profile_targets import profile_targets, targets_off
 from ..services.profile_service import (
     INJECTION_TARGETS,
     build_profile_draft,
@@ -305,7 +306,7 @@ async def get_profile(
                 "device_id": m.collector_token_hash,
                 "name": m.name,
                 "online": bool(m.last_heartbeat and now - m.last_heartbeat < ONLINE_WINDOW),
-                "targets": m.profile_targets or [],
+                "targets": profile_targets(m),
                 "status": m.profile_status or {},
                 "pitfalls": _pitfalls_out(pitfalls.get(str(m.id), [])),
             }
@@ -398,7 +399,8 @@ async def set_device_targets(
     if unknown:
         raise HTTPException(status_code=400, detail=f"unknown targets: {', '.join(unknown)}")
     machine = await _owned_machine(db, user, device_id)
-    machine.profile_targets = [t for t in INJECTION_TARGETS if t in body.targets]
+    machine.profile_targets_off = targets_off(body.targets)
+    machine.profile_targets = profile_targets(machine)
     await db.commit()
     await _bust_user_profile_cache(user.id)
     return {"device_id": device_id, "targets": machine.profile_targets}
@@ -795,7 +797,7 @@ async def get_injection(
     res = {
         "version": published.version if published else None,
         "block": block,
-        "targets": machine.profile_targets or [],
+        "targets": profile_targets(machine),
         # Tools whose Stop hook checks "done / fixed / live" claims; [] removes it
         "guards": {"completion_evidence": guard_tools(user, machine)},
         # Off: the device removes the hooks and generated blueprints it set up

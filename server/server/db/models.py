@@ -42,10 +42,12 @@ class Machine(Base):
     # for the operator to configure — it only exists once MEMENTO_REMOTE_EXEC
     # is on, and stays NULL otherwise.
     remote_exec_key: Mapped[str | None] = mapped_column(String(64))
-    # Resident-profile injection: which tool instruction files this device should
-    # carry the profile block in (chosen in the web UI, off by default), and what
-    # the collector last reported writing.
+    # Resident-profile injection: the tools the user turned off on this device (every other
+    # installed tool carries the profile, services/profile_targets.py), and what the collector
+    # last reported writing. profile_targets is the opt-in list used before 2026-11-17, kept
+    # in step with the effective list for older servers.
     profile_targets: Mapped[list] = mapped_column(JSONB, default=list, server_default="[]")
+    profile_targets_off: Mapped[list] = mapped_column(JSONB, default=list, server_default="[]")
     profile_status: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
     # What the collector last reported writing into the tools' skills folders.
     skill_status: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")

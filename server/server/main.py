@@ -59,6 +59,9 @@ def _run_migrations(conn) -> None:
     # Machine.profile_targets / profile_status — resident-profile injection.
     if "profile_targets" not in machine_cols:
         conn.execute(text("ALTER TABLE machines ADD COLUMN profile_targets JSONB NOT NULL DEFAULT '[]'"))
+    # Opt-out instead of opt-in (2026-11-17): every device injects into all its installed tools
+    if "profile_targets_off" not in machine_cols:
+        conn.execute(text("ALTER TABLE machines ADD COLUMN profile_targets_off JSONB NOT NULL DEFAULT '[]'"))
     if "profile_status" not in machine_cols:
         conn.execute(text("ALTER TABLE machines ADD COLUMN profile_status JSONB NOT NULL DEFAULT '{}'"))
     if "skill_status" not in machine_cols:

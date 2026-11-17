@@ -16,6 +16,7 @@ from sqlalchemy.dialects import postgresql  # noqa: E402
 from server.db.models import Machine, User  # noqa: E402
 from server.services import guard_service  # noqa: E402
 from server.services.guard_service import event_rows, guard_enabled, guard_tools, set_status  # noqa: E402
+from server.services.profile_targets import targets_off  # noqa: E402
 
 
 def _user(settings: dict | None = None) -> User:
@@ -23,7 +24,7 @@ def _user(settings: dict | None = None) -> User:
 
 
 def _machine(targets: list[str], status: dict | None = None) -> Machine:
-    return Machine(id=uuid.uuid4(), name="mac", collector_token_hash="dev1", profile_targets=targets, profile_status=status or {})
+    return Machine(id=uuid.uuid4(), name="mac", collector_token_hash="dev1", profile_targets_off=targets_off(targets), profile_status=status or {})
 
 
 class SwitchTests(unittest.TestCase):
@@ -32,6 +33,9 @@ class SwitchTests(unittest.TestCase):
         m = _machine(["claude_code", "antigravity", "codex"])
         self.assertEqual(guard_tools(_user(), m), ["claude_code", "codex"])
         self.assertEqual(guard_tools(_user(), _machine(["workbuddy"])), [])
+        # A device nobody configured has every tool on
+        fresh = Machine(id=uuid.uuid4(), name="new", collector_token_hash="dev2")
+        self.assertEqual(guard_tools(_user(), fresh), ["claude_code", "codex"])
 
     def test_turned_off_removes_every_hook(self) -> None:
         u = _user({"completion_guard": False, "enabled": True})

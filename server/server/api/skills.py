@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import Machine, Skill, User
+from ..services.profile_targets import profile_targets
 from ..db.session import get_db
 from ..middleware.auth import get_current_user, verify_collector_token
 from ..services.cache import cache_delete_prefix, cache_get, cache_set
@@ -95,7 +96,7 @@ async def list_skills(
             {
                 "device_id": m.collector_token_hash,
                 "name": m.name,
-                "targets": m.profile_targets or [],
+                "targets": profile_targets(m),
                 "status": m.skill_status or {},
             }
             for m in machines

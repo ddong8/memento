@@ -23,19 +23,6 @@ def touch_heartbeat(machine: Machine, now: datetime) -> None:
         machine.last_heartbeat = now
 
 
-def inherited_profile_targets(others: list[list[str] | None]) -> list[str]:
-    """Tools a new device carries the profile in: the ones the user's other devices carry it in.
-
-    The choice is made per device in the web app, so a device added later (an executor installed by
-    deploy/bootstrap/executor.sh, a new laptop) started with none and its AI tools never got the
-    profile until someone found the switch. Tools that aren't installed there are skipped by the daemon.
-    """
-    from .profile_service import INJECTION_TARGETS
-
-    seen = {t for targets in others for t in (targets or [])}
-    return [t for t in INJECTION_TARGETS if t in seen]
-
-
 async def ensure_device(
     db: AsyncSession,
     device_id: str,
@@ -81,13 +68,6 @@ async def ensure_device(
             user_id=user_id,
             last_heartbeat=now,
         )
-        if user_id:
-            others = (await db.execute(
-                select(Machine.profile_targets).where(
-                    Machine.user_id == user_id, Machine.merged_into.is_(None), Machine.is_archived.is_(False),
-                )
-            )).scalars().all()
-            machine.profile_targets = inherited_profile_targets(list(others))
         db.add(machine)
         await db.flush()
     else:

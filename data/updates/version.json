@@ -4,22 +4,22 @@
   "release_notes": "1. 跨设备任务里，远程智能体在代码所在电脑上执行命令不再被一条慢命令卡住：同一项目最多 4 条命令同时执行，任务停掉时它在那台电脑上的命令一起停，超时后连同它启动的子进程一起结束\n2. 上传的图片按提示里给的文件名保存，智能体按路径能直接读到\n3. 手机端版本号与客户端统一为 1.0.142",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.141-win-x64.zip",
-      "size": 158333699,
-      "sha256": "aaeae0f199a2dbe2e994670f1bc8f2e2b5852023fcfb8eabddedf85dc2ac2a53",
-      "sha512": "GrMp6gdEJQIkKXhKhU9uJ6CCeaDdKmCf6xyHJf+o73pGEhf8iXkiuKW7aWCy6InIkQMioue1+scap+CkPgQhJQ=="
+      "asset_name": "Memento-1.0.142-win-x64.zip",
+      "size": 158342253,
+      "sha256": "8b6e4807f7a87d2cfa0fb4752bfa1072bfcfd2788c69414b0795698240c9369d",
+      "sha512": "lcRPD3hX2GHc62JkhnBUESW+ygxjndaflKLE/bp1hBqasfJOckKI3ZTT9iLABHlR9MLbjF6pBK5O6pdCKLDSbQ=="
     },
     "macos": {
-      "asset_name": "Memento-1.0.141-mac-arm64.zip",
-      "size": 132822690,
-      "sha256": "d82b717ad439dd72e6b017f154e57ec6c1f61e54ca3edafd02a555d58789205b",
-      "sha512": "zopPrV3Mz6lOh+q8lEPQLY5+a+79Qe+iuOqu4dgJ3/Xae2tGwmNdygB4eWVraqQQdEsEtMhjH3H8MIMzROaK2Q=="
+      "asset_name": "Memento-1.0.142-mac-arm64.zip",
+      "size": 132831254,
+      "sha256": "9c1e6a2fae08c61e81a105934a9ed70c1a718fed7d4f38cc0abb5aed75bcc24d",
+      "sha512": "Lq1JZD27dVkQevo1Wn8LP8j53xoKGQ26K6asa1QcbwocHnbHD4CYW+FO1MoBsa12PPtZ/LopvC3Ou6/p9G6b5g=="
     },
     "linux": {
-      "asset_name": "Memento-1.0.141-linux-x64.tar.gz",
-      "size": 132099848,
-      "sha256": "e2a2ed2cb43bf9e36a4b5d172c5d3eaecd4f67fbc568fa67ae4ad7bbdc3d333f",
-      "sha512": "UANfWmsBRP31Q6MCqh9kRzHFY2hiq83LbRlNTEVXvvZFOGiODvRvHaVHJMr5qEntMma9xWIsnRoAYwCerIDz0Q=="
+      "asset_name": "Memento-1.0.142-linux-x64.tar.gz",
+      "size": 132107849,
+      "sha256": "60ebe304702766d378917120f0948c2a1028c76b30c6985d14d8cb11f7afb870",
+      "sha512": "WIyXYAPoyyhl8YDAu9RAQR7DiGOPYBnwrg9gmuXiDBwGyLebFbIzHta0W2eKxC+UfTbh3cXskXPIdXn9OMNuCw=="
     }
   }
 }

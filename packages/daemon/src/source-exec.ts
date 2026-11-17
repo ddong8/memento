@@ -1,7 +1,7 @@
 import { execFile, spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
-import { chmod, lstat, mkdir, readFile, rm, stat, symlink, unlink, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, readFile, realpath, rm, stat, symlink, unlink, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -109,6 +109,7 @@ export class SourceExecBridge {
     }
     if (req.action === "commit" || req.action === "push") return this.commit(task, req);
     if (req.action === "get") return this.get(task, req);
+    if (req.action === "put") return this.put(task, req);
     const command = String(req.command ?? "").trim();
     if (!command) return { error: "没有要执行的命令" };
     const relay = this.relay();
@@ -249,6 +250,29 @@ export class SourceExecBridge {
     return { exit_code: 0, stdout: `${dest}\n` };
   }
 
+  /** `memento-source put`: a file from here written anywhere on the source outside the project (the old one backed up there). */
+  private async put(task: Registered, req: { cwd?: unknown; file?: unknown; dest?: unknown }): Promise<Record<string, unknown>> {
+    const { run, taskId } = task;
+    const file = String(req.file ?? "").trim();
+    const dest = String(req.dest ?? "").trim();
+    if (!file || !dest) return { error: "用法：memento-source put <这里的文件> <那台设备上的绝对路径>" };
+    const relay = this.relay();
+    if (!relay) return { error: "和服务器的连接还没建立" };
+    const local = resolve(String(req.cwd ?? "") || run.mirror.workDir, file);
+    const st = await stat(local).catch(() => null);
+    if (!st?.isFile()) return { error: `这里没有文件 ${local}` };
+    if (st.size > GET_LIMIT) return { error: `${local} 超过 ${GET_LIMIT / 1048576}MB，传不过去` };
+    let r: Record<string, unknown>;
+    try {
+      r = await relay("put", { source_device_id: run.spec.sourceDeviceId, path: run.spec.sourcePath, dest, data_b64: (await readFile(local)).toString("base64") }, 180_000);
+    } catch (e) {
+      return { error: e instanceof Error ? e.message : String(e) };
+    }
+    this.emit(taskId, { kind: "source_exec", status: "done", command: `写入 ${dest}`, source: run.spec.sourceName, exit_code: 0 } as AgentEvent);
+    const backup = r.backup ? `（原文件备份在 ${String(r.backup)}）` : "（新文件）";
+    return { exit_code: 0, stdout: `已写入「${run.spec.sourceName}」上的 ${String(r.path ?? dest)}${backup}\n` };
+  }
+
   dispose(): void {
     this.server?.close();
     this.tasks.clear();
@@ -273,7 +297,8 @@ const USAGE = [
   '  memento-source "<命令>"                       在代码所在的设备上、带着当前改动执行命令',
   '  memento-source commit -m "说明" [--push] [-- 路径...]   在那台设备上提交（它的提交钩子照常运行）',
   '  memento-source push                            任务结束、改动写回后由那台设备推送',
-  '  memento-source get <文件> [保存到]              把那台设备上的文件（截图、日志、产物）取回这里',
+  '  memento-source get <文件> [保存到]              把那台设备上的文件（截图、日志、产物，或任意绝对路径）取回这里',
+  '  memento-source put <这里的文件> <那边的绝对路径>  把文件写到那台设备上项目以外的任意位置（原文件先备份）',
 ].join("\\n");
 if (!url) {
   console.error("memento-source: 只能在 Memento 跨设备任务里由智能体使用");
@@ -302,6 +327,8 @@ if (args[0] === "commit") {
   body = { action: "commit", message: message.join("\\n\\n"), paths, push, cwd: process.cwd() };
 } else if (args[0] === "push" && args.length === 1) {
   body = { action: "push", cwd: process.cwd() };
+} else if (args[0] === "put" && args.length === 3) {
+  body = { action: "put", file: args[1], dest: args[2], cwd: process.cwd() };
 } else if (args[0] === "get" && args.length >= 2 && args.length <= 3) {
   body = { action: "get", file: args[1], dest: args[2], cwd: process.cwd() };
 } else {
@@ -359,7 +386,8 @@ export function sourceExecHint(command: string, sourceName: string): string {
     `1) 测试、构建、lint、类型检查、安装依赖、运行程序、打开浏览器或截图、安卓模拟器、iOS 构建和上传 TestFlight 等，一律用 ${c} "<命令>"：带着你到目前为止的全部改动，在「${sourceName}」上单独的检出目录里执行（不碰用户的工作目录，依赖、.env、钥匙串和已登录的工具都用那台设备上现成的），输出和退出码原样返回；工作目录对应你当前所在的目录。一次最多 30 分钟，更久的命令放到后台执行。`,
     `2) 提交用 ${c} commit -m "说明" [-- 路径...]：在「${sourceName}」上真正执行 git commit，它的提交钩子照常运行；钩子失败会把输出返回给你，修好再提交；钩子自动改动的文件会同步回这里。要推送加 --push（或执行 ${c} push），任务结束、改动写回「${sourceName}」后由它推送。不要在这里 git commit / push，这里已拦截，绕过去的提交也不会带回。`,
     `3) 要看「${sourceName}」上生成的文件（截图、日志、构建产物），用 ${c} get <文件> [保存到] 取回这里再读；相对路径按当前目录在那边的检出目录里找，也可以给那台设备上的绝对路径。`,
-    `4) 不要在这台执行机上安装依赖、跑测试或构建。`,
+    `4) 要改「${sourceName}」上项目以外的文件（别的仓库、配置文件等）：先 ${c} get <那边的绝对路径> 取回，在这里改好，再 ${c} put <这里的文件> <那边的绝对路径> 写回（原文件自动备份；.ssh、.env、系统配置这类敏感位置会被拒绝）。本项目里的代码照常直接在这里改，任务结束自动写回。`,
+    `5) 不要在这台执行机上安装依赖、跑测试或构建。`,
   ].join("\n");
 }
 
@@ -769,3 +797,61 @@ export function executorDenyReason(what: string, command: string, sourceName: st
     `提交用 \`${command} commit -m "说明"\`（要推送加 --push）。`
   );
 }
+
+// ── files outside the project, written on the source ─────────────────────
+
+/** `p` with links resolved as far as it exists (the rest, not there yet, kept as given). */
+async function realDir(p: string): Promise<string> {
+  let head = resolve(p);
+  const rest: string[] = [];
+  for (;;) {
+    const real = await realpath(head).catch(() => undefined);
+    if (real) return join(real, ...rest.reverse());
+    const up = dirname(head);
+    if (up === head) return resolve(p);
+    rest.push(basename(head));
+    head = up;
+  }
+}
+
+/** Where files `put` overwrote are kept on the source, newest run first by date. */
+export function editBackupDir(home = homeDir()): string {
+  return join(home, ".memento", "source-edits");
+}
+
+/**
+ * The source's side of `workspace_put_req`: a file the agent wrote, put anywhere on this device
+ * outside the task's project (that goes back with the task's patch instead). What was there is copied
+ * to ~/.memento/source-edits first. The server already turned down sensitive places (.ssh, .env, /etc…).
+ */
+export async function writeOnSource(
+  dir: string,
+  data: Record<string, unknown>,
+  options: { home?: string; env?: NodeJS.ProcessEnv } = {},
+): Promise<{ path: string; size: number; backup?: string }> {
+  const env = options.env ?? (await executionEnvironment());
+  const dest = String(data.dest ?? "").trim();
+  if (!(isAbsolute(dest) || /^[A-Za-z]:[\\/]/.test(dest))) throw new WorkspaceError(`要写到的位置必须是绝对路径：${dest}`);
+  const at = resolve(dest);
+  const { root } = await repoOf(dir, env).catch(() => ({ root: dir }));
+  // Compared as real paths: a link on the way (macOS /var → /private/var) mustn't hide that it's in the project
+  const inside = relative(await realDir(root), await realDir(at));
+  if (!inside || (!inside.startsWith("..") && !isAbsolute(inside))) {
+    throw new WorkspaceError("这是任务项目里的文件：直接在执行机的副本里改，任务结束会自动写回");
+  }
+  const content = Buffer.from(String(data.data_b64 ?? ""), "base64");
+  if (content.length > GET_LIMIT) throw new WorkspaceError(`文件超过 ${GET_LIMIT / 1048576}MB`);
+  const old = await stat(at).catch(() => null);
+  if (old && !old.isFile()) throw new WorkspaceError(`${at} 不是文件`);
+  let backup: string | undefined;
+  if (old) {
+    const day = new Date().toISOString().replace(/[:.]/g, "-");
+    backup = join(editBackupDir(options.home), day, at.replace(/^[A-Za-z]:/, (d) => d[0]!).replace(/[\\/]+/g, "__"));
+    await mkdir(dirname(backup), { recursive: true });
+    await writeFile(backup, await readFile(at));
+  }
+  await mkdir(dirname(at), { recursive: true });
+  await writeFile(at, content);
+  return { path: at, size: content.length, ...(backup ? { backup } : {}) };
+}
+

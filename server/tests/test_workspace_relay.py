@@ -321,3 +321,22 @@ async def test_a_file_comes_back_from_the_source_and_commits_made_there_go_on_to
     c = wr._commits({"bundle_b64": "", "head": "c" * 40, "base_head": "h" * 40, "branch": "main", "push": True, "on_source": True})
     assert c["on_source"] is True and c["push"] is True
     assert "on_source" not in wr._commits({"head": "c" * 40})
+
+
+@pytest.mark.asyncio
+async def test_a_file_outside_the_project_is_written_on_the_source_but_never_a_sensitive_one():
+    patches, ws = _env(_machine(), answer={"path": "/Users/me/other/conf.yaml", "size": 3, "backup": "/b/x"})
+    patches.append(patch.object(wr, "device_has_feature", lambda name, feature, user=None: feature == "source_put"))
+
+    async def go():
+        for bad in ("/Users/me/.ssh/config", "/Users/me/app/.env", "/etc/hosts", "/Users/me/.zshrc", "/Users/me/.aws/credentials"):
+            out = await wr._put({"source_device_id": "mac", "dest": bad, "data_b64": "eA=="}, USER)
+            assert out["code"] == "refused", bad
+        ws.request_device.assert_not_awaited()
+        out = await wr._put({"source_device_id": "mac", "path": "/Users/me/repo", "dest": "/Users/me/other/conf.yaml", "data_b64": "eHl6"}, USER)
+        sent = ws.request_device.await_args.args[1]
+        assert sent["type"] == "workspace_put_req" and sent["dest"] == "/Users/me/other/conf.yaml" and sent["data_b64"] == "eHl6"
+        assert out == {"path": "/Users/me/other/conf.yaml", "size": 3, "backup": "/b/x"}
+
+    await _run(patches, go)
+

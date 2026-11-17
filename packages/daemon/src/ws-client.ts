@@ -11,7 +11,7 @@ import { P2PHost } from "./p2p.js";
 import { probeAllQuotas } from "./quotas.js";
 import type { ServerRoute } from "./server-route.js";
 import { exportClaudeSession } from "./session-sync.js";
-import { commitOnSource, execOnSource, readOnSource } from "./source-exec.js";
+import { commitOnSource, execOnSource, readOnSource, writeOnSource } from "./source-exec.js";
 import { computeBackoffWithJitter, parseTaskDispatch, TaskRunner } from "./task-runner.js";
 import { applyWorkspaceRequest, exportWorkspace, WorkspaceError } from "./workspace.js";
 import { flushPendingPatches, type Relay } from "./workspace-sync.js";
@@ -295,6 +295,9 @@ export class WsTaskClient {
         case "workspace_get_req":
           void this.handleWorkspaceGet(data);
           break;
+        case "workspace_put_req":
+          void this.handleWorkspacePut(data);
+          break;
         case "session_export_req":
           void this.handleSessionExport(data);
           break;
@@ -548,6 +551,18 @@ export class WsTaskClient {
     try {
       const r = await readOnSource(deviceFilePath(String(data.path ?? "")), data);
       this.log(`Sent ${r.path} (${r.size} bytes) to an agent on another device`);
+      this.sendJson({ type: "workspace_resp", req_id: reqId, ...r });
+    } catch (e) {
+      this.sendJson({ type: "workspace_resp", req_id: reqId, error: e instanceof Error ? e.message : String(e), code: e instanceof WorkspaceError ? e.code : "failed" });
+    }
+  }
+
+  /** An agent on another device writes a file here, outside its project (the old one backed up first). */
+  private async handleWorkspacePut(data: Record<string, unknown>): Promise<void> {
+    const reqId = String(data.req_id ?? "");
+    try {
+      const r = await writeOnSource(deviceFilePath(String(data.path ?? "")), data);
+      this.log(`Wrote ${r.path} (${r.size} bytes) for an agent on another device${r.backup ? `, backup ${r.backup}` : ""}`);
       this.sendJson({ type: "workspace_resp", req_id: reqId, ...r });
     } catch (e) {
       this.sendJson({ type: "workspace_resp", req_id: reqId, error: e instanceof Error ? e.message : String(e), code: e instanceof WorkspaceError ? e.code : "failed" });

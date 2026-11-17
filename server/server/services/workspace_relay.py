@@ -19,6 +19,8 @@ server passes each request on to the device holding the code (the source) over t
   ``git commit`` of what it changed there, so the source's hooks run and the commit is the user's own;
   it waits there until ``apply`` puts it on the branch;
 - ``get``: a file the agent's commands made on the source (a screenshot, a log), for it to read;
+- ``put``: a file the agent wrote, put anywhere on the source outside the project (the old one backed up
+  there first); sensitive places (.ssh, .env, /etc, shell profiles, credentials) are refused here;
 - ``apply``: what the agent changed, as a patch for the source to apply to its working tree, plus
   its commits (made on the source, or a bundle from older executors) for the source to put on its
   branch, and push when asked: the executor holds no credentials, the source does.
@@ -38,7 +40,7 @@ from typing import Any
 from ..db.session import async_session_factory
 from .cluster import cluster
 from .device_reports import device_has_feature
-from .risk_policy import classify_shell_command
+from .risk_policy import classify_file_change, classify_shell_command
 from .user_filter import find_machine_by_id_or_hash
 from .ws_manager import ws_manager
 
@@ -66,7 +68,7 @@ CARRY_MAX = PATCH_MAX * 3 // 2
 
 
 # The version a source needs for a feature (older ones never reported it)
-_FEATURE_VERSION = {"source_exec": "1.0.121", "source_commit": "1.0.138"}
+_FEATURE_VERSION = {"source_exec": "1.0.121", "source_commit": "1.0.138", "source_put": "1.0.141"}
 COMMIT_TIMEOUT = 20 * 60.0
 GET_TIMEOUT = 120.0
 # A file brought back by ``get``: 8MB, base64
@@ -256,6 +258,30 @@ async def _get(data: dict[str, Any], user_id: Any) -> dict[str, Any]:
     return {k: res[k] for k in ("data_b64", "size", "path") if k in res}
 
 
+async def _put(data: dict[str, Any], user_id: Any) -> dict[str, Any]:
+    dest = str(data.get("dest") or "").strip()
+    if not dest:
+        return {"error": "没有给要写到的位置"}
+    risk = classify_file_change(dest, None)
+    if risk and risk.level in ("danger", "critical"):
+        return {"error": f"不能写这个位置（{risk.label}）；需要的话请用户自己在那台设备上改", "code": "refused"}
+    content = str(data.get("data_b64") or "")
+    if len(content) > GET_MAX:
+        return {"error": "文件太大", "code": "too_big"}
+    source, why = await _source_device(str(data.get("source_device_id") or ""), user_id, "source_put")
+    if not source:
+        return {"error": why, "code": "source_unavailable"}
+    res = await ws_manager.request_device(source, {
+        "type": "workspace_put_req",
+        "path": str(data.get("path") or ""),
+        "dest": dest,
+        "data_b64": content,
+    }, GET_TIMEOUT)
+    if res.get("error"):
+        return {"error": res["error"], "code": res.get("code") or "failed"}
+    return {k: res[k] for k in ("path", "size", "backup") if k in res}
+
+
 async def _apply(data: dict[str, Any], user_id: Any) -> dict[str, Any]:
     source, why = await _source_device(str(data.get("source_device_id") or ""), user_id)
     if not source:
@@ -304,7 +330,7 @@ def _commits(raw: Any) -> dict[str, Any] | None:
     }
 
 
-_OPS = {"export": _export, "chunk": _chunk, "p2p": _p2p, "session": _session, "exec": _exec, "commit": _commit, "get": _get, "apply": _apply}
+_OPS = {"export": _export, "chunk": _chunk, "p2p": _p2p, "session": _session, "exec": _exec, "commit": _commit, "get": _get, "put": _put, "apply": _apply}
 
 
 async def handle(data: dict[str, Any], executor_id: str, user_id: Any) -> None:

@@ -18,7 +18,7 @@ import {
   unpackPatch,
   WorkspaceError,
 } from "../src/workspace.js";
-import { commitOnSource, readOnSource, SourceExecBridge } from "../src/source-exec.js";
+import { commitOnSource, readOnSource, SourceExecBridge, writeOnSource } from "../src/source-exec.js";
 import {
   finishWorkspace,
   flushPendingPatches,
@@ -103,6 +103,7 @@ function fakeRelay(src: string, srcHome: string): Relay & { calls: string[] } {
     if (op === "apply") return (await applyWorkspaceRequest(src, body, { env, home: srcHome })).reply;
     if (op === "commit") return (await commitOnSource(src, body, { env, home: srcHome })) as unknown as Record<string, unknown>;
     if (op === "get") return readOnSource(src, body, { env, home: srcHome });
+    if (op === "put") return writeOnSource(src, body, { env, home: srcHome });
     throw new Error(`unknown op ${op}`);
   }) as Relay & { calls: string[] };
   relay.calls = calls;
@@ -592,6 +593,35 @@ describe("the agent's commits and pushes (made on the source)", () => {
     expect(out).toMatchObject({ status: "saved", committed: "kept", commit_branch: "memento/abad0009" });
     expect(existsSync(join(src, "x.txt"))).toBe(false);
     expect(git(src, "log", "--format=%s", "-n", "1", "memento/abad0009")).toBe("half");
+  });
+
+  it("edits a file on the source outside the project: get it, change it here, put it back, the old one backed up", async () => {
+    const src = sourceRepo();
+    const srcHome = tmp("srchome");
+    const relay = fakeRelay(src, srcHome);
+    const exeHome = tmp("exehome");
+    const run = await prepareWorkspace(spec(src), relay, { env, home: exeHome });
+    const other = join(tmp("other-repo"), "config.yaml");
+    writeFileSync(other, "port: 1\n");
+    const got = await agentRuns(run, relay, exeHome, "abad0013", { action: "get", file: other });
+    const here = String(got.stdout).trim();
+    writeFileSync(here, "port: 2\n");
+    const put = await agentRuns(run, relay, exeHome, "abad0013", { action: "put", file: here, dest: other });
+    expect(put.exit_code).toBe(0);
+    expect(readFileSync(other, "utf8")).toBe("port: 2\n");
+    const backup = /原文件备份在 (.+)）/.exec(String(put.stdout))?.[1];
+    expect(backup && readFileSync(backup, "utf8")).toBe("port: 1\n");
+    // A new file, with its folders
+    const fresh = join(tmp("other-new"), "a", "b.txt");
+    expect((await agentRuns(run, relay, exeHome, "abad0013", { action: "put", file: here, dest: fresh })).stdout).toContain("新文件");
+    expect(readFileSync(fresh, "utf8")).toBe("port: 2\n");
+    // The project's own files go back with the task's changes instead
+    expect(await agentRuns(run, relay, exeHome, "abad0013", { action: "put", file: here, dest: join(src, "a.txt") })).toMatchObject({
+      error: expect.stringContaining("任务项目里的文件"),
+    });
+    expect(await agentRuns(run, relay, exeHome, "abad0013", { action: "put", file: here, dest: "relative.txt" })).toMatchObject({
+      error: expect.stringContaining("绝对路径"),
+    });
   });
 
   it("brings back a file the agent's commands made on the source", async () => {

@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
-import { lstat, mkdir, readdir, readFile, rm, stat, unlink, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, readdir, readFile, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { basename, dirname, join, normalize, sep } from "node:path";
 import { promisify } from "node:util";
 import { gunzip, gzip } from "node:zlib";
@@ -270,6 +270,8 @@ export interface IncomingCommits {
   branch: string;
   /** The agent pushed: push the branch from the source, which holds the credentials. */
   push: boolean;
+  /** The commits were made on the source itself (memento-source commit): kept there, nothing to fetch. */
+  onSource?: boolean;
 }
 
 export interface PushResult {
@@ -325,6 +327,12 @@ async function commitList(root: string, range: string, env?: NodeJS.ProcessEnv):
 /** The executor's commits into the source's object store, under a ref of their own until they land. */
 async function fetchCommits(root: string, patchDir: string, id: string, c: IncomingCommits, env?: NodeJS.ProcessEnv): Promise<{ ref?: string; error?: string }> {
   if (!SHA.test(c.head) || !SHA.test(c.baseHead)) return { error: "提交信息不完整" };
+  if (c.onSource) {
+    if (c.head === c.baseHead) return {};
+    if ((await git(["cat-file", "-e", `${c.head}^{commit}`], root, env)).code !== 0) return { error: "这台设备上找不到任务期间在这里做的提交" };
+    if ((await git(["merge-base", "--is-ancestor", c.baseHead, c.head], root, env)).code !== 0) return { error: "任务期间的提交和起点对不上" };
+    return { ref: `refs/memento/local/${id}` };
+  }
   if (!c.bundle.length) return c.head === c.baseHead ? {} : { error: "提交包是空的" };
   const file = join(patchDir, `${id}.bundle`);
   await writeFile(file, c.bundle);
@@ -703,10 +711,27 @@ export async function prepareMirror(
   // The agent commits as the user does on the source
   if (info.userName) await gitOk(["config", "user.name", info.userName], root, env);
   if (info.userEmail) await gitOk(["config", "user.email", info.userEmail], root, env);
+  await refuseCommitsHere(root, env);
   const remote = await standInRemote(root, info, env);
   const workDir = info.rel ? join(root, ...info.rel.split("/")) : root;
   if (info.rel) await mkdir(workDir, { recursive: true });
   return { root, workDir, baseTree: info.tree, snapshot: info.snapshot, head: info.head, branch: info.branch, ...remote };
+}
+
+/** Git hooks of the clone: commits and pushes are made on the source (memento-source commit). */
+const REFUSE_HOOK = `#!/bin/sh
+echo "memento：这台设备只改代码，提交和推送在代码所在的设备上做：memento-source commit -m \"说明\"（要推送加 --push）。" >&2
+exit 1
+`;
+
+async function refuseCommitsHere(root: string, env?: NodeJS.ProcessEnv): Promise<void> {
+  const dir = join(dirname(root), "hooks");
+  await mkdir(dir, { recursive: true });
+  for (const name of ["pre-commit", "pre-merge-commit", "pre-push", "pre-rebase", "pre-applypatch"]) {
+    await writeFile(join(dir, name), REFUSE_HOOK, { mode: 0o755 });
+    await chmod(join(dir, name), 0o755).catch(() => {});
+  }
+  await gitOk(["config", "core.hooksPath", dir], root, env);
 }
 
 /**
@@ -801,7 +826,7 @@ export async function mirrorCommits(mirror: Pick<Mirror, "root" | "head" | "bran
 
 /** The `commits` field of an apply request, as the executor sends it. */
 export function commitsMessage(c: IncomingCommits): Record<string, unknown> {
-  return { bundle_b64: c.bundle.toString("base64"), head: c.head, base_head: c.baseHead, branch: c.branch, push: c.push };
+  return { bundle_b64: c.bundle.toString("base64"), head: c.head, base_head: c.baseHead, branch: c.branch, push: c.push, ...(c.onSource ? { on_source: true } : {}) };
 }
 
 /** The source's side of an apply request (what `workspace_apply_req` carries), answered with the reply's fields. */
@@ -820,6 +845,7 @@ export async function applyWorkspaceRequest(
         baseHead: String(raw.base_head ?? ""),
         branch: String(raw.branch ?? ""),
         push: raw.push === true,
+        ...(raw.on_source === true ? { onSource: true } : {}),
       }
     : undefined;
   const r = await applyWorkspacePatch(dir, patch, {
@@ -867,7 +893,7 @@ export interface PendingPatch {
   patchFile: string;
   createdAt: string;
   /** The agent's commits that go with the patch (absent from older daemons' entries). */
-  commits?: { file: string; head: string; baseHead: string; branch: string; push: boolean };
+  commits?: { file: string; head: string; baseHead: string; branch: string; push: boolean; onSource?: boolean };
 }
 
 const PENDING = (home?: string) => join(memento(home), "workspaces", "pending");
@@ -887,7 +913,7 @@ export async function savePending(
   if (commits) {
     const file = join(dir, `${id}.commits.bundle`);
     await writeFile(file, commits.bundle);
-    entry.commits = { file, head: commits.head, baseHead: commits.baseHead, branch: commits.branch, push: commits.push };
+    entry.commits = { file, head: commits.head, baseHead: commits.baseHead, branch: commits.branch, push: commits.push, ...(commits.onSource ? { onSource: true } : {}) };
   }
   await writeFile(join(dir, `${id}.json`), JSON.stringify(entry, null, 2));
   return entry;

@@ -39,6 +39,21 @@ describe("code on another device", () => {
     expect(text).not.toContain("src/f7.ts");
   });
 
+  it("shows a commit made on the device the code is on by its id", () => {
+    const events = [
+      { kind: "source_exec", status: "running", command: 'git commit -m "fix: x"', source: "Mac mini" },
+      { kind: "source_exec", status: "done", command: 'git commit -m "fix: x"', source: "Mac mini", exit_code: 0, commit: "abcdef0123456789abcdef0123456789abcdef01", seconds: 2.5 },
+    ] as unknown as TaskEvent[];
+    act(() => {
+      root.render(<TaskTimeline events={events} running={false} taskId="t-commit" />);
+    });
+    const text = container.textContent || "";
+    expect(text).toContain("Mac mini");
+    expect(text).toContain('git commit -m "fix: x"');
+    expect(text).toContain("abcdef01");
+    expect(text).not.toContain("exit 0");
+  });
+
   it("shows the commits that came back and the push done from the source", () => {
     const events: TaskEvent[] = [
       {

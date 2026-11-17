@@ -275,3 +275,49 @@ async def test_a_risky_command_or_an_old_source_is_refused_without_asking_it():
         ws.request_device.assert_not_awaited()
 
     await _run(patches, go)
+
+
+@pytest.mark.asyncio
+async def test_the_agents_commit_is_made_on_the_source_and_an_old_source_is_told_to_upgrade():
+    # 11-17: the executor only edits; the commit is a real git commit on the device the code is on
+    answer = {"exit_code": 0, "stdout": "", "stderr": "lint ok", "sha": "c" * 40, "subject": "fix: x", "files": ["a.py"], "seconds": 3.1}
+    patches, ws = _env(_machine(), answer=answer)
+    patches.append(patch.object(wr, "device_has_feature", lambda name, feature, user=None: feature == "source_commit"))
+
+    async def go():
+        out = await wr._commit({"source_device_id": "mac", "path": "/Users/me/repo", "task_id": "t1", "snapshot": "s" * 40,
+                                "base_tree": "b" * 40, "base_head": "h" * 40, "parent": "h" * 40, "patch_b64": "cA==",
+                                "message": "fix: x", "paths": ["a.py", 3]}, USER)
+        sent, timeout = ws.request_device.await_args.args[1], ws.request_device.await_args.args[2]
+        assert sent["type"] == "workspace_commit_req" and sent["message"] == "fix: x" and sent["paths"] == ["a.py"]
+        assert sent["parent"] == "h" * 40 and timeout == wr.COMMIT_TIMEOUT
+        assert out == answer
+
+    await _run(patches, go)
+
+    patches, ws = _env(_machine())
+    patches.append(patch.object(wr, "device_has_feature", lambda name, feature, user=None: feature == "source_exec"))
+
+    async def old():
+        out = await wr._commit({"source_device_id": "mac", "message": "x"}, USER)
+        assert out["code"] == "source_unavailable" and "1.0.138" in out["error"]
+        assert (await wr._commit({"source_device_id": "mac", "message": " "}, USER))["error"] == "提交说明是空的"
+        ws.request_device.assert_not_awaited()
+
+    await _run(patches, old)
+
+
+@pytest.mark.asyncio
+async def test_a_file_comes_back_from_the_source_and_commits_made_there_go_on_to_apply():
+    patches, ws = _env(_machine(), answer={"data_b64": "cG5n", "size": 3, "path": "/w/shot.png"})
+    patches.append(patch.object(wr, "device_has_feature", lambda name, feature, user=None: True))
+
+    async def go():
+        out = await wr._get({"source_device_id": "mac", "path": "/w", "file": "shot.png", "rel": "app"}, USER)
+        assert ws.request_device.await_args.args[1]["type"] == "workspace_get_req"
+        assert out == {"data_b64": "cG5n", "size": 3, "path": "/w/shot.png"}
+
+    await _run(patches, go)
+    c = wr._commits({"bundle_b64": "", "head": "c" * 40, "base_head": "h" * 40, "branch": "main", "push": True, "on_source": True})
+    assert c["on_source"] is True and c["push"] is True
+    assert "on_source" not in wr._commits({"head": "c" * 40})

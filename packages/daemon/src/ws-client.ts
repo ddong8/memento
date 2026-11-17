@@ -11,7 +11,7 @@ import { P2PHost } from "./p2p.js";
 import { probeAllQuotas } from "./quotas.js";
 import type { ServerRoute } from "./server-route.js";
 import { exportClaudeSession } from "./session-sync.js";
-import { execOnSource } from "./source-exec.js";
+import { commitOnSource, execOnSource, readOnSource } from "./source-exec.js";
 import { computeBackoffWithJitter, parseTaskDispatch, TaskRunner } from "./task-runner.js";
 import { applyWorkspaceRequest, exportWorkspace, WorkspaceError } from "./workspace.js";
 import { flushPendingPatches, type Relay } from "./workspace-sync.js";
@@ -289,6 +289,12 @@ export class WsTaskClient {
         case "workspace_exec_req":
           void this.handleWorkspaceExec(data);
           break;
+        case "workspace_commit_req":
+          void this.handleWorkspaceCommit(data);
+          break;
+        case "workspace_get_req":
+          void this.handleWorkspaceGet(data);
+          break;
         case "session_export_req":
           void this.handleSessionExport(data);
           break;
@@ -516,6 +522,32 @@ export class WsTaskClient {
       this.log(`Running a command for an agent on another device in ${path}: ${String(data.command ?? "").slice(0, 200)}`);
       const r = await execOnSource(deviceFilePath(path), data);
       this.log(`Command for the agent on another device exited ${r.exit_code} after ${r.seconds}s`);
+      this.sendJson({ type: "workspace_resp", req_id: reqId, ...r });
+    } catch (e) {
+      this.sendJson({ type: "workspace_resp", req_id: reqId, error: e instanceof Error ? e.message : String(e), code: e instanceof WorkspaceError ? e.code : "failed" });
+    }
+  }
+
+  /** An agent on another device commits its changes to code here: a real `git commit` here, hooks and all (in a checkout of its own). */
+  private async handleWorkspaceCommit(data: Record<string, unknown>): Promise<void> {
+    const reqId = String(data.req_id ?? "");
+    const path = String(data.path ?? "");
+    try {
+      this.log(`Committing for an agent on another device in ${path}: ${String(data.message ?? "").split("\n")[0]!.slice(0, 120)}`);
+      const r = await commitOnSource(deviceFilePath(path), data);
+      this.log(r.sha ? `Committed ${r.sha.slice(0, 8)} for the agent on another device` : `Commit for the agent on another device failed (exit ${r.exit_code})`);
+      this.sendJson({ type: "workspace_resp", req_id: reqId, ...r });
+    } catch (e) {
+      this.sendJson({ type: "workspace_resp", req_id: reqId, error: e instanceof Error ? e.message : String(e), code: e instanceof WorkspaceError ? e.code : "failed" });
+    }
+  }
+
+  /** An agent on another device fetches a file its commands made here (a screenshot, a log). */
+  private async handleWorkspaceGet(data: Record<string, unknown>): Promise<void> {
+    const reqId = String(data.req_id ?? "");
+    try {
+      const r = await readOnSource(deviceFilePath(String(data.path ?? "")), data);
+      this.log(`Sent ${r.path} (${r.size} bytes) to an agent on another device`);
       this.sendJson({ type: "workspace_resp", req_id: reqId, ...r });
     } catch (e) {
       this.sendJson({ type: "workspace_resp", req_id: reqId, error: e instanceof Error ? e.message : String(e), code: e instanceof WorkspaceError ? e.code : "failed" });

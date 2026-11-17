@@ -24,6 +24,11 @@ function summarizeToolUse(hook: Record<string, unknown>): ToolUse {
   return { tool, input: kept, ...(hook.cwd != null ? { cwd: String(hook.cwd) } : {}) };
 }
 
+/** A PreToolUse hook's answer that turns the call down: Claude Code shows the reason to the model. */
+export function denyReply(reason: string): Record<string, unknown> {
+  return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason } };
+}
+
 /**
  * Loopback endpoint Claude Code's PreToolUse hook posts each tool call to. The
  * hook is one curl command, so there's no script to install. It never slows the
@@ -35,7 +40,11 @@ export class HookBridge {
   private server: Server | undefined;
   private port: number | undefined;
 
-  constructor(private readonly onToolUse: (taskId: string, use: ToolUse) => void) {}
+  constructor(
+    private readonly onToolUse: (taskId: string, use: ToolUse) => void,
+    /** Why this tool call must not run (it's turned down with that reason), or undefined to let it. */
+    private readonly decide: (taskId: string, use: ToolUse) => string | undefined = () => undefined,
+  ) {}
 
   private async ensureStarted(): Promise<number> {
     if (this.port !== undefined) return this.port;
@@ -49,13 +58,20 @@ export class HookBridge {
       req.setEncoding("utf8");
       req.on("data", (c) => (body += c));
       req.on("end", () => {
+        let reply = "{}";
         try {
           const data = JSON.parse(body) as unknown;
-          if (data && typeof data === "object") this.onToolUse(decodeURIComponent(parts[2]!), summarizeToolUse(data as Record<string, unknown>));
+          if (data && typeof data === "object") {
+            const taskId = decodeURIComponent(parts[2]!);
+            const use = summarizeToolUse(data as Record<string, unknown>);
+            this.onToolUse(taskId, use);
+            const reason = this.decide(taskId, use);
+            if (reason) reply = JSON.stringify(denyReply(reason));
+          }
         } catch {
           // Malformed hook input: still answer, so the agent carries on.
         }
-        res.writeHead(200, { "Content-Type": "application/json" }).end("{}");
+        res.writeHead(200, { "Content-Type": "application/json" }).end(reply);
       });
     });
     await new Promise<void>((resolve, reject) => {

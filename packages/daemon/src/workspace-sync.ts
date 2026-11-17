@@ -72,6 +72,8 @@ export interface WorkspaceRun {
   spec: WorkspaceSpec;
   mirror: Mirror;
   release: () => void;
+  /** Commits the agent made on the source (`memento-source commit`): the last one, how many, and whether to push at the end. */
+  local?: { head: string; count: number; push: boolean };
 }
 
 /** Clones in use by running tasks: a second task on the same directory gets a clone of its own. */
@@ -251,9 +253,18 @@ export async function finishWorkspace(
   const source = run.spec.sourceName;
   try {
     const made = await mirrorPatch(run.mirror, { env, home });
+    // Commits are made on the source (memento-source commit); ones the agent forced through here don't go back as commits
     const carried = await mirrorCommits(run.mirror, { env, home });
-    const commits = carried.commits;
-    const note = carried.note ? { commits_error: carried.note } : {};
+    const local = run.local;
+    const commits: IncomingCommits | undefined =
+      local && (local.count > 0 || local.push)
+        ? { bundle: Buffer.alloc(0), head: local.head, baseHead: run.mirror.head, branch: run.mirror.branch, push: local.push, onSource: true }
+        : undefined;
+    const bypassed = carried.commits && (carried.commits.count > 0 || carried.commits.push);
+    const why = bypassed
+      ? `智能体在执行机上自己${carried.commits!.count > 0 ? "提交" : "推送"}了（绕过了拦截），这些提交没有带回，文件改动照常带回；提交要用 memento-source commit 在${source}上做`
+      : carried.note;
+    const note = why ? { commits_error: why } : {};
     if (!made.patch.length && !commits) return { kind: "workspace", status: "unchanged", source, ...note };
     const packed = await packPatch(made.patch);
     const pending = { taskId, sourceDeviceId: run.spec.sourceDeviceId, sourcePath: run.spec.sourcePath, baseTree: run.mirror.baseTree };
@@ -312,7 +323,7 @@ async function sendPatch(
   const files = Array.isArray(r.files) ? (r.files as AppliedFile[]).slice(0, 200) : p.files.slice(0, 200);
   // A source on an older version takes the files and ignores the commits
   const old = `${p.spec.sourceName} 上的 Memento 版本较旧，升级后才能带回提交和推送`;
-  if (p.commits?.bundle.length && !r.committed && !r.commits_error) r.commits_error = `${old}（文件改动已带回）`;
+  if ((p.commits?.bundle.length || (p.commits?.onSource && p.commits.head !== p.commits.baseHead)) && !r.committed && !r.commits_error) r.commits_error = `${old}（文件改动已带回）`;
   if (p.commits?.push && !r.push) r.push = { status: "skipped", detail: old };
   const status = r.applied === true ? "applied" : r.conflict === true ? "conflict" : "saved";
   return {
@@ -346,7 +357,7 @@ export async function flushPendingPatches(relay: Relay, log: (m: string) => void
         if (packed.length > PATCH_LIMIT) continue;
         const spec: WorkspaceSpec = { sourceDeviceId: p.sourceDeviceId, sourcePath: p.sourcePath, sourceName: "源设备" };
         const commits: IncomingCommits | undefined = p.commits
-          ? { bundle: await readFile(p.commits.file), head: p.commits.head, baseHead: p.commits.baseHead, branch: p.commits.branch, push: p.commits.push }
+          ? { bundle: await readFile(p.commits.file), head: p.commits.head, baseHead: p.commits.baseHead, branch: p.commits.branch, push: p.commits.push, ...(p.commits.onSource ? { onSource: true } : {}) }
           : undefined;
         const out = await sendPatch(relay, { taskId: p.taskId, spec, baseTree: p.baseTree, mode: p.mode, packed, files: [], commits });
         await dropPending(p, home);

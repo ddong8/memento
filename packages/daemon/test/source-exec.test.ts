@@ -1,11 +1,11 @@
 import { execFileSync, spawn } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { checkDir, execOnSource, relCwd, SourceExecBridge } from "../src/source-exec.js";
+import { checkDir, executorDenyReason, executorOnlyEdits, execOnSource, relCwd, SourceExecBridge, sourceExecHint } from "../src/source-exec.js";
 import { packPatch } from "../src/workspace.js";
 import type { WorkspaceRun } from "../src/workspace-sync.js";
 
@@ -49,7 +49,7 @@ describe("the agent's commands on the device the code is on", () => {
     expect(r.stdout).toContain("two");
     expect(r.stdout).toContain("installed");
     expect(r.stdout).toContain("SECRET=here");
-    expect(r.stdout).toContain(checkDir(root, home));
+    expect(r.stdout).toContain(checkDir(realpathSync(root), home));
     // Build output isn't linked: a build there doesn't write into the user's checkout
     expect(r.stdout).not.toContain("out.js");
     // The user's working tree is untouched
@@ -118,4 +118,49 @@ describe("the agent's commands on the device the code is on", () => {
     expect(after.status).toBe(404);
     bridge.dispose();
   }, 30_000);
+});
+
+describe("the executor only edits code", () => {
+  it("turns down tests, builds, installs, commits and pushes run there, and lets memento-source and reading through", () => {
+    for (const cmd of [
+      "npm test",
+      "cd apps/web && npx tsc --noEmit",
+      "pnpm install",
+      "./server/.venv/bin/pytest server/tests -q",
+      "uv run pytest",
+      "python -m pytest -x",
+      "pip install requests",
+      "git commit -am x",
+      "git -C repo push origin main",
+      "cargo test",
+      "xcodebuild -scheme App archive",
+      "./gradlew assembleRelease",
+      "FOO=1 make build",
+      "adb devices",
+    ]) {
+      expect(executorOnlyEdits(cmd), cmd).toBeTruthy();
+    }
+    for (const cmd of [
+      'memento-source "npm test"',
+      "cd app && /home/opc/.memento/bin/memento-source commit -m x",
+      "git status",
+      "git diff HEAD~1",
+      "git log --oneline -5",
+      "rg makefile src",
+      "cat package.json",
+      "ls node_modules",
+      'echo "make sure tests pass"',
+      "sed -n 1,40p src/make.ts",
+    ]) {
+      expect(executorOnlyEdits(cmd), cmd).toBeUndefined();
+    }
+    const why = executorDenyReason("测试、构建和运行", "/h/.memento/bin/memento-source", "Mac mini");
+    expect(why).toContain("Mac mini");
+    expect(why).toContain('/h/.memento/bin/memento-source commit -m "说明"');
+  });
+
+  it("tells the agent where everything but editing happens", () => {
+    const hint = sourceExecHint("/h/bin/memento-source", "Mac mini");
+    for (const s of ["只用来读和改代码", "TestFlight", "commit -m", "--push", "get <文件>", "已拦截"]) expect(hint).toContain(s);
+  });
 });

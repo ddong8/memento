@@ -33,7 +33,7 @@ import { probeAllQuotas } from "./quotas.js";
 import { homeDir } from "./config.js";
 import { LineDecoder, windowsConsoleEncoding } from "./console-text.js";
 import { executionEnvironment, findExecutable, killProcessTree, prepareCommand, withExeDirOnPath } from "./exec-env.js";
-import { HookBridge } from "./hook-bridge.js";
+import { HookBridge, type ToolUse } from "./hook-bridge.js";
 import { getOfflineMindSnapshot } from "./profile-inject.js";
 import { codexRunner } from "./codex.js";
 import {
@@ -50,7 +50,7 @@ import {
 } from "./workbuddy.js";
 import { IdleCompactor, matchingBuild } from "./claude-cache.js";
 import { fetchClaudeSession, findClaudeSession } from "./session-sync.js";
-import { SourceExecBridge, sourceExecHint } from "./source-exec.js";
+import { executorDenyReason, executorOnlyEdits, SourceExecBridge, sourceExecHint } from "./source-exec.js";
 import { TaskWorktree } from "./worktree.js";
 import { finishWorkspace, parseWorkspaceSpec, prepareWorkspace, toSourcePaths, type Relay, type WorkspaceRun } from "./workspace-sync.js";
 
@@ -562,6 +562,8 @@ export class TaskRunner {
   private hookBridge: HookBridge | undefined;
   /** The agent's `memento-source`: its commands run on the device the code is on. */
   private sourceExec: SourceExecBridge | undefined;
+  /** Tasks whose code is on another device: this one only edits it (the command to use instead, the device's name). */
+  private readonly editOnly = new Map<string, { command: string; source: string }>();
   /** Compacts the Claude sessions memento ran once they sit idle, before their cache runs out (as Claude Code's terminal does). */
   private readonly idleCompactor = new IdleCompactor((m) => this.log(m), { findSession: (id) => findClaudeSession(id) });
   /** Requests to the server over this device's connection: fetching code that lives on another device. */
@@ -979,6 +981,14 @@ export class TaskRunner {
   }
 
   /** The model asked for (or the agent's default) ran out in an earlier task and hasn't reset: one that has quota. */
+  /** A command the agent runs here that belongs on the device the code is on (tests, builds, commits): why it is turned down. */
+  private executorDeny(taskId: string, use: ToolUse): string | undefined {
+    const at = this.editOnly.get(taskId);
+    if (!at || use.tool !== "Bash") return undefined;
+    const what = executorOnlyEdits(use.input.command ?? "");
+    return what ? executorDenyReason(what, at.command, at.source) : undefined;
+  }
+
   private skipLimitedModel(taskId: string, agent: LimitAgent, model: string, models: ModelChoice[], effort: string): string {
     if (!isModelLimited(agent, model)) return model;
     const next = nextModel(agent, models, model, effort);
@@ -1063,7 +1073,7 @@ export class TaskRunner {
     let codex: { runner: string; codex: string } | undefined;
 
     const binary = (text("binary") || "claude").toLowerCase();
-    const prompt = text("prompt");
+    let prompt = text("prompt");
     const askedSession = text("session_id").trim();
     // Only an id an agent could have made: text taken for one (an older daemon read `\"\"` out of a tool's
     // output) resumes nothing, so the task starts a session of its own and reports that one instead
@@ -1092,8 +1102,11 @@ export class TaskRunner {
       const cli = await this.sourceExec.register(taskId, wsRun);
       if (cli) {
         env0.MEMENTO_SOURCE_URL = cli.url;
+        this.editOnly.set(taskId, { command: cli.command, source: wsRun.spec.sourceName });
         const hint = sourceExecHint(cli.command, wsRun.spec.sourceName);
-        sysAppend = sysAppend ? `${sysAppend}\n\n${hint}` : hint;
+        // Codex and Antigravity take no appended system prompt here: the rules go at the top of the task instead
+        if (binary.includes("claude") || binary.includes("workbuddy") || binary.includes("codebuddy")) sysAppend = sysAppend ? `${sysAppend}\n\n${hint}` : hint;
+        else prompt = `${hint}\n\n---\n\n${prompt}`;
       }
     }
 
@@ -1206,7 +1219,10 @@ export class TaskRunner {
         settings.autoDreamEnabled = false;
         Object.assign(env0, claudeClientEnv(payload.claude_entrypoint));
         // Report each tool call to the server, which pushes risky ones to the phone.
-        this.hookBridge ??= new HookBridge((tid, use) => this.send({ type: "agent_tool_use", task_id: tid, ...use }));
+        this.hookBridge ??= new HookBridge(
+          (tid, use) => this.send({ type: "agent_tool_use", task_id: tid, ...use }),
+          (tid, use) => this.executorDeny(tid, use),
+        );
         const hooks = await this.hookBridge.claudeHooks(taskId);
         if (hooks) settings.hooks = hooks;
         claudeSettings = Object.keys(settings).length ? JSON.stringify(settings) : undefined;
@@ -1675,6 +1691,7 @@ export class TaskRunner {
       this.running.delete(taskId);
       this.taskPids.delete(taskId);
       this.sourceExec?.unregister(taskId);
+      this.editOnly.delete(taskId);
       const gatewayFile = this.taskSessions.get(taskId)?.gatewayFile;
       this.taskSessions.delete(taskId);
       // Its idle time starts now.

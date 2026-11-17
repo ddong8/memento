@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `787de51a` · Updated: `2026-11-17`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `65b643fd` · Updated: `2026-11-17`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -13,11 +13,11 @@
 - 类型 (Type): Monorepo (Workspaces)
 - 技术栈 (Stack): TypeScript/JavaScript, Python, Shell / Bash · React, Electron, Next.js, TailwindCSS, Model Context Protocol (MCP), FastAPI, SQLAlchemy, Celery
 - 基础设施 (Infra): PostgreSQL, pgvector (Vector DB), Redis, MinIO / S3 Object Storage, Celery Task Queue
-- 规模 (Scale): 9 个子系统 · 36 组 API 路由 / 242 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 227 个测试文件
+- 规模 (Scale): 9 个子系统 · 36 组 API 路由 / 242 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 228 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `787de51a` (2026-11-17): feat(画像): 每台设备自动检测已装的 AI 工具并注入画像，不用再按设备勾选
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 58（✅ 58 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `T-DEVICE`, `R-DOCS-WRITE-LIGHT`, `R-PERSONA-ONBOARD`, `S-CLIENT-VERSION`, `R-SELF-EVOLVE`, `R-UI-COMMERCIAL`
+- 最近改动 (Latest): `65b643fd` (2026-11-17): style(web): 头像菜单重新设计，桌面客户端也改用同一个面板
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 59（✅ 59 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-UI-COMMERCIAL`, `T-DEVICE`, `R-DOCS-WRITE-LIGHT`, `R-PERSONA-ONBOARD`, `S-CLIENT-VERSION`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -610,7 +610,7 @@ erDiagram
 | Suite | Directory | Files | Sample Tests |
 | :--- | :--- | :--- | :--- |
 | server/tests (pytest) | [`server/tests`](server/tests) | 121 | `test_agent_ids.py`, `test_agent_limits.py`, `test_agent_login.py`, `test_agent_run_states.py`, `test_ai_provider.py` |
-| packages/daemon/test (vitest / jest) | [`packages/daemon/test`](packages/daemon/test) | 57 | `agent-args.test.ts`, `agent-login.test.ts`, `agent-stream.test.ts`, `agy-models.test.ts`, `agy-project-folder.test.ts` |
+| packages/daemon/test (vitest / jest) | [`packages/daemon/test`](packages/daemon/test) | 58 | `agent-args.test.ts`, `agent-login.test.ts`, `agent-stream.test.ts`, `agy-models.test.ts`, `agy-project-folder.test.ts` |
 | apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 43 | `api-client.test.ts`, `ask-reading-and-persona-rules.test.tsx`, `ask-top-bar.test.tsx`, `auth-fetch.test.ts`, `build-update.test.ts` |
 | apps/mobile/test (vitest / jest) | [`apps/mobile/test`](apps/mobile/test) | 2 | `deeplink.test.ts`, `webview-props.test.ts` |
 | packages/core/test (vitest / jest) | [`packages/core/test`](packages/core/test) | 2 | `ask-stream.test.ts`, `task-events.test.ts` |
@@ -619,7 +619,7 @@ erDiagram
 
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
-- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (16 commits)
+- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (15 commits)
 - [`apps/web/src/app/globals.css`](apps/web/src/app/globals.css) (8 commits)
 - [`apps/web/src/components/ExecutionCard.tsx`](apps/web/src/components/ExecutionCard.tsx) (7 commits)
 - [`apps/web/src/components/persona/DigitalTwinAvatar3D.tsx`](apps/web/src/components/persona/DigitalTwinAvatar3D.tsx) (7 commits)
@@ -628,7 +628,7 @@ erDiagram
 - [`apps/web/src/components/viewers/MediaInspectorPanel.tsx`](apps/web/src/components/viewers/MediaInspectorPanel.tsx) (6 commits)
 - [`apps/web/src/app/app/page.tsx`](apps/web/src/app/app/page.tsx) (5 commits)
 - [`apps/web/src/app/memory/page.tsx`](apps/web/src/app/memory/page.tsx) (5 commits)
-- [`apps/web/src/components/ask/AskTopBar.tsx`](apps/web/src/components/ask/AskTopBar.tsx) (5 commits)
+- [`apps/web/src/components/layout/Sidebar.tsx`](apps/web/src/components/layout/Sidebar.tsx) (5 commits)
 
 ## 8. Development & Verification Commands
 
@@ -651,12 +651,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `65b643fd` (2026-11-17): style(web): 头像菜单重新设计，桌面客户端也改用同一个面板
 - `787de51a` (2026-11-17): feat(画像): 每台设备自动检测已装的 AI 工具并注入画像，不用再按设备勾选
 - `98c1d738` (2026-11-17): fix(画像): 新设备沿用其他设备的画像注入工具，不再默认一个都不注入
 - `38546ffa` (2026-11-17): fix(web): 切换菜单不再每次闪一下浏览器式进度条，只在页面真的慢（超过 200ms）时显示
 - `360803ac` (2026-11-17): fix(记忆): 场景心智不再显示原始 JSON，准则树和 MEMORY.md 按名称、心智、关键词排版
 - `56b9b74b` (2026-11-17): fix(web): 长期记忆页点知识准则条目不再整页崩溃
-- `0b18dc09` (2026-11-17): fix(采集): 不采集名单原地改 JSONB 不会写库，恢复采集时找不到要放回的记忆；改为拷贝后整体写回
 
 ## 10. Key Environment Variables & Configuration
 
@@ -674,13 +674,13 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 11. 业务蓝图核对 (Business Blueprint Check)
 
-- 业务蓝图：[BUSINESS_BLUEPRINT.md](BUSINESS_BLUEPRINT.md) · 规则 58（✅ 58 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
+- 业务蓝图：[BUSINESS_BLUEPRINT.md](BUSINESS_BLUEPRINT.md) · 规则 59（✅ 59 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
 - 结论：✅ 没有失效或违规
 
 ### 最近提交碰到的业务条目（改动后复查它们还成不成立）
 
+- `65b643fd` style(web): 头像菜单重新设计，桌面客户端也改用同一个面板 → `R-UI-COMMERCIAL`
 - `787de51a` feat(画像): 每台设备自动检测已装的 AI 工具并注入画像，不用再按设备勾选 → `T-DEVICE`, `R-DOCS-WRITE-LIGHT`, `R-PERSONA-ONBOARD`, `S-CLIENT-VERSION`
-- `360803ac` fix(记忆): 场景心智不再显示原始 JSON，准则树和 MEMORY.md 按名称、心智、关键词排版 → `R-SELF-EVOLVE`, `R-UI-COMMERCIAL`
 
 ---
 _Auto-maintained by `scripts/project_blueprint.mjs` (v20261126) & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._

@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, truncateSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, truncateSync, writeFileSync } from "node:fs";
 import { open } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -18,7 +18,16 @@ import {
   unpackPatch,
   WorkspaceError,
 } from "../src/workspace.js";
-import { finishWorkspace, flushPendingPatches, parseWorkspaceSpec, prepareWorkspace, toSourcePaths, type Relay } from "../src/workspace-sync.js";
+import { commitOnSource, readOnSource, SourceExecBridge } from "../src/source-exec.js";
+import {
+  finishWorkspace,
+  flushPendingPatches,
+  parseWorkspaceSpec,
+  prepareWorkspace,
+  toSourcePaths,
+  type Relay,
+  type WorkspaceRun,
+} from "../src/workspace-sync.js";
 
 const dirs: string[] = [];
 const tmp = (name: string) => {
@@ -92,6 +101,8 @@ function fakeRelay(src: string, srcHome: string): Relay & { calls: string[] } {
       return { data_b64: buf.toString("base64"), bytes_read: length };
     }
     if (op === "apply") return (await applyWorkspaceRequest(src, body, { env, home: srcHome })).reply;
+    if (op === "commit") return (await commitOnSource(src, body, { env, home: srcHome })) as unknown as Record<string, unknown>;
+    if (op === "get") return readOnSource(src, body, { env, home: srcHome });
     throw new Error(`unknown op ${op}`);
   }) as Relay & { calls: string[] };
   relay.calls = calls;
@@ -117,21 +128,20 @@ describe("workspace on another device", () => {
     expect(git(w, "status", "--porcelain")).toBe("M a.txt\n?? new.txt");
     expect(events[0]).toMatchObject({ kind: "workspace", status: "synced", source: "Mac", branch: "main" });
 
-    // The agent edits, deletes, adds (a binary file too) and even commits
+    // The agent edits, deletes, adds (a binary file too) and commits, on the source
     write(w, "a.txt", "one\nuncommitted\nagent\n");
     rmSync(join(w, "b.txt"));
     write(w, "img.bin", Buffer.from([0, 1, 2, 255, 254, 0]));
-    git(w, "add", "-A");
-    git(w, "commit", "-q", "-m", "agent work");
+    expect((await agentRuns(run, relay, exeHome, "1234abcd-0000", { action: "commit", message: "agent work" })).sha).toBeTruthy();
 
     const out = await finishWorkspace(run, "1234abcd-0000", "apply", relay, { env, home: exeHome });
     expect(out.status).toBe("applied");
     expect(read(src, "a.txt")).toBe("one\nuncommitted\nagent\n");
     expect(existsSync(join(src, "b.txt"))).toBe(false);
     expect([...readFileSync(join(src, "img.bin"))]).toEqual([0, 1, 2, 255, 254, 0]);
-    // The commit came along as it was made: on the branch, nothing left uncommitted or staged
+    // The commit is on the branch, made on the source as the user; the user's own untracked file stays out of it
     expect(git(src, "log", "--format=%s|%an", "-n", "1")).toBe("agent work|t");
-    expect(git(src, "status", "--porcelain")).toBe("");
+    expect(git(src, "status", "--porcelain")).toBe("?? new.txt");
     expect(out).toMatchObject({ committed: "branch", commit_branch: "main" });
     expect(out.commits?.map((c) => c.subject)).toEqual(["agent work"]);
     expect(out.files?.map((f) => `${f.status} ${f.path}`).sort()).toEqual(["A img.bin", "D b.txt", "M a.txt"]);
@@ -349,35 +359,102 @@ function remoteCommit(remote: string, file: string, text: string): void {
   git(other, "push", "-q", "origin", "main");
 }
 
-describe("the agent's commits and pushes", () => {
-  it("lands the commits on the source's branch as they were made, leaving the user's edits uncommitted", async () => {
+/** What `memento-source <args>` does for the agent on the executor: posted to the task's bridge, answered by the source. */
+async function agentRuns(run: WorkspaceRun, relay: Relay, exeHome: string, taskId: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const bridge = new SourceExecBridge(() => relay, () => {}, exeHome);
+  const cli = (await bridge.register(taskId, run))!;
+  try {
+    const res = await fetch(cli.url, { method: "POST", body: JSON.stringify({ cwd: run.mirror.workDir, ...body }) });
+    return JSON.parse(await res.text()) as Record<string, unknown>;
+  } finally {
+    bridge.dispose();
+  }
+}
+
+/** The user's hooks on the source: trailing spaces trimmed from what is committed, "BAD" refused. */
+function withHooks(src: string): void {
+  const hook = join(src, ".git", "hooks", "pre-commit");
+  writeFileSync(
+    hook,
+    [
+      "#!/bin/sh",
+      'if git diff --cached | grep -q "^+.*BAD"; then echo "lint: BAD 不能提交" >&2; exit 1; fi',
+      "for f in $(git diff --cached --name-only --diff-filter=AM); do",
+      '  sed "s/[[:space:]]*$//" "$f" > "$f.tmp" && mv "$f.tmp" "$f" && git add "$f"',
+      "done",
+      "",
+    ].join("\n"),
+  );
+  chmodSync(hook, 0o755);
+}
+
+describe("the agent's commits and pushes (made on the source)", () => {
+  it("commits on the source with its hooks, takes in what they changed, and lands the commits on the branch", async () => {
     const src = sourceRepo();
-    git(src, "config", "user.name", "董");
-    git(src, "config", "user.email", "me@example.com");
+    withHooks(src);
     const relay = fakeRelay(src, tmp("srchome"));
     const exeHome = tmp("exehome");
     const run = await prepareWorkspace(spec(src), relay, { env, home: exeHome });
     const w = run.mirror.workDir;
-    // Commits as the user on the source
-    expect(git(w, "config", "user.name")).toBe("董");
-    write(w, "x.txt", "one\n");
+    // The executor doesn't commit: its hooks send the agent to memento-source
+    write(w, "x.txt", "one   \n");
     git(w, "add", "x.txt");
-    git(w, "commit", "-q", "-m", "feat: 第一个", "-m", "正文");
+    expect(() => git(w, "commit", "-q", "-m", "here")).toThrow(/memento-source commit/);
+    git(w, "reset", "-q");
+
+    const first = await agentRuns(run, relay, exeHome, "c0ffee01-aaaa", { action: "commit", message: "feat: 第一个\n\n正文" });
+    expect(first).toMatchObject({ exit_code: 0, subject: "feat: 第一个", files: ["x.txt"] });
+    expect(String(first.stdout)).toContain("同步到这里");
+    // The source's formatter ran, and its change is here too
+    expect(read(w, "x.txt")).toBe("one\n");
     write(w, "x.txt", "one\ntwo\n");
-    git(w, "add", "x.txt");
-    git(w, "commit", "-q", "-m", "fix: 第二个");
+    const second = await agentRuns(run, relay, exeHome, "c0ffee01-aaaa", { action: "commit", message: "fix: 第二个" });
+    expect(second.exit_code).toBe(0);
     write(w, "y.txt", "not committed\n");
+    // The user's uncommitted a.txt didn't go into the agent's commits
+    expect(git(src, "show", "--format=", "--name-only", String(first.sha))).toBe("x.txt");
 
     const out = await finishWorkspace(run, "c0ffee01-aaaa", "apply", relay, { env, home: exeHome });
     expect(out).toMatchObject({ status: "applied", committed: "branch", commit_branch: "main" });
     expect(out.commits?.map((c) => c.subject)).toEqual(["fix: 第二个", "feat: 第一个"]);
-    expect(git(src, "log", "--format=%s", "-n", "2", "main")).toBe("fix: 第二个\nfeat: 第一个");
+    expect(git(src, "rev-parse", "main")).toBe(second.sha);
     expect(git(src, "log", "--format=%b", "-n", "1", "main~1")).toBe("正文");
-    expect(git(src, "rev-parse", "main")).toBe(git(w, "rev-parse", "HEAD"));
-    // Only what was uncommitted before (and the agent left uncommitted) shows as such
+    expect(read(src, "x.txt")).toBe("one\ntwo\n");
     expect(git(src, "status", "--porcelain").split("\n").map((l) => l.trim()).sort()).toEqual(["?? new.txt", "?? y.txt", "M a.txt"]);
     expect(git(src, "diff", "--cached", "--name-only")).toBe("");
+    // The ref that held the commits is gone once they landed
+    expect(git(src, "for-each-ref", "refs/memento/local")).toBe("");
     expect(out.push).toBeUndefined();
+  });
+
+  it("hands a failing hook's output back to the agent and commits nothing", async () => {
+    const src = sourceRepo();
+    withHooks(src);
+    const relay = fakeRelay(src, tmp("srchome"));
+    const exeHome = tmp("exehome");
+    const run = await prepareWorkspace(spec(src), relay, { env, home: exeHome });
+    write(run.mirror.workDir, "x.txt", "BAD\n");
+    const r = await agentRuns(run, relay, exeHome, "abad0010", { action: "commit", message: "feat: x" });
+    expect(r.exit_code).toBe(1);
+    expect(String(r.stderr)).toContain("lint: BAD 不能提交");
+    expect(r.sha).toBeUndefined();
+    expect(run.local?.count).toBe(0);
+    expect(await agentRuns(run, relay, exeHome, "abad0010", { action: "commit", message: "" })).toMatchObject({ error: expect.stringContaining("说明是空的") });
+  });
+
+  it("commits only the paths given", async () => {
+    const src = sourceRepo();
+    const relay = fakeRelay(src, tmp("srchome"));
+    const exeHome = tmp("exehome");
+    const run = await prepareWorkspace(spec(src), relay, { env, home: exeHome });
+    write(run.mirror.workDir, "x.txt", "x\n");
+    write(run.mirror.workDir, "y.txt", "y\n");
+    const r = await agentRuns(run, relay, exeHome, "abad0011", { action: "commit", message: "only x", paths: ["x.txt"] });
+    expect(r.files).toEqual(["x.txt"]);
+    expect(await agentRuns(run, relay, exeHome, "abad0011", { action: "commit", message: "x again", paths: ["x.txt"] })).toMatchObject({
+      exit_code: 1,
+      stderr: expect.stringContaining("没有要提交的改动"),
+    });
   });
 
   it("keeps the commits on a memento/ branch when the source's HEAD moved meanwhile", async () => {
@@ -386,9 +463,7 @@ describe("the agent's commits and pushes", () => {
     const exeHome = tmp("exehome");
     const run = await prepareWorkspace(spec(src), relay, { env, home: exeHome });
     write(run.mirror.workDir, "x.txt", "agent\n");
-    git(run.mirror.workDir, "add", "x.txt");
-    git(run.mirror.workDir, "commit", "-q", "-m", "agent");
-    git(run.mirror.workDir, "push", "-q");
+    await agentRuns(run, relay, exeHome, "beef0002", { action: "commit", message: "agent", push: true });
     write(src, "z.txt", "user\n");
     git(src, "add", "z.txt");
     git(src, "commit", "-q", "-m", "user meanwhile");
@@ -401,7 +476,7 @@ describe("the agent's commits and pushes", () => {
     expect(out.push?.status).toBe("skipped");
   });
 
-  it("pushes from the source when the agent pushed to the clone's stand-in remote", async () => {
+  it("pushes from the source when asked", async () => {
     const { src, remote } = trackedRepo();
     const relay = fakeRelay(src, tmp("srchome"));
     const exeHome = tmp("exehome");
@@ -409,9 +484,8 @@ describe("the agent's commits and pushes", () => {
     const w = run.mirror.workDir;
     expect(git(w, "status", "-sb").split("\n")[0]).toBe("## main...origin/main");
     write(w, "x.txt", "agent\n");
-    git(w, "add", "x.txt");
-    git(w, "commit", "-q", "-m", "feat: 推送");
-    git(w, "push", "-q");
+    await agentRuns(run, relay, exeHome, "abad0003", { action: "commit", message: "feat: 推送", push: true });
+    expect(() => git(w, "push", "-q")).toThrow();
 
     const out = await finishWorkspace(run, "abad0003", "apply", relay, { env, home: exeHome });
     expect(out.push).toEqual({ status: "pushed", remote: "origin", branch: "main" });
@@ -424,11 +498,9 @@ describe("the agent's commits and pushes", () => {
     const relay = fakeRelay(src, tmp("srchome"));
     const exeHome = tmp("exehome");
     const run = await prepareWorkspace(spec(src), relay, { env, home: exeHome });
-    const w = run.mirror.workDir;
-    write(w, "x.txt", "agent\n");
-    git(w, "add", "x.txt");
-    git(w, "commit", "-q", "-m", "feat: 变基");
-    git(w, "push", "-q");
+    write(run.mirror.workDir, "x.txt", "agent\n");
+    await agentRuns(run, relay, exeHome, "abad0004", { action: "commit", message: "feat: 变基" });
+    await agentRuns(run, relay, exeHome, "abad0004", { action: "push" });
     remoteCommit(remote, "deploy.txt", "tag 2\n");
 
     const out = await finishWorkspace(run, "abad0004", "apply", relay, { env, home: exeHome });
@@ -436,7 +508,6 @@ describe("the agent's commits and pushes", () => {
     expect(git(remote, "log", "--format=%s", "main")).toBe("feat: 变基\nci: deploy.txt\ninit");
     expect(git(src, "rev-parse", "main")).toBe(git(remote, "rev-parse", "main"));
     expect(out.commits?.[0]?.sha).toBe(git(src, "rev-parse", "main"));
-    // The remote's file is here too; the user's edits are as they were
     expect(read(src, "deploy.txt")).toBe("tag 2\n");
     expect(git(src, "status", "--porcelain").split("\n").map((l) => l.trim()).sort()).toEqual(["?? new.txt", "M a.txt"]);
     expect(git(src, "diff", "--cached", "--name-only")).toBe("");
@@ -448,9 +519,7 @@ describe("the agent's commits and pushes", () => {
     const exeHome = tmp("exehome");
     const run = await prepareWorkspace(spec(src), relay, { env, home: exeHome });
     write(run.mirror.workDir, "x.txt", "agent\n");
-    git(run.mirror.workDir, "add", "x.txt");
-    git(run.mirror.workDir, "commit", "-q", "-m", "feat: x");
-    git(run.mirror.workDir, "push", "-q");
+    await agentRuns(run, relay, exeHome, "abad0005", { action: "commit", message: "feat: x", push: true });
     remoteCommit(remote, "a.txt", "ci edit\n");
 
     const out = await finishWorkspace(run, "abad0005", "apply", relay, { env, home: exeHome });
@@ -461,7 +530,7 @@ describe("the agent's commits and pushes", () => {
     expect(git(remote, "log", "--format=%s", "-n", "1", "main")).toBe("ci: a.txt");
   });
 
-  it("pushes commits the source already had when the agent only pushed", async () => {
+  it("pushes commits the source already had when the agent only asked to push", async () => {
     const { src, remote } = trackedRepo();
     write(src, "local.txt", "x\n");
     git(src, "add", "local.txt");
@@ -470,7 +539,7 @@ describe("the agent's commits and pushes", () => {
     const exeHome = tmp("exehome");
     const run = await prepareWorkspace(spec(src), relay, { env, home: exeHome });
     expect(git(run.mirror.workDir, "status", "-sb").split("\n")[0]).toBe("## main...origin/main [ahead 1]");
-    git(run.mirror.workDir, "push", "-q");
+    await agentRuns(run, relay, exeHome, "abad0006", { action: "push" });
 
     const out = await finishWorkspace(run, "abad0006", "apply", relay, { env, home: exeHome });
     expect(out.status).toBe("applied");
@@ -478,19 +547,18 @@ describe("the agent's commits and pushes", () => {
     expect(git(remote, "log", "--format=%s", "-n", "1", "main")).toBe("local, not pushed");
   });
 
-  it("only files come back when the agent rewrote history or switched branches", async () => {
+  it("only files come back when the agent forced a commit through on the executor", async () => {
     const src = sourceRepo();
     const relay = fakeRelay(src, tmp("srchome"));
     const exeHome = tmp("exehome");
     const run = await prepareWorkspace(spec(src), relay, { env, home: exeHome });
-    git(run.mirror.workDir, "switch", "-q", "-c", "feat");
     write(run.mirror.workDir, "x.txt", "agent\n");
     git(run.mirror.workDir, "add", "x.txt");
-    git(run.mirror.workDir, "commit", "-q", "-m", "on feat");
+    git(run.mirror.workDir, "commit", "-q", "--no-verify", "-m", "here anyway");
 
     const out = await finishWorkspace(run, "abad0007", "apply", relay, { env, home: exeHome });
     expect(out.status).toBe("applied");
-    expect(out.commits_error).toContain("feat");
+    expect(out.commits_error).toContain("绕过了拦截");
     expect(read(src, "x.txt")).toBe("agent\n");
     expect(git(src, "log", "--oneline").split("\n")).toHaveLength(1);
   });
@@ -501,13 +569,12 @@ describe("the agent's commits and pushes", () => {
     const exeHome = tmp("exehome");
     const run = await prepareWorkspace(spec(src), relay, { env, home: exeHome });
     write(run.mirror.workDir, "x.txt", "agent\n");
-    git(run.mirror.workDir, "add", "x.txt");
-    git(run.mirror.workDir, "commit", "-q", "-m", "offline commit");
+    await agentRuns(run, relay, exeHome, "abad0008", { action: "commit", message: "offline commit" });
     const offline: Relay = async () => {
       throw new WorkspaceError("Mac 不在线", "source_unavailable");
     };
     expect((await finishWorkspace(run, "abad0008", "apply", offline, { env, home: exeHome })).status).toBe("pending");
-    expect((await listPending(exeHome))[0]?.commits?.head).toBeTruthy();
+    expect((await listPending(exeHome))[0]?.commits).toMatchObject({ onSource: true });
 
     expect(await flushPendingPatches(relay, () => {}, exeHome)).toBe(1);
     expect(git(src, "log", "--format=%s", "-n", "1")).toBe("offline commit");
@@ -520,12 +587,25 @@ describe("the agent's commits and pushes", () => {
     const exeHome = tmp("exehome");
     const run = await prepareWorkspace(spec(src), relay, { env, home: exeHome });
     write(run.mirror.workDir, "x.txt", "agent\n");
-    git(run.mirror.workDir, "add", "x.txt");
-    git(run.mirror.workDir, "commit", "-q", "-m", "half");
+    await agentRuns(run, relay, exeHome, "abad0009", { action: "commit", message: "half" });
     const out = await finishWorkspace(run, "abad0009", "save", relay, { env, home: exeHome });
     expect(out).toMatchObject({ status: "saved", committed: "kept", commit_branch: "memento/abad0009" });
     expect(existsSync(join(src, "x.txt"))).toBe(false);
     expect(git(src, "log", "--format=%s", "-n", "1", "memento/abad0009")).toBe("half");
+  });
+
+  it("brings back a file the agent's commands made on the source", async () => {
+    const src = sourceRepo();
+    const srcHome = tmp("srchome");
+    const relay = fakeRelay(src, srcHome);
+    const exeHome = tmp("exehome");
+    const run = await prepareWorkspace(spec(src), relay, { env, home: exeHome });
+    const shot = join(tmp("shots"), "page.png");
+    writeFileSync(shot, Buffer.from([137, 80, 78, 71, 0, 1]));
+    const r = await agentRuns(run, relay, exeHome, "abad0012", { action: "get", file: shot });
+    expect(r.exit_code).toBe(0);
+    expect([...readFileSync(String(r.stdout).trim())]).toEqual([137, 80, 78, 71, 0, 1]);
+    expect(await agentRuns(run, relay, exeHome, "abad0012", { action: "get", file: "nope.png" })).toMatchObject({ error: expect.stringContaining("没有") });
   });
 });
 

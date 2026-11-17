@@ -1,10 +1,10 @@
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
-import { chmod, lstat, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, readFile, rm, stat, symlink, unlink, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import type { AgentEvent } from "./agent-stream.js";
 import { homeDir } from "./config.js";
@@ -101,12 +101,14 @@ export class SourceExecBridge {
   }
 
   private async handle(task: Registered, body: string): Promise<Record<string, unknown>> {
-    let req: { command?: unknown; cwd?: unknown; timeout_seconds?: unknown };
+    let req: { action?: unknown; command?: unknown; cwd?: unknown; timeout_seconds?: unknown; message?: unknown; paths?: unknown; push?: unknown; file?: unknown; dest?: unknown };
     try {
       req = JSON.parse(body) as typeof req;
     } catch {
       return { error: "bad request" };
     }
+    if (req.action === "commit" || req.action === "push") return this.commit(task, req);
+    if (req.action === "get") return this.get(task, req);
     const command = String(req.command ?? "").trim();
     if (!command) return { error: "没有要执行的命令" };
     const relay = this.relay();
@@ -151,6 +153,102 @@ export class SourceExecBridge {
     return r;
   }
 
+  /** `memento-source commit`: a real commit on the source of what the agent changed; `push` only asks for the push at the end. */
+  private async commit(task: Registered, req: { action?: unknown; cwd?: unknown; message?: unknown; paths?: unknown; push?: unknown }): Promise<Record<string, unknown>> {
+    const { run, taskId } = task;
+    const local = (run.local ??= { head: run.mirror.head, count: 0, push: false });
+    if (req.push === true || req.action === "push") local.push = true;
+    if (req.action === "push") {
+      return { exit_code: 0, stdout: `任务结束、改动写回「${run.spec.sourceName}」后，由它推送${local.count ? `（含这次任务的 ${local.count} 个提交）` : ""}。\n` };
+    }
+    const message = String(req.message ?? "").trim();
+    if (!message) return { error: '提交说明是空的：memento-source commit -m "说明"' };
+    const relay = this.relay();
+    if (!relay) return { error: "和服务器的连接还没建立" };
+    const cwd = String(req.cwd ?? "") || run.mirror.workDir;
+    const paths = (Array.isArray(req.paths) ? req.paths.map(String) : []).map((p) => {
+      const r = relative(run.mirror.root, resolve(cwd, p));
+      return r.split(sep).join("/");
+    });
+    if (paths.some((p) => p.startsWith("..") || isAbsolute(p))) return { error: "要提交的路径必须在仓库里" };
+    const started = Date.now();
+    const env = await executionEnvironment();
+    const p = await mirrorPatch(run.mirror, { env, home: this.home });
+    const patchB64 = p.patch.length ? await packPatch(p.patch) : "";
+    if (patchB64.length > PATCH_LIMIT) return { error: "改动太大，没法发到代码所在的设备上提交" };
+    const label = `git commit -m "${message.split("\n")[0]!.slice(0, 120)}"${local.push ? "（结束后推送）" : ""}`;
+    this.emit(taskId, { kind: "source_exec", status: "running", command: label, source: run.spec.sourceName } as AgentEvent);
+    let r: Record<string, unknown>;
+    try {
+      r = await relay(
+        "commit",
+        {
+          source_device_id: run.spec.sourceDeviceId,
+          path: run.spec.sourcePath,
+          task_id: taskId,
+          snapshot: run.mirror.snapshot,
+          base_tree: run.mirror.baseTree,
+          base_head: run.mirror.head,
+          parent: local.head,
+          patch_b64: patchB64,
+          message,
+          paths,
+        },
+        20 * 60_000,
+      );
+    } catch (e) {
+      r = { error: e instanceof Error ? e.message : String(e) };
+    }
+    const sha = typeof r.sha === "string" && /^[0-9a-f]{40,64}$/.test(r.sha) ? r.sha : "";
+    let note = "";
+    if (sha) {
+      local.head = sha;
+      local.count++;
+      // The source's formatters touched what went in: the same files here, or the next commit would undo them
+      if (typeof r.hook_patch_b64 === "string" && r.hook_patch_b64) {
+        const fix = await unpackPatch(r.hook_patch_b64);
+        const ap = await runGit(["apply", "--binary", "--whitespace=nowarn", "-"], run.mirror.root, env, fix);
+        note = ap === 0 ? "（提交钩子改动的文件已同步到这里）" : "（提交钩子改了文件，但没能同步到这里，下次提交前请重新确认这些文件）";
+      }
+      r.stdout = `${String(r.stdout ?? "")}已在「${run.spec.sourceName}」上提交 ${sha.slice(0, 8)} ${String(r.subject ?? "")}${note}\n`;
+    }
+    const exitCode = typeof r.exit_code === "number" ? r.exit_code : r.error ? 1 : 0;
+    this.emit(taskId, {
+      kind: "source_exec",
+      status: r.error ? "failed" : "done",
+      command: label,
+      source: run.spec.sourceName,
+      exit_code: exitCode,
+      ...(sha ? { commit: sha } : {}),
+      ...(r.error ? { error: String(r.error).slice(0, 500) } : {}),
+      seconds: Math.round((Date.now() - started) / 100) / 10,
+    } as AgentEvent);
+    return r;
+  }
+
+  /** `memento-source get`: a file from the source (a screenshot, a log), saved here for the agent to read. */
+  private async get(task: Registered, req: { cwd?: unknown; file?: unknown; dest?: unknown }): Promise<Record<string, unknown>> {
+    const { run, taskId } = task;
+    const file = String(req.file ?? "").trim();
+    if (!file) return { error: "用法：memento-source get <文件> [保存到]" };
+    const relay = this.relay();
+    if (!relay) return { error: "和服务器的连接还没建立" };
+    const cwd = String(req.cwd ?? "") || run.mirror.workDir;
+    let r: Record<string, unknown>;
+    try {
+      r = await relay("get", { source_device_id: run.spec.sourceDeviceId, path: run.spec.sourcePath, file, rel: relCwd(run.mirror, cwd) }, 180_000);
+    } catch (e) {
+      return { error: e instanceof Error ? e.message : String(e) };
+    }
+    const dest = req.dest
+      ? resolve(cwd, String(req.dest))
+      : join(this.home, ".memento", "tmp", "from-source", taskId.replaceAll("-", "").slice(0, 8), basename(file.replaceAll("\\", "/")));
+    await mkdir(dirname(dest), { recursive: true });
+    await writeFile(dest, Buffer.from(String(r.data_b64 ?? ""), "base64"));
+    this.emit(taskId, { kind: "source_exec", status: "done", command: `取回 ${file}`, source: run.spec.sourceName, exit_code: 0 } as AgentEvent);
+    return { exit_code: 0, stdout: `${dest}\n` };
+  }
+
   dispose(): void {
     this.server?.close();
     this.tasks.clear();
@@ -170,16 +268,47 @@ const CLI_SCRIPT = `// memento-source: run a command on the device the code is o
 import { request } from "node:http";
 const url = process.env.MEMENTO_SOURCE_URL;
 const args = process.argv.slice(2);
+const USAGE = [
+  '用法:',
+  '  memento-source "<命令>"                       在代码所在的设备上、带着当前改动执行命令',
+  '  memento-source commit -m "说明" [--push] [-- 路径...]   在那台设备上提交（它的提交钩子照常运行）',
+  '  memento-source push                            任务结束、改动写回后由那台设备推送',
+  '  memento-source get <文件> [保存到]              把那台设备上的文件（截图、日志、产物）取回这里',
+].join("\\n");
 if (!url) {
   console.error("memento-source: 只能在 Memento 跨设备任务里由智能体使用");
   process.exit(2);
 }
 if (!args.length || args[0] === "-h" || args[0] === "--help") {
-  console.error('用法: memento-source "<命令>"   在代码所在的设备上、带着当前改动执行命令');
+  console.error(USAGE);
   process.exit(2);
 }
-const body = JSON.stringify({ command: args.join(" "), cwd: process.cwd() });
-const req = request(url, { method: "POST", headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body) } }, (res) => {
+let body;
+if (args[0] === "commit") {
+  const rest = args.slice(1);
+  const message = [];
+  const paths = [];
+  let push = false;
+  for (let i = 0; i < rest.length; i++) {
+    const a = rest[i];
+    if (a === "--") { paths.push(...rest.slice(i + 1)); break; }
+    if (a === "-m" || a === "--message") { if (rest[i + 1] !== undefined) message.push(rest[++i]); }
+    else if (a.startsWith("--message=")) message.push(a.slice(10));
+    else if (a === "--push") push = true;
+    else if (a === "-a" || a === "--all") {}
+    else message.push(a);
+  }
+  if (!message.length) { console.error(USAGE); process.exit(2); }
+  body = { action: "commit", message: message.join("\\n\\n"), paths, push, cwd: process.cwd() };
+} else if (args[0] === "push" && args.length === 1) {
+  body = { action: "push", cwd: process.cwd() };
+} else if (args[0] === "get" && args.length >= 2 && args.length <= 3) {
+  body = { action: "get", file: args[1], dest: args[2], cwd: process.cwd() };
+} else {
+  body = { command: args.join(" "), cwd: process.cwd() };
+}
+const data = JSON.stringify(body);
+const req = request(url, { method: "POST", headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(data) } }, (res) => {
   let text = "";
   res.setEncoding("utf8");
   res.on("data", (c) => (text += c));
@@ -201,7 +330,7 @@ req.on("error", (e) => {
   console.error("memento-source: " + e.message);
   process.exit(1);
 });
-req.end(body);
+req.end(data);
 `;
 
 /** Writes the `memento-source` command (a script run on this process's runtime) and returns how to call it. */
@@ -224,12 +353,14 @@ export async function ensureSourceCli(home = homeDir(), runtime = process.execPa
 
 /** What the agent is told about it, in its system prompt. */
 export function sourceExecHint(command: string, sourceName: string): string {
-  return (
-    `[在代码所在的设备上执行] 代码在「${sourceName}」上，你在另一台设备上它的副本里工作。测试、构建、需要那台设备环境` +
-    `（本地数据库、.env、已装的依赖、那台设备才有的工具链）的命令，用 \`${command} "<命令>"\` 在「${sourceName}」上执行：` +
-    `会带上你到目前为止的全部改动，在那台设备上单独的检出目录里执行（不碰用户的工作目录），输出和退出码原样返回。` +
-    `工作目录对应你当前所在的目录。一次最多 30 分钟，超过 10 分钟的命令请放到后台执行。`
-  );
+  const c = `\`${command}\``;
+  return [
+    `[只在这里改代码] 代码在「${sourceName}」上，你在另一台设备（执行机）上它的副本里工作。这台执行机只用来读和改代码，其余操作全部在「${sourceName}」上做：`,
+    `1) 测试、构建、lint、类型检查、安装依赖、运行程序、打开浏览器或截图、安卓模拟器、iOS 构建和上传 TestFlight 等，一律用 ${c} "<命令>"：带着你到目前为止的全部改动，在「${sourceName}」上单独的检出目录里执行（不碰用户的工作目录，依赖、.env、钥匙串和已登录的工具都用那台设备上现成的），输出和退出码原样返回；工作目录对应你当前所在的目录。一次最多 30 分钟，更久的命令放到后台执行。`,
+    `2) 提交用 ${c} commit -m "说明" [-- 路径...]：在「${sourceName}」上真正执行 git commit，它的提交钩子照常运行；钩子失败会把输出返回给你，修好再提交；钩子自动改动的文件会同步回这里。要推送加 --push（或执行 ${c} push），任务结束、改动写回「${sourceName}」后由它推送。不要在这里 git commit / push，这里已拦截，绕过去的提交也不会带回。`,
+    `3) 要看「${sourceName}」上生成的文件（截图、日志、构建产物），用 ${c} get <文件> [保存到] 取回这里再读；相对路径按当前目录在那边的检出目录里找，也可以给那台设备上的绝对路径。`,
+    `4) 不要在这台执行机上安装依赖、跑测试或构建。`,
+  ].join("\n");
 }
 
 // ── on the device the code is on ─────────────────────────────────────────
@@ -319,6 +450,24 @@ async function linkIgnored(root: string, wt: string, env?: NodeJS.ProcessEnv): P
   }
 }
 
+/** The checkout for root, reset to `commit` (ignored files such as linked dependencies and build output stay). */
+async function checkoutAt(root: string, commit: string, env: NodeJS.ProcessEnv, home?: string): Promise<string> {
+  const wt = checkDir(root, home);
+  if (!existsSync(join(wt, ".git"))) {
+    await rm(wt, { recursive: true, force: true });
+    await mkdir(dirname(wt), { recursive: true });
+    await git(["worktree", "prune"], root, env);
+    const add = await git(["worktree", "add", "-q", "--detach", wt, commit], root, env);
+    if (add.code !== 0) throw new WorkspaceError(`准备检出目录失败：${add.stderr.trim().slice(0, 400)}`);
+  } else {
+    const co = await git(["checkout", "-q", "-f", "--detach", commit], wt, env);
+    if (co.code !== 0) throw new WorkspaceError(`重置检出目录失败：${co.stderr.trim().slice(0, 400)}`);
+    await git(["clean", "-fdq"], wt, env);
+  }
+  await linkIgnored(root, wt, env);
+  return wt;
+}
+
 export interface SourceExecResult {
   exit_code: number;
   stdout: string;
@@ -348,20 +497,7 @@ export async function execOnSource(
     if ((await git(["cat-file", "-e", `${snapshot}^{commit}`], root, env)).code !== 0) {
       throw new WorkspaceError("这台设备上找不到同步时的快照（可能已被清理），重新开始任务");
     }
-    const wt = checkDir(root, options.home);
-    if (!existsSync(join(wt, ".git"))) {
-      await rm(wt, { recursive: true, force: true });
-      await mkdir(dirname(wt), { recursive: true });
-      await git(["worktree", "prune"], root, env);
-      const add = await git(["worktree", "add", "-q", "--detach", wt, snapshot], root, env);
-      if (add.code !== 0) throw new WorkspaceError(`准备检出目录失败：${add.stderr.trim().slice(0, 400)}`);
-    } else {
-      const co = await git(["checkout", "-q", "-f", "--detach", snapshot], wt, env);
-      if (co.code !== 0) throw new WorkspaceError(`重置检出目录失败：${co.stderr.trim().slice(0, 400)}`);
-      // Ignored files (the linked dependencies, build output) stay
-      await git(["clean", "-fdq"], wt, env);
-    }
-    await linkIgnored(root, wt, env);
+    const wt = await checkoutAt(root, snapshot, env, options.home);
     if (patch.length) {
       const ap = await git(["apply", "--binary", "--whitespace=nowarn", "-"], wt, env, patch);
       if (ap.code !== 0) throw new WorkspaceError(`改动在这台设备上打不上：${ap.stderr.trim().slice(0, 400)}`);
@@ -381,4 +517,216 @@ export async function execOnSource(
       seconds: Math.round((Date.now() - started) / 100) / 10,
     };
   });
+}
+
+// ── commits made where the code is ───────────────────────────────────────
+
+const SHA = /^[0-9a-f]{40,64}$/;
+
+/** Where the commits a task made on the source are kept until its changes come back (`memento/<id>` like the kept branches). */
+export function localCommitsRef(taskId: string): string {
+  return `refs/memento/local/${taskId.replaceAll("-", "").slice(0, 8)}`;
+}
+
+export interface SourceCommitResult {
+  exit_code: number;
+  stdout: string;
+  stderr: string;
+  /** The commit made (absent when the commit, a hook, failed). */
+  sha?: string;
+  subject?: string;
+  files?: string[];
+  /** What the source's hooks changed in the committed files (formatters): for the executor to take in too. */
+  hook_patch_b64?: string;
+  seconds: number;
+}
+
+/** A git command fed `input`, for its exit code. */
+function runGit(args: string[], cwd: string, env: NodeJS.ProcessEnv, input: Buffer): Promise<number> {
+  return new Promise((done) => {
+    const child = execFile("git", args, { cwd, env, windowsHide: true }, (err) => done(err ? 1 : 0));
+    child.stdin?.on("error", () => {});
+    child.stdin?.end(input);
+  });
+}
+
+/** A git command's output as raw bytes (a binary patch), or undefined when it fails. */
+function gitRaw(args: string[], cwd: string, env: NodeJS.ProcessEnv): Promise<Buffer | undefined> {
+  return new Promise((done) => {
+    execFile("git", args, { cwd, env, encoding: "buffer", maxBuffer: 64 * 1024 * 1024, windowsHide: true }, (err, stdout) => done(err ? undefined : stdout));
+  });
+}
+
+/** Paths that changed between two trees (`from` may be a commit). */
+async function changedPaths(root: string, from: string, to: string, env: NodeJS.ProcessEnv): Promise<string[]> {
+  const r = await git(["diff-tree", "-r", "--no-renames", "--name-only", "-z", from, to], root, env);
+  if (r.code !== 0) throw new WorkspaceError(`比较改动失败：${r.stderr.trim().slice(0, 300)}`);
+  return r.stdout.split("\0").filter(Boolean);
+}
+
+/**
+ * The source's side of `workspace_commit_req`: a real `git commit` of what the agent changed, on the
+ * source, so its hooks (lint-staged, commit-msg checks, signing) run with its toolchain and the commit
+ * is the user's own. It is made in the task's checkout on top of the task's previous commit (the
+ * source's HEAD at first) and kept under `localCommitsRef` until the changes come back, when the
+ * user's branch moves onto it. Only the files the agent changed go in: edits the user hadn't
+ * committed when the task started stay out unless the agent touched those files.
+ */
+export async function commitOnSource(
+  dir: string,
+  data: Record<string, unknown>,
+  options: { home?: string; env?: NodeJS.ProcessEnv } = {},
+): Promise<SourceCommitResult> {
+  const env = options.env ?? (await executionEnvironment());
+  const { root } = await repoOf(dir, env);
+  const snapshot = String(data.snapshot ?? "");
+  const baseTree = String(data.base_tree ?? "");
+  const baseHead = String(data.base_head ?? "");
+  const parent = String(data.parent ?? "") || baseHead;
+  const taskId = String(data.task_id ?? "");
+  const message = String(data.message ?? "").trim();
+  if (![snapshot, baseTree, baseHead, parent].every((s) => SHA.test(s))) throw new WorkspaceError("缺少同步时的快照");
+  if (!taskId) throw new WorkspaceError("缺少任务号");
+  if (!message) throw new WorkspaceError("提交说明是空的：memento-source commit -m \"说明\"");
+  const only = (Array.isArray(data.paths) ? data.paths.map(String) : [])
+    .map((p) => p.replaceAll("\\", "/").replace(/^\.\/+/, "").replace(/\/+$/, "").replace(/^\.$/, ""));
+  if (only.some((p) => p.split("/").includes("..") || isAbsolute(p))) throw new WorkspaceError("要提交的路径必须在仓库里");
+  const patch = data.patch_b64 ? await unpackPatch(String(data.patch_b64)) : Buffer.alloc(0);
+
+  return serialized(root, async () => {
+    for (const sha of [snapshot, parent, baseHead]) {
+      if ((await git(["cat-file", "-e", `${sha}^{commit}`], root, env)).code !== 0) {
+        throw new WorkspaceError("这台设备上找不到同步时的快照或之前的提交（可能已被清理），重新开始任务");
+      }
+    }
+    // The tree the agent has now: the snapshot plus its patch
+    const tmp = join(options.home ?? homeDir(), ".memento", "tmp");
+    await mkdir(tmp, { recursive: true });
+    const index = join(tmp, `commit-index-${randomBytes(6).toString("hex")}`);
+    let now: string;
+    try {
+      const e = { ...env, GIT_INDEX_FILE: index };
+      const rt = await git(["read-tree", baseTree], root, e);
+      if (rt.code !== 0) throw new WorkspaceError(`读取快照失败：${rt.stderr.trim().slice(0, 300)}`);
+      if (patch.length) {
+        const ap = await git(["apply", "--cached", "--binary", "--whitespace=nowarn", "-"], root, e, patch);
+        if (ap.code !== 0) throw new WorkspaceError(`改动在这台设备上打不上：${ap.stderr.trim().slice(0, 400)}`);
+      }
+      const wt = await git(["write-tree"], root, e);
+      if (wt.code !== 0) throw new WorkspaceError(`整理改动失败：${wt.stderr.trim().slice(0, 300)}`);
+      now = wt.stdout.trim();
+    } finally {
+      await rm(index, { force: true }).catch(() => {});
+    }
+    // What the agent changed, and what this task's earlier commits touched (a change it took back since)
+    const touched = new Set([...(await changedPaths(root, baseTree, now, env)), ...(await changedPaths(root, baseHead, parent, env))]);
+    const inScope = (p: string) => !only.length || only.some((o) => o === "" || p === o || p.startsWith(`${o}/`));
+    const paths = [...touched].filter(inScope);
+    const started = Date.now();
+    const nothing = (why: string): SourceCommitResult => ({ exit_code: 1, stdout: "", stderr: `${why}\n`, seconds: 0 });
+    if (!paths.length) return nothing("没有要提交的改动");
+
+    const wt = await checkoutAt(root, parent, env, options.home);
+    const present = new Set(
+      (await git(["ls-tree", "-r", "-z", "--name-only", now, "--", ...paths], root, env)).stdout.split("\0").filter(Boolean),
+    );
+    const write = paths.filter((p) => present.has(p));
+    const gone = paths.filter((p) => !present.has(p));
+    if (write.length) {
+      const co = await git(["checkout", now, "--pathspec-from-file=-", "--pathspec-file-nul"], wt, env, Buffer.from(write.join("\0") + "\0"));
+      if (co.code !== 0) throw new WorkspaceError(`写入改动失败：${co.stderr.trim().slice(0, 300)}`);
+    }
+    if (gone.length) {
+      await git(["rm", "-q", "--cached", "--ignore-unmatch", "--pathspec-from-file=-", "--pathspec-file-nul"], wt, env, Buffer.from(gone.join("\0") + "\0"));
+      for (const p of gone) await unlink(join(wt, p)).catch(() => {});
+    }
+    const staged = (await git(["write-tree"], wt, env)).stdout.trim();
+    const parentTree = (await git(["rev-parse", `${parent}^{tree}`], wt, env)).stdout.trim();
+    if (staged === parentTree) return nothing("没有要提交的改动（和上一次提交一样）");
+
+    // The user's own commit: their identity, hooks and signing, as `git commit` there does
+    const c = await run("git", ["commit", "-q", "-F", "-"], wt, { env, input: Buffer.from(`${message}\n`), timeoutMs: 15 * 60_000 });
+    const seconds = Math.round((Date.now() - started) / 100) / 10;
+    const sha = (await git(["rev-parse", "--verify", "-q", "HEAD"], wt, env)).stdout.trim();
+    if (c.code !== 0 || !SHA.test(sha) || sha === parent) {
+      return { exit_code: c.code || 1, stdout: c.stdout, stderr: c.stderr || "提交没有成功\n", seconds };
+    }
+    await git(["update-ref", "-m", "memento: 本机上的提交", localCommitsRef(taskId), sha], root, env);
+    const committedTree = (await git(["rev-parse", `${sha}^{tree}`], wt, env)).stdout.trim();
+    let hookPatch = "";
+    if (committedTree !== staged) {
+      const d = await gitRaw(["diff", "--binary", "--full-index", "--no-renames", "--no-color", "--no-ext-diff", staged, committedTree], wt, env);
+      if (d?.length) hookPatch = await packPatch(d);
+    }
+    const subject = (await git(["log", "-1", "--format=%s", sha], wt, env)).stdout.trim();
+    return {
+      exit_code: 0,
+      stdout: c.stdout,
+      stderr: c.stderr,
+      sha,
+      subject,
+      files: (await changedPaths(root, parent, sha, env)).slice(0, 500),
+      ...(hookPatch ? { hook_patch_b64: hookPatch } : {}),
+      seconds,
+    };
+  });
+}
+
+/** Largest file `memento-source get` brings over (it travels base64 in one message). */
+export const GET_LIMIT = 8 * 1024 * 1024;
+
+/**
+ * The source's side of `workspace_get_req`: a file the agent's commands made there (a screenshot, a
+ * log, a build artifact), relative to the task's checkout, or anywhere on the device by absolute path.
+ */
+export async function readOnSource(
+  dir: string,
+  data: Record<string, unknown>,
+  options: { home?: string; env?: NodeJS.ProcessEnv } = {},
+): Promise<{ data_b64: string; size: number; path: string }> {
+  const env = options.env ?? (await executionEnvironment());
+  const { root } = await repoOf(dir, env);
+  const file = String(data.file ?? "").trim();
+  if (!file) throw new WorkspaceError("没有给要取回的文件");
+  const rel = String(data.rel ?? "").replaceAll("\\", "/");
+  if (rel.split("/").includes("..") || isAbsolute(rel)) throw new WorkspaceError(`工作目录不对：${rel}`);
+  const at = isAbsolute(file) || /^[A-Za-z]:[\\/]/.test(file) ? file : resolve(checkDir(root, options.home), rel, file);
+  const st = await stat(at).catch(() => null);
+  if (!st) throw new WorkspaceError(`这台设备上没有 ${at}`);
+  if (!st.isFile()) throw new WorkspaceError(`${at} 不是文件`);
+  if (st.size > GET_LIMIT) throw new WorkspaceError(`${at} 有 ${Math.round(st.size / 1048576)}MB，超过 ${GET_LIMIT / 1048576}MB，取不回来；先压缩或截取需要的部分`);
+  return { data_b64: (await readFile(at)).toString("base64"), size: st.size, path: at };
+}
+
+// ── what the executor itself doesn't do ──────────────────────────────────
+
+// At a command's start (or after ; && || | ( ), past sudo / env VAR=x / a path
+const AT = String.raw`(?:^|[;&|(]|&&|\|\|)\s*(?:sudo\s+)?(?:env\s+)?(?:\w+=\S*\s+)*(?:\S*/)?`;
+const BLOCKED: Array<[RegExp, string]> = [
+  [new RegExp(`${AT}git\\s+(?:-[Cc]\\s+\\S+\\s+|--?[\\w-]+(?:=\\S+)?\\s+)*(?:commit|push|merge|rebase|cherry-pick|revert|am|tag)\\b`), "提交和推送"],
+  [new RegExp(`${AT}(?:npm|pnpm|yarn|bun)\\s+(?:install|i|ci|add|test|t|run|run-script|exec|build|start|dev)\\b`), "安装依赖、测试和构建"],
+  [new RegExp(`${AT}(?:npx|pnpx|bunx|yarn\\s+dlx)\\s`), "运行项目工具"],
+  [new RegExp(`${AT}(?:cargo|go)\\s+(?:build|test|run|install|check)\\b`), "构建和测试"],
+  [new RegExp(`${AT}(?:uv\\s+(?:run|sync|pip|add)|pip3?\\s+install|poetry\\s+(?:install|run)|python3?\\s+-m\\s+(?:pytest|pip|unittest))\\b`), "安装依赖和测试"],
+  [
+    new RegExp(
+      `${AT}(?:pytest|tox|nox|jest|vitest|mocha|playwright|cypress|tsc|eslint|ruff|mypy|pyright|gradle|gradlew|mvn|xcodebuild|xcrun|pod|fastlane|expo|eas|adb|emulator|flutter|docker|docker-compose|kubectl|helm|make|cmake|ninja)(?=\\s|$|;|&|\\|)`,
+    ),
+    "测试、构建和运行",
+  ],
+];
+
+/** What a shell command the agent runs on the executor would do there that belongs on the source, or undefined. */
+export function executorOnlyEdits(command: string): string | undefined {
+  if (/memento-source/.test(command)) return undefined;
+  for (const [re, what] of BLOCKED) if (re.test(command)) return what;
+  return undefined;
+}
+
+/** Why the executor turned a command down, for the agent: where to run it instead. */
+export function executorDenyReason(what: string, command: string, sourceName: string): string {
+  return (
+    `这台设备只改代码，${what}在代码所在的「${sourceName}」上做。改用 \`${command} "<原命令>"\` 在「${sourceName}」上带着你的改动执行；` +
+    `提交用 \`${command} commit -m "说明"\`（要推送加 --push）。`
+  );
 }

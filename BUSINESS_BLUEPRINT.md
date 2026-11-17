@@ -3,16 +3,16 @@
 <!-- memento:business-index:start (自动生成，勿手改) -->
 > 先读这一段定位；要细节时按下表行号只读对应章节。改了「代码位置」里的文件，先看对应条目还成不成立。
 
-- 汇总：规则 58（✅ 58 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
+- 汇总：规则 59（✅ 59 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
 - 核对：全部通过（详见末尾「自动核对」）
 
 | 章节 | 行号 |
 | :--- | :--- |
 | 1. 业务对象与术语 | L21-L65 |
 | 2. 关键流程 | L67-L124 |
-| 3. 业务规则 | L126-L469 |
-| 4. 状态归属 | L471-L516 |
-| 自动核对 (Auto Check) | L519-L617 |
+| 3. 业务规则 | L126-L476 |
+| 4. 状态归属 | L478-L523 |
+| 自动核对 (Auto Check) | L526-L625 |
 <!-- memento:business-index:end -->
 > 业务蓝图：memento 应该做成什么样，每一条落在哪段代码、由哪个测试或检查保证。和代码蓝图 [CODE_BLUEPRINT.md](CODE_BLUEPRINT.md)（代码长什么样）配合看：代码蓝图回答"在哪里"，这份回答"应该怎样、为什么"。
 > 规则来自用户的原话和纠正（CLAUDE.md、长期记忆、每晚复盘），不是从代码里反推的；代码和这里对不上，先当成代码的问题查。
@@ -162,6 +162,13 @@
 - 代码: `packages/daemon/src/workspace.ts#untrackedToLeave`, `packages/daemon/src/workspace.ts#exportWorkspace`, `packages/daemon/src/workspace-sync.ts#prepareWorkspace`, `apps/web/src/components/TaskTimeline.tsx`
 - 测试: `packages/daemon/test/workspace.test.ts#leaves an untracked file too big to send on the source instead of failing, and says which`
 - 禁止: `加进 .gitignore 后再试` @ `packages/daemon/src/workspace.ts`
+
+### R-WS-EDIT-ONLY 远程执行机只改代码，测试、构建、提交、推送等其余工作都在代码所在的设备上做
+- 来源: 用户 11-17「远程机 vps3 只改代码，其它的所有工作，测试，提交，等等工作都由本地机完成」「包括调用浏览器，其它软件，安卓模拟器，ios 发到 testflight 等等操作」
+- 说明: 跨设备任务里执行机只读和改代码。测试、构建、装依赖、运行程序、浏览器、模拟器、iOS 上传等用 memento-source 在代码所在的设备上执行（带着当前改动，在单独的检出目录里，用那台设备的依赖、钥匙串和已登录工具）；提交用 memento-source commit 在那台设备上真正 git commit（它的钩子照常运行，钩子失败把输出交回智能体，钩子改的文件同步回执行机），只提交智能体改过的文件；推送在任务结束、改动写回后由那台设备做；那边生成的文件用 memento-source get 取回看。执行机副本装拒绝 commit/push 的 git 钩子，Claude Code 在执行机直接跑测试、构建、装依赖、提交、推送会被拦下并指向 memento-source；绕过拦截在执行机上做的提交只带回文件改动。Codex、Antigravity 没有追加系统提示，规则放在任务开头。
+- 代码: `packages/daemon/src/source-exec.ts#commitOnSource`, `packages/daemon/src/source-exec.ts#readOnSource`, `packages/daemon/src/source-exec.ts#executorOnlyEdits`, `packages/daemon/src/source-exec.ts#sourceExecHint`, `packages/daemon/src/workspace.ts#refuseCommitsHere`, `packages/daemon/src/workspace-sync.ts#finishWorkspace`, `packages/daemon/src/hook-bridge.ts#denyReply`, `server/server/services/workspace_relay.py`
+- 测试: `packages/daemon/test/workspace.test.ts#commits on the source with its hooks, takes in what they changed, and lands the commits on the branch`, `packages/daemon/test/workspace.test.ts#hands a failing hook's output back to the agent and commits nothing`, `packages/daemon/test/workspace.test.ts#only files come back when the agent forced a commit through on the executor`, `packages/daemon/test/source-exec.test.ts#turns down tests, builds, installs, commits and pushes run there, and lets memento-source and reading through`, `packages/daemon/test/hook-bridge.test.ts#reports every call and turns down the ones it is told to, with the reason for the model`, `server/tests/test_workspace_relay.py#test_the_agents_commit_is_made_on_the_source_and_an_old_source_is_told_to_upgrade`
+- 要求: `"source_commit"` @ `packages/daemon/src/capabilities.ts`; `"commit": _commit` @ `server/server/services/workspace_relay.py`
 
 ### R-PROJECT-EXCLUDE 测试用的项目可以不采集，已采集的数据和从中学到的东西一并清掉
 - 来源: 用户 11-17「目前默认是所有项目都抓取的，如果用户有些项目是用来测试的，不想它被抓取……对应的记忆，画像等也要删除」
@@ -520,7 +527,7 @@
 
 > 生成器随每次提交核对：代码位置还在不在、测试还在不在、禁止 / 要求的写法满不满足。✅ 通过 · ⚠️ 缺代码位置、测试或来源 · ❌ 位置失效或违反规则（CI 会拦下）。
 
-- 汇总：规则 58（✅ 58 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
+- 汇总：规则 59（✅ 59 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
 
 | 编号 | 名称 | 代码位置 | 测试 | 检查 | 结论 |
 | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -550,6 +557,7 @@
 | `R-ISLAND-CLEANUP` | 任务结束必须清掉灵动岛状态 | 3/3 | 3/3 | — | ✅ |
 | `R-MULTI-DEVICE-STABLE` | 多机任务并发执行，过程和结果稳定回传 | 4/4 | 4/4 | — | ✅ |
 | `R-WS-BIG-UNTRACKED` | 跨设备改代码时，没进 .gitignore 的大文件不让任务失败 | 4/4 | 1/1 | 1/1 | ✅ |
+| `R-WS-EDIT-ONLY` | 远程执行机只改代码，测试、构建、提交、推送等其余工作都在代码所在的设备上做 | 8/8 | 6/6 | 2/2 | ✅ |
 | `R-PROJECT-EXCLUDE` | 测试用的项目可以不采集，已采集的数据和从中学到的东西一并清掉 | 8/8 | 3/3 | 3/3 | ✅ |
 | `R-RUN-OUTLIVES-PAGE` | 运行不因页面关闭、切后台、发版而中断 | 2/2 | 4/4 | — | ✅ |
 | `R-QUOTA-PER-MODEL` | 额度按当前对话用的模型显示 | 3/3 | 1/1 | 2/2 | ✅ |

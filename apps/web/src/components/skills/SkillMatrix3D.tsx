@@ -1142,12 +1142,14 @@ export default function SkillMatrix3D({
 
       {/* Bottom Floating Terminals & Legend Dock */}
       <div className="relative z-10 pb-3 px-3 flex justify-center pointer-events-auto">
-        <div className="bg-black/65 backdrop-blur-xl border border-white/10 rounded-2xl p-1.5 shadow-2xl flex items-center gap-2 overflow-x-auto scrollbar-none text-[10px] font-medium">
-          <span className="text-white/40 px-1">已接入：</span>
+        {/* Names never break (on a phone "Claude Code" went over two lines): six don't fit a phone's width, so
+            there they wrap into two even rows; wider screens keep one row */}
+        <div className="max-w-full bg-black/65 backdrop-blur-xl border border-white/10 rounded-2xl p-1 sm:p-1.5 shadow-2xl flex flex-wrap sm:flex-nowrap justify-center items-center gap-1 sm:gap-2 sm:overflow-x-auto scrollbar-none text-[10px] font-medium whitespace-nowrap">
+          <span className="text-white/40 px-1 shrink-0 hidden sm:inline">已接入：</span>
           {TERMINAL_TARGETS.map((t) => (
             <div
               key={t.id}
-              className="px-2 py-0.8 rounded-lg flex items-center gap-1.5 bg-white/5 border border-white/10 text-white/85"
+              className="shrink-0 px-1.5 sm:px-2 py-0.5 rounded-lg flex items-center gap-1 sm:gap-1.5 bg-white/5 border border-white/10 text-white/85"
             >
               <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: t.colorHex }} />
               <span>{t.label}</span>

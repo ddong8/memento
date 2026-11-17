@@ -701,9 +701,11 @@ export default function SkillsPage() {
 
           {/* 3D 悬浮底部小指示器 (未选中时提示) */}
           {!selectedSkillObj && (
-            <div className="absolute bottom-3 left-3 right-3 pointer-events-none text-center">
-              <span className="text-[10px] font-mono text-white/70 bg-black/60 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/15 pointer-events-auto shadow-lg">
-                点击技能查看说明 · 滚轮缩放 · 左键拖动旋转
+            // Above the terminals dock (it sat right on top of it; two rows on a phone), touch wording on a phone
+            <div className="absolute bottom-[76px] sm:bottom-[52px] left-3 right-3 pointer-events-none text-center">
+              <span className="inline-block max-w-full truncate align-bottom text-[10px] font-mono text-white/70 bg-black/60 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/15 pointer-events-auto shadow-lg">
+                <span className="sm:hidden">点击技能查看说明 · 双指缩放 · 单指拖动旋转</span>
+                <span className="hidden sm:inline">点击技能查看说明 · 滚轮缩放 · 左键拖动旋转</span>
               </span>
             </div>
           )}

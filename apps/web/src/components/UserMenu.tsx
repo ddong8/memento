@@ -2,14 +2,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
+import { createPortal } from "react-dom";
 import { useAuth } from "@/lib/auth-context";
 import { useI18n, locales, type Locale } from "@/lib/i18n";
 import { useTheme, type Skin } from "@/lib/theme-context";
 import { Icon } from "@/components/aurora/Icon";
 import { desktop } from "@/lib/desktop";
 import { openServerSwitchModal } from "@/lib/api-client";
-import { hasNativeMenu, popupNativeMenu, type NativeMenuItem } from "@/lib/native-menu";
 
 type IconName = Parameters<typeof Icon>[0]["name"];
 
@@ -33,6 +33,8 @@ export function UserMenu({ variant = "sidebar", collapsed = false, onNavClick }:
   const [isDesktop, setIsDesktop] = useState(false);
   const [hovered, setHovered] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [anchor, setAnchor] = useState<Element | null>(null);
 
   useEffect(() => {
     if (desktop()) setIsDesktop(true);
@@ -41,7 +43,9 @@ export function UserMenu({ variant = "sidebar", collapsed = false, onNavClick }:
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      const target = e.target as Node;
+      if (ref.current?.contains(target) || panelRef.current?.contains(target)) return;
+      setOpen(false);
     };
     const onEsc = (e: KeyboardEvent) => {
       if (e.key === "Escape") setOpen(false);
@@ -59,52 +63,11 @@ export function UserMenu({ variant = "sidebar", collapsed = false, onNavClick }:
     onNavClick?.();
   };
 
-  const router = useRouter();
-  // The desktop app shows this menu as the system's own menu; a browser and the mobile app get the page's
-  const toggleMenu = async (anchor: Element) => {
-    if (!user || !hasNativeMenu()) {
-      setOpen((v) => !v);
-      return;
-    }
-    const admin = user.role === "admin" || user.role === "owner";
-    const links: [string, string][] = [
-      ["/profile?tab=proactive", "AI 执事"],
-      ["/profile?tab=life", "作息与时间"],
-      ["/profile", t.profile.title || "个人设置"],
-      ["/profile?tab=devices", t.profile.tabs?.devices || "我的设备"],
-      ["/profile?tab=health", t.profile.tabs?.health || "系统健康"],
-      ...(isDesktop ? ([["/profile?tab=collector", t.profile.tabs?.collector || "本机采集"]] as [string, string][]) : []),
-    ];
-    const items: NativeMenuItem[] = [
-      { id: "me", label: `${user.name || user.email} · ${roleLabel(user.role)}`, enabled: false },
-      { type: "separator" },
-      ...links.map(([href, label]) => ({ id: href, label })),
-      ...(admin ? ([{ type: "separator" }, { id: "/admin", label: t.nav.admin || "管理后台" }] as NativeMenuItem[]) : []),
-      // Language and skin live here, not in every page's top bar (a setting, not a page action)
-      { type: "separator" },
-      { id: "-lang", label: "界面语言", enabled: false },
-      ...(Object.keys(locales) as Locale[]).map((l) => ({ id: `locale:${l}`, label: locales[l].label, checked: locale === l })),
-      { type: "separator" },
-      { id: "-skin", label: "界面风格", enabled: false },
-      ...SKINS.map((k) => ({ id: `skin:${k.id}`, label: k.label, checked: skin === k.id })),
-      { type: "separator" },
-      { id: "server", label: t.serverSwitch?.title || "切换服务器" },
-      { id: "logout", label: t.profile.logout },
-    ];
-    const id = await popupNativeMenu(items, anchor);
-    if (id === undefined) {
-      setOpen((v) => !v);
-      return;
-    }
-    if (!id) return;
-    if (id.startsWith("locale:")) setLocale(id.slice(7) as Locale);
-    else if (id.startsWith("skin:")) setSkin(id.slice(5) as Skin);
-    else if (id === "server") openServerSwitchModal();
-    else if (id === "logout") logout();
-    else if (id.startsWith("/")) {
-      router.push(id);
-      onNavClick?.();
-    }
+  // The desktop app showed this as a system menu (317a187c): 20-odd plain rows with greyed headings
+  // for language and skin, which can't be styled. Every client now opens the same panel.
+  const toggleMenu = (el: Element) => {
+    setAnchor(el);
+    setOpen((v) => !v);
   };
 
   if (!user) {
@@ -154,7 +117,7 @@ export function UserMenu({ variant = "sidebar", collapsed = false, onNavClick }:
         /* Sidebar User Card Trigger */
         <button
           type="button"
-          onClick={(e) => void toggleMenu(e.currentTarget)}
+          onClick={(e) => toggleMenu(e.currentTarget)}
           onMouseEnter={() => setHovered(true)}
           onMouseLeave={() => setHovered(false)}
           aria-label={t.profile.title}
@@ -311,7 +274,7 @@ export function UserMenu({ variant = "sidebar", collapsed = false, onNavClick }:
         /* Header Compact Avatar Trigger */
         <button
           type="button"
-          onClick={(e) => void toggleMenu(e.currentTarget)}
+          onClick={(e) => toggleMenu(e.currentTarget)}
           aria-label={t.profile.title}
           aria-expanded={open}
           aria-haspopup="menu"
@@ -349,182 +312,38 @@ export function UserMenu({ variant = "sidebar", collapsed = false, onNavClick }:
         </button>
       )}
 
-      {/* Dropup (for sidebar) or Dropdown (for header) Menu */}
       {open && (
-        <div
-          role="menu"
-          style={{
-            position: "absolute",
-            ...(variant === "sidebar"
-              ? {
-                  bottom: "calc(100% + 8px)",
-                  left: 0,
-                  width: "100%",
-                  minWidth: 236,
-                }
-              : {
-                  top: "calc(100% + 8px)",
-                  right: 0,
-                  minWidth: 230,
-                }),
-            background: "var(--aurora-surface)",
-            border: "1px solid var(--aurora-border)",
-            borderRadius: 14,
-            boxShadow: "0 20px 48px -12px rgba(0,0,0,0.35), 0 0 0 1px var(--aurora-border)",
-            backdropFilter: "blur(24px) saturate(180%)",
-            WebkitBackdropFilter: "blur(24px) saturate(180%)",
-            padding: 6,
-            zIndex: 60,
+        <UserMenuPanel
+          anchor={anchor}
+          variant={variant}
+          collapsed={collapsed}
+          panelRef={panelRef}
+          user={user}
+          displayName={displayName}
+          initial={initial}
+          isAdmin={isAdmin}
+          isDesktop={isDesktop}
+          onNav={handleItemClick}
+          onServer={() => {
+            setOpen(false);
+            openServerSwitchModal();
           }}
-        >
-          {/* Header Profile Summary */}
-          <div
-            style={{
-              padding: "10px 12px 12px",
-              borderBottom: "1px solid var(--aurora-border)",
-              marginBottom: 4,
-              display: "flex",
-              alignItems: "center",
-              gap: 10,
-            }}
-          >
-            <div
-              style={{
-                width: 36,
-                height: 36,
-                borderRadius: 9999,
-                overflow: "hidden",
-                background: "var(--aurora-primary-grad)",
-                color: "#fff",
-                display: "inline-flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: 14,
-                fontWeight: 600,
-                flexShrink: 0,
-                border: "1px solid var(--aurora-border)",
-              }}
-            >
-              {user.avatar_url ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={user.avatar_url}
-                  alt={displayName}
-                  style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                />
-              ) : (
-                initial
-              )}
-            </div>
-            <div style={{ minWidth: 0, flex: 1 }}>
-              <div
-                style={{
-                  fontSize: 13,
-                  fontWeight: 600,
-                  color: "var(--aurora-fg1)",
-                  letterSpacing: "-0.01em",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                }}
-                title={displayName}
-              >
-                {displayName}
-              </div>
-              <div
-                style={{
-                  fontSize: 11,
-                  color: "var(--aurora-fg4)",
-                  marginTop: 1,
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                }}
-                title={user.email}
-              >
-                {user.email}
-              </div>
-              <div
-                style={{
-                  display: "inline-block",
-                  marginTop: 4,
-                  fontSize: 10,
-                  padding: "1px 6px",
-                  borderRadius: 9999,
-                  background: "var(--aurora-chip)",
-                  color: "var(--aurora-fg3)",
-                  fontWeight: 500,
-                }}
-              >
-                {roleLabel(user.role)}
-              </div>
-            </div>
-          </div>
-
-          {/* Quick shortcuts */}
-          <MenuLink href="/profile?tab=proactive" icon="sparkles" onClick={handleItemClick}>
-            AI 执事
-          </MenuLink>
-          <MenuLink href="/profile?tab=life" icon="clock" onClick={handleItemClick}>
-            作息与时间
-          </MenuLink>
-          <MenuLink href="/profile" icon="settings" onClick={handleItemClick}>
-            {t.profile.title || "个人设置"}
-          </MenuLink>
-          <MenuLink href="/profile?tab=devices" icon="devices" onClick={handleItemClick}>
-            {t.profile.tabs?.devices || "我的设备"}
-          </MenuLink>
-          <MenuLink href="/profile?tab=health" icon="activity" onClick={handleItemClick}>
-            {t.profile.tabs?.health || "系统健康"}
-          </MenuLink>
-          {isDesktop && (
-            <MenuLink href="/profile?tab=collector" icon="terminal" onClick={handleItemClick}>
-              {t.profile.tabs?.collector || "本机采集"}
-            </MenuLink>
-          )}
-
-          {isAdmin && (
-            <>
-              <div style={{ height: 1, background: "var(--aurora-border)", margin: "4px 8px" }} />
-              <MenuLink href="/admin" icon="lock" onClick={handleItemClick}>
-                {t.nav.admin || "管理后台"}
-              </MenuLink>
-            </>
-          )}
-
-          <div style={{ height: 1, background: "var(--aurora-border)", margin: "4px 8px" }} />
-
-          <SegmentRow
-            label="界面语言"
-            value={locale}
-            options={(Object.keys(locales) as Locale[]).map((l) => ({ id: l, label: locales[l].label }))}
-            onChange={(v) => setLocale(v as Locale)}
-          />
-          <SegmentRow label="界面风格" value={skin} options={SKINS} onChange={(v) => setSkin(v as Skin)} />
-
-          <div style={{ height: 1, background: "var(--aurora-border)", margin: "4px 8px" }} />
-
-          <MenuButton
-            icon="server"
-            onClick={() => {
-              setOpen(false);
-              openServerSwitchModal();
-            }}
-          >
-            {t.serverSwitch?.title || "切换服务器"}
-          </MenuButton>
-
-          <MenuButton
-            icon="log_out"
-            onClick={() => {
-              setOpen(false);
-              logout();
-            }}
-            tone="danger"
-          >
-            {t.profile.logout}
-          </MenuButton>
-        </div>
+          onLogout={() => {
+            setOpen(false);
+            logout();
+          }}
+          lang={{ value: locale, options: (Object.keys(locales) as Locale[]).map((l) => ({ id: l, label: locales[l].label })), onChange: (v) => setLocale(v as Locale) }}
+          look={{ value: skin, options: SKINS, onChange: (v) => setSkin(v as Skin) }}
+          labels={{
+            settings: t.profile.title || "个人设置",
+            devices: t.profile.tabs?.devices || "我的设备",
+            health: t.profile.tabs?.health || "系统健康",
+            collector: t.profile.tabs?.collector || "本机采集",
+            admin: t.nav.admin || "管理后台",
+            server: t.serverSwitch?.title || "切换服务器",
+            logout: t.profile.logout,
+          }}
+        />
       )}
     </div>
   );
@@ -544,9 +363,9 @@ const SKINS: { id: Skin; label: string }[] = [
 /** A setting picked in place: its name, then a small segmented control. */
 function SegmentRow({ label, value, options, onChange }: { label: string; value: string; options: { id: string; label: string }[]; onChange: (id: string) => void }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "6px 12px" }}>
-      <span style={{ fontSize: 12.5, color: "var(--aurora-fg2)" }}>{label}</span>
-      <div style={{ display: "inline-flex", padding: 2, gap: 2, background: "var(--aurora-chip)", border: "1px solid var(--aurora-border)", borderRadius: 8 }}>
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+      <span style={{ fontSize: 12, color: "var(--aurora-fg2)", fontWeight: 500 }}>{label}</span>
+      <div style={{ display: "inline-flex", padding: 2, gap: 2, background: "color-mix(in srgb, var(--aurora-fg1) 6%, transparent)", borderRadius: 8 }}>
         {options.map((o) => {
           const active = o.id === value;
           return (
@@ -575,69 +394,268 @@ function SegmentRow({ label, value, options, onChange }: { label: string; value:
   );
 }
 
-const menuItemStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: 10,
-  width: "100%",
-  padding: "8px 12px",
-  borderRadius: 8,
-  fontSize: 13,
-  textDecoration: "none",
-  background: "transparent",
-  border: 0,
-  cursor: "pointer",
-  textAlign: "left",
-  transition: "background .1s",
-};
+interface Segment {
+  value: string;
+  options: { id: string; label: string }[];
+  onChange: (id: string) => void;
+}
 
-function MenuLink({
-  href,
-  icon,
-  children,
-  onClick,
-}: {
-  href: string;
-  icon: IconName;
-  children: React.ReactNode;
-  onClick?: () => void;
-}) {
+const PANEL_WIDTH = 288;
+const GAP = 8;
+
+/** Where the panel goes: above the sidebar card (beside it when the sidebar is collapsed), below the header avatar. */
+export function panelPosition(
+  r: { left: number; right: number; top: number; bottom: number },
+  variant: "sidebar" | "header",
+  collapsed: boolean,
+  vw: number,
+  vh: number,
+): React.CSSProperties {
+  const width = Math.min(PANEL_WIDTH, vw - GAP * 2);
+  const clampLeft = (x: number) => Math.max(GAP, Math.min(x, vw - width - GAP));
+  if (variant === "header") return { top: r.bottom + GAP, left: clampLeft(r.right - width), width };
+  if (collapsed) return { bottom: Math.max(GAP, vh - r.bottom), left: clampLeft(r.right + GAP), width };
+  return { bottom: vh - r.top + GAP, left: clampLeft(r.left), width };
+}
+
+function Avatar({ url, name, initial, size }: { url?: string | null; name: string; initial: string; size: number }) {
   return (
-    <Link
-      href={href}
-      onClick={onClick}
-      style={{ ...menuItemStyle, color: "var(--aurora-fg1)" }}
-      onMouseEnter={(e) => (e.currentTarget.style.background = "var(--aurora-chip)")}
-      onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+    <div
+      style={{
+        width: size,
+        height: size,
+        borderRadius: 9999,
+        overflow: "hidden",
+        flexShrink: 0,
+        background: "var(--aurora-primary-grad)",
+        color: "#fff",
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontSize: Math.round(size * 0.4),
+        fontWeight: 600,
+        boxShadow: "0 0 0 2px var(--aurora-surface-solid), 0 0 0 3.5px color-mix(in srgb, var(--aurora-accent) 35%, transparent)",
+      }}
     >
-      <Icon name={icon} size={15} />
-      {children}
-    </Link>
+      {url ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={url} alt={name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+      ) : (
+        initial
+      )}
+    </div>
   );
 }
 
-function MenuButton({
-  icon,
-  children,
-  onClick,
-  tone = "default",
+function UserMenuPanel({
+  anchor,
+  variant,
+  collapsed,
+  panelRef,
+  user,
+  displayName,
+  initial,
+  isAdmin,
+  isDesktop,
+  onNav,
+  onServer,
+  onLogout,
+  lang,
+  look,
+  labels,
 }: {
-  icon: IconName;
-  children: React.ReactNode;
-  onClick: () => void;
-  tone?: "default" | "danger";
+  anchor: Element | null;
+  variant: "sidebar" | "header";
+  collapsed: boolean;
+  panelRef: React.RefObject<HTMLDivElement | null>;
+  user: { email: string; role: string; avatar_url?: string | null };
+  displayName: string;
+  initial: string;
+  isAdmin: boolean;
+  isDesktop: boolean;
+  onNav: () => void;
+  onServer: () => void;
+  onLogout: () => void;
+  lang: Segment;
+  look: Segment;
+  labels: Record<"settings" | "devices" | "health" | "collector" | "admin" | "server" | "logout", string>;
 }) {
-  const color = tone === "danger" ? "#DC2626" : "var(--aurora-fg1)";
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      style={{ ...menuItemStyle, color }}
-      onMouseEnter={(e) => (e.currentTarget.style.background = "var(--aurora-chip)")}
-      onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+  const [pos, setPos] = useState<React.CSSProperties | null>(null);
+  const [shown, setShown] = useState(false);
+
+  useEffect(() => {
+    const place = () => {
+      if (!anchor) return;
+      setPos(panelPosition(anchor.getBoundingClientRect(), variant, collapsed, window.innerWidth, window.innerHeight));
+    };
+    place();
+    const raf = requestAnimationFrame(() => setShown(true));
+    window.addEventListener("resize", place);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("resize", place);
+    };
+  }, [anchor, variant, collapsed]);
+
+  if (!pos || typeof document === "undefined") return null;
+
+  const tiles: { href: string; icon: IconName; label: string }[] = [
+    { href: "/profile?tab=proactive", icon: "sparkles", label: "AI 执事" },
+    { href: "/profile?tab=life", icon: "clock", label: "作息与时间" },
+    { href: "/profile?tab=devices", icon: "devices", label: labels.devices },
+    { href: "/profile?tab=health", icon: "activity", label: labels.health },
+    ...(isDesktop ? [{ href: "/profile?tab=collector", icon: "terminal" as IconName, label: labels.collector }] : []),
+    ...(isAdmin ? [{ href: "/admin", icon: "lock" as IconName, label: labels.admin }] : []),
+  ];
+  const fromBelow = variant === "sidebar";
+
+  return createPortal(
+    <div
+      ref={panelRef}
+      role="menu"
+      aria-label={labels.settings}
+      style={{
+        position: "fixed",
+        ...pos,
+        zIndex: 1000,
+        background: "var(--aurora-surface-solid)",
+        border: "1px solid var(--aurora-border)",
+        borderRadius: 16,
+        boxShadow: "0 24px 56px -18px rgba(15, 10, 40, 0.38), 0 4px 14px -6px rgba(15, 10, 40, 0.12)",
+        padding: 8,
+        opacity: shown ? 1 : 0,
+        transform: shown ? "none" : `translateY(${fromBelow ? 6 : -6}px) scale(0.98)`,
+        transformOrigin: fromBelow ? "bottom left" : "top right",
+        transition: "opacity 140ms ease-out, transform 180ms cubic-bezier(0.2, 0.9, 0.3, 1.1)",
+      }}
     >
-      <Icon name={icon} size={15} />
-      {children}
-    </button>
+      {/* Who is signed in; the card itself opens the settings */}
+      <Link
+        href="/profile"
+        role="menuitem"
+        onClick={onNav}
+        className="um-hover"
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          padding: "12px 12px",
+          borderRadius: 12,
+          textDecoration: "none",
+          background: "var(--aurora-accent-soft)",
+        }}
+      >
+        <Avatar url={user.avatar_url} name={displayName} initial={initial} size={40} />
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+            <span
+              style={{ fontSize: 14, fontWeight: 600, color: "var(--aurora-fg1)", letterSpacing: "-0.01em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+              title={displayName}
+            >
+              {displayName}
+            </span>
+            <span
+              style={{
+                flexShrink: 0,
+                fontSize: 10,
+                lineHeight: "16px",
+                padding: "0 6px",
+                borderRadius: 9999,
+                background: "color-mix(in srgb, var(--aurora-accent) 14%, transparent)",
+                color: "var(--aurora-accent)",
+                fontWeight: 600,
+              }}
+            >
+              {roleLabel(user.role)}
+            </span>
+          </div>
+          <div style={{ fontSize: 11.5, color: "var(--aurora-fg3)", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={user.email}>
+            {user.email}
+          </div>
+        </div>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 2, fontSize: 11, color: "var(--aurora-fg3)", flexShrink: 0 }}>
+          <Icon name="settings" size={13} />
+          <Icon name="chevron_right" size={12} />
+        </span>
+      </Link>
+
+      {/* Shortcuts */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, marginTop: 8 }}>
+        {tiles.map((tile) => (
+          <Link
+            key={tile.href}
+            href={tile.href}
+            role="menuitem"
+            onClick={onNav}
+            className="um-hover"
+            style={{ display: "flex", alignItems: "center", gap: 9, padding: "8px 10px", borderRadius: 10, textDecoration: "none", color: "var(--aurora-fg1)", minWidth: 0 }}
+          >
+            <span
+              style={{
+                width: 28,
+                height: 28,
+                borderRadius: 8,
+                flexShrink: 0,
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                background: "var(--aurora-chip)",
+                border: "1px solid var(--aurora-border)",
+                color: "var(--aurora-accent)",
+              }}
+            >
+              <Icon name={tile.icon} size={15} />
+            </span>
+            <span style={{ fontSize: 12.5, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{tile.label}</span>
+          </Link>
+        ))}
+      </div>
+
+      {/* Appearance */}
+      <div style={{ margin: "8px 0 0", padding: "10px 10px 8px", borderRadius: 12, background: "var(--aurora-chip)", display: "grid", gap: 8 }}>
+        <SegmentRow label="界面语言" {...lang} />
+        <SegmentRow label="界面风格" {...look} />
+      </div>
+
+      {/* Account */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginTop: 8 }}>
+        <button type="button" role="menuitem" onClick={onServer} className="um-btn" style={footBtn("var(--aurora-fg2)")}>
+          <Icon name="server" size={14} />
+          {labels.server}
+        </button>
+        <button type="button" role="menuitem" onClick={onLogout} className="um-btn um-danger" style={footBtn("#DC2626")}>
+          <Icon name="log_out" size={14} />
+          {labels.logout}
+        </button>
+      </div>
+      <style>{`
+        .um-hover { transition: background-color .12s ease; }
+        .um-hover:hover { background-color: var(--aurora-chip) !important; }
+        .um-hover:focus-visible, .um-btn:focus-visible { outline: 2px solid color-mix(in srgb, var(--aurora-accent) 55%, transparent); outline-offset: 1px; }
+        .um-btn { transition: background-color .12s ease, border-color .12s ease; }
+        .um-btn:hover { background-color: var(--aurora-chip); }
+        .um-danger:hover { background-color: rgba(220, 38, 38, 0.08); border-color: rgba(220, 38, 38, 0.28); }
+        html[data-theme="dark"] .um-danger { color: #F87171 !important; }
+      `}</style>
+    </div>,
+    document.body,
   );
+}
+
+function footBtn(color: string): React.CSSProperties {
+  return {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    height: 34,
+    borderRadius: 10,
+    border: "1px solid var(--aurora-border)",
+    background: "transparent",
+    color,
+    fontSize: 12.5,
+    fontWeight: 500,
+    cursor: "pointer",
+    whiteSpace: "nowrap",
+  };
 }

@@ -43,7 +43,7 @@ import {
   sessionMessagesToTurns,
   type AgentSessionItem,
 } from "@/lib/ask/sessions";
-import { CONVERSATIONS_CACHE_KEY, CachedAskState, FALLBACK_AGENT_MODELS, LocalConvSnapshot, QUOTAS_CACHE_KEY, conversationTurnsCache, getCachedConversations, getCachedProjects, getCachedSessions, getImmediateCapabilities, getLocalCachedQuotas, getLocalConvSnapshot, isUuidOrHash, prefetchConversationTurns, resolveSafeProjectName, saveCachedProjects, saveCachedSessions, saveCapabilitiesCache, saveLocalConvSnapshot, saveToRecentConvTurnsCache, clearLocalConvSnapshot } from "@/lib/ask/cache";
+import { CONVERSATIONS_CACHE_KEY, CachedAskState, FALLBACK_AGENT_MODELS, LocalConvSnapshot, QUOTAS_CACHE_KEY, conversationTurnsCache, getCachedConversations, getCachedProjects, getCachedSessions, getImmediateCapabilities, getLocalCachedQuotas, getLocalConvSnapshot, isUuidOrHash, prefetchConversationTurns, resolveSafeProjectName, saveCachedProjects, saveCachedSessions, saveCapabilitiesCache, saveLocalConvSnapshot, saveToRecentConvTurnsCache, clearLocalConvSnapshot, forgetConversation } from "@/lib/ask/cache";
 import { modelLimitLabel, modelLimitOf, modelQuotaOf } from "@/lib/ask/model-limits";
 import { cleanProjectPath, homeDeviceOf, isConcreteDevice, isDeviceOnline, pathWithin, projectPathOn } from "@/lib/ask/devices";
 import { isLiveConnected, onLiveEvent } from "@/lib/live-events";
@@ -1444,6 +1444,8 @@ function AskPageContent() {
   );
 
   // Load single conversation
+  // Defined further down; a conversation that turns out to be gone opens a new chat through it
+  const startNewChatRef = useRef<() => void>(() => {});
   const loadConversation = useCallback(async (id: string, options?: { limit?: number; preserveScroll?: boolean; force?: boolean }) => {
     if (!id) return;
     const isSwitchingDifferentConv = Boolean(activeConversationIdRef.current && activeConversationIdRef.current !== id);
@@ -1564,6 +1566,12 @@ function AskPageContent() {
       await restoreCascade(data, loadedTurns, gen);
     } catch (e) {
       console.error("Failed to load conversation:", e);
+      // Gone from the server (deleted elsewhere): not shown again from the cache, a new chat instead
+      if (/^API 404\b/.test(e instanceof Error ? e.message : "") && lastRestoredIdRef.current === id) {
+        forgetConversation(id);
+        setConversations((prev) => prev.filter((c) => c.id !== id));
+        startNewChatRef.current();
+      }
     } finally {
       endRestore(gen);
     }
@@ -1672,6 +1680,9 @@ function AskPageContent() {
     setHistoryOpen(false);
     setSourcesOpen(false);
   }, [detachStream, router, takeOverCascade]);
+  useEffect(() => {
+    startNewChatRef.current = startNewChat;
+  }, [startNewChat]);
 
   const handleExportMarkdown = useCallback(() => {
     if (!turns || turns.length === 0) return;
@@ -1796,11 +1807,7 @@ function AskPageContent() {
       try {
         await api.deleteAskConversation(id);
         setConversations((prev) => prev.filter((c) => c.id !== id));
-        try {
-          const cached = JSON.parse(localStorage.getItem(CONVERSATIONS_CACHE_KEY) || "[]") as AskConversationSummary[];
-          localStorage.setItem(CONVERSATIONS_CACHE_KEY, JSON.stringify(cached.filter((c) => c.id !== id)));
-        } catch {}
-        conversationTurnsCache.delete(id);
+        forgetConversation(id);
         if (activeConversationIdRef.current === id) {
           startNewChat();
         }

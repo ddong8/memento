@@ -495,6 +495,29 @@ export function saveToRecentConvTurnsCache(
   } catch {}
 }
 
+/**
+ * Everything this device keeps of a conversation that no longer exists on the server (deleted here,
+ * on another device, or by a clean-up): its turns, its place in the list, the last-opened snapshot.
+ * Left behind, the app kept opening it from the cache on every start (11-17).
+ */
+export function forgetConversation(id: string) {
+  if (!id) return;
+  conversationTurnsCache.delete(id);
+  if (typeof window === "undefined") return;
+  if (recentConvEntries.some((item) => item.id === id)) {
+    recentConvEntries = recentConvEntries.filter((item) => item.id !== id);
+    writeLater(RECENT_TURNS_CACHE_KEY, () => JSON.stringify(recentConvEntries));
+  }
+  try {
+    const list = JSON.parse(localStorage.getItem(CONVERSATIONS_CACHE_KEY) || "[]");
+    if (Array.isArray(list)) localStorage.setItem(CONVERSATIONS_CACHE_KEY, JSON.stringify(list.filter((c: { id?: string }) => c?.id !== id)));
+  } catch {}
+  try {
+    if (localStorage.getItem("memento_last_ask_conv_id") === id) localStorage.removeItem("memento_last_ask_conv_id");
+  } catch {}
+  if (getLocalConvSnapshot()?.id === id) clearLocalConvSnapshot();
+}
+
 const prefetchTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 /**

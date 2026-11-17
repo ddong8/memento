@@ -167,3 +167,84 @@ class TestGenerate(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(HTTPException) as ctx:
                 await projects.generate_business_blueprint(project.id, {}, db, User(id=uuid.uuid4()))
         self.assertEqual(ctx.exception.status_code, 409)
+
+
+class TestAutoGenerate(unittest.IsolatedAsyncioTestCase):
+    """Projects with rules in the profile get a business blueprint without anyone pressing the button."""
+
+    def test_which_projects_need_one(self):
+        self.assertFalse(biz.needs_generation(None, []))
+        self.assertTrue(biz.needs_generation(None, ["- 逆合成实验条件统一使用英文"]))
+        self.assertFalse(biz.needs_generation(TEXT, ["- 后台任务要跟踪到结束，不要提前结束"]))
+        self.assertTrue(biz.needs_generation(TEXT, ["- 手机端切换设备只拉该设备的项目和对话"]))
+
+    def _db(self, projects_and_machines):
+        from server.db.models import Machine
+
+        own = MagicMock()
+        own.all.return_value = [(uuid.uuid4(),)]
+        rows = MagicMock()
+        rows.all.return_value = [(p.id,) for p, _m in projects_and_machines]
+        results = [own, rows]
+        for p, m in projects_and_machines:
+            pr, mr = MagicMock(), MagicMock()
+            pr.scalar_one_or_none.return_value = p
+            mr.scalar_one_or_none.return_value = m if isinstance(m, Machine) else None
+            results += [pr, mr]
+        db = AsyncMock()
+        db.execute.side_effect = results
+        return db
+
+    async def test_sends_one_for_a_project_with_rules_and_none_yet_on_an_online_device(self):
+        from server.api import profile, projects
+        from server.db.models import Machine, Project, User
+        from server.services import ai_health, project_exclusion
+        from server.services.ws_manager import ws_manager
+
+        user = User(id=uuid.uuid4(), email="u@example.com", role="owner", proactive_settings={})
+        bare = Project(id=uuid.uuid4(), title="pubchem", slug="pubchem")
+        mac = Machine(id=uuid.uuid4(), name="mac", collector_token_hash="memento-mac")
+        dispatched = []
+
+        async def rules(db, user_, project):
+            return ["- 逆合成实验条件统一使用英文"]
+
+        with (
+            patch.object(profile, "blueprint_auto_enabled", lambda u: True),
+            patch.object(project_exclusion, "excluded_keys", AsyncMock(return_value=[])),
+            patch.object(biz, "project_rules", rules),
+            patch.object(biz, "resolve_business_blueprint", AsyncMock(return_value=None)),
+            patch.object(projects, "_codebase_blueprint_copy", AsyncMock(return_value=("bp", mac.id, {"project_path": "/Users/me/pubchem"}))),
+            patch.object(ws_manager, "is_online", lambda d: d == "memento-mac"),
+            patch.object(ai_health, "claim_alert", AsyncMock(return_value=True)),
+            patch.object(biz, "dispatch_generation", AsyncMock(side_effect=lambda db, u, p, mids: dispatched.append(p.title))),
+        ):
+            sent = await biz.auto_generate(self._db([(bare, mac)]), user)
+        self.assertEqual(sent, ["pubchem"])
+        self.assertEqual(dispatched, ["pubchem"])
+
+    async def test_offline_device_or_switch_off_sends_nothing_and_keeps_the_weeks_turn(self):
+        from server.api import profile, projects
+        from server.db.models import Machine, Project, User
+        from server.services import ai_health, project_exclusion
+        from server.services.ws_manager import ws_manager
+
+        user = User(id=uuid.uuid4(), email="u@example.com", role="owner", proactive_settings={})
+        bare = Project(id=uuid.uuid4(), title="pubchem", slug="pubchem")
+        laptop = Machine(id=uuid.uuid4(), name="laptop", collector_token_hash="memento-laptop")
+        claim = AsyncMock(return_value=True)
+        with (
+            patch.object(profile, "blueprint_auto_enabled", lambda u: True),
+            patch.object(project_exclusion, "excluded_keys", AsyncMock(return_value=[])),
+            patch.object(biz, "project_rules", AsyncMock(return_value=["- 规则"])),
+            patch.object(biz, "resolve_business_blueprint", AsyncMock(return_value=None)),
+            patch.object(projects, "_codebase_blueprint_copy", AsyncMock(return_value=("bp", laptop.id, {"project_path": "/x"}))),
+            patch.object(ws_manager, "is_online", lambda d: False),
+            patch.object(ai_health, "claim_alert", claim),
+            patch.object(biz, "dispatch_generation", AsyncMock()) as dispatch,
+        ):
+            self.assertEqual(await biz.auto_generate(self._db([(bare, laptop)]), user), [])
+            dispatch.assert_not_awaited()
+            claim.assert_not_awaited()
+        with patch.object(profile, "blueprint_auto_enabled", lambda u: False):
+            self.assertEqual(await biz.auto_generate(AsyncMock(), user), [])

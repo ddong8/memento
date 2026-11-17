@@ -212,3 +212,101 @@ def generation_prompt(project_name: str, rules: list[str], has_file: bool) -> st
 - macOS / Linux：`node ~/.memento/scripts/project_blueprint.mjs --business --root .`（没有 node 就用 `ELECTRON_RUN_AS_NODE=1 ~/.memento/scripts/runtime ~/.memento/scripts/project_blueprint.mjs --business --root .`）
 - Windows：`node %USERPROFILE%\\.memento\\scripts\\project_blueprint.mjs --business --root .`
 核对会在文件开头和末尾写入自动生成的索引和核对结果，不要手改这两段。不要提交 git，改完告诉用户结果（规则数、✅/⚠️/❌ 各多少、还有哪些规则没找到代码）。"""
+
+
+class GenerateUnavailable(Exception):
+    """The project can't get a business blueprint written now (no code blueprint, no checkout path, device gone)."""
+
+
+async def dispatch_generation(
+    db: AsyncSession, user: Any, project: Project, mids: list[uuid.UUID] | None, *, binary: str = "claude", model: str = "",
+) -> dict[str, Any]:
+    """Send an agent to write (or bring up to date) the repo's BUSINESS_BLUEPRINT.md, on the device whose checkout
+    the newest code blueprint came from, with the user's rules for the project in its prompt."""
+    from ..api.projects import _codebase_blueprint_copy
+    from ..api.tasks import CreateTask, create_task
+    from ..db.models import Machine
+
+    code = await _codebase_blueprint_copy(db, project, mids)
+    if not code or not code[1]:
+        raise GenerateUnavailable("还没有设备上传过这个项目的代码蓝图，不知道仓库在哪台设备的哪个目录")
+    path = str(code[2].get("project_path") or "").strip()
+    if not path:
+        raise GenerateUnavailable("代码蓝图没有记下仓库目录（设备客户端需 1.0.97 及以上）")
+    machine = (await db.execute(select(Machine).where(Machine.id == code[1]))).scalar_one_or_none()
+    if machine is None:
+        raise GenerateUnavailable("上传代码蓝图的设备已不在")
+    existing = await resolve_business_blueprint(db, project, mids, prefer_machine=code[1])
+    rules = await project_rules(db, user, project)
+    name = (project.title or project.slug or "").rsplit("/", 1)[-1] or str(project.id)
+    prompt = generation_prompt(name, rules, has_file=existing is not None)
+    payload: dict[str, Any] = {"binary": binary, "prompt": prompt, "cwd": path, "user_question": f"生成业务蓝图：{name}"}
+    if model:
+        payload["model"] = model
+    task = await create_task(machine.collector_token_hash or machine.name, CreateTask(action="agent", payload=payload), db, user)
+    return {"task": task, "device": machine.name, "cwd": path, "rules": len(rules)}
+
+
+AUTO_EVERY_SECONDS = 7 * 86400
+# The pulse looks once an hour (pulse_service) and sends at most this many: one agent at a time on the user's devices
+AUTO_PER_PASS = 1
+
+
+def needs_generation(existing_text: str | None, rules: list[str]) -> bool:
+    """A project gets one written when the profile has rules for it and it has none, or some of them aren't in it."""
+    if not rules:
+        return False
+    return existing_text is None or bool(uncovered_rules(existing_text, rules))
+
+
+async def auto_generate(db: AsyncSession, user: Any, *, limit: int = AUTO_PER_PASS) -> list[str]:
+    """Business blueprints for the user's projects that have rules in the profile but no blueprint (or rules it
+    doesn't carry), on the device the code is on while it's online.
+
+    Before 2026-11-17 one was only written when someone pressed the button on the project page, so only
+    memento had one: pubchem, easywork-copilot and the rest kept their rules in the profile, unchecked
+    against the code. Each project at most once a week; the agent doesn't commit (generation_prompt).
+    Off with the automatic blueprint switch (blueprint_auto)."""
+    from ..api.profile import blueprint_auto_enabled
+    from ..db.models import Machine
+    from . import ai_health, project_exclusion
+    from .blueprint_pick import code_blueprint_path
+    from .ws_manager import ws_manager
+
+    if not blueprint_auto_enabled(user):
+        return []
+    own = [r[0] for r in (await db.execute(select(Machine.id).where(Machine.user_id == user.id))).all()]
+    if not own:
+        return []
+    rows = (await db.execute(
+        select(Document.project_id)
+        .where(Document.machine_id.in_(own), Document.project_id.is_not(None), code_blueprint_path(Document.relative_path))
+        .group_by(Document.project_id)
+    )).all()
+    excluded = await project_exclusion.excluded_keys(db, user.id)
+    sent: list[str] = []
+    for (pid,) in rows:
+        if len(sent) >= limit:
+            break
+        project = (await db.execute(select(Project).where(Project.id == pid))).scalar_one_or_none()
+        if project is None or project_exclusion.match_any(excluded, project.title):
+            continue
+        rules = await project_rules(db, user, project)
+        existing = await resolve_business_blueprint(db, project, own)
+        if not needs_generation(existing[0] if existing else None, rules):
+            continue
+        # Only while the device with the checkout is online: an offline one would burn the week's turn
+        from ..api.projects import _codebase_blueprint_copy
+
+        code = await _codebase_blueprint_copy(db, project, own)
+        machine = (await db.execute(select(Machine).where(Machine.id == code[1]))).scalar_one_or_none() if code and code[1] else None
+        if machine is None or not ws_manager.is_online(machine.collector_token_hash or ""):
+            continue
+        if not await ai_health.claim_alert(f"business-blueprint-auto:{project.id}", AUTO_EVERY_SECONDS):
+            continue
+        try:
+            await dispatch_generation(db, user, project, own)
+            sent.append(project.title)
+        except Exception:
+            continue
+    return sent

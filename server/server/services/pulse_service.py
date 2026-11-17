@@ -150,6 +150,22 @@ async def _pulse_user(db: AsyncSession, user: User, now_utc: datetime) -> None:
     # Missions go on during quiet hours too: nothing is pushed for them unless they finish or need approval.
     await _advance_user_missions(db, user)
 
+    # Business blueprints for projects with rules in the profile but none yet: one agent an hour at most.
+    # Nothing here may stop the rest of the pulse (briefs, device alerts)
+    try:
+        if await ai_health.claim_alert(f"business-blueprint-auto-pass:{user.id}", 3600):
+            from . import business_blueprint
+
+            sent = await business_blueprint.auto_generate(db, user)
+            if sent:
+                logger.info("Business blueprint being written for %s: %s", user.id, ", ".join(sent))
+    except Exception as e:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        logger.warning("Business blueprint auto-generation failed for %s: %s", user.id, e)
+
     if is_in_quiet_hours(user_now, prefs.get("quiet_hours_start", "23:30"), prefs.get("quiet_hours_end", "07:30")):
         return
 

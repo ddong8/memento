@@ -132,7 +132,7 @@ export function BusinessBlueprintCard({
                 ? "这份业务蓝图还没被生成器核对过（设备上的生成器更新后会自动核对）。"
                 : "Not checked yet."
               : isZh
-                ? "这个项目还没有业务蓝图。它把你给项目定的规则、术语、流程和状态归属挂到代码和测试上，每次提交自动核对，用来发现「规则和代码对不上」的问题。"
+                ? "这个项目还没有业务蓝图。它把你给项目定的规则、术语、流程和状态归属挂到代码和测试上，每次提交自动核对，用来发现「规则和代码对不上」的问题。画像里有这个项目的规则时，仓库所在的设备在线就会自动生成（每个项目一周一次，不提交 git），也可以点右上角立即生成。"
                 : "No business blueprint yet: it ties your rules for the project to the code and tests, checked on every commit."}
           </p>
         )}

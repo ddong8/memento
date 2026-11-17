@@ -3,16 +3,16 @@
 <!-- memento:business-index:start (自动生成，勿手改) -->
 > 先读这一段定位；要细节时按下表行号只读对应章节。改了「代码位置」里的文件，先看对应条目还成不成立。
 
-- 汇总：规则 60（✅ 60 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
+- 汇总：规则 61（✅ 61 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
 - 核对：全部通过（详见末尾「自动核对」）
 
 | 章节 | 行号 |
 | :--- | :--- |
 | 1. 业务对象与术语 | L21-L65 |
 | 2. 关键流程 | L67-L124 |
-| 3. 业务规则 | L126-L483 |
-| 4. 状态归属 | L485-L530 |
-| 自动核对 (Auto Check) | L533-L633 |
+| 3. 业务规则 | L126-L490 |
+| 4. 状态归属 | L492-L537 |
+| 自动核对 (Auto Check) | L540-L641 |
 <!-- memento:business-index:end -->
 > 业务蓝图：memento 应该做成什么样，每一条落在哪段代码、由哪个测试或检查保证。和代码蓝图 [CODE_BLUEPRINT.md](CODE_BLUEPRINT.md)（代码长什么样）配合看：代码蓝图回答"在哪里"，这份回答"应该怎样、为什么"。
 > 规则来自用户的原话和纠正（CLAUDE.md、长期记忆、每晚复盘），不是从代码里反推的；代码和这里对不上，先当成代码的问题查。
@@ -170,6 +170,13 @@
 - 测试: `packages/daemon/test/workspace.test.ts#commits on the source with its hooks, takes in what they changed, and lands the commits on the branch`, `packages/daemon/test/workspace.test.ts#hands a failing hook's output back to the agent and commits nothing`, `packages/daemon/test/workspace.test.ts#only files come back when the agent forced a commit through on the executor`, `packages/daemon/test/source-exec.test.ts#turns down tests, builds, installs, commits and pushes run there, and lets memento-source and reading through`, `packages/daemon/test/hook-bridge.test.ts#reports every call and turns down the ones it is told to, with the reason for the model`, `server/tests/test_workspace_relay.py#test_the_agents_commit_is_made_on_the_source_and_an_old_source_is_told_to_upgrade`, `server/tests/test_workspace_relay.py#test_a_file_outside_the_project_is_written_on_the_source_but_never_a_sensitive_one`, `packages/daemon/test/workspace.test.ts#edits a file on the source outside the project: get it, change it here, put it back, the old one backed up`
 - 要求: `"source_commit"` @ `packages/daemon/src/capabilities.ts`; `"commit": _commit` @ `server/server/services/workspace_relay.py`
 
+
+### R-BIZ-AUTO 画像里有项目规则的项目自动生成业务蓝图，不靠手动点按钮
+- 来源: 用户 11-18「为什么除了memento 项目，其它项目都没有业务蓝图啊」；心领神会「希望工具能越用越了解用户，具备自进化能力」
+- 说明: 画像里有某个项目的专属规则、设备上传过它的代码蓝图、但还没有业务蓝图（或有规则没写进去）时，主动执事每小时看一次，仓库所在的设备在线就派智能体去写或补全，每次最多派一个，每个项目一周最多一次；设备不在线不占这一周的次数。智能体不提交 git。关掉「自动蓝图」开关就不派；不采集的项目跳过。项目页仍可点按钮立即生成。
+- 代码: `server/server/services/business_blueprint.py#auto_generate`, `server/server/services/business_blueprint.py#needs_generation`, `server/server/services/business_blueprint.py#dispatch_generation`, `server/server/services/pulse_service.py#_pulse_user`, `server/server/api/projects.py#generate_business_blueprint`
+- 测试: `server/tests/test_business_blueprint.py#test_sends_one_for_a_project_with_rules_and_none_yet_on_an_online_device`, `server/tests/test_business_blueprint.py#test_offline_device_or_switch_off_sends_nothing_and_keeps_the_weeks_turn`, `server/tests/test_business_blueprint.py#test_which_projects_need_one`
+- 要求: `business_blueprint.auto_generate` @ `server/server/services/pulse_service.py`
 
 ### R-WS-EXEC-STOP 远程任务停了，它在代码所在设备上的命令一起停，不占住后面的命令
 - 来源: 用户 11-17「我发现有时候远程任务执行命令会卡住啊」（vps3 上 Antigravity 在 Mac 上跑 `find ~ -maxdepth 4` 没结束，任务停掉后它还在跑，后面的 `ls -d` 和别的任务的命令都排在它后面等到 30 分钟超时）
@@ -534,7 +541,7 @@
 
 > 生成器随每次提交核对：代码位置还在不在、测试还在不在、禁止 / 要求的写法满不满足。✅ 通过 · ⚠️ 缺代码位置、测试或来源 · ❌ 位置失效或违反规则（CI 会拦下）。
 
-- 汇总：规则 60（✅ 60 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
+- 汇总：规则 61（✅ 61 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
 
 | 编号 | 名称 | 代码位置 | 测试 | 检查 | 结论 |
 | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -565,6 +572,7 @@
 | `R-MULTI-DEVICE-STABLE` | 多机任务并发执行，过程和结果稳定回传 | 4/4 | 4/4 | — | ✅ |
 | `R-WS-BIG-UNTRACKED` | 跨设备改代码时，没进 .gitignore 的大文件不让任务失败 | 4/4 | 1/1 | 1/1 | ✅ |
 | `R-WS-EDIT-ONLY` | 远程执行机只改代码，测试、构建、提交、推送等其余工作都在代码所在的设备上做 | 9/9 | 8/8 | 2/2 | ✅ |
+| `R-BIZ-AUTO` | 画像里有项目规则的项目自动生成业务蓝图，不靠手动点按钮 | 5/5 | 3/3 | 1/1 | ✅ |
 | `R-WS-EXEC-STOP` | 远程任务停了，它在代码所在设备上的命令一起停，不占住后面的命令 | 5/5 | 3/3 | 2/2 | ✅ |
 | `R-PROJECT-EXCLUDE` | 测试用的项目可以不采集，已采集的数据和从中学到的东西一并清掉 | 8/8 | 3/3 | 3/3 | ✅ |
 | `R-RUN-OUTLIVES-PAGE` | 运行不因页面关闭、切后台、发版而中断 | 2/2 | 4/4 | — | ✅ |

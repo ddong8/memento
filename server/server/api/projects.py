@@ -2166,32 +2166,16 @@ async def generate_business_blueprint(
     checkout the newest code blueprint came from, with the user's rules for the project in its prompt. The
     task shows on the tasks page like any other; the file comes back with the device's next upload."""
     from ..services import business_blueprint as biz
-    from .tasks import CreateTask, create_task
 
     mids = await user_machine_ids(db, _user)
     project = (await db.execute(select(Project).where(Project.id == project_id))).scalar_one_or_none()
     if not project:
         raise HTTPException(status_code=404)
-    code = await _codebase_blueprint_copy(db, project, mids)
-    if not code or not code[1]:
-        raise HTTPException(status_code=409, detail="还没有设备上传过这个项目的代码蓝图，不知道仓库在哪台设备的哪个目录")
-    path = str(code[2].get("project_path") or "").strip()
-    if not path:
-        raise HTTPException(status_code=409, detail="代码蓝图没有记下仓库目录（设备客户端需 1.0.97 及以上）")
-    machine = (await db.execute(select(Machine).where(Machine.id == code[1]))).scalar_one_or_none()
-    if machine is None:
-        raise HTTPException(status_code=409, detail="上传代码蓝图的设备已不在")
     binary = str((body or {}).get("binary") or "claude").strip()
     if binary not in ("claude", "codex", "agy", "workbuddy"):
         raise HTTPException(status_code=400, detail=f"unknown agent: {binary}")
-    existing = await biz.resolve_business_blueprint(db, project, mids, prefer_machine=code[1])
-    rules = await biz.project_rules(db, _user, project)
-    name = (project.title or project.slug or "").rsplit("/", 1)[-1] or str(project.id)
-    prompt = biz.generation_prompt(name, rules, has_file=existing is not None)
-    payload = {"binary": binary, "prompt": prompt, "cwd": path, "user_question": f"生成业务蓝图：{name}"}
-    model = str((body or {}).get("model") or "").strip()
-    if model:
-        payload["model"] = model
-    task = await create_task(machine.collector_token_hash or machine.name, CreateTask(action="agent", payload=payload), db, _user)
-    return {"task": task, "device": machine.name, "cwd": path, "rules": len(rules)}
+    try:
+        return await biz.dispatch_generation(db, _user, project, mids, binary=binary, model=str((body or {}).get("model") or "").strip())
+    except biz.GenerateUnavailable as e:
+        raise HTTPException(status_code=409, detail=str(e))
 

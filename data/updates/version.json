@@ -4,22 +4,22 @@
   "release_notes": "1. 跨设备任务里远程执行机只改代码：测试、构建、安装依赖、运行程序、浏览器、安卓模拟器、iOS 构建与上传 TestFlight 等都在代码所在的电脑上执行\n2. 提交改在代码所在的电脑上真正执行 git commit，那台电脑的提交钩子照常运行，钩子失败会交回智能体修复；推送仍由那台电脑完成\n3. 智能体可以把那台电脑上生成的截图、日志等文件取回查看\n4. Codex、Antigravity 在跨设备任务里也会收到这些规则\n5. 手机端版本号与客户端统一为 1.0.138",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.137-win-x64.zip",
-      "size": 158304502,
-      "sha256": "9d8f90a8bd2d75d4975c42f47ec481726534056fff2fd90d4aeb8d058919c0ee",
-      "sha512": "+ZFCFef/JamfJIybgFOPFamKilZbjLR2smhoPJQ2siYp5h21gloA4MCmIa7RA+QxPAzFgs2nchKCK6ouLBnEog=="
+      "asset_name": "Memento-1.0.138-win-x64.zip",
+      "size": 158327412,
+      "sha256": "a2f5eaa4d5a0b6d74e7d48b90697d49e9bfc24d992e94b4680ec20bad5d401e0",
+      "sha512": "ck3AUe0l+4bRPjgSjxoaX0Li+tJenYvEIja2qnPBWA6aGUozRIgtbS4NG+G73E7/a5IfC2Uf9cvg08icOD2kLg=="
     },
     "macos": {
-      "asset_name": "Memento-1.0.137-mac-arm64.zip",
-      "size": 132794374,
-      "sha256": "849449ad01cb91641c95a9bdd94e8bdd4a5b9677506a9c3376354f9bba06dee3",
-      "sha512": "hkQW9uUsflzly9BsrP96C2SeRE3X5D/26pnuo68CgZa+B6UOw4wx+A5aMLBgPM6qRZDZB50W7UvBmJNTKpLseQ=="
+      "asset_name": "Memento-1.0.138-mac-arm64.zip",
+      "size": 132816854,
+      "sha256": "67ebe2dc31119f6421e108325ad3b75b309a01eda167add4aa636d0824f457c3",
+      "sha512": "feyPJ4xRBb+apLOUPEmTcieqrDMmIOya0jhjf3TxavE53zGa5t41xg9L0BnTGrmYRX8ZPoFUZ0zfzBGWqmHtRg=="
     },
     "linux": {
-      "asset_name": "Memento-1.0.137-linux-x64.tar.gz",
-      "size": 132068103,
-      "sha256": "5ebf462251d49b331760835c38d213dac330df2ac4ac7b7e133ee1135ceb4531",
-      "sha512": "T29Vr6s+yBYq+oaXxXYOoMfYEDHcwnMVM9tq/IOsZ10NfMiUj0NNO6/fzmTUX+LuU5xc7I1SPSgavEfQec2bpQ=="
+      "asset_name": "Memento-1.0.138-linux-x64.tar.gz",
+      "size": 132093808,
+      "sha256": "e274a7a51fbfbd94e793435efc64697959b6068baa96e0cb9bdac513bf301ab3",
+      "sha512": "XY1U5mYOnfknZ8sEHsWXaPVL4RwHYN/WY7cYO42qCHE1maTJg8USufEQI1JIhyhMBWkAQoL8W0kL0L/HJF7STA=="
     }
   }
 }

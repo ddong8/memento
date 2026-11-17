@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `18070f04` · Updated: `2026-11-17`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `b2efa0d0` · Updated: `2026-11-17`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,8 +16,8 @@
 - 规模 (Scale): 9 个子系统 · 36 组 API 路由 / 242 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 229 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `18070f04` (2026-11-17): fix(记忆): 手机上星图图例六项一行放下，不用横向滚动才看到「规则」「其它」
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 59（✅ 59 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `F-DELETE`, `R-DELETE-GONE-EVERYWHERE`, `R-NEWCHAT-WORKS`, `S-CONV-LIST`, `R-ASK-INSTANT`
+- 最近改动 (Latest): `b2efa0d0` (2026-11-17): fix(技能): 手机上技能星图的「已接入」栏不再把名字挤断，操作提示不再被它盖住
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 60（✅ 60 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `F-DELETE`, `R-DELETE-GONE-EVERYWHERE`, `R-NEWCHAT-WORKS`, `S-CONV-LIST`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -31,7 +31,7 @@
 | 8. Development & Verification Commands | L633-L650 |
 | 9. Recent Architectural Evolutions | L652-L659 |
 | 10. Key Environment Variables & Configuration | L661-L673 |
-| 11. 业务蓝图核对 (Business Blueprint Check) | L675-L683 |
+| 11. 业务蓝图核对 (Business Blueprint Check) | L675-L682 |
 
 ## 1. Project Overview & Tech Stack
 
@@ -619,8 +619,8 @@ erDiagram
 
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
-- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (13 commits)
-- [`apps/web/src/app/globals.css`](apps/web/src/app/globals.css) (8 commits)
+- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (12 commits)
+- [`apps/web/src/app/globals.css`](apps/web/src/app/globals.css) (7 commits)
 - [`apps/web/src/components/ExecutionCard.tsx`](apps/web/src/components/ExecutionCard.tsx) (7 commits)
 - [`apps/web/src/components/persona/DigitalTwinAvatar3D.tsx`](apps/web/src/components/persona/DigitalTwinAvatar3D.tsx) (7 commits)
 - [`apps/web/src/app/memory/page.tsx`](apps/web/src/app/memory/page.tsx) (6 commits)
@@ -651,12 +651,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `b2efa0d0` (2026-11-17): fix(技能): 手机上技能星图的「已接入」栏不再把名字挤断，操作提示不再被它盖住
 - `18070f04` (2026-11-17): fix(记忆): 手机上星图图例六项一行放下，不用横向滚动才看到「规则」「其它」
 - `246b9c66` (2026-11-17): fix(记忆): 手机上长期记忆星图的图例不再被挤成一字一行，操作提示不再被图例盖住
 - `3c67b1bb` (2026-11-17): fix(问答): 进 App 不再被别处正在跑的任务抢走当前会话；上次的会话已删除时打开最近的会话而不是空白新对话
 - `2b3af70e` (2026-11-17): fix(问答): 服务器上已删除的会话不再每次进 App 从本地缓存恢复出来
 - `9b461f36` (2026-11-17): feat(工作区): 远程智能体可以改代码所在设备上项目以外的任意文件，原文件先备份，敏感位置拒绝；升级客户端版本至 v1.0.141
-- `bdc47e71` (2026-11-17): fix(工作区): 源设备上的项目删掉重建后，检出目录指向的旧仓库已不存在时自动重建，不再报重置失败；升级客户端版本至 v1.0.140
 
 ## 10. Key Environment Variables & Configuration
 
@@ -674,13 +674,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 11. 业务蓝图核对 (Business Blueprint Check)
 
-- 业务蓝图：[BUSINESS_BLUEPRINT.md](BUSINESS_BLUEPRINT.md) · 规则 59（✅ 59 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
+- 业务蓝图：[BUSINESS_BLUEPRINT.md](BUSINESS_BLUEPRINT.md) · 规则 60（✅ 60 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
 - 结论：✅ 没有失效或违规
 
 ### 最近提交碰到的业务条目（改动后复查它们还成不成立）
 
 - `3c67b1bb` fix(问答): 进 App 不再被别处正在跑的任务抢走当前会话；上次的会话已删除时打开最近的会话而不是空白新对话 → `F-DELETE`, `R-DELETE-GONE-EVERYWHERE`, `R-NEWCHAT-WORKS`, `S-CONV-LIST`
-- `2b3af70e` fix(问答): 服务器上已删除的会话不再每次进 App 从本地缓存恢复出来 → `F-DELETE`, `R-NEWCHAT-WORKS`, `R-ASK-INSTANT`, `S-CONV-LIST`
 
 ---
 _Auto-maintained by `scripts/project_blueprint.mjs` (v20261126) & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._

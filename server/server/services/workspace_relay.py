@@ -212,10 +212,30 @@ async def _exec(data: dict[str, Any], user_id: Any) -> dict[str, Any]:
         "patch_b64": patch,
         "command": command,
         "timeout_ms": timeout_ms,
+        "task_id": str(data.get("task_id") or ""),
+        "exec_id": str(data.get("exec_id") or ""),
     }, timeout_ms / 1000 + EXEC_SLACK)
     if res.get("error"):
         return {"error": res["error"], "code": res.get("code") or "failed"}
     return {k: res[k] for k in ("exit_code", "stdout", "stderr", "timed_out", "seconds") if k in res}
+
+
+async def _exec_cancel(data: dict[str, Any], user_id: Any) -> dict[str, Any]:
+    """The executor's task ended: the source kills that task's commands and skips its queued ones.
+
+    Commands of one repository run there one at a time, so one left running held up every later one
+    (any task's) until its 30 minutes ran out. Sources before this ignore the message.
+    """
+    task_id = str(data.get("task_id") or "")
+    if not task_id:
+        return {"error": "缺少任务 id"}
+    source, why = await _source_device(str(data.get("source_device_id") or ""), user_id)
+    if not source:
+        return {"error": why, "code": "source_unavailable"}
+    sent = await ws_manager.send_json(source, {
+        "type": "workspace_exec_cancel", "task_id": task_id, "exec_id": str(data.get("exec_id") or ""),
+    })
+    return {"sent": bool(sent)}
 
 
 async def _commit(data: dict[str, Any], user_id: Any) -> dict[str, Any]:
@@ -330,7 +350,7 @@ def _commits(raw: Any) -> dict[str, Any] | None:
     }
 
 
-_OPS = {"export": _export, "chunk": _chunk, "p2p": _p2p, "session": _session, "exec": _exec, "commit": _commit, "get": _get, "put": _put, "apply": _apply}
+_OPS = {"export": _export, "chunk": _chunk, "p2p": _p2p, "session": _session, "exec": _exec, "exec_cancel": _exec_cancel, "commit": _commit, "get": _get, "put": _put, "apply": _apply}
 
 
 async def handle(data: dict[str, Any], executor_id: str, user_id: Any) -> None:

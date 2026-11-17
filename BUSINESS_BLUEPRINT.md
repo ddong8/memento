@@ -3,16 +3,16 @@
 <!-- memento:business-index:start (自动生成，勿手改) -->
 > 先读这一段定位；要细节时按下表行号只读对应章节。改了「代码位置」里的文件，先看对应条目还成不成立。
 
-- 汇总：规则 59（✅ 59 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
+- 汇总：规则 60（✅ 60 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
 - 核对：全部通过（详见末尾「自动核对」）
 
 | 章节 | 行号 |
 | :--- | :--- |
 | 1. 业务对象与术语 | L21-L65 |
 | 2. 关键流程 | L67-L124 |
-| 3. 业务规则 | L126-L476 |
-| 4. 状态归属 | L478-L523 |
-| 自动核对 (Auto Check) | L526-L625 |
+| 3. 业务规则 | L126-L483 |
+| 4. 状态归属 | L485-L530 |
+| 自动核对 (Auto Check) | L533-L633 |
 <!-- memento:business-index:end -->
 > 业务蓝图：memento 应该做成什么样，每一条落在哪段代码、由哪个测试或检查保证。和代码蓝图 [CODE_BLUEPRINT.md](CODE_BLUEPRINT.md)（代码长什么样）配合看：代码蓝图回答"在哪里"，这份回答"应该怎样、为什么"。
 > 规则来自用户的原话和纠正（CLAUDE.md、长期记忆、每晚复盘），不是从代码里反推的；代码和这里对不上，先当成代码的问题查。
@@ -170,6 +170,13 @@
 - 测试: `packages/daemon/test/workspace.test.ts#commits on the source with its hooks, takes in what they changed, and lands the commits on the branch`, `packages/daemon/test/workspace.test.ts#hands a failing hook's output back to the agent and commits nothing`, `packages/daemon/test/workspace.test.ts#only files come back when the agent forced a commit through on the executor`, `packages/daemon/test/source-exec.test.ts#turns down tests, builds, installs, commits and pushes run there, and lets memento-source and reading through`, `packages/daemon/test/hook-bridge.test.ts#reports every call and turns down the ones it is told to, with the reason for the model`, `server/tests/test_workspace_relay.py#test_the_agents_commit_is_made_on_the_source_and_an_old_source_is_told_to_upgrade`, `server/tests/test_workspace_relay.py#test_a_file_outside_the_project_is_written_on_the_source_but_never_a_sensitive_one`, `packages/daemon/test/workspace.test.ts#edits a file on the source outside the project: get it, change it here, put it back, the old one backed up`
 - 要求: `"source_commit"` @ `packages/daemon/src/capabilities.ts`; `"commit": _commit` @ `server/server/services/workspace_relay.py`
 
+
+### R-WS-EXEC-STOP 远程任务停了，它在代码所在设备上的命令一起停，不占住后面的命令
+- 来源: 用户 11-17「我发现有时候远程任务执行命令会卡住啊」（vps3 上 Antigravity 在 Mac 上跑 `find ~ -maxdepth 4` 没结束，任务停掉后它还在跑，后面的 `ls -d` 和别的任务的命令都排在它后面等到 30 分钟超时）
+- 说明: 代码所在设备上同一仓库的命令一条一条执行。执行机上的任务结束或被停掉时，通知那台设备结束这个任务正在跑的命令、跳过还在排队的；智能体放弃某一条命令（工具调用被停、memento-source 进程被杀）只结束那一条，任务后面的命令照常执行。在那边排队等了 10 秒以上的命令，结果里注明等了多久。
+- 代码: `packages/daemon/src/source-exec.ts#cancelSourceExec`, `packages/daemon/src/source-exec.ts#execOnSource`, `packages/daemon/src/source-exec.ts#SourceExecBridge`, `packages/daemon/src/ws-client.ts`, `server/server/services/workspace_relay.py#_exec_cancel`
+- 测试: `packages/daemon/test/source-exec.test.ts#a hung command of a stopped task is killed and no longer holds up the repository's queue`, `packages/daemon/test/source-exec.test.ts#giving up on one command stops just that one; the task's next command still runs`, `server/tests/test_workspace_relay.py#test_a_stopped_tasks_commands_are_stopped_on_the_source`
+- 要求: `"exec_cancel": _exec_cancel` @ `server/server/services/workspace_relay.py`; `"workspace_exec_cancel"` @ `packages/daemon/src/ws-client.ts`
 ### R-PROJECT-EXCLUDE 测试用的项目可以不采集，已采集的数据和从中学到的东西一并清掉
 - 来源: 用户 11-17「目前默认是所有项目都抓取的，如果用户有些项目是用来测试的，不想它被抓取……对应的记忆，画像等也要删除」
 - 说明: 在项目页点「不再采集」或在 设置 → 采集配置 里加项目名（支持 test-* 这样一次排除一类，名字按画像作用域的口径比，忽略大小写、空格、- 和 _）。所有设备、所有工具、任何版本的采集端都立即生效：服务端入库时丢弃，并在 sync_state 上标记，后续增量照收照丢、不要求整段重传。已采集的会话文件连同消息、检索索引、向量、知识图谱观察删除；相关记忆和避坑、技能、项目范围的纠正、自动待办停用，画像（发布版和草稿）里的「## 项目：」小节移除，这些都记在名单里，「恢复采集」时放回；恢复后设备上的会话有新内容时整段重新采上来。删除前弹窗列出会删什么、停用什么。
@@ -527,7 +534,7 @@
 
 > 生成器随每次提交核对：代码位置还在不在、测试还在不在、禁止 / 要求的写法满不满足。✅ 通过 · ⚠️ 缺代码位置、测试或来源 · ❌ 位置失效或违反规则（CI 会拦下）。
 
-- 汇总：规则 59（✅ 59 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
+- 汇总：规则 60（✅ 60 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
 
 | 编号 | 名称 | 代码位置 | 测试 | 检查 | 结论 |
 | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -558,6 +565,7 @@
 | `R-MULTI-DEVICE-STABLE` | 多机任务并发执行，过程和结果稳定回传 | 4/4 | 4/4 | — | ✅ |
 | `R-WS-BIG-UNTRACKED` | 跨设备改代码时，没进 .gitignore 的大文件不让任务失败 | 4/4 | 1/1 | 1/1 | ✅ |
 | `R-WS-EDIT-ONLY` | 远程执行机只改代码，测试、构建、提交、推送等其余工作都在代码所在的设备上做 | 9/9 | 8/8 | 2/2 | ✅ |
+| `R-WS-EXEC-STOP` | 远程任务停了，它在代码所在设备上的命令一起停，不占住后面的命令 | 5/5 | 3/3 | 2/2 | ✅ |
 | `R-PROJECT-EXCLUDE` | 测试用的项目可以不采集，已采集的数据和从中学到的东西一并清掉 | 8/8 | 3/3 | 3/3 | ✅ |
 | `R-RUN-OUTLIVES-PAGE` | 运行不因页面关闭、切后台、发版而中断 | 2/2 | 4/4 | — | ✅ |
 | `R-QUOTA-PER-MODEL` | 额度按当前对话用的模型显示 | 3/3 | 1/1 | 2/2 | ✅ |

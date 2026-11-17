@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { checkDir, executorDenyReason, readOnSource, executorOnlyEdits, execOnSource, relCwd, SourceExecBridge, sourceExecHint } from "../src/source-exec.js";
+import { cancelSourceExec, checkDir, executorDenyReason, readOnSource, executorOnlyEdits, execOnSource, relCwd, SourceExecBridge, sourceExecHint } from "../src/source-exec.js";
 import { packPatch } from "../src/workspace.js";
 import type { WorkspaceRun } from "../src/workspace-sync.js";
 
@@ -40,6 +40,65 @@ function patchOf(root: string, text: string): Buffer {
 }
 
 describe("the agent's commands on the device the code is on", () => {
+  it("a hung command of a stopped task is killed and no longer holds up the repository's queue", async () => {
+    if (process.platform === "win32") return;
+    const { root, snapshot } = sourceRepo();
+    const home = mkdtempSync(join(tmpdir(), "src-home-"));
+    // Task A's command hangs; task A queues another; task B's quick command waits behind both
+    // One after another, as they'd arrive: each is queued before the next is sent
+    const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    const hung = execOnSource(root, { snapshot, rel: "", command: "sleep 60", task_id: "A", exec_id: "a1" }, { home, env });
+    await pause(1500);
+    const queuedA = execOnSource(root, { snapshot, rel: "", command: "echo should-not-run", task_id: "A", exec_id: "a2" }, { home, env });
+    await pause(300);
+    const quickB = execOnSource(root, { snapshot, rel: "", command: "echo b-ran", task_id: "B", exec_id: "b1" }, { home, env });
+    await pause(300);
+
+    const started = Date.now();
+    expect(cancelSourceExec("A")).toBe(1);
+    const h = await hung;
+    expect(h.exit_code).not.toBe(0);
+    expect(h.stderr).toContain("任务已停止");
+    const a2 = await queuedA;
+    expect(a2.exit_code).toBe(130);
+    expect(a2.stdout).toBe("");
+    const b = await quickB;
+    expect(b.exit_code).toBe(0);
+    expect(b.stdout).toContain("b-ran");
+    expect(Date.now() - started).toBeLessThan(15_000);
+  }, 30_000);
+
+  it("a timed-out command's children die with it and don't hold up the queue by keeping its output open", async () => {
+    if (process.platform === "win32") return;
+    const { root, snapshot } = sourceRepo();
+    const home = mkdtempSync(join(tmpdir(), "src-home-"));
+    // Like `brew list | grep x; find ~ -name x`: the shell's children, not the shell, are what hang
+    const marker = `held-${Date.now()}`;
+    const started = Date.now();
+    const slow = await execOnSource(root, { snapshot, rel: "", command: `sleep 120 | cat; echo ${marker}`, timeout_ms: 1500, task_id: "D", exec_id: "d1" }, { home, env });
+    expect(slow.exit_code).toBe(124);
+    const next = await execOnSource(root, { snapshot, rel: "", command: "echo after", task_id: "E", exec_id: "e1" }, { home, env });
+    expect(next.stdout).toContain("after");
+    expect(Date.now() - started).toBeLessThan(15_000);
+    // Nothing of it is left running
+    await new Promise((r) => setTimeout(r, 1500));
+    const left = execFileSync("sh", ["-c", "ps -Ao command | grep 'sleep 120' | grep -v grep || true"], { encoding: "utf8" });
+    expect(left.trim()).toBe("");
+  }, 30_000);
+
+  it("giving up on one command stops just that one; the task's next command still runs", async () => {
+    if (process.platform === "win32") return;
+    const { root, snapshot } = sourceRepo();
+    const home = mkdtempSync(join(tmpdir(), "src-home-"));
+    const hung = execOnSource(root, { snapshot, rel: "", command: "sleep 60", task_id: "C", exec_id: "c1" }, { home, env });
+    await new Promise((r) => setTimeout(r, 1500));
+    expect(cancelSourceExec("C", "c1")).toBe(1);
+    expect((await hung).exit_code).not.toBe(0);
+    const next = await execOnSource(root, { snapshot, rel: "", command: "echo next", task_id: "C", exec_id: "c2" }, { home, env });
+    expect(next.exit_code).toBe(0);
+    expect(next.stdout).toContain("next");
+  }, 30_000);
+
   it("run on the snapshot plus the agent's changes, in a checkout of their own, with dependencies linked in", async () => {
     const { root, snapshot } = sourceRepo();
     const home = mkdtempSync(join(tmpdir(), "src-home-"));

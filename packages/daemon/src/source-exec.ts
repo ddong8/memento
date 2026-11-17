@@ -1,4 +1,4 @@
-import { execFile, spawn } from "node:child_process";
+import { type ChildProcess, execFile, spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import { chmod, lstat, mkdir, readFile, realpath, rm, stat, symlink, unlink, writeFile } from "node:fs/promises";
@@ -44,6 +44,9 @@ export class SourceExecBridge {
   private server: Server | undefined;
   private port: number | undefined;
   private readonly tasks = new Map<string, Registered>();
+  /** Commands of each task still running on the source: stopped there when the task ends. */
+  private readonly inflight = new Map<string, number>();
+  private readonly runs = new Map<string, { taskId: string; sourceDeviceId: string }>();
 
   constructor(
     private readonly relay: () => Relay | undefined,
@@ -66,6 +69,18 @@ export class SourceExecBridge {
 
   unregister(taskId: string): void {
     for (const [token, t] of this.tasks) if (t.taskId === taskId) this.tasks.delete(token);
+    // A stopped task's command would otherwise run on there for up to 30 minutes, and every command of
+    // that repository (any task's) waits behind it
+    if (this.inflight.get(taskId)) this.cancelOnSource(taskId);
+    this.runs.delete(taskId);
+  }
+
+  /** Stop on the source one command (execId) or, without it, everything of the task. */
+  private cancelOnSource(taskId: string, execId?: string): void {
+    const relay = this.relay();
+    const run = this.runs.get(taskId);
+    if (!relay || !run) return;
+    void relay("exec_cancel", { source_device_id: run.sourceDeviceId, task_id: taskId, ...(execId ? { exec_id: execId } : {}) }, 30_000).catch(() => {});
   }
 
   private async ensureStarted(): Promise<number> {
@@ -84,7 +99,12 @@ export class SourceExecBridge {
         // Headers at once and a space now and then: the command may run for many minutes
         res.writeHead(200, { "Content-Type": "application/json" });
         const keepAlive = setInterval(() => res.write(" "), 20_000);
-        void this.handle(task, body)
+        const execId = randomBytes(8).toString("hex");
+        // The agent gave up on the command (its tool call was stopped, the CLI killed): stop it there too
+        res.on("close", () => {
+          if (!res.writableEnded && this.inflight.get(task.taskId)) this.cancelOnSource(task.taskId, execId);
+        });
+        void this.handle(task, body, execId)
           .then((r) => res.end(JSON.stringify(r)))
           .catch((e: unknown) => res.end(JSON.stringify({ error: e instanceof Error ? e.message : String(e) })))
           .finally(() => clearInterval(keepAlive));
@@ -100,7 +120,7 @@ export class SourceExecBridge {
     return this.port;
   }
 
-  private async handle(task: Registered, body: string): Promise<Record<string, unknown>> {
+  private async handle(task: Registered, body: string, execId = ""): Promise<Record<string, unknown>> {
     let req: { action?: unknown; command?: unknown; cwd?: unknown; timeout_seconds?: unknown; message?: unknown; paths?: unknown; push?: unknown; file?: unknown; dest?: unknown };
     try {
       req = JSON.parse(body) as typeof req;
@@ -123,11 +143,15 @@ export class SourceExecBridge {
     const patchB64 = p.patch.length ? await packPatch(p.patch) : "";
     if (patchB64.length > PATCH_LIMIT) return { error: "改动太大，没法发到代码所在的设备上执行" };
     this.emit(taskId, { kind: "source_exec", status: "running", command: command.slice(0, 500), source: run.spec.sourceName } as AgentEvent);
+    this.runs.set(taskId, { taskId, sourceDeviceId: run.spec.sourceDeviceId });
+    this.inflight.set(taskId, (this.inflight.get(taskId) ?? 0) + 1);
     let r: Record<string, unknown>;
     try {
       r = await relay(
         "exec",
         {
+          task_id: taskId,
+          exec_id: execId,
           source_device_id: run.spec.sourceDeviceId,
           path: run.spec.sourcePath,
           snapshot: run.mirror.snapshot,
@@ -140,6 +164,10 @@ export class SourceExecBridge {
       );
     } catch (e) {
       r = { error: e instanceof Error ? e.message : String(e) };
+    } finally {
+      const left = (this.inflight.get(taskId) ?? 1) - 1;
+      if (left > 0) this.inflight.set(taskId, left);
+      else this.inflight.delete(taskId);
     }
     const exitCode = typeof r.exit_code === "number" ? r.exit_code : undefined;
     this.emit(taskId, {
@@ -398,6 +426,29 @@ const LINKED = /^(node_modules|\.venv|venv|\.env(\..+)?|\.envrc|\.direnv)$/;
 
 const queues = new Map<string, Promise<unknown>>();
 
+/** Commands running here by executor task and by command id, and those stopped lately (queued ones are skipped). */
+const running = new Map<string, Set<ChildProcess>>();
+const stopped = new Map<string, number>();
+const STOPPED_KEEP_MS = 30 * 60_000;
+
+/**
+ * The executor's task ended or gave up on its command: kill what runs here for it and skip what still
+ * waits. Commands of one repository run one at a time, so a command left running (a find over the home
+ * folder, a hung brew) held up every later command of that repository, any task's, until its 30 minutes ran out.
+ */
+export function cancelSourceExec(taskId: string, execId = ""): number {
+  // One command the agent gave up on, or (no command id) all of an ended task
+  const key = execId ? `exec:${execId}` : taskId ? `task:${taskId}` : "";
+  if (!key) return 0;
+  const now = Date.now();
+  for (const [id, at] of stopped) if (now - at > STOPPED_KEEP_MS) stopped.delete(id);
+  stopped.set(key, now);
+  const children = running.get(key);
+  if (!children) return 0;
+  for (const child of children) killProcessTree(child);
+  return children.size;
+}
+
 function serialized<T>(key: string, fn: () => Promise<T>): Promise<T> {
   const prev = queues.get(key) ?? Promise.resolve();
   const next = prev.catch(() => {}).then(fn);
@@ -412,10 +463,12 @@ function run(
   exe: string,
   args: string[],
   cwd: string,
-  options: { env?: NodeJS.ProcessEnv; input?: Buffer; timeoutMs?: number } = {},
+  options: { env?: NodeJS.ProcessEnv; input?: Buffer; timeoutMs?: number; onSpawn?: (child: ChildProcess) => () => void } = {},
 ): Promise<{ code: number; stdout: string; stderr: string; timedOut: boolean }> {
   return new Promise((resolve) => {
-    const child = spawn(exe, args, { cwd, env: options.env, windowsHide: true });
+    // Its own process group, so stopping it reaches everything it started (killProcessTree signals the group)
+    const child = spawn(exe, args, { cwd, env: options.env, windowsHide: true, detached: process.platform !== "win32" });
+    const forget = options.onSpawn?.(child);
     const out: Buffer[] = [];
     const err: Buffer[] = [];
     let outLen = 0;
@@ -442,13 +495,33 @@ function run(
       const s = Buffer.concat(list).toString("utf8");
       return s.length > OUTPUT_LIMIT ? `…（前面的输出已省略）\n${s.slice(-OUTPUT_LIMIT)}` : s;
     };
+    let done = false;
+    let drain: NodeJS.Timeout | undefined;
     child.on("error", (e) => {
+      if (done) return;
+      done = true;
       clearTimeout(timer);
+      forget?.();
       resolve({ code: 127, stdout: tail(out), stderr: `${tail(err)}${e.message}\n`, timedOut });
     });
-    child.on("close", (code) => {
+    const finish = (code: number | null) => {
+      if (done) return;
+      done = true;
       clearTimeout(timer);
+      clearTimeout(drain);
+      forget?.();
       resolve({ code: code ?? 1, stdout: tail(out), stderr: tail(err), timedOut });
+    };
+    child.on("close", (code) => finish(code));
+    // 'close' waits for the output pipes, which a leftover grandchild can keep open forever: and with
+    // commands of one repository run one at a time, every later command waited behind it
+    child.on("exit", (code) => {
+      drain = setTimeout(() => {
+        child.stdout?.destroy();
+        child.stderr?.destroy();
+        finish(code);
+      }, 5_000);
+      drain.unref?.();
     });
   });
 }
@@ -552,8 +625,17 @@ export async function execOnSource(
   if (!command) throw new WorkspaceError("没有要执行的命令");
   const timeoutMs = Math.min(SOURCE_EXEC_TIMEOUT_MS, Number(data.timeout_ms) || SOURCE_EXEC_TIMEOUT_MS);
   const patch = data.patch_b64 ? await unpackPatch(String(data.patch_b64)) : Buffer.alloc(0);
+  const taskId = String(data.task_id ?? "");
+  const execId = String(data.exec_id ?? "");
+  const keys = [taskId && `task:${taskId}`, execId && `exec:${execId}`].filter(Boolean) as string[];
+  const isStopped = () => keys.some((k) => stopped.has(k));
+  const queued = Date.now();
 
   return serialized(root, async () => {
+    if (isStopped()) {
+      return { exit_code: 130, stdout: "", stderr: "任务已停止，这条命令没有执行\n", seconds: 0 };
+    }
+    const waited = Math.round((Date.now() - queued) / 1000);
     if ((await git(["cat-file", "-e", `${snapshot}^{commit}`], root, env)).code !== 0) {
       throw new WorkspaceError("这台设备上找不到同步时的快照（可能已被清理），重新开始任务");
     }
@@ -569,11 +651,26 @@ export async function execOnSource(
     const shell = process.platform === "win32"
       ? { exe: "powershell.exe", args: ["-NoProfile", "-NonInteractive", "-Command", command] }
       : { exe: existsSync("/bin/zsh") ? "/bin/zsh" : "/bin/sh", args: ["-c", command] };
-    const r = await run(shell.exe, shell.args, cwd, { env, timeoutMs });
+    const onSpawn = keys.length
+      ? (child: ChildProcess) => {
+          for (const k of keys) running.set(k, (running.get(k) ?? new Set<ChildProcess>()).add(child));
+          return () => {
+            for (const k of keys) {
+              const set = running.get(k);
+              set?.delete(child);
+              if (set && !set.size) running.delete(k);
+            }
+          };
+        }
+      : undefined;
+    const r = await run(shell.exe, shell.args, cwd, { env, timeoutMs, onSpawn });
+    const cancelled = !r.timedOut && isStopped();
+    // Waiting behind another command of this repository is told, so a slow answer isn't taken for a hang
+    const note = waited >= 10 ? `（在这台设备上等前一个命令结束等了 ${waited} 秒）\n` : "";
     return {
       exit_code: r.timedOut ? 124 : r.code,
       stdout: r.stdout,
-      stderr: r.timedOut ? `${r.stderr}\n（超过 ${Math.round(timeoutMs / 60_000)} 分钟，已停止）\n` : r.stderr,
+      stderr: `${r.timedOut ? `${r.stderr}\n（超过 ${Math.round(timeoutMs / 60_000)} 分钟，已停止）\n` : cancelled ? `${r.stderr}\n（任务已停止，命令被结束）\n` : r.stderr}${note}`,
       ...(r.timedOut ? { timed_out: true } : {}),
       seconds: Math.round((Date.now() - started) / 100) / 10,
     };

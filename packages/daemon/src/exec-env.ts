@@ -420,15 +420,19 @@ export function killProcessTree(proc: ChildProcess | number | undefined): void {
     return;
   }
 
-  // Unix / macOS: First try graceful SIGTERM, then hard SIGKILL to the entire process tree
-  if (typeof proc === "object" && proc?.exitCode === null && proc?.signalCode === null) {
+  // Unix / macOS: graceful SIGTERM, then hard SIGKILL to the entire process tree. The tree is listed
+  // before anything is signalled: once the parent dies its children are adopted by init and no longer
+  // found under it (a `find` under a killed `zsh -c` lived on for 40 minutes holding the output pipe).
+  const termParent = () => {
+    if (typeof proc === "object" && proc?.exitCode === null && proc?.signalCode === null) {
+      try {
+        proc.kill("SIGTERM");
+      } catch {}
+    }
     try {
-      proc.kill("SIGTERM");
+      process.kill(-pid, "SIGTERM");
     } catch {}
-  }
-  try {
-    process.kill(-pid, "SIGTERM");
-  } catch {}
+  };
 
   getUnixDescendantPids(pid)
     .then((descendants) => {
@@ -437,6 +441,7 @@ export function killProcessTree(proc: ChildProcess | number | undefined): void {
           process.kill(d, "SIGTERM");
         } catch {}
       }
+      termParent();
 
       // 2. Schedule hard SIGKILL after 800ms to clean up any stubborn agents (Claude, Codex, Antigravity, build tools)
       setTimeout(() => {
@@ -459,6 +464,7 @@ export function killProcessTree(proc: ChildProcess | number | undefined): void {
       }, 800);
     })
     .catch(() => {
+      termParent();
       try {
         process.kill(-pid, "SIGKILL");
       } catch {}

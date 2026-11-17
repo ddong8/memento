@@ -11,7 +11,7 @@ import { P2PHost } from "./p2p.js";
 import { probeAllQuotas } from "./quotas.js";
 import type { ServerRoute } from "./server-route.js";
 import { exportClaudeSession } from "./session-sync.js";
-import { commitOnSource, execOnSource, readOnSource, writeOnSource } from "./source-exec.js";
+import { cancelSourceExec, commitOnSource, execOnSource, readOnSource, writeOnSource } from "./source-exec.js";
 import { computeBackoffWithJitter, parseTaskDispatch, TaskRunner } from "./task-runner.js";
 import { applyWorkspaceRequest, exportWorkspace, WorkspaceError } from "./workspace.js";
 import { flushPendingPatches, type Relay } from "./workspace-sync.js";
@@ -289,6 +289,11 @@ export class WsTaskClient {
         case "workspace_exec_req":
           void this.handleWorkspaceExec(data);
           break;
+        case "workspace_exec_cancel": {
+          const n = cancelSourceExec(String(data.task_id ?? ""), String(data.exec_id ?? ""));
+          if (n) this.log(`Stopped ${n} command(s) of a task that ended on another device`);
+          break;
+        }
         case "workspace_commit_req":
           void this.handleWorkspaceCommit(data);
           break;

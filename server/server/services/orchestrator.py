@@ -1092,7 +1092,12 @@ async def _tool_run_on_device(db: AsyncSession, user: User, args: dict, *, class
                         await ws_manager.unsubscribe_task(sync_tid)
 
             task_q = await ws_manager.subscribe_task(task_id_str)
-            ws_payload = {**payload, "images": args["images"]} if args.get("images") else payload
+            # With the names the prompt gives them: without, the device saved image_<n> and the agent was
+            # pointed at a file that wasn't there
+            ws_payload = (
+                {**payload, "images": args["images"], **({"image_names": args["image_names"]} if args.get("image_names") else {})}
+                if args.get("images") else payload
+            )
             dispatched_ws = await ws_manager.send_task(target_ws_id, {
                 "id": task_id_str,
                 "action": action,

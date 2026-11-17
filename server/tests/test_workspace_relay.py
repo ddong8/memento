@@ -263,6 +263,26 @@ async def test_an_agents_command_runs_on_the_source_and_its_result_comes_back():
 
 
 @pytest.mark.asyncio
+async def test_a_stopped_tasks_commands_are_stopped_on_the_source():
+    patches, ws = _env(_machine())
+    ws.send_json = AsyncMock(return_value=True)
+
+    async def go():
+        out = await wr._exec({"source_device_id": "mac", "command": "npm test", "task_id": "t1", "exec_id": "e1"}, USER)
+        sent = ws.request_device.await_args.args[1]
+        # The source knows which task and command it runs, to stop them later
+        assert sent["task_id"] == "t1" and sent["exec_id"] == "e1"
+        out = await wr._exec_cancel({"source_device_id": "mac", "task_id": "t1"}, USER)
+        assert out == {"sent": True}
+        assert ws.send_json.await_args.args[1] == {"type": "workspace_exec_cancel", "task_id": "t1", "exec_id": ""}
+        assert (await wr._exec_cancel({"source_device_id": "mac"}, USER))["error"]
+        assert "exec_cancel" in wr._OPS
+
+    patches.append(patch.object(wr, "device_has_feature", lambda *a, **k: True))
+    await _run(patches, go)
+
+
+@pytest.mark.asyncio
 async def test_a_risky_command_or_an_old_source_is_refused_without_asking_it():
     patches, ws = _env(_machine())
     patches.append(patch.object(wr, "device_has_feature", lambda *a, **k: False))

@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `9b461f36` · Updated: `2026-11-17`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `2b3af70e` · Updated: `2026-11-17`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,8 +16,8 @@
 - 规模 (Scale): 9 个子系统 · 36 组 API 路由 / 242 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 229 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `9b461f36` (2026-11-17): feat(工作区): 远程智能体可以改代码所在设备上项目以外的任意文件，原文件先备份，敏感位置拒绝；升级客户端版本至 v1.0.141
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 59（✅ 59 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-WS-EDIT-ONLY`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `S-CLIENT-VERSION`
+- 最近改动 (Latest): `2b3af70e` (2026-11-17): fix(问答): 服务器上已删除的会话不再每次进 App 从本地缓存恢复出来
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 59（✅ 59 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `F-DELETE`, `R-NEWCHAT-WORKS`, `R-ASK-INSTANT`, `S-CONV-LIST`, `R-WS-EDIT-ONLY`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `S-CLIENT-VERSION`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -619,7 +619,7 @@ erDiagram
 
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
-- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (11 commits)
+- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (12 commits)
 - [`apps/web/src/app/globals.css`](apps/web/src/app/globals.css) (8 commits)
 - [`apps/web/src/components/ExecutionCard.tsx`](apps/web/src/components/ExecutionCard.tsx) (7 commits)
 - [`apps/web/src/components/persona/DigitalTwinAvatar3D.tsx`](apps/web/src/components/persona/DigitalTwinAvatar3D.tsx) (7 commits)
@@ -651,12 +651,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `2b3af70e` (2026-11-17): fix(问答): 服务器上已删除的会话不再每次进 App 从本地缓存恢复出来
 - `9b461f36` (2026-11-17): feat(工作区): 远程智能体可以改代码所在设备上项目以外的任意文件，原文件先备份，敏感位置拒绝；升级客户端版本至 v1.0.141
 - `bdc47e71` (2026-11-17): fix(工作区): 源设备上的项目删掉重建后，检出目录指向的旧仓库已不存在时自动重建，不再报重置失败；升级客户端版本至 v1.0.140
 - `2ea2c9a3` (2026-11-17): fix(工作区): 源设备检出目录里命令生成的文件不再被下一条命令清掉，执行机上直接运行脚本也拦下；升级客户端版本至 v1.0.139
 - `cba0d77d` (2026-11-17): feat(工作区): 远程执行机只改代码，测试、构建、提交、推送都在代码所在的设备上做；升级客户端版本至 v1.0.138
 - `65b643fd` (2026-11-17): style(web): 头像菜单重新设计，桌面客户端也改用同一个面板
-- `787de51a` (2026-11-17): feat(画像): 每台设备自动检测已装的 AI 工具并注入画像，不用再按设备勾选
 
 ## 10. Key Environment Variables & Configuration
 
@@ -679,9 +679,9 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ### 最近提交碰到的业务条目（改动后复查它们还成不成立）
 
+- `2b3af70e` fix(问答): 服务器上已删除的会话不再每次进 App 从本地缓存恢复出来 → `F-DELETE`, `R-NEWCHAT-WORKS`, `R-ASK-INSTANT`, `S-CONV-LIST`
 - `9b461f36` feat(工作区): 远程智能体可以改代码所在设备上项目以外的任意文件，原文件先备份，敏感位置拒绝；升级客户端版本至 v1.0.141 → `R-WS-EDIT-ONLY`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `S-CLIENT-VERSION`
 - `bdc47e71` fix(工作区): 源设备上的项目删掉重建后，检出目录指向的旧仓库已不存在时自动重建，不再报重置失败；升级客户端版本至 v1.0.140 → `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `S-CLIENT-VERSION`
-- `2ea2c9a3` fix(工作区): 源设备检出目录里命令生成的文件不再被下一条命令清掉，执行机上直接运行脚本也拦下；升级客户端版本至 v1.0.139 → `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `S-CLIENT-VERSION`
 
 ---
 _Auto-maintained by `scripts/project_blueprint.mjs` (v20261126) & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._

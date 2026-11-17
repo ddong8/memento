@@ -1566,11 +1566,17 @@ function AskPageContent() {
       await restoreCascade(data, loadedTurns, gen);
     } catch (e) {
       console.error("Failed to load conversation:", e);
-      // Gone from the server (deleted elsewhere): not shown again from the cache, a new chat instead
+      // Gone from the server (deleted elsewhere): never shown again from the cache; the latest conversation
+      // still there opens instead (a new chat only when there is none)
       if (/^API 404\b/.test(e instanceof Error ? e.message : "") && lastRestoredIdRef.current === id) {
         forgetConversation(id);
+        deletedConversationIds.add(id);
         setConversations((prev) => prev.filter((c) => c.id !== id));
-        startNewChatRef.current();
+        const list = await api.listAskConversations("all", 20).catch(() => [] as AskConversationSummary[]);
+        if (lastRestoredIdRef.current !== id) return;
+        const next = (list || []).find((c) => c.id !== id && !deletedConversationIds.has(c.id));
+        if (next) void loadConversationRef.current(next.id, { limit: 40 });
+        else startNewChatRef.current();
       }
     } finally {
       endRestore(gen);
@@ -2006,7 +2012,10 @@ function AskPageContent() {
               askCache.streaming = false;
               askCache.activeRun = null;
             }
-          } else if (!activeRunToAttach && !idParam) {
+          } else if (!activeRunToAttach && !idParam && !resolvedTargetId) {
+            // Only when nothing was open here: a run going on elsewhere (another device, a script calling the
+            // API) mustn't take the place of the conversation the user left open (11-17: every test run
+            // started over the API pulled the phone into it, and it then stayed as the last one opened).
             // The list may hold runs that already ended (a shared answer reaches further back)
             const running = activeRuns.find((r) => !r.done && !r.cancelled);
             if (running) {

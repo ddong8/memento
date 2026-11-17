@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `bb32ba04` · Updated: `2026-11-17`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `56b9b74b` · Updated: `2026-11-17`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -13,10 +13,10 @@
 - 类型 (Type): Monorepo (Workspaces)
 - 技术栈 (Stack): TypeScript/JavaScript, Python, Shell / Bash · React, Electron, Next.js, TailwindCSS, Model Context Protocol (MCP), FastAPI, SQLAlchemy, Celery
 - 基础设施 (Infra): PostgreSQL, pgvector (Vector DB), Redis, MinIO / S3 Object Storage, Celery Task Queue
-- 规模 (Scale): 9 个子系统 · 36 组 API 路由 / 242 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 222 个测试文件
+- 规模 (Scale): 9 个子系统 · 36 组 API 路由 / 242 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 224 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `bb32ba04` (2026-11-17): feat(采集): 测试用的项目可以不采集，已采集的会话删除，从中学到的记忆、技能、画像规则停用
+- 最近改动 (Latest): `56b9b74b` (2026-11-17): fix(web): 长期记忆页点知识准则条目不再整页崩溃
 - 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 58（✅ 58 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-PROJECT-EXCLUDE`, `R-DOCS-WRITE-LIGHT`, `R-UI-COMMERCIAL`, `R-PERSONA-ONBOARD`
 
 | 章节 (Section) | 行号 (Lines) |
@@ -31,7 +31,7 @@
 | 8. Development & Verification Commands | L633-L650 |
 | 9. Recent Architectural Evolutions | L652-L659 |
 | 10. Key Environment Variables & Configuration | L661-L673 |
-| 11. 业务蓝图核对 (Business Blueprint Check) | L675-L685 |
+| 11. 业务蓝图核对 (Business Blueprint Check) | L675-L684 |
 
 ## 1. Project Overview & Tech Stack
 
@@ -609,9 +609,9 @@ erDiagram
 
 | Suite | Directory | Files | Sample Tests |
 | :--- | :--- | :--- | :--- |
-| server/tests (pytest) | [`server/tests`](server/tests) | 119 | `test_agent_ids.py`, `test_agent_limits.py`, `test_agent_login.py`, `test_agent_run_states.py`, `test_ai_provider.py` |
+| server/tests (pytest) | [`server/tests`](server/tests) | 120 | `test_agent_ids.py`, `test_agent_limits.py`, `test_agent_login.py`, `test_agent_run_states.py`, `test_ai_provider.py` |
 | packages/daemon/test (vitest / jest) | [`packages/daemon/test`](packages/daemon/test) | 57 | `agent-args.test.ts`, `agent-login.test.ts`, `agent-stream.test.ts`, `agy-models.test.ts`, `agy-project-folder.test.ts` |
-| apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 40 | `api-client.test.ts`, `ask-reading-and-persona-rules.test.tsx`, `ask-top-bar.test.tsx`, `auth-fetch.test.ts`, `build-update.test.ts` |
+| apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 41 | `api-client.test.ts`, `ask-reading-and-persona-rules.test.tsx`, `ask-top-bar.test.tsx`, `auth-fetch.test.ts`, `build-update.test.ts` |
 | apps/mobile/test (vitest / jest) | [`apps/mobile/test`](apps/mobile/test) | 2 | `deeplink.test.ts`, `webview-props.test.ts` |
 | packages/core/test (vitest / jest) | [`packages/core/test`](packages/core/test) | 2 | `ask-stream.test.ts`, `task-events.test.ts` |
 | apps/desktop/test (vitest / jest) | [`apps/desktop/test`](apps/desktop/test) | 1 | `helpers.test.ts` |
@@ -651,12 +651,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `56b9b74b` (2026-11-17): fix(web): 长期记忆页点知识准则条目不再整页崩溃
+- `0b18dc09` (2026-11-17): fix(采集): 不采集名单原地改 JSONB 不会写库，恢复采集时找不到要放回的记忆；改为拷贝后整体写回
 - `bb32ba04` (2026-11-17): feat(采集): 测试用的项目可以不采集，已采集的会话删除，从中学到的记忆、技能、画像规则停用
 - `354a842d` (2026-11-17): feat(web): 隐私政策和帮助页改用应用内版式，并且不登录也能打开
 - `ce81bf32` (2026-11-17): feat(画像): 3D 形象按自己选的卡通预设现场搭出来，不再是通用盔甲人物
 - `49a69dbc` (2026-11-17): perf(项目): 项目对话和时间线每个会话先带 40 条，点「展开全部」按会话取全部消息
-- `e299185b` (2026-11-17): fix(web): 手机上运行中标签放进顶栏、不再压住页面按钮；画像 3D 舞台去掉手机上的空状态胶囊
-- `e50ec760` (2026-11-17): fix(部署): 回写镜像 tag 和别的 run 撞在同一行时，在最新 main 上重来，不把线上退回旧提交
 
 ## 10. Key Environment Variables & Configuration
 
@@ -682,7 +682,6 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 - `bb32ba04` feat(采集): 测试用的项目可以不采集，已采集的会话删除，从中学到的记忆、技能、画像规则停用 → `R-PROJECT-EXCLUDE`, `R-DOCS-WRITE-LIGHT`
 - `354a842d` feat(web): 隐私政策和帮助页改用应用内版式，并且不登录也能打开 → `R-UI-COMMERCIAL`
 - `ce81bf32` feat(画像): 3D 形象按自己选的卡通预设现场搭出来，不再是通用盔甲人物 → `R-PERSONA-ONBOARD`
-- `49a69dbc` perf(项目): 项目对话和时间线每个会话先带 40 条，点「展开全部」按会话取全部消息 → `R-SESSION-PREVIEW-WHOLE`
 
 ---
 _Auto-maintained by `scripts/project_blueprint.mjs` (v20261126) & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._

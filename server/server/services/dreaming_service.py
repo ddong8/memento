@@ -1576,6 +1576,35 @@ async def run_dreaming_pipeline(
     return journal
 
 
+EXTRA_CATEGORY_TITLES = {"resonance_scenario": "场景心智 (Scenarios)", "pitfall": "避坑经验 (Pitfalls)"}
+
+
+def readable_memory(content: str | None) -> str:
+    """A memory as a person reads it. Scenario memories (resonance_scenario) are stored as JSON
+    (name, mindset, keywords, target_project, defense_rules…) for mind resonance to read; MEMORY.md
+    printed that JSON as is. Anything that isn't such JSON comes back unchanged."""
+    text = content or ""
+    if not text.lstrip().startswith("{"):
+        return text
+    try:
+        d = json.loads(text)
+    except ValueError:
+        return text
+    if not isinstance(d, dict) or not (d.get("name") or d.get("mindset")):
+        return text
+    mindset = str(d.get("mindset") or "").strip().rstrip("。；;.")
+    parts = [f"{d.get('name') or d.get('id')}：{mindset}".rstrip("：")]
+    if d.get("target_project"):
+        parts.append(f"项目：{d['target_project']}")
+    keywords = [str(k) for k in (d.get("keywords") or []) if k]
+    if keywords:
+        parts.append("关键词：" + "、".join(keywords[:8]))
+    rules = [str(r).strip().rstrip("。；;") for r in (d.get("defense_rules") or []) if str(r).strip()]
+    if rules:
+        parts.append("防线：" + "；".join(rules))
+    return "；".join(parts) + "。"
+
+
 async def export_core_memory_markdown(db: AsyncSession, user: User, exclude: list[str] | None = None) -> str:
     """Render the user's UserMemory items into a unified MEMORY.md file, leaving out the exclude
     categories (noted at the top with their count)."""
@@ -1640,17 +1669,17 @@ async def export_core_memory_markdown(db: AsyncSession, user: User, exclude: lis
             for it in items:
                 prefix = "📁 " if it.is_folder else ""
                 path_info = f" `{it.tree_path}`" if it.tree_path else ""
-                lines.append(f"- {prefix}**[{it.key}]**{path_info} ({it.confidence:.2f}): {it.content}")
+                lines.append(f"- {prefix}**[{it.key}]**{path_info} ({it.confidence:.2f}): {readable_memory(it.content)}")
             lines.append("")
 
     # Any custom categories
     for cat_code, items in categories_map.items():
         if cat_code not in category_titles:
-            lines.append(f"## 其他分类 ({cat_code})")
+            lines.append(f"## {EXTRA_CATEGORY_TITLES.get(cat_code, f'其他分类 ({cat_code})')}")
             for it in items:
                 prefix = "📁 " if it.is_folder else ""
                 path_info = f" `{it.tree_path}`" if it.tree_path else ""
-                lines.append(f"- {prefix}**[{it.key}]**{path_info}: {it.content}")
+                lines.append(f"- {prefix}**[{it.key}]**{path_info}: {readable_memory(it.content)}")
             lines.append("")
 
     return "\n".join(lines).strip()

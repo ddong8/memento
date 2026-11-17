@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fetchEntityDetail, findEntityDetail, type MemoryGet } from "../src/lib/memory-entity";
+import { fetchEntityDetail, findEntityDetail, type MemoryGet, parseScenario } from "../src/lib/memory-entity";
 
 const ID = "0b6f3c9e-1d2a-4c5b-8e7f-9a0b1c2d3e4f";
 const detail = {
@@ -79,5 +79,22 @@ describe("memory entity lookup", () => {
     expect(await findEntityDetail(ID, get)).toEqual(detail);
     expect(await findEntityDetail("  ", get)).toBeNull();
     expect(asked).toEqual([`/api/memory/entities/${ID}`]);
+  });
+});
+
+describe("scenario memories in the rule tree", () => {
+  it("reads the JSON as name, mindset, keywords and project instead of printing it", () => {
+    const raw = JSON.stringify({
+      id: "chem_eval", name: "化学结构式识别模型评测", mindset: "选型拿量化指标说话", keywords: ["COMO", "", 3, "DECIMER"],
+      target_project: "chemagent", defense_rules: ["1) …"],
+    });
+    expect(parseScenario(raw)).toEqual({ name: "化学结构式识别模型评测", mindset: "选型拿量化指标说话", keywords: ["COMO", "DECIMER"], project: "chemagent" });
+  });
+
+  it("leaves ordinary memories alone", () => {
+    expect(parseScenario("回复用中文")).toBeNull();
+    expect(parseScenario('{"a": 1}')).toBeNull();
+    expect(parseScenario("{broken")).toBeNull();
+    expect(parseScenario(null)).toBeNull();
   });
 });

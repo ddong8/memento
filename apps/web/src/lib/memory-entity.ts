@@ -64,3 +64,31 @@ export async function findEntityDetail(idOrName: string, get: MemoryGet): Promis
     return null;
   }
 }
+
+/** A scenario memory (category resonance_scenario), stored as JSON for mind resonance. */
+export interface ScenarioMemory {
+  name: string;
+  mindset: string;
+  keywords: string[];
+  project: string | null;
+}
+
+/**
+ * The scenario inside a memory's content, or null for an ordinary memory. The rule tree printed
+ * the JSON as is ({"id": ..., "name": ..., "keywords": [...]}); it reads as name, mindset, keywords.
+ */
+export function parseScenario(content: string | null | undefined): ScenarioMemory | null {
+  const text = (content || "").trim();
+  if (!text.startsWith("{")) return null;
+  try {
+    const d = JSON.parse(text) as Record<string, unknown>;
+    const name = typeof d.name === "string" ? d.name : typeof d.id === "string" ? d.id : "";
+    const mindset = typeof d.mindset === "string" ? d.mindset : "";
+    if (!name && !mindset) return null;
+    const keywords = Array.isArray(d.keywords) ? d.keywords.filter((k): k is string => typeof k === "string" && !!k) : [];
+    const project = typeof d.target_project === "string" && d.target_project ? d.target_project : null;
+    return { name, mindset, keywords, project };
+  } catch {
+    return null;
+  }
+}

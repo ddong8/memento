@@ -5,7 +5,7 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { getApiBase, authFetch, api, type ProfileState } from "@/lib/api-client";
-import { type EntityDetail, fetchEntityDetail, findEntityDetail, type MemoryGet } from "@/lib/memory-entity";
+import { type EntityDetail, fetchEntityDetail, findEntityDetail, type MemoryGet, parseScenario } from "@/lib/memory-entity";
 import { useI18n } from "@/lib/i18n";
 import { Icon } from "@/components/aurora/Icon";
 import { Btn, Glass, GhostInput, Chip } from "@/components/aurora/primitives";
@@ -974,7 +974,10 @@ export default function MemoryPage() {
                       {/* Tree Node Children */}
                       {expandedPaths.has(rootNode.tree_path) && rootNode.children && (
                         <div className="p-2 space-y-1.5">
-                          {rootNode.children.map((child) => (
+                          {rootNode.children.map((child) => {
+                            // Scenario memories are JSON: show their name, project, mindset and keywords
+                            const scenario = parseScenario(child.content);
+                            return (
                             <div
                               key={child.id}
                               onClick={() => {
@@ -987,9 +990,13 @@ export default function MemoryPage() {
                                 <div className="flex items-center gap-1.5 min-w-0">
                                   <span className="text-[#38BDF8] text-xs">•</span>
                                   <span className="text-xs font-semibold text-[var(--aurora-fg1)] group-hover:text-[var(--aurora-accent)] transition-colors truncate">
-                                    {child.title || child.name}
+                                    {scenario?.name || child.title || child.name}
                                   </span>
-                                  {child.key && (
+                                  {scenario?.project ? (
+                                    <span className="text-[9px] px-1.5 py-0.2 rounded bg-[var(--aurora-accent-soft)] text-[var(--aurora-accent)] shrink-0">
+                                      {scenario.project}
+                                    </span>
+                                  ) : !scenario && child.key && (
                                     <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-[var(--aurora-chip)] text-[var(--aurora-fg3)] shrink-0">
                                       {child.key}
                                     </span>
@@ -1001,13 +1008,34 @@ export default function MemoryPage() {
                                 </span>
                               </div>
 
-                              {child.content && (
+                              {scenario ? (
+                                <>
+                                  {scenario.mindset && (
+                                    <p className="text-[11px] text-[var(--aurora-fg2)] leading-relaxed pl-3 line-clamp-2">
+                                      {scenario.mindset}
+                                    </p>
+                                  )}
+                                  {scenario.keywords.length > 0 && (
+                                    <div className="flex flex-wrap gap-1 pl-3">
+                                      {scenario.keywords.slice(0, 5).map((k, ki) => (
+                                        <span key={`${k}-${ki}`} className="text-[10px] px-1.5 py-0.5 rounded-md bg-[var(--aurora-chip)] text-[var(--aurora-fg3)]">
+                                          {k}
+                                        </span>
+                                      ))}
+                                      {scenario.keywords.length > 5 && (
+                                        <span className="text-[10px] px-1 py-0.5 text-[var(--aurora-fg4)]">+{scenario.keywords.length - 5}</span>
+                                      )}
+                                    </div>
+                                  )}
+                                </>
+                              ) : child.content && (
                                 <p className="text-[11px] text-[var(--aurora-fg3)] leading-relaxed pl-3 line-clamp-2">
                                   {child.content}
                                 </p>
                               )}
                             </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       )}
                     </div>

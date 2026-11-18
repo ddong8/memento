@@ -360,3 +360,102 @@ async def test_a_file_outside_the_project_is_written_on_the_source_but_never_a_s
 
     await _run(patches, go)
 
+
+
+class _Cl:
+    """Just enough of a cluster for two DeviceConnectionManagers on "two replicas"."""
+
+    def __init__(self, pod_id, peers):
+        self.pod_id, self.peers, self.ops, self.tasks = pod_id, peers, {}, []
+        peers[pod_id] = self
+
+    def op(self, name, fn):
+        self.ops[name] = fn
+
+    def on(self, *a):
+        pass
+
+    on_pattern = on_start = on_stop = on
+
+    def spawn(self, coro):
+        self.tasks.append(asyncio.ensure_future(coro))
+
+    async def call(self, pod, op, payload, timeout=10.0):
+        return await self.peers[pod].ops[op](payload)
+
+
+@pytest.mark.asyncio
+async def test_an_answer_over_a_newer_connection_on_another_replica_reaches_the_one_that_asked():
+    # The source reconnected while its command ran, now to replica B: the answer used to be dropped there
+    # and the agent's command waited out its 30 minutes
+    peers: dict = {}
+    a, b = DeviceConnectionManager(_Cl("pod-a", peers)), DeviceConnectionManager(_Cl("pod-b", peers))
+    sent: list[dict] = []
+
+    async def fake_send(device_id, payload):
+        sent.append(payload)
+        return True
+
+    a._connections["tok-mac"] = MagicMock()
+    with patch.object(a, "_send_json_local", fake_send):
+        pending = asyncio.ensure_future(a.request_device("tok-mac", {"type": "workspace_exec_req"}, timeout=2))
+        await asyncio.sleep(0)
+        assert sent[0]["req_id"].startswith("pod-a~")
+        b.handle_file_response({"req_id": sent[0]["req_id"], "type": "workspace_resp", "exit_code": 0, "stdout": "ok"})
+        await asyncio.gather(*peers["pod-b"].tasks)
+        res = await pending
+    assert res["exit_code"] == 0 and res["stdout"] == "ok"
+    # Unknown or own ids go nowhere
+    b.handle_file_response({"req_id": "pod-b~gone"})
+    b.handle_file_response({"req_id": "plainhex"})
+    assert peers["pod-b"].tasks[1:] == []
+
+
+def _waiting_source(ws, status):
+    """request_device: the command never answers; the status check answers `status`."""
+    never = asyncio.get_running_loop().create_future()
+
+    async def request_device(source, payload, timeout):
+        if payload["type"] == "workspace_exec_status":
+            return status
+        return await never
+
+    ws.request_device = request_device
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("online,status,want", [
+    # Memento restarted there: the command is gone, no answer is coming
+    (True, {"state": "unknown"}, {"code": "lost"}),
+    # It finished but the answer was lost on a dropping connection: taken from the status
+    (True, {"state": "done", "result": {"exit_code": 0, "stdout": "fine", "seconds": 1}}, {"exit_code": 0, "stdout": "fine"}),
+    # Asleep / offline past the grace
+    (False, {}, {"code": "source_unavailable"}),
+])
+async def test_a_command_whose_answer_will_never_come_ends_the_wait(online, status, want):
+    patches, ws = _env(_machine(), online=online)
+    patches += [patch.object(wr, "device_has_feature", lambda *a, **k: True),
+                patch.object(wr, "EXEC_CHECK_SECONDS", 0.01), patch.object(wr, "SOURCE_GONE_GRACE", 0.03)]
+
+    async def go():
+        _waiting_source(ws, status)
+        # Online for the source lookup, then whatever the case says
+        ws.is_online.side_effect = iter([True] + [online] * 1000)
+        out = await asyncio.wait_for(wr._exec({"source_device_id": "mac", "command": "npm test", "exec_id": "e1"}, USER), 2)
+        assert all(out.get(k) == v for k, v in want.items()), out
+
+    await _run(patches, go)
+
+
+@pytest.mark.asyncio
+async def test_a_source_still_running_the_command_or_too_old_to_say_is_waited_for():
+    patches, ws = _env(_machine())
+    patches += [patch.object(wr, "device_has_feature", lambda *a, **k: True), patch.object(wr, "EXEC_CHECK_SECONDS", 0.01)]
+
+    async def go():
+        for status in ({"state": "running"}, {"error": "设备 15 秒没有回应", "code": "timeout"}):
+            _waiting_source(ws, status)
+            with pytest.raises(asyncio.TimeoutError):
+                await asyncio.wait_for(wr._exec({"source_device_id": "mac", "command": "npm test", "exec_id": "e1"}, USER), 0.1)
+
+    await _run(patches, go)

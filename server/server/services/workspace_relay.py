@@ -30,6 +30,7 @@ devices of the same account can reach each other this way.
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import logging
@@ -59,6 +60,10 @@ CHUNK_TIMEOUT = 60.0
 # A command on the source: at most this long (the source stops it then), plus time to send it and its output
 EXEC_MAX_MS = 30 * 60 * 1000
 EXEC_SLACK = 90.0
+# While a command runs there: how often the source is checked on, and how long it may be gone
+EXEC_CHECK_SECONDS = 60.0
+EXEC_STATUS_TIMEOUT = 15.0
+SOURCE_GONE_GRACE = 120.0
 SESSION_TIMEOUT = 30.0
 CHUNK_MAX = 8 * 1024 * 1024
 # gzip+base64 of a patch, as the executor caps it
@@ -204,7 +209,7 @@ async def _exec(data: dict[str, Any], user_id: Any) -> dict[str, Any]:
     if len(patch) > PATCH_MAX:
         return {"error": "改动太大", "code": "too_big"}
     timeout_ms = max(10_000, min(int(data.get("timeout_ms") or EXEC_MAX_MS), EXEC_MAX_MS))
-    res = await ws_manager.request_device(source, {
+    res = await _await_source(source, {
         "type": "workspace_exec_req",
         "path": str(data.get("path") or ""),
         "snapshot": str(data.get("snapshot") or ""),
@@ -214,10 +219,49 @@ async def _exec(data: dict[str, Any], user_id: Any) -> dict[str, Any]:
         "timeout_ms": timeout_ms,
         "task_id": str(data.get("task_id") or ""),
         "exec_id": str(data.get("exec_id") or ""),
-    }, timeout_ms / 1000 + EXEC_SLACK)
+    }, timeout_ms / 1000 + EXEC_SLACK, exec_id=str(data.get("exec_id") or ""))
     if res.get("error"):
         return {"error": res["error"], "code": res.get("code") or "failed"}
     return {k: res[k] for k in ("exit_code", "stdout", "stderr", "timed_out", "seconds") if k in res}
+
+
+async def _await_source(source: str, payload: dict[str, Any], timeout: float, exec_id: str = "") -> dict[str, Any]:
+    """request_device for something that runs a while on the source (a command, a commit), checked on meanwhile.
+
+    The answer was waited for up to the full timeout (30 minutes for a command) whatever happened there:
+    the source gone (asleep, offline) or Memento restarted on it (the command gone with it, no answer ever
+    coming) left the agent's command hanging that long. Now: gone for SOURCE_GONE_GRACE, or the source says
+    it doesn't know the command, ends the wait with an error; a command it finished whose answer got lost
+    on the way (sent over a connection that dropped) is taken from its status reply. Sources from before
+    ``workspace_exec_status`` don't answer that and are only watched for being gone.
+    """
+    req = asyncio.ensure_future(ws_manager.request_device(source, payload, timeout))
+    gone_since: float | None = None
+    try:
+        while True:
+            done, _ = await asyncio.wait({req}, timeout=EXEC_CHECK_SECONDS)
+            if done:
+                return req.result()
+            if not ws_manager.is_online(source):
+                gone_since = gone_since or time.monotonic()
+                if time.monotonic() - gone_since >= SOURCE_GONE_GRACE:
+                    return {"error": f"代码所在的设备断开连接超过 {int(SOURCE_GONE_GRACE)} 秒（睡眠或断网），这条命令的结果拿不回来了；它恢复在线后再试",
+                            "code": "source_unavailable"}
+                continue
+            gone_since = None
+            if not exec_id:
+                continue
+            st = await ws_manager.request_device(source, {"type": "workspace_exec_status", "exec_id": exec_id}, EXEC_STATUS_TIMEOUT)
+            if req.done():
+                return req.result()
+            state = st.get("state")
+            if state == "done" and isinstance(st.get("result"), dict):
+                return st["result"]
+            if state == "unknown":
+                return {"error": "代码所在的设备上已经没有这条命令了（那边的 Memento 重启过），请重新执行", "code": "lost"}
+    finally:
+        if not req.done():
+            req.cancel()
 
 
 async def _exec_cancel(data: dict[str, Any], user_id: Any) -> dict[str, Any]:
@@ -249,7 +293,7 @@ async def _commit(data: dict[str, Any], user_id: Any) -> dict[str, Any]:
     if len(patch) > PATCH_MAX:
         return {"error": "改动太大", "code": "too_big"}
     paths = [str(p) for p in (data.get("paths") or []) if isinstance(p, str)][:200]
-    res = await ws_manager.request_device(source, {
+    res = await _await_source(source, {
         "type": "workspace_commit_req",
         **{k: str(data.get(k) or "") for k in ("path", "task_id", "snapshot", "base_tree", "base_head", "parent")},
         "patch_b64": patch,

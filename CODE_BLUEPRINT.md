@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `detached-HEAD` · Commit: `2e0e7c56` · Updated: `2026-11-18`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `d58c629c` · Updated: `2026-11-18`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,8 +16,8 @@
 - 规模 (Scale): 9 个子系统 · 38 组 API 路由 / 252 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 233 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `2e0e7c56` (2026-11-18): feat(enterprise): 企业部署——管理员可见范围开关、OIDC 单点登录与 SCIM 停用、操作审计、模型密钥加密和模型服务白名单
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 67（✅ 67 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-ENT-ADMIN-SCOPE`, `R-ENT-SSO`, `R-ENT-AUDIT`, `R-ENT-SECRETS`, `R-DEVICE-ENV-PROFILE`, `R-DOCS-WRITE-LIGHT`, `R-LOGIN-PERSIST`, `F-ASK`
+- 最近改动 (Latest): `d58c629c` (2026-11-18): feat(enterprise): 员工电脑策略文件、企业部署包与安装包正式签名
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 67（✅ 67 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `F-CLIENT-UPGRADE`, `R-ENT-DEVICE-POLICY`, `R-ENT-DEPLOY`, `R-WS-EXEC-STOP`, `R-UPGRADE-SAFE`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `R-ENT-ADMIN-SCOPE`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -31,7 +31,7 @@
 | 8. Development & Verification Commands | L647-L664 |
 | 9. Recent Architectural Evolutions | L666-L673 |
 | 10. Key Environment Variables & Configuration | L675-L687 |
-| 11. 业务蓝图核对 (Business Blueprint Check) | L689-L699 |
+| 11. 业务蓝图核对 (Business Blueprint Check) | L689-L700 |
 
 ## 1. Project Overview & Tech Stack
 
@@ -665,12 +665,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
-- `2e0e7c56` (2026-11-18): feat(enterprise): 企业部署——管理员可见范围开关、OIDC 单点登录与 SCIM 停用、操作审计、模型密钥加密和模型服务白名单
+- `d58c629c` (2026-11-18): feat(enterprise): 员工电脑策略文件、企业部署包与安装包正式签名
+- `e251b518` (2026-11-18): feat(enterprise): 企业部署——管理员可见范围开关、OIDC 单点登录与 SCIM 停用、操作审计、模型密钥加密和模型服务白名单
 - `94139deb` (2026-11-18): fix(web): 后台智能体展开面板也恢复最初设计的深海蓝底，不再是白色卡片
 - `6eeb517a` (2026-11-18): fix(web): 后台智能体运行标签恢复最初设计的深色胶囊，不再半透明透出下面的文字
 - `0f38d660` (2026-11-18): fix(web): 后台智能体运行提示改成醒目的绿色标签，手机上也写明「后台任务 N」
 - `ff1ed31e` (2026-11-18): fix(远程任务): 代码所在设备上一条慢命令不再卡住同一项目后面的命令；升级客户端版本至 v1.0.142
-- `236ff4b5` (2026-11-18): feat(蓝图): 画像里有项目规则的项目自动生成业务蓝图，不再只能手动点按钮
 
 ## 10. Key Environment Variables & Configuration
 
@@ -693,7 +693,8 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ### 最近提交碰到的业务条目（改动后复查它们还成不成立）
 
-- `2e0e7c56` feat(enterprise): 企业部署——管理员可见范围开关、OIDC 单点登录与 SCIM 停用、操作审计、模型密钥加密和模型服务白名单 → `R-ENT-ADMIN-SCOPE`, `R-ENT-SSO`, `R-ENT-AUDIT`, `R-ENT-SECRETS`, `R-DEVICE-ENV-PROFILE`, `R-DOCS-WRITE-LIGHT`, `R-LOGIN-PERSIST`
+- `d58c629c` feat(enterprise): 员工电脑策略文件、企业部署包与安装包正式签名 → `F-CLIENT-UPGRADE`, `R-ENT-DEVICE-POLICY`, `R-ENT-DEPLOY`, `R-WS-EXEC-STOP`, `R-UPGRADE-SAFE`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`
+- `e251b518` feat(enterprise): 企业部署——管理员可见范围开关、OIDC 单点登录与 SCIM 停用、操作审计、模型密钥加密和模型服务白名单 → `R-ENT-ADMIN-SCOPE`, `R-ENT-SSO`, `R-ENT-AUDIT`, `R-ENT-SECRETS`, `R-DEVICE-ENV-PROFILE`, `R-DOCS-WRITE-LIGHT`, `R-LOGIN-PERSIST`
 - `94139deb` fix(web): 后台智能体展开面板也恢复最初设计的深海蓝底，不再是白色卡片 → `F-ASK`, `R-ISLAND-CLEANUP`, `S-RUN-STATE`
 - `6eeb517a` fix(web): 后台智能体运行标签恢复最初设计的深色胶囊，不再半透明透出下面的文字 → `F-ASK`, `R-ISLAND-CLEANUP`, `S-RUN-STATE`
 - `0f38d660` fix(web): 后台智能体运行提示改成醒目的绿色标签，手机上也写明「后台任务 N」 → `F-ASK`, `R-ISLAND-CLEANUP`, `S-RUN-STATE`

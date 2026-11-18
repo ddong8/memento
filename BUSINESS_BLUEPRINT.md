@@ -10,9 +10,9 @@
 | :--- | :--- |
 | 1. 业务对象与术语 | L21-L65 |
 | 2. 关键流程 | L67-L124 |
-| 3. 业务规则 | L126-L533 |
-| 4. 状态归属 | L535-L580 |
-| 自动核对 (Auto Check) | L583-L690 |
+| 3. 业务规则 | L126-L534 |
+| 4. 状态归属 | L536-L581 |
+| 自动核对 (Auto Check) | L584-L691 |
 <!-- memento:business-index:end -->
 > 业务蓝图：memento 应该做成什么样，每一条落在哪段代码、由哪个测试或检查保证。和代码蓝图 [CODE_BLUEPRINT.md](CODE_BLUEPRINT.md)（代码长什么样）配合看：代码蓝图回答"在哪里"，这份回答"应该怎样、为什么"。
 > 规则来自用户的原话和纠正（CLAUDE.md、长期记忆、每晚复盘），不是从代码里反推的；代码和这里对不上，先当成代码的问题查。
@@ -222,10 +222,11 @@
 ### R-WS-EXEC-STOP 代码所在设备上一条慢命令或停掉的任务不卡住后面的命令
 - 来源: 用户 11-17「我发现有时候远程任务执行命令会卡住啊」（vps3 上 Antigravity 在 Mac 上跑 `find ~ -maxdepth 4` 没结束，任务停掉后它还在跑，后面的 `ls -d` 和别的任务的命令都排在它后面等到 30 分钟超时）
 - 来源补充: 用户 11-18「vps3上调用Mac mini执行命令有时还是会卡住」（一条在 ~/.memento 等目录里逐个文件搜密钥的 python 跑了 10 分钟，同一仓库后面的命令全在等）
-- 说明: 代码所在设备上同一仓库最多 4 个检出目录同时跑命令：一个检出目录有命令在跑，下一条（不论哪个任务）用空闲的那个，任务尽量回到上次用的检出目录，`memento-source get` 先在任务用过的检出目录里找；4 个都忙才排队，结果里注明等了多久。提交仍一次一个。执行机上的任务结束或被停掉时，通知那台设备结束这个任务正在跑的命令、跳过还在排队的；智能体放弃某一条命令（工具调用被停、memento-source 进程被杀）只结束那一条，任务后面的命令照常执行。
-- 代码: `packages/daemon/src/source-exec.ts#acquireCheckout`, `packages/daemon/src/source-exec.ts#cancelSourceExec`, `packages/daemon/src/source-exec.ts#execOnSource`, `packages/daemon/src/source-exec.ts#SourceExecBridge`, `packages/daemon/src/ws-client.ts`, `server/server/services/workspace_relay.py#_exec_cancel`
-- 测试: `packages/daemon/test/source-exec.test.ts#a slow command takes one checkout; other commands, of any task, run beside it in another`, `packages/daemon/test/source-exec.test.ts#get finds a file a task's command made in whichever checkout it ran in`, `packages/daemon/test/source-exec.test.ts#a timed-out command's children die with it`, `packages/daemon/test/source-exec.test.ts#giving up on one command stops just that one; the task's next command still runs`, `server/tests/test_workspace_relay.py#test_a_stopped_tasks_commands_are_stopped_on_the_source`
-- 要求: `"exec_cancel": _exec_cancel` @ `server/server/services/workspace_relay.py`; `"workspace_exec_cancel"` @ `packages/daemon/src/ws-client.ts`
+- 来源补充: 用户 11-18「感觉远程执行任务还是有点问题，有些命令还是会卡住」（命令在那台设备上早跑完了，结果却没回来：它跑命令期间和服务器重连过，答复落到另一个 api 副本上被丢掉，执行机一直等到 32 分钟超时）
+- 说明: 代码所在设备上同一仓库最多 4 个检出目录同时跑命令：一个检出目录有命令在跑，下一条（不论哪个任务）用空闲的那个，任务尽量回到上次用的检出目录，`memento-source get` 先在任务用过的检出目录里找；4 个都忙才排队，结果里注明等了多久。提交仍一次一个。执行机上的任务结束或被停掉时，通知那台设备结束这个任务正在跑的命令、跳过还在排队的；智能体放弃某一条命令（工具调用被停、memento-source 进程被杀）只结束那一条，任务后面的命令照常执行。命令跑着时那台设备重连到了别的 api 副本，答复按请求号里的副本名转回发出请求的副本；服务端等答复期间每分钟问一次那台设备这条命令的状态：已跑完就用它留着的答复（原答复丢了也拿得到），那边没有这条命令（Memento 重启过）立刻报错，设备断开超过 2 分钟也报错，不再等满 30 分钟。那台设备在替别的设备跑命令时不切换内网/公网线路。
+- 代码: `packages/daemon/src/source-exec.ts#acquireCheckout`, `packages/daemon/src/source-exec.ts#cancelSourceExec`, `packages/daemon/src/source-exec.ts#execOnSource`, `packages/daemon/src/source-exec.ts#SourceExecBridge`, `packages/daemon/src/ws-client.ts`, `server/server/services/workspace_relay.py#_exec_cancel`, `server/server/services/workspace_relay.py#_await_source`, `server/server/services/ws_manager.py#handle_file_response`, `packages/daemon/src/source-exec.ts#execStatus`
+- 测试: `packages/daemon/test/source-exec.test.ts#tells the server, waiting on a command, whether it still runs here and its answer once done`, `server/tests/test_workspace_relay.py#test_an_answer_over_a_newer_connection_on_another_replica_reaches_the_one_that_asked`, `server/tests/test_workspace_relay.py#test_a_command_whose_answer_will_never_come_ends_the_wait`, `packages/daemon/test/source-exec.test.ts#a slow command takes one checkout; other commands, of any task, run beside it in another`, `packages/daemon/test/source-exec.test.ts#get finds a file a task's command made in whichever checkout it ran in`, `packages/daemon/test/source-exec.test.ts#a timed-out command's children die with it`, `packages/daemon/test/source-exec.test.ts#giving up on one command stops just that one; the task's next command still runs`, `server/tests/test_workspace_relay.py#test_a_stopped_tasks_commands_are_stopped_on_the_source`
+- 要求: `"exec_cancel": _exec_cancel` @ `server/server/services/workspace_relay.py`; `"workspace_exec_cancel"` @ `packages/daemon/src/ws-client.ts`; `"workspace_exec_status"` @ `packages/daemon/src/ws-client.ts`; `cl.op("ws.reply", self._op_reply)` @ `server/server/services/ws_manager.py`
 
 ### R-PROJECT-EXCLUDE 测试用的项目可以不采集，已采集的数据和从中学到的东西一并清掉
 - 来源: 用户 11-17「目前默认是所有项目都抓取的，如果用户有些项目是用来测试的，不想它被抓取……对应的记忆，画像等也要删除」
@@ -622,7 +623,7 @@
 | `R-ENT-SECRETS` | 用户填的模型密钥加密存库，只能用管理员允许的模型服务 | 5/5 | 4/4 | 2/2 | ✅ |
 | `R-ENT-DEVICE-POLICY` | 公司 IT 下发的策略文件管住员工电脑：固定服务器、限定远程任务和目录 | 7/7 | 4/4 | 3/3 | ✅ |
 | `R-ENT-DEPLOY` | 企业能在自己的服务器上一键部署、备份恢复、离线安装，安装包可正式签名 | 6/6 | — | 4/4 | ✅ |
-| `R-WS-EXEC-STOP` | 代码所在设备上一条慢命令或停掉的任务不卡住后面的命令 | 6/6 | 5/5 | 2/2 | ✅ |
+| `R-WS-EXEC-STOP` | 代码所在设备上一条慢命令或停掉的任务不卡住后面的命令 | 9/9 | 8/8 | 4/4 | ✅ |
 | `R-PROJECT-EXCLUDE` | 测试用的项目可以不采集，已采集的数据和从中学到的东西一并清掉 | 8/8 | 3/3 | 3/3 | ✅ |
 | `R-RUN-OUTLIVES-PAGE` | 运行不因页面关闭、切后台、发版而中断 | 2/2 | 4/4 | — | ✅ |
 | `R-QUOTA-PER-MODEL` | 额度按当前对话用的模型显示 | 3/3 | 1/1 | 2/2 | ✅ |

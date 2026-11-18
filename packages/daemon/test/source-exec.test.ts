@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { cancelSourceExec, checkDir, executorDenyReason, readOnSource, executorOnlyEdits, execOnSource, relCwd, SourceExecBridge, sourceExecHint } from "../src/source-exec.js";
+import { cancelSourceExec, checkDir, executorDenyReason, execStatus, noteExecState, readOnSource, executorOnlyEdits, execOnSource, relCwd, SourceExecBridge, sourceCommandsActive, sourceExecHint } from "../src/source-exec.js";
 import { packPatch } from "../src/workspace.js";
 import type { WorkspaceRun } from "../src/workspace-sync.js";
 
@@ -101,6 +101,26 @@ describe("the agent's commands on the device the code is on", () => {
     await new Promise((r) => setTimeout(r, 1500));
     const left = execFileSync("sh", ["-c", "ps -Ao command | grep 'sleep 120' | grep -v grep || true"], { encoding: "utf8" });
     expect(left.trim()).toBe("");
+  }, 30_000);
+
+  it("tells the server, waiting on a command, whether it still runs here and its answer once done", async () => {
+    if (process.platform === "win32") return;
+    const { root, snapshot } = sourceRepo();
+    const home = mkdtempSync(join(tmpdir(), "src-home-"));
+    // A restart of the app forgets its commands: the server then stops waiting instead of for 30 minutes
+    expect(execStatus("never-sent")).toEqual({ state: "unknown" });
+    const before = sourceCommandsActive();
+    const running = execOnSource(root, { snapshot, rel: "", command: "sleep 60", task_id: "S", exec_id: "s1" }, { home, env });
+    await new Promise((r) => setTimeout(r, 1500));
+    expect(execStatus("s1").state).toBe("running");
+    // The connection isn't moved to another route while a command for another device runs here
+    expect(sourceCommandsActive()).toBe(before + 1);
+    cancelSourceExec("S", "s1");
+    const r = await running;
+    // The answer is kept: if it's lost on a connection that drops as it's sent, the server's next check gets it
+    noteExecState("s1", "done", { exit_code: r.exit_code, stdout: r.stdout });
+    expect(execStatus("s1")).toEqual({ state: "done", result: { exit_code: r.exit_code, stdout: r.stdout } });
+    expect(sourceCommandsActive()).toBe(before);
   }, 30_000);
 
   it("giving up on one command stops just that one; the task's next command still runs", async () => {

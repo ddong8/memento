@@ -449,6 +449,35 @@ export function cancelSourceExec(taskId: string, execId = ""): number {
   return children.size;
 }
 
+/**
+ * Each command's progress here by its id, and its answer for a while after: the server asks
+ * (`workspace_exec_status`) while it waits, so a command gone with a restart of this app ends the wait
+ * at once, and an answer lost on a connection that dropped as it was sent is still delivered.
+ */
+type ExecState = { state: "queued" | "running" | "done"; result?: Record<string, unknown>; at: number };
+const execStates = new Map<string, ExecState>();
+const EXEC_STATE_KEEP_MS = 15 * 60_000;
+
+export function noteExecState(execId: string, state: ExecState["state"], result?: Record<string, unknown>): void {
+  if (!execId) return;
+  const now = Date.now();
+  for (const [id, s] of execStates) if (s.state === "done" && now - s.at > EXEC_STATE_KEEP_MS) execStates.delete(id);
+  execStates.set(execId, { state, ...(result ? { result } : {}), at: now });
+}
+
+/** What the server is told about a command: "unknown" when this process never had it (or forgot it). */
+export function execStatus(execId: string): { state: ExecState["state"] | "unknown"; result?: Record<string, unknown> } {
+  const s = execStates.get(execId);
+  return s ? { state: s.state, ...(s.result ? { result: s.result } : {}) } : { state: "unknown" };
+}
+
+/** Commands for agents on other devices queued or running here now. */
+export function sourceCommandsActive(): number {
+  let n = 0;
+  for (const s of execStates.values()) if (s.state !== "done") n++;
+  return n;
+}
+
 function serialized<T>(key: string, fn: () => Promise<T>): Promise<T> {
   const prev = queues.get(key) ?? Promise.resolve();
   const next = prev.catch(() => {}).then(fn);
@@ -675,7 +704,9 @@ export async function execOnSource(
   const isStopped = () => keys.some((k) => stopped.has(k));
   const queued = Date.now();
 
+  noteExecState(execId, "queued");
   const slot = await acquireCheckout(root, taskId);
+  noteExecState(execId, "running");
   try {
     if (isStopped()) {
       return { exit_code: 130, stdout: "", stderr: "任务已停止，这条命令没有执行\n", seconds: 0 };

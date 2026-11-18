@@ -31,6 +31,8 @@ PRESENCE = f"{PREFIX}presence"
 BROADCAST = f"{PREFIX}broadcast"
 TASK_CHANNEL = f"{PREFIX}task:"
 REFRESH_SECONDS = 15
+# Between the asking replica's id and the rest of a request id (replica ids have none)
+REQ_SEP = "~"
 
 
 class DeviceConnectionManager:
@@ -64,6 +66,7 @@ class DeviceConnectionManager:
         cl.op("ws.file_chunk", self._op_file_chunk)
         cl.op("ws.p2p_offer", self._op_p2p_offer)
         cl.op("ws.request", self._op_request)
+        cl.op("ws.reply", self._op_reply)
         cl.on_start(self._start)
         cl.on_stop(self._stop)
 
@@ -400,7 +403,7 @@ class DeviceConnectionManager:
         ws = self._connections.get(device_id)
         if not ws:
             return {"exists": False, "error": f"device {device_id} not connected"}
-        req_id = uuid.uuid4().hex
+        req_id = self._req_id()
         loop = asyncio.get_running_loop()
         fut = loop.create_future()
         self._pending_file_requests[req_id] = fut
@@ -442,7 +445,7 @@ class DeviceConnectionManager:
         ws = self._connections.get(device_id)
         if not ws:
             return None
-        req_id = uuid.uuid4().hex
+        req_id = self._req_id()
         loop = asyncio.get_running_loop()
         fut = loop.create_future()
         self._pending_file_requests[req_id] = fut
@@ -474,7 +477,7 @@ class DeviceConnectionManager:
         ws = self._connections.get(device_id)
         if not ws:
             return {"error": f"device {device_id} not connected"}
-        req_id = uuid.uuid4().hex
+        req_id = self._req_id()
         fut = asyncio.get_running_loop().create_future()
         self._pending_file_requests[req_id] = fut
         try:
@@ -501,7 +504,7 @@ class DeviceConnectionManager:
     async def _request_local(self, device_id: str, payload: dict[str, Any], timeout: float) -> dict[str, Any]:
         if not self._connections.get(device_id):
             return {"error": "设备不在线", "code": "offline"}
-        req_id = uuid.uuid4().hex
+        req_id = self._req_id()
         fut = asyncio.get_running_loop().create_future()
         self._pending_file_requests[req_id] = fut
         try:
@@ -516,13 +519,42 @@ class DeviceConnectionManager:
         finally:
             self._pending_file_requests.pop(req_id, None)
 
+    def _req_id(self) -> str:
+        """A request id naming this replica, so the answer finds its way back here (see handle_file_response)."""
+        return f"{self._cluster.pod_id}{REQ_SEP}{uuid.uuid4().hex}"
+
     def handle_file_response(self, data: dict[str, Any]) -> None:
-        """Dispatch incoming file_stat_resp or file_chunk_resp to awaiting futures."""
-        req_id = data.get("req_id")
-        if req_id and req_id in self._pending_file_requests:
-            fut = self._pending_file_requests[req_id]
+        """Dispatch incoming file_stat_resp / file_chunk_resp / workspace_resp… to awaiting futures.
+
+        The device may answer over a newer connection, held by another replica (it reconnected while a
+        command ran: Wi-Fi, sleep, a LAN/public route change, a rollout): the answer then goes on to the
+        replica that asked, named in the request id. Dropped here, it left the agent's command waiting
+        out its full 30 minutes although it had finished long before.
+        """
+        req_id = str(data.get("req_id") or "")
+        if not req_id:
+            return
+        fut = self._pending_file_requests.get(req_id)
+        if fut is not None:
             if not fut.done():
                 fut.set_result(data)
+            return
+        pod = req_id.split(REQ_SEP, 1)[0] if REQ_SEP in req_id else ""
+        if pod and pod != self._cluster.pod_id:
+            self._cluster.spawn(self._forward_reply(pod, data))
+
+    async def _forward_reply(self, pod: str, data: dict[str, Any]) -> None:
+        try:
+            await self._cluster.call(pod, "ws.reply", data, timeout=30.0)
+        except Exception as e:
+            logger.warning("answer %s for replica %s not delivered: %s", data.get("req_id"), pod, e or type(e).__name__)
+
+    async def _op_reply(self, p: dict) -> bool:
+        fut = self._pending_file_requests.get(str(p.get("req_id") or ""))
+        if fut is None or fut.done():
+            return False
+        fut.set_result(p)
+        return True
 
     # ── calls from other replicas: act on this replica's connections only ─
     async def _op_send_json(self, p: dict) -> bool:

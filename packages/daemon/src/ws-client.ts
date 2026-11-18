@@ -11,7 +11,7 @@ import { P2PHost } from "./p2p.js";
 import { probeAllQuotas } from "./quotas.js";
 import type { ServerRoute } from "./server-route.js";
 import { exportClaudeSession } from "./session-sync.js";
-import { cancelSourceExec, commitOnSource, execOnSource, readOnSource, writeOnSource } from "./source-exec.js";
+import { cancelSourceExec, commitOnSource, execOnSource, execStatus, noteExecState, readOnSource, sourceCommandsActive, writeOnSource } from "./source-exec.js";
 import { computeBackoffWithJitter, parseTaskDispatch, TaskRunner } from "./task-runner.js";
 import { applyWorkspaceRequest, exportWorkspace, WorkspaceError } from "./workspace.js";
 import { flushPendingPatches, type Relay } from "./workspace-sync.js";
@@ -123,7 +123,8 @@ export class WsTaskClient {
    */
   reroute(): void {
     if (!this.ws || this.viaLan === Boolean(this.route?.onLan)) return;
-    if (this.route?.onLan && this.runner.runningTaskIds.length) return;
+    // Commands run here for agents on other devices too: their answers go back over this connection
+    if (this.route?.onLan && (this.runner.runningTaskIds.length || sourceCommandsActive())) return;
     this.log(`Reconnecting ${this.route?.onLan ? "over the LAN" : "through the public URL"}`);
     this.ws.close(1000, "route changed");
   }
@@ -289,6 +290,10 @@ export class WsTaskClient {
           break;
         case "workspace_exec_req":
           void this.handleWorkspaceExec(data);
+          break;
+        case "workspace_exec_status":
+          // The server, waiting on a command it sent: is it still here, and its answer if it's done
+          this.sendJson({ type: "workspace_resp", req_id: String(data.req_id ?? ""), ...execStatus(String(data.exec_id ?? "")) });
           break;
         case "workspace_exec_cancel": {
           const n = cancelSourceExec(String(data.task_id ?? ""), String(data.exec_id ?? ""));
@@ -529,14 +534,22 @@ export class WsTaskClient {
   private async handleWorkspaceExec(data: Record<string, unknown>): Promise<void> {
     const reqId = String(data.req_id ?? "");
     const path = String(data.path ?? "");
+    const execId = String(data.exec_id ?? "");
     try {
       this.log(`Running a command for an agent on another device in ${path}: ${String(data.command ?? "").slice(0, 200)}`);
       const r = await execOnSource(assertPathAllowed(deviceFilePath(path)), data);
       this.log(`Command for the agent on another device exited ${r.exit_code} after ${r.seconds}s`);
-      this.sendJson({ type: "workspace_resp", req_id: reqId, ...r });
+      this.answerExec(execId, { type: "workspace_resp", req_id: reqId, ...r });
     } catch (e) {
-      this.sendJson({ type: "workspace_resp", req_id: reqId, error: e instanceof Error ? e.message : String(e), code: e instanceof WorkspaceError ? e.code : "failed" });
+      this.answerExec(execId, { type: "workspace_resp", req_id: reqId, error: e instanceof Error ? e.message : String(e), code: e instanceof WorkspaceError ? e.code : "failed" });
     }
+  }
+
+  /** The answer, kept for the server's status check too (in case this one is lost on a dropping connection). */
+  private answerExec(execId: string, reply: Record<string, unknown>): void {
+    const { type: _t, req_id: _r, ...result } = reply;
+    noteExecState(execId, "done", result);
+    this.sendJson(reply);
   }
 
   /** An agent on another device commits its changes to code here: a real `git commit` here, hooks and all (in a checkout of its own). */

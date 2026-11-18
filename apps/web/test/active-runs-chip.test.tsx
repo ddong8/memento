@@ -48,7 +48,7 @@ describe("background runs chip", () => {
     container.remove();
   });
 
-  it("on a phone, collapsed, still says what it is and how many run, tinted so it stands out", async () => {
+  it("on a phone, collapsed, says what it is, how long and how many more, in the opaque dark chip first designed", async () => {
     Object.defineProperty(window, "innerWidth", { value: 390, configurable: true });
     await act(async () => {
       root.render(<ActiveRunsMonitor />);
@@ -59,8 +59,10 @@ describe("background runs chip", () => {
     const chip = container.querySelector('[data-testid="active-runs-chip"]') as HTMLElement | null;
     expect(chip).not.toBeNull();
     // A bare dot and "15分30秒" was easy to miss among the cards
-    expect(chip!.textContent).toContain("后台任务 2");
+    expect(chip!.textContent).toContain("智能体运行中");
     expect(chip!.textContent).toMatch(/15分\d+秒/);
-    expect(chip!.getAttribute("style") || "").toContain("--aurora-success-soft");
+    expect(chip!.textContent).toContain("+1");
+    // Opaque dark background: the page under it doesn't show through
+    expect(chip!.getAttribute("style") || "").toContain("rgba(15, 23, 42, 0.97)");
   });
 });

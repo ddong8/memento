@@ -467,7 +467,7 @@ export default function ActiveRunsMonitor() {
   const docked = isWide;
   // A collapsed sidebar is 68px wide: just the pulsing dot
   const iconOnly = docked && sidebarCollapsed && collapsed;
-  // Phones: a short label, the count and the elapsed time (a bare dot and time was easy to miss, 2026-11-18)
+  // Phones: label, timer and count like everywhere, without the word 展开 (a bare dot and time was easy to miss)
   const compactMobile = isMobile && collapsed;
 
   // Handle task stop/cancel
@@ -677,14 +677,16 @@ export default function ActiveRunsMonitor() {
         >
           <div className={`pointer-events-auto flex flex-col ${docked ? "items-stretch" : "items-end"}`}>
             {collapsed ? (
+              // The chip as first designed (deep navy, sky edge and glow, white label, green timer): opaque, so
+              // nothing under it shows through, and it stands out on light pages. A tinted see-through
+              // chip (2026-11-18) let the text under it show and was harder to read.
               <div
                 onClick={() => setCollapsed(false)}
-                className={`cursor-pointer flex items-center gap-2 px-3 py-1.5 border transition-colors duration-150 group ${docked ? "w-full rounded-lg" : "rounded-full ml-auto"} ${iconOnly ? "justify-center px-0" : ""}`}
-                // Tinted like the running state it stands for: a white chip among white cards went unseen
+                className={`cursor-pointer flex items-center gap-2 px-3 py-1.5 border shadow-2xl transition-all duration-200 hover:scale-[1.03] group ${docked ? "w-full rounded-lg" : "rounded-full ml-auto"} ${iconOnly ? "justify-center px-0" : ""}`}
                 style={{
-                  background: "var(--aurora-success-soft)",
-                  borderColor: "color-mix(in srgb, var(--aurora-success) 45%, transparent)",
-                  boxShadow: docked ? "none" : "0 0 0 3px var(--aurora-success-soft), var(--aurora-card-shadow)",
+                  background: "linear-gradient(135deg, rgba(15, 23, 42, 0.97), rgba(30, 41, 59, 0.95))",
+                  borderColor: "rgba(56, 189, 248, 0.45)",
+                  boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.45), 0 0 15px rgba(56, 189, 248, 0.25)",
                 }}
                 title="点击展开查看后台智能体任务详情"
                 data-testid="active-runs-chip"
@@ -693,18 +695,22 @@ export default function ActiveRunsMonitor() {
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                   <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
                 </span>
-                <span className={`text-xs font-semibold text-[var(--aurora-success)] whitespace-nowrap ${docked ? "flex-1" : ""} ${iconOnly ? "hidden" : ""}`}>
-                  {compactMobile ? `后台任务 ${unobservedActiveRuns.length}` : "后台智能体运行中"}
+                <span className={`text-xs font-semibold text-white tracking-wide whitespace-nowrap ${docked ? "flex-1" : ""} ${iconOnly ? "hidden" : ""}`}>
+                  智能体运行中
                 </span>
-                <span className={`text-[11px] tabular-nums text-[var(--aurora-success)] opacity-80 whitespace-nowrap ${iconOnly ? "hidden" : ""}`}>
+                <span className={`text-[11px] font-mono text-emerald-400 bg-emerald-950/60 px-1.5 py-0.2 rounded-full border border-emerald-500/30 whitespace-nowrap ${iconOnly ? "hidden" : ""}`}>
                   {formatDuration(unobservedActiveRuns[0].started_at)}
                 </span>
-                {unobservedActiveRuns.length > 1 && !iconOnly && !compactMobile && (
-                  <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-[var(--aurora-accent-soft)] text-[var(--aurora-accent)] font-mono">
+                {unobservedActiveRuns.length > 1 && !iconOnly && (
+                  <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-sky-500/25 text-sky-300 font-mono">
                     +{unobservedActiveRuns.length - 1}
                   </span>
                 )}
-                {!iconOnly && <Icon name={docked ? "chevron_up" : "chevron_down"} size={12} style={{ color: "var(--aurora-success)" }} />}
+                {!iconOnly && (
+                  <span className="text-[11px] text-sky-400 flex items-center gap-0.5 opacity-90 font-medium whitespace-nowrap pl-0.5 group-hover:underline">
+                    {compactMobile ? null : "展开"} <Icon name={docked ? "chevron_up" : "chevron_down"} size={12} />
+                  </span>
+                )}
               </div>
             ) : (
               <div

@@ -31,6 +31,8 @@ from ..services import chat_images, device_commands
 from ..services.cluster import PREFIX, cluster
 from ..services.user_filter import normalize_device_name, user_machine_ids
 from ..services.ws_manager import ws_manager
+from ..services.enterprise_policy import sees_all
+from ..services import audit_service
 
 router = APIRouter(prefix="/api/devices", tags=["devices"])
 logger = logging.getLogger("server.devices")
@@ -122,7 +124,7 @@ async def list_devices(
     machines_q = select(Machine).where(Machine.merged_into.is_(None)).order_by(Machine.last_heartbeat.desc().nulls_last())
     if not inc_arch:
         machines_q = machines_q.where(Machine.is_archived.is_(False))
-    if _user.role not in ("admin", "owner"):
+    if not sees_all(_user):
         machines_q = machines_q.where(Machine.user_id == _user.id)
     machines = list((await db.execute(machines_q)).scalars().all())
     if not machines:
@@ -272,7 +274,7 @@ async def _verify_device_ownership(
     machine = result.scalar_one_or_none()
     if not machine:
         raise HTTPException(status_code=404, detail="Device not found")
-    if user.role not in ("admin", "owner") and machine.user_id != user.id:
+    if not sees_all(user) and machine.user_id != user.id:
         raise HTTPException(status_code=404, detail="Device not found")
     return machine
 
@@ -759,14 +761,14 @@ async def _stat_on_devices(
         stat = await ws_manager.request_file_stat(target_machine.name, clean_path)
     if not stat.get("exists") and (device_id == "auto" or not target_machine):
         query = select(Machine)
-        if _user.role not in ("admin", "owner") and mids is not None:
+        if not sees_all(_user) and mids is not None:
             query = query.where(Machine.id.in_(mids))
         candidates: list[str] = []
         for m in (await db.execute(query)).scalars().all():
             for alias in (m.collector_token_hash, m.name):
                 if alias and alias not in candidates:
                     candidates.append(alias)
-        if _user.role in ("admin", "owner"):
+        if sees_all(_user):
             candidates += [c for c in ws_manager.connected_ids() if c not in candidates]
         for cand_token in candidates:
             if ws_manager.has_device(cand_token) and cand_token != dev_token:
@@ -821,8 +823,11 @@ async def _authorized_machine(db: AsyncSession, device_id: str, _user: User):
     from ..services.user_filter import find_machine_by_id_or_hash
     target_machine = await find_machine_by_id_or_hash(db, device_id, _user)
     mids = await user_machine_ids(db, _user)
-    if _user.role not in ("admin", "owner") and target_machine and mids is not None and target_machine.id not in mids:
+    if not sees_all(_user) and target_machine and mids is not None and target_machine.id not in mids:
         raise HTTPException(status_code=403, detail="Device access denied")
+    if target_machine is not None and target_machine.user_id and target_machine.user_id != _user.id:
+        await audit_service.record(db, _user, "device.access_other_user", target_user_id=target_machine.user_id,
+                                   detail={"device": target_machine.name})
     return target_machine, mids
 
 
@@ -872,7 +877,7 @@ async def p2p_offer(
     """Relays the page's WebRTC offer to its device and returns the device's answer: only this exchange
     (a few KB) goes through the server; the file data then flows between the two directly."""
     target_machine, _ = await _authorized_machine(db, device_id, _user)
-    if not target_machine and _user.role not in ("admin", "owner"):
+    if not target_machine and not sees_all(_user):
         raise HTTPException(status_code=404, detail="Unknown device")
     token = target_machine.collector_token_hash if target_machine and target_machine.collector_token_hash else device_id
     if not ws_manager.has_device(token):
@@ -969,7 +974,7 @@ async def stream_device_file(
     target_machine = await find_machine_by_id_or_hash(db, device_id, _user)
     mids = await user_machine_ids(db, _user)
 
-    if _user.role not in ("admin", "owner"):
+    if not sees_all(_user):
         if target_machine and mids is not None and target_machine.id not in mids:
             raise HTTPException(status_code=403, detail="Device access denied")
 

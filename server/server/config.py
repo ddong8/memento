@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     # where you want shorter sessions.
     access_token_expire_minutes: int = 60 * 24 * 365 * 10
 
+    # Key for encrypting secrets stored in the database (users' model API keys, services/secret_box.py).
+    # Empty: derived from secret_key. Changing it makes the stored keys unreadable (users re-enter them).
+    data_key: str = ""
+
     # Collector auth
     collector_token: str = "collector-dev-token"
 
@@ -71,6 +75,38 @@ class Settings(BaseSettings):
     #   invite_only — must provide a valid invite_code at registration
     #   closed      — registration endpoint refuses everyone
     registration_mode: str = "open"
+
+    # ---- Enterprise deployment (docs/enterprise.md) ----
+    # What admins and owners see of other users' content (conversations, memory, devices, tasks):
+    #   all — everything (a personal or family deployment; the behavior before this setting)
+    #   own — only their own, like everyone else; they still manage accounts, invites and permissions
+    admin_scope: str = "all"
+    # Model endpoints users may configure for themselves, comma-separated host names
+    # (e.g. "llm.corp.example.com,api.anthropic.com"; "*.corp.example.com" for subdomains). Empty: any.
+    allowed_model_hosts: str = ""
+    # Email + password login; turn off once everyone signs in through the company's identity provider
+    password_login: bool = True
+    # How long the audit log keeps entries, in days (0 keeps them forever)
+    audit_retention_days: int = 365
+
+    # Single sign-on with any OpenID Connect provider (Keycloak, Authing, Azure AD / Entra ID,
+    # Okta, Google Workspace, ...). Set issuer + client id + secret to enable it.
+    oidc_issuer: str = ""
+    oidc_client_id: str = ""
+    oidc_client_secret: str = ""
+    # Button text on the login page
+    oidc_display_name: str = "企业账号"
+    oidc_scopes: str = "openid email profile"
+    # Only these email domains may sign in (comma-separated, empty: any the provider vouches for)
+    oidc_allowed_domains: str = ""
+    # Create an account the first time someone signs in (off: only accounts an admin made or invited)
+    oidc_auto_create: bool = True
+    # Members of this group (from the provider's "groups" claim) sign in as admin; others as viewer
+    oidc_admin_group: str = ""
+
+    # SCIM 2.0 provisioning (/scim/v2): the identity provider creates and deactivates accounts.
+    # Bearer token the provider sends; empty disables the endpoint.
+    scim_token: str = ""
 
     # GitHub OAuth login — set both to enable "Continue with GitHub".
     github_client_id: str = ""

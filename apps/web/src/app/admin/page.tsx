@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { AUDIT_ACTION_LABELS, auditSummary } from "@/lib/audit-labels";
 import { useAuth } from "@/lib/auth-context";
 import { useI18n, fmt } from "@/lib/i18n";
 import { getApiBase, authFetch } from "@/lib/api-client";
@@ -21,7 +22,7 @@ interface SyncStatus { tool_id: string; display_name: string; total_files: numbe
 interface DeviceInfo { id: string; name: string; device_id: string; collector_version: string | null; last_heartbeat: string | null; created_at: string; document_count: number; tools: string[]; }
 interface Invite { id: string; code: string; max_uses: number; use_count: number; expires_at: string | null; role_on_accept: string; note: string | null; created_at: string; created_by: string | null; }
 interface Permission { id: string; user_id: string; project_id: string | null; tool_id: string | null; permission: string; created_at: string; }
-interface AuditEntry { id: number; user_id: string | null; document_id: string | null; action: string; ip_address: string | null; created_at: string; }
+interface AuditEntry { id: number; user_id: string | null; document_id: string | null; action: string; ip_address: string | null; created_at: string; metadata?: Record<string, unknown>; }
 
 type Tab = "users" | "devices" | "invites" | "perms" | "audit" | "sync";
 
@@ -620,6 +621,8 @@ function AuditTab({ headers }: { headers: Headers }) {
   const [hasMore, setHasMore] = useState(true);
   const [filterUser, setFilterUser] = useState("");
   const [filterAction, setFilterAction] = useState("");
+  // Admin actions, sign-ins and remote commands only (not every document view)
+  const [auditOnly, setAuditOnly] = useState(true);
   const LIMIT = 50;
   const dateFmt = locale === "zh-CN" ? "zh-CN" : "en-US";
 
@@ -627,6 +630,7 @@ function AuditTab({ headers }: { headers: Headers }) {
     const params = new URLSearchParams({ limit: String(LIMIT), offset: String(off) });
     if (filterUser) params.set("user_id", filterUser);
     if (filterAction) params.set("action", filterAction);
+    if (auditOnly) params.set("audit_only", "true");
     authFetch(`${getApiBase()}/api/admin/audit-log?${params}`, { headers })
       .then((r) => r.json())
       .then((d: { items: AuditEntry[] }) => {
@@ -635,7 +639,7 @@ function AuditTab({ headers }: { headers: Headers }) {
         setHasMore(rows.length === LIMIT);
       })
       .catch(() => {});
-  }, [headers, filterUser, filterAction]);
+  }, [headers, filterUser, filterAction, auditOnly]);
 
   useEffect(() => { setOffset(0); load(false, 0); }, [load]);
 
@@ -652,6 +656,10 @@ function AuditTab({ headers }: { headers: Headers }) {
                value={filterAction}
                onChange={(e) => setFilterAction(e.target.value)}
                style={fieldInputStyle(140)} />
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--aurora-fg2)", cursor: "pointer" }}>
+          <input type="checkbox" checked={auditOnly} onChange={(e) => setAuditOnly(e.target.checked)} />
+          只看管理操作、登录和远程命令
+        </label>
       </div>
 
       <Glass padding={6} radius={20}>
@@ -664,15 +672,21 @@ function AuditTab({ headers }: { headers: Headers }) {
           <div key={row.id} style={{
             padding: "10px 14px",
             borderTop: i === 0 ? "none" : "1px solid var(--aurora-border)",
-            display: "grid", gridTemplateColumns: "1fr 1fr 1.5fr 1fr 1fr",
+            display: "grid", gridTemplateColumns: "1fr 1.2fr 1.2fr 2fr 1fr",
             gap: 8, fontSize: 12, alignItems: "center",
           }}>
             <span style={{ color: "var(--aurora-fg4)" }} title={row.created_at}>
               {new Date(row.created_at).toLocaleString(dateFmt)}
             </span>
-            <code style={codeStyle}>{row.user_id ? row.user_id.slice(0, 8) + "…" : "—"}</code>
-            <Chip>{row.action}</Chip>
-            <code style={codeStyle}>{row.document_id ? row.document_id.slice(0, 8) + "…" : "—"}</code>
+            <span style={{ color: "var(--aurora-fg2)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                  title={row.user_id || ""}>
+              {(row.metadata?.actor_email as string) || (row.user_id ? row.user_id.slice(0, 8) + "…" : "—")}
+            </span>
+            <span title={row.action}><Chip>{AUDIT_ACTION_LABELS[row.action] || row.action}</Chip></span>
+            <span style={{ color: "var(--aurora-fg3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                  title={auditSummary(row.metadata)}>
+              {auditSummary(row.metadata) || (row.document_id ? `文档 ${row.document_id.slice(0, 8)}…` : "—")}
+            </span>
             <span style={{ color: "var(--aurora-fg4)", fontFamily: "var(--font-mono)" }}>{row.ip_address || "—"}</span>
           </div>
         ))}

@@ -140,6 +140,13 @@ def get_ai_providers(
     user_settings = custom_settings
     if not user_settings and user and hasattr(user, "llm_settings"):
         user_settings = user.llm_settings
+    if user_settings:
+        from .secret_box import reveal_llm_settings
+        from .enterprise_policy import model_endpoint_violation
+        user_settings = reveal_llm_settings(user_settings)
+        # A deployment limited to approved model endpoints ignores a user's own endpoint outside them
+        if user_settings.get("custom_enabled") and model_endpoint_violation(user_settings):
+            user_settings = {**user_settings, "custom_enabled": False}
 
     if user_settings and user_settings.get("custom_enabled"):
         u_base_url = (user_settings.get("base_url") or "").rstrip("/")

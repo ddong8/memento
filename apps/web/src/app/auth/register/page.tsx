@@ -8,7 +8,7 @@ import { Icon } from "@/components/aurora/Icon";
 import { Btn, Glass, GhostInput } from "@/components/aurora/primitives";
 import { TokenDisplay } from "@/components/TokenDisplay";
 import { api, type UserInfo } from "@/lib/api-client";
-import { GithubLoginSection } from "../github-login";
+import { GithubLoginSection, SsoLoginButton } from "../github-login";
 
 // Defined at module scope — NOT inside RegisterPage. Otherwise every keystroke
 // re-creates the component type and React remounts the subtree, stealing focus.
@@ -29,7 +29,7 @@ export default function RegisterPage() {
   const [inviteCode, setInviteCode] = useState("");
   const [error, setError] = useState("");
   const [registered, setRegistered] = useState<UserInfo | null>(null);
-  const [mode, setMode] = useState<{ mode: "open" | "invite_only" | "closed"; has_any_user: boolean; github_enabled?: boolean } | null>(null);
+  const [mode, setMode] = useState<{ mode: "open" | "invite_only" | "closed"; has_any_user: boolean; github_enabled?: boolean; sso_enabled?: boolean; sso_name?: string; password_login?: boolean } | null>(null);
   const { register } = useAuth();
   const { t } = useI18n();
 
@@ -146,6 +146,17 @@ export default function RegisterPage() {
       <p style={{ margin: "6px 0 22px", fontSize: 13, color: "var(--aurora-fg3)", textAlign: "center" }}>
         {t.app.title}
       </p>
+      {mode?.sso_enabled && (
+        <div style={{ marginBottom: mode.password_login === false && mode.has_any_user ? 0 : 16 }}>
+          <SsoLoginButton name={mode.sso_name || ""} />
+        </div>
+      )}
+      {/* Everyone signs in with the company account: no email + password registration */}
+      {mode?.password_login === false && mode.has_any_user ? (
+        <p style={{ textAlign: "center", fontSize: 13, color: "var(--aurora-fg3)", margin: "14px 0 0" }}>
+          {t.auth.ssoRequired}
+        </p>
+      ) : (<>
       {mode?.mode === "closed" && mode.has_any_user && (
         <div style={{
           padding: 10, borderRadius: 10, marginBottom: 12,
@@ -193,6 +204,7 @@ export default function RegisterPage() {
         </Btn>
       </form>
       {mode?.github_enabled && <GithubLoginSection />}
+      </>)}
       <p style={{ textAlign: "center", fontSize: 12, color: "var(--aurora-fg4)", marginTop: 18 }}>
         {t.auth.hasAccount}{" "}
         <Link href="/auth/login" style={{ color: "var(--aurora-accent)", fontWeight: 500 }}>

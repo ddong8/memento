@@ -9,7 +9,7 @@ import { Icon } from "@/components/aurora/Icon";
 import { Btn, Glass, GhostInput } from "@/components/aurora/primitives";
 import { getApiBase, openServerSwitchModal } from "@/lib/api-client";
 import { desktop } from "@/lib/desktop";
-import { GithubLoginSection, useGithubEnabled, useOauthErrorMessage } from "../github-login";
+import { GithubLoginSection, SsoLoginButton, useAuthOptions, useOauthErrorMessage } from "../github-login";
 import { WechatLoginSection, WechatMark } from "../wechat-login";
 
 export default function LoginPage() {
@@ -21,8 +21,12 @@ export default function LoginPage() {
   const { login, token, loading } = useAuth();
   const { t } = useI18n();
   const router = useRouter();
-  const githubEnabled = useGithubEnabled();
+  const authOptions = useAuthOptions();
   const oauthError = useOauthErrorMessage();
+  // Password sign-in turned off for the company: only the owner may still use it (to get in if SSO breaks)
+  const [ownerPassword, setOwnerPassword] = useState(false);
+  const classicLogin = authOptions.password_login || ownerPassword;
+  const githubEnabled = authOptions.github_enabled && authOptions.password_login;
 
   useEffect(() => {
     const initServer = async () => {
@@ -76,7 +80,21 @@ export default function LoginPage() {
     }
   };
 
-  const banner = error || oauthError;
+  const banner = error || (authOptions.sso_enabled ? "" : oauthError);
+  const errorBox = (text: string) => (
+    <div
+      style={{
+        padding: 10,
+        borderRadius: 10,
+        background: "rgba(239,68,68,0.10)",
+        color: "#B91C1C",
+        fontSize: 13,
+        letterSpacing: "-0.005em",
+      }}
+    >
+      {text}
+    </div>
+  );
 
   return (
     <div
@@ -124,6 +142,30 @@ export default function LoginPage() {
           {t.app.title}
         </p>
 
+        {authOptions.sso_enabled && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: classicLogin ? 4 : 0 }}>
+            {oauthError && errorBox(oauthError)}
+            <SsoLoginButton name={authOptions.sso_name} />
+            {classicLogin && (
+              <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "6px 0 10px" }}>
+                <div style={{ flex: 1, height: 1, background: "var(--aurora-border)" }} />
+                <span style={{ fontSize: 12, color: "var(--aurora-fg4)" }}>{t.auth.orContinueWith}</span>
+                <div style={{ flex: 1, height: 1, background: "var(--aurora-border)" }} />
+              </div>
+            )}
+          </div>
+        )}
+        {!classicLogin && (
+          <button
+            type="button"
+            onClick={() => { setOwnerPassword(true); setAuthTab("password"); }}
+            style={{ display: "block", margin: "14px auto 0", background: "none", border: "none", color: "var(--aurora-fg4)", fontSize: 12, cursor: "pointer", textDecoration: "underline" }}
+          >
+            {t.auth.ownerPasswordLogin}
+          </button>
+        )}
+        {classicLogin && (
+          <>
         {/* Tab Switcher */}
         <div
           style={{
@@ -227,12 +269,16 @@ export default function LoginPage() {
             {githubEnabled && <GithubLoginSection />}
           </>
         )}
-        <p style={{ textAlign: "center", fontSize: 12, color: "var(--aurora-fg4)", marginTop: 18 }}>
-          {t.auth.noAccount}{" "}
-          <Link href="/auth/register" style={{ color: "var(--aurora-accent)", fontWeight: 500 }}>
-            {t.register}
-          </Link>
-        </p>
+          </>
+        )}
+        {authOptions.password_login && (
+          <p style={{ textAlign: "center", fontSize: 12, color: "var(--aurora-fg4)", marginTop: 18 }}>
+            {t.auth.noAccount}{" "}
+            <Link href="/auth/register" style={{ color: "var(--aurora-accent)", fontWeight: 500 }}>
+              {t.register}
+            </Link>
+          </p>
+        )}
         <p style={{ textAlign: "center", fontSize: 11, color: "var(--aurora-fg4)", marginTop: 12 }}>
           使用即代表您已阅读并同意{" "}
           <Link href="/privacy" style={{ color: "var(--aurora-fg3)", textDecoration: "underline" }}>

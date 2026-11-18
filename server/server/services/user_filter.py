@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import Machine, User
+from .enterprise_policy import sees_all
 
 
 async def user_machine_ids(db: AsyncSession, user: User) -> list[uuid.UUID] | None:
@@ -16,7 +17,7 @@ async def user_machine_ids(db: AsyncSession, user: User) -> list[uuid.UUID] | No
     Returns None for admin/owner (no filtering needed — they see everything).
     Returns empty list if user has no devices (sees nothing).
     """
-    if user.role in ("admin", "owner"):
+    if sees_all(user):
         return None
     result = await db.execute(
         select(Machine.id).where(Machine.user_id == user.id)
@@ -62,7 +63,7 @@ async def find_machine_by_id_or_hash(
         Machine.merged_into.is_(None).desc(),
         Machine.last_heartbeat.desc().nullslast(),
     )
-    if user and user.role not in ("admin", "owner"):
+    if user and not sees_all(user):
         stmt = stmt.where(Machine.user_id == user.id)
     m = (await db.execute(stmt)).scalars().first()
     if m:
@@ -75,7 +76,7 @@ async def find_machine_by_id_or_hash(
     try:
         uid = uuid.UUID(device_id)
         stmt = select(Machine).where(Machine.id == uid)
-        if user and user.role not in ("admin", "owner"):
+        if user and not sees_all(user):
             stmt = stmt.where(Machine.user_id == user.id)
         m = (await db.execute(stmt)).scalars().first()
         if m is not None and m.merged_into is not None:

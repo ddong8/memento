@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `6eeb517a` · Updated: `2026-11-18`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `94139deb` · Updated: `2026-11-18`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -13,25 +13,25 @@
 - 类型 (Type): Monorepo (Workspaces)
 - 技术栈 (Stack): TypeScript/JavaScript, Python, Shell / Bash · React, Electron, Next.js, TailwindCSS, Model Context Protocol (MCP), FastAPI, SQLAlchemy, Celery
 - 基础设施 (Infra): PostgreSQL, pgvector (Vector DB), Redis, MinIO / S3 Object Storage, Celery Task Queue
-- 规模 (Scale): 9 个子系统 · 36 组 API 路由 / 242 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 230 个测试文件
+- 规模 (Scale): 9 个子系统 · 38 组 API 路由 / 252 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 232 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `6eeb517a` (2026-11-18): fix(web): 后台智能体运行标签恢复最初设计的深色胶囊，不再半透明透出下面的文字
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 61（✅ 61 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `F-ASK`, `R-ISLAND-CLEANUP`, `S-RUN-STATE`, `R-WS-EDIT-ONLY`, `R-WS-EXEC-STOP`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `S-CLIENT-VERSION`
+- 最近改动 (Latest): `94139deb` (2026-11-18): fix(web): 后台智能体展开面板也恢复最初设计的深海蓝底，不再是白色卡片
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 65（✅ 65 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `F-ASK`, `R-ISLAND-CLEANUP`, `S-RUN-STATE`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
 | 1. Project Overview & Tech Stack | L36-L42 |
 | 2. High-Level Architecture Topology | L44-L79 |
 | 3. Subsystem Breakdown & Responsibilities | L81-L93 |
-| 4. Key Entry Points & API Endpoints | L95-L471 |
-| 5. Core Domain Services & Background Schedules | L473-L513 |
-| 6.5. AST Call Graph, DTO Schemas & CLI Entrypoints | L515-L587 |
-| 7. CI/CD Pipelines, Code Hotspots & Test Suites | L589-L631 |
-| 8. Development & Verification Commands | L633-L650 |
-| 9. Recent Architectural Evolutions | L652-L659 |
-| 10. Key Environment Variables & Configuration | L661-L673 |
-| 11. 业务蓝图核对 (Business Blueprint Check) | L675-L685 |
+| 4. Key Entry Points & API Endpoints | L95-L485 |
+| 5. Core Domain Services & Background Schedules | L487-L527 |
+| 6.5. AST Call Graph, DTO Schemas & CLI Entrypoints | L529-L601 |
+| 7. CI/CD Pipelines, Code Hotspots & Test Suites | L603-L645 |
+| 8. Development & Verification Commands | L647-L664 |
+| 9. Recent Architectural Evolutions | L666-L673 |
+| 10. Key Environment Variables & Configuration | L675-L687 |
+| 11. 业务蓝图核对 (Business Blueprint Check) | L689-L699 |
 
 ## 1. Project Overview & Tech Stack
 
@@ -353,6 +353,15 @@ flowchart TD
 - `GET /api/agent/quotas`
 - `POST /api/agent/quotas/refresh`
 
+#### `/api/scim/v2` (scim.py)
+
+- `GET /api/scim/v2/ServiceProviderConfig`
+- `GET /api/scim/v2/ResourceTypes`
+- `GET /api/scim/v2/Users`
+- `GET /api/scim/v2/Users/{user_id}`
+- `POST /api/scim/v2/Users`
+- _... (3 more endpoints)_
+
 #### `/api/search` (search.py)
 
 - `GET /api/search`
@@ -374,6 +383,11 @@ flowchart TD
 - `POST /api/skills/{skill_id}/dismiss`
 - `POST /api/skills/{skill_id}/retire`
 - _... (5 more endpoints)_
+
+#### `/api/auth/oidc` (sso.py)
+
+- `GET /api/auth/oidc/authorize`
+- `GET /api/auth/oidc/callback`
 
 #### `/api/tasks` (tasks.py)
 
@@ -487,6 +501,7 @@ erDiagram
 | `ask_runs` | [`server/server/services/ask_runs.py`](server/server/services/ask_runs.py) | Ask runs that outlive the HTTP request that started them. |
 | `ask_store` | [`server/server/services/ask_store.py`](server/server/services/ask_store.py) | Persistence for /api/ask conversations: finding or creating them, appending |
 | `ask_stream` | [`server/server/services/ask_stream.py`](server/server/services/ask_stream.py) | Streaming for /api/ask: the direct-agent SSE stream and the response that |
+| `audit_service` | [`server/server/services/audit_service.py`](server/server/services/audit_service.py) | Audit trail of who did what: sign-ins, account and permission changes, remote commands, settings. |
 | `blueprint_pick` | [`server/server/services/blueprint_pick.py`](server/server/services/blueprint_pick.py) | Which of several devices' copies of a project's code blueprint describes the newest code. |
 | `business_blueprint` | [`server/server/services/business_blueprint.py`](server/server/services/business_blueprint.py) | BUSINESS_BLUEPRINT.md on the server: the copy to show, what its check says, and which of the user's own |
 | `cache` | [`server/server/services/cache.py`](server/server/services/cache.py) | Tiered L1 (in-process memory) and L2 (Redis-backed) JSON cache for hot read endpoints. |
@@ -503,14 +518,13 @@ erDiagram
 | `device_service` | [`server/server/services/device_service.py`](server/server/services/device_service.py) | Device service — registers and updates collector devices. |
 | `dreaming_service` | [`server/server/services/dreaming_service.py`](server/server/services/dreaming_service.py) | Dreaming Consolidation Service — Autonomous Memory Tiering & Sleep Replay. |
 | `embedding_service` | [`server/server/services/embedding_service.py`](server/server/services/embedding_service.py) | Embeddings for documents: chunk the text, embed only the chunks that changed. |
+| `enterprise_policy` | [`server/server/services/enterprise_policy.py`](server/server/services/enterprise_policy.py) | Deployment-wide policy for enterprise installs (settings in config.py, see docs/enterprise.md). |
 | `entity_canon` | [`server/server/services/entity_canon.py`](server/server/services/entity_canon.py) | One knowledge-graph entity per thing. |
 | `eval_service` | [`server/server/services/eval_service.py`](server/server/services/eval_service.py) | Retrieval evaluation: does Memento still find the right document? |
 | `export_service` | [`server/server/services/export_service.py`](server/server/services/export_service.py) | Account-level data export — builds a portable ZIP of the caller's own data. |
 | `fulltext` | [`server/server/services/fulltext.py`](server/server/services/fulltext.py) | Keyword matching over document_search: through its GIN index, with query terms weighted by rarity. |
 | `geoip` | [`server/server/services/geoip.py`](server/server/services/geoip.py) | Offline GeoIP lookup — reads a MaxMind/DB-IP .mmdb file from disk. |
 | `graph_service` | [`server/server/services/graph_service.py`](server/server/services/graph_service.py) | Knowledge graph auto-extraction — extracts entities and relations from conversations using LLM. |
-| `guard_service` | [`server/server/services/guard_service.py`](server/server/services/guard_service.py) | Completion check: the Stop hook the collector installs in Claude Code and Codex. |
-| `guidance_service` | [`server/server/services/guidance_service.py`](server/server/services/guidance_service.py) | What an AI should know before it acts: the user's rules, past pitfalls, and learned skills. |
 
 ## 6.5. AST Call Graph, DTO Schemas & CLI Entrypoints
 
@@ -538,10 +552,10 @@ erDiagram
 - `api/admin` ➔ `models/Tool`
 - `api/admin` ➔ `models/User`
 - `api/admin` ➔ `db/session`
+- `api/admin` ➔ `services/audit_service`
+- `api/admin` ➔ `services/enterprise_policy`
 - `api/ask` ➔ `models/Machine`
 - `api/ask` ➔ `models/User`
-- `api/ask` ➔ `db/session`
-- `api/ask` ➔ `services/ai_provider`
 
 ### Key Request / Response DTO & OpenAPI Schemas
 
@@ -555,7 +569,7 @@ erDiagram
 | `EnsureConversationBySessionRequest` | Pydantic DTO | [`server/server/api/ask_conversations.py`](server/server/api/ask_conversations.py) | `session_id: str`, `project_id: str \| None`, `execution_mode: str \| None`, `device_id: str \| None`, `cwd: str \| None` |
 | `UpdateConversationRequest` | Pydantic DTO | [`server/server/api/ask_conversations.py`](server/server/api/ask_conversations.py) | `title: str \| None`, `device_id: str \| None`, `cwd: str \| None`, `execution_mode: str \| None`, `model: str \| None`, `effort: str \| None` |
 | `RegisterRequest` | Pydantic DTO | [`server/server/api/auth.py`](server/server/api/auth.py) | `email: str`, `password: str`, `name: str \| None`, `invite_code: str \| None` |
-| `RegistrationModeResponse` | Pydantic DTO | [`server/server/api/auth.py`](server/server/api/auth.py) | `mode: str`, `has_any_user: bool`, `github_enabled: bool`, `wechat_enabled: bool` |
+| `RegistrationModeResponse` | Pydantic DTO | [`server/server/api/auth.py`](server/server/api/auth.py) | `mode: str`, `has_any_user: bool`, `github_enabled: bool`, `wechat_enabled: bool`, `sso_enabled: bool`, `sso_name: str` |
 | `LoginRequest` | Pydantic DTO | [`server/server/api/auth.py`](server/server/api/auth.py) | `email: str`, `password: str` |
 | `TokenResponse` | Pydantic DTO | [`server/server/api/auth.py`](server/server/api/auth.py) | `access_token: str`, `token_type: str`, `user_id: str`, `role: str` |
 | `UserResponse` | Pydantic DTO | [`server/server/api/auth.py`](server/server/api/auth.py) | `id: str`, `email: str`, `name: str \| None`, `role: str`, `status: str`, `collector_token: str \| None` |
@@ -609,9 +623,9 @@ erDiagram
 
 | Suite | Directory | Files | Sample Tests |
 | :--- | :--- | :--- | :--- |
-| server/tests (pytest) | [`server/tests`](server/tests) | 121 | `test_agent_ids.py`, `test_agent_limits.py`, `test_agent_login.py`, `test_agent_run_states.py`, `test_ai_provider.py` |
+| server/tests (pytest) | [`server/tests`](server/tests) | 122 | `test_agent_ids.py`, `test_agent_limits.py`, `test_agent_login.py`, `test_agent_run_states.py`, `test_ai_provider.py` |
 | packages/daemon/test (vitest / jest) | [`packages/daemon/test`](packages/daemon/test) | 58 | `agent-args.test.ts`, `agent-login.test.ts`, `agent-stream.test.ts`, `agy-models.test.ts`, `agy-project-folder.test.ts` |
-| apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 45 | `active-runs-chip.test.tsx`, `api-client.test.ts`, `ask-reading-and-persona-rules.test.tsx`, `ask-top-bar.test.tsx`, `auth-fetch.test.ts` |
+| apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 46 | `active-runs-chip.test.tsx`, `api-client.test.ts`, `ask-reading-and-persona-rules.test.tsx`, `ask-top-bar.test.tsx`, `audit-labels.test.ts` |
 | apps/mobile/test (vitest / jest) | [`apps/mobile/test`](apps/mobile/test) | 2 | `deeplink.test.ts`, `webview-props.test.ts` |
 | packages/core/test (vitest / jest) | [`packages/core/test`](packages/core/test) | 2 | `ask-stream.test.ts`, `task-events.test.ts` |
 | apps/desktop/test (vitest / jest) | [`apps/desktop/test`](apps/desktop/test) | 1 | `helpers.test.ts` |
@@ -619,12 +633,12 @@ erDiagram
 
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
-- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (9 commits)
+- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (8 commits)
 - [`apps/web/src/app/globals.css`](apps/web/src/app/globals.css) (7 commits)
 - [`apps/web/src/components/ExecutionCard.tsx`](apps/web/src/components/ExecutionCard.tsx) (7 commits)
+- [`apps/web/src/components/agent/ActiveRunsMonitor.tsx`](apps/web/src/components/agent/ActiveRunsMonitor.tsx) (7 commits)
 - [`apps/web/src/components/persona/DigitalTwinAvatar3D.tsx`](apps/web/src/components/persona/DigitalTwinAvatar3D.tsx) (7 commits)
 - [`apps/web/src/app/memory/page.tsx`](apps/web/src/app/memory/page.tsx) (6 commits)
-- [`apps/web/src/components/agent/ActiveRunsMonitor.tsx`](apps/web/src/components/agent/ActiveRunsMonitor.tsx) (6 commits)
 - [`apps/web/src/components/viewers/MediaInspectorPanel.tsx`](apps/web/src/components/viewers/MediaInspectorPanel.tsx) (6 commits)
 - [`packages/daemon/src/source-exec.ts`](packages/daemon/src/source-exec.ts) (6 commits)
 - [`apps/web/src/app/app/page.tsx`](apps/web/src/app/app/page.tsx) (5 commits)
@@ -651,12 +665,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `94139deb` (2026-11-18): fix(web): 后台智能体展开面板也恢复最初设计的深海蓝底，不再是白色卡片
 - `6eeb517a` (2026-11-18): fix(web): 后台智能体运行标签恢复最初设计的深色胶囊，不再半透明透出下面的文字
 - `0f38d660` (2026-11-18): fix(web): 后台智能体运行提示改成醒目的绿色标签，手机上也写明「后台任务 N」
 - `ff1ed31e` (2026-11-18): fix(远程任务): 代码所在设备上一条慢命令不再卡住同一项目后面的命令；升级客户端版本至 v1.0.142
 - `236ff4b5` (2026-11-18): feat(蓝图): 画像里有项目规则的项目自动生成业务蓝图，不再只能手动点按钮
 - `cab07086` (2026-11-18): fix(远程任务): 代码所在设备上的命令不再卡住后面的命令；任务停了它的命令一起停
-- `b2efa0d0` (2026-11-17): fix(技能): 手机上技能星图的「已接入」栏不再把名字挤断，操作提示不再被它盖住
 
 ## 10. Key Environment Variables & Configuration
 
@@ -674,15 +688,15 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 11. 业务蓝图核对 (Business Blueprint Check)
 
-- 业务蓝图：[BUSINESS_BLUEPRINT.md](BUSINESS_BLUEPRINT.md) · 规则 61（✅ 61 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
+- 业务蓝图：[BUSINESS_BLUEPRINT.md](BUSINESS_BLUEPRINT.md) · 规则 65（✅ 65 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
 - 结论：✅ 没有失效或违规
 
 ### 最近提交碰到的业务条目（改动后复查它们还成不成立）
 
+- `94139deb` fix(web): 后台智能体展开面板也恢复最初设计的深海蓝底，不再是白色卡片 → `F-ASK`, `R-ISLAND-CLEANUP`, `S-RUN-STATE`
 - `6eeb517a` fix(web): 后台智能体运行标签恢复最初设计的深色胶囊，不再半透明透出下面的文字 → `F-ASK`, `R-ISLAND-CLEANUP`, `S-RUN-STATE`
 - `0f38d660` fix(web): 后台智能体运行提示改成醒目的绿色标签，手机上也写明「后台任务 N」 → `F-ASK`, `R-ISLAND-CLEANUP`, `S-RUN-STATE`
 - `ff1ed31e` fix(远程任务): 代码所在设备上一条慢命令不再卡住同一项目后面的命令；升级客户端版本至 v1.0.142 → `R-WS-EDIT-ONLY`, `R-WS-EXEC-STOP`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `S-CLIENT-VERSION`
-- `236ff4b5` feat(蓝图): 画像里有项目规则的项目自动生成业务蓝图，不再只能手动点按钮 → `R-BIZ-AUTO`, `R-BUSINESS-CHECKED`
 
 ---
 _Auto-maintained by `scripts/project_blueprint.mjs` (v20261126) & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._

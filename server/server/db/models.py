@@ -400,6 +400,8 @@ class User(Base):
     collector_token: Mapped[str | None] = mapped_column(String(64), unique=True)
     github_id: Mapped[str | None] = mapped_column(String(50))
     wechat_openid: Mapped[str | None] = mapped_column(String(64), unique=True)
+    # Single sign-on identity: "<issuer>|<sub>" from the OpenID Connect provider (api/sso.py)
+    oidc_subject: Mapped[str | None] = mapped_column(String(512))
     # Phone push settings: {"bark_url", "notify_risky", "notify_task_done"}.
     notify_settings: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
     # 24/7 Always-on agent preferences: {"enabled", "morning_brief", "evening_reflection", "quiet_hours", etc.}
@@ -415,6 +417,10 @@ class User(Base):
 
     permissions: Mapped[list[Permission]] = relationship(
         back_populates="user", foreign_keys="[Permission.user_id]",
+    )
+
+    __table_args__ = (
+        Index("ix_users_oidc_subject", "oidc_subject", unique=True, postgresql_where=text("oidc_subject IS NOT NULL")),
     )
 
 

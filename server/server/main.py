@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from contextlib import asynccontextmanager
 from collections.abc import AsyncGenerator
@@ -13,7 +14,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from .middleware.etag import ETagMiddleware
 from .middleware.gzip_request import GzipRequestMiddleware
 
-from .api import admin, ask, auth, collect_exclusions, conversations, daily, dashboard, data_io, devices, documents, events, health, hierarchy, ingest, install_bootstrap, learning, life_rhythm, llm, media, memory, missions, notify, plans, proactive, profile, projects, public, quotas, search, share, skills, todos, tools, updates
+from .api import admin, ask, auth, collect_exclusions, conversations, daily, dashboard, data_io, devices, documents, events, health, hierarchy, ingest, install_bootstrap, learning, life_rhythm, llm, media, memory, missions, notify, plans, proactive, profile, projects, public, quotas, scim, search, share, skills, sso, todos, tools, updates
 # Aliased: `server.api.tasks` (remote device task queue) is a different module
 # from the `server.tasks` package (Celery jobs). Importing it bare here would
 # read as the latter.
@@ -128,6 +129,13 @@ def _run_migrations(conn) -> None:
         if "message_count" not in ask_cols:
             conn.execute(text("ALTER TABLE ask_conversations ADD COLUMN message_count INTEGER NOT NULL DEFAULT 0"))
             conn.execute(text("UPDATE ask_conversations SET message_count = jsonb_array_length(turns)"))
+
+    # User.oidc_subject — single sign-on identity (api/sso.py); one account per identity
+    if "oidc_subject" not in user_cols:
+        conn.execute(text("ALTER TABLE users ADD COLUMN oidc_subject VARCHAR(512)"))
+    conn.execute(text(
+        "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_oidc_subject ON users (oidc_subject) WHERE oidc_subject IS NOT NULL"
+    ))
 
     # User.github_id — GitHub OAuth login. Partial unique index: one account
     # per GitHub identity, while the many github_id IS NULL rows stay allowed.
@@ -645,6 +653,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         # Schema compatibility probe for multi-replica Kubernetes rolling updates
         async with engine.connect() as conn:
             await conn.execute(text("SELECT 1 FROM machines LIMIT 1"))
+    # Model API keys users saved before they were encrypted: encrypt them now (idempotent, not DDL)
+    try:
+        from .services.secret_box import seal_existing
+        async with engine.begin() as conn:
+            await conn.execute(text("SELECT pg_advisory_xact_lock(:id)"), {"id": _MIGRATION_LOCK_ID})
+            sealed = await conn.run_sync(seal_existing)
+        if sealed:
+            logging.getLogger("memento.secrets").info("encrypted the saved model API keys of %d users", sealed)
+    except Exception:
+        logging.getLogger("memento.secrets").exception("encrypting saved model API keys failed; they stay readable as before")
     # Coordination with the other api replicas (device connections, runs, locks)
     await cluster.start()
     # One computer, one device record: fold in records left behind by a changed device id.
@@ -702,6 +720,8 @@ app.add_middleware(
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 app.add_middleware(ETagMiddleware)
 app.add_middleware(GzipRequestMiddleware)
+from .middleware.audit_request import AuditRequestMiddleware  # noqa: E402
+app.add_middleware(AuditRequestMiddleware)
 
 # Register routers
 app.include_router(dashboard.router)
@@ -716,6 +736,8 @@ app.include_router(search.router)
 app.include_router(device_tasks_api.router)
 app.include_router(ask.router)
 app.include_router(auth.router)
+app.include_router(sso.router)
+app.include_router(scim.router)
 app.include_router(admin.router)
 app.include_router(events.router)
 app.include_router(devices.router)

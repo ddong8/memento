@@ -1149,7 +1149,7 @@ export const api = {
       body: JSON.stringify({ email, password, name, invite_code: inviteCode }),
     }),
   getRegistrationMode: () =>
-    apiFetch<{ mode: "open" | "invite_only" | "closed"; has_any_user: boolean; github_enabled: boolean }>("/api/auth/registration-mode"),
+    apiFetch<{ mode: "open" | "invite_only" | "closed"; has_any_user: boolean; github_enabled: boolean; sso_enabled?: boolean; sso_name?: string; password_login?: boolean }>("/api/auth/registration-mode"),
   login: (email: string, password: string) =>
     apiFetch<TokenResponse>("/api/auth/login", {
       method: "POST",

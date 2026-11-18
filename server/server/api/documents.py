@@ -18,6 +18,7 @@ from ..middleware.auth import get_current_user, get_optional_user
 from ..services.content_staging import with_pending
 from ..services.permission_service import can_view_document
 from ..services.user_filter import apply_user_filter, user_machine_ids
+from ..services.enterprise_policy import sees_all
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
 
@@ -203,7 +204,7 @@ async def get_document_backlinks(
         .distinct()
         .limit(limit)
     )
-    if _user.role not in ("admin", "owner"):
+    if not sees_all(_user):
         ent_q = ent_q.where(KnowledgeEntity.user_id == _user.id)
     ent_rows = (await db.execute(ent_q)).all()
     if not ent_rows:

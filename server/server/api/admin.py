@@ -18,6 +18,8 @@ from ..db.models import (
 )
 from ..db.session import get_db
 from ..middleware.auth import require_role
+from ..services import audit_service
+from ..services.enterprise_policy import sees_all
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -49,7 +51,8 @@ async def list_users(
             "name": u.name,
             "role": u.role,
             "status": u.status,
-            "collector_token": u.collector_token,
+            # A user's collector token signs in as them: only for an admin who may see their data anyway
+            "collector_token": u.collector_token if (sees_all(_user) or u.id == _user.id) else None,
             "created_at": u.created_at.isoformat(),
         }
         for u in users
@@ -71,10 +74,11 @@ async def approve_user(
         user.role = "viewer"
     if not user.collector_token:
         user.collector_token = secrets.token_hex(32)
+    await audit_service.record(db, _admin, "admin.user.approve", target_user_id=user.id, detail={"email": user.email})
     return {
         "status": "approved",
         "user_id": str(user.id),
-        "collector_token": user.collector_token,
+        "collector_token": user.collector_token if sees_all(_admin) else None,
         "role": user.role,
     }
 
@@ -108,10 +112,14 @@ async def update_user(
         if not other_owners.scalar_one_or_none():
             raise HTTPException(status_code=400, detail="cannot disable the last active owner")
 
+    before = {"role": user.role, "status": user.status}
     if req.role:
         user.role = req.role
     if req.status:
         user.status = req.status
+    await audit_service.record(db, caller, "admin.user.update", target_user_id=user.id, detail={
+        "email": user.email, "before": before, "after": {"role": user.role, "status": user.status},
+    })
     return {"status": "updated", "user_id": str(user.id), "role": user.role, "user_status": user.status}
 
 
@@ -128,7 +136,11 @@ async def admin_rotate_user_token(
     if not user:
         raise HTTPException(status_code=404)
     user.collector_token = secrets.token_hex(32)
-    return {"status": "rotated", "user_id": str(user.id), "collector_token": user.collector_token}
+    await audit_service.record(db, _admin, "admin.user.rotate_token", target_user_id=user.id, detail={"email": user.email})
+    # The old token stops working either way; the new one is shown only to an admin who sees everything
+    # (otherwise the user reads it from their own account)
+    return {"status": "rotated", "user_id": str(user.id),
+            "collector_token": user.collector_token if sees_all(_admin) else None}
 
 
 @router.post("/users/{user_id}/transfer-ownership")
@@ -156,6 +168,8 @@ async def transfer_ownership(
     caller_current = await db.get(User, caller.id)
     if caller_current:
         caller_current.role = keep_self_as
+    await audit_service.record(db, caller, "admin.owner.transfer", target_user_id=target.id,
+                               detail={"email": target.email, "caller_role": keep_self_as})
     return {
         "status": "transferred",
         "new_owner": str(target.id),
@@ -229,8 +243,14 @@ async def delete_user(
 
     # Permissions granted by / to this user
     # (Permission.user_id has ON DELETE CASCADE already; granted_by is SET NULL via nullable FK)
-    # We could null out AccessLog.user_id to preserve audit — but simpler to drop them.
-    await db.execute(delete(AccessLog).where(AccessLog.user_id == user_id))
+    # The audit trail stays: their entries are detached from the account (the email is in the metadata).
+    from sqlalchemy import update as sa_update
+    await db.execute(sa_update(AccessLog).where(AccessLog.user_id == user_id).values(user_id=None))
+    await db.execute(sa_update(InviteCode).where(InviteCode.created_by == user_id).values(created_by=None))
+    await db.execute(sa_update(Permission).where(Permission.granted_by == user_id).values(granted_by=None))
+    await audit_service.record(db, caller, "admin.user.delete", target_user_id=user_id, detail={
+        "email": user.email, "machines": len(machine_ids), "documents": docs_deleted,
+    })
 
     await db.execute(delete(User).where(User.id == user_id))
 
@@ -303,6 +323,9 @@ async def create_invite(
     )
     db.add(invite)
     await db.flush()
+    await audit_service.record(db, admin, "admin.invite.create", detail={
+        "invite_id": str(invite.id), "role_on_accept": invite.role_on_accept, "max_uses": invite.max_uses,
+    })
     return {
         "id": str(invite.id),
         "code": invite.code,
@@ -323,6 +346,7 @@ async def revoke_invite(
     if not invite:
         raise HTTPException(status_code=404)
     await db.delete(invite)
+    await audit_service.record(db, _admin, "admin.invite.revoke", detail={"invite_id": str(invite_id)})
     return {"status": "revoked"}
 
 
@@ -376,6 +400,9 @@ async def grant_permission(
     )
     db.add(perm)
     await db.flush()
+    await audit_service.record(db, admin, "admin.permission.grant", target_user_id=perm.user_id, detail={
+        "permission_id": str(perm.id), "project_id": req.project_id, "tool_id": req.tool_id, "permission": req.permission,
+    })
     return {"status": "granted", "permission_id": str(perm.id)}
 
 
@@ -389,7 +416,9 @@ async def revoke_permission(
     perm = result.scalar_one_or_none()
     if not perm:
         raise HTTPException(status_code=404)
+    target = perm.user_id
     await db.delete(perm)
+    await audit_service.record(db, _admin, "admin.permission.revoke", target_user_id=target, detail={"permission_id": str(perm_id)})
     return {"status": "revoked"}
 
 
@@ -448,10 +477,14 @@ async def get_audit_log(
     offset: int = 0,
     user_id: uuid.UUID | None = None,
     action: str | None = None,
+    audit_only: bool = False,
     _admin: User = Depends(require_role("admin", "owner")),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
+    limit = max(1, min(limit, 500))
     q = select(AccessLog).order_by(AccessLog.created_at.desc())
+    if audit_only:
+        q = q.where(AccessLog.metadata_["audit"].astext == "true")
     if user_id:
         q = q.where(AccessLog.user_id == user_id)
     if action:
@@ -465,6 +498,8 @@ async def get_audit_log(
                 "document_id": str(l.document_id) if l.document_id else None,
                 "action": l.action,
                 "ip_address": l.ip_address,
+                "user_agent": l.user_agent,
+                "metadata": l.metadata_ or {},
                 "created_at": l.created_at.isoformat(),
             }
             for l in rows

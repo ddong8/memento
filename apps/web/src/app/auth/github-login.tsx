@@ -110,18 +110,79 @@ export function useOauthErrorMessage(): string {
     github_oauth_failed: t.auth.githubOauthFailed,
     registration_closed: t.auth.registrationClosed,
     account_disabled: t.auth.accountDisabled,
+    sso_failed: t.auth.ssoFailed,
+    sso_domain_not_allowed: t.auth.ssoDomainNotAllowed,
+    sso_no_email: t.auth.ssoNoEmail,
+    sso_email_unverified: t.auth.ssoEmailUnverified,
+    sso_no_account: t.auth.ssoNoAccount,
+    sso_required: t.auth.ssoRequired,
   };
   return map[code] ?? t.auth.githubOauthFailed;
 }
 
-/** Whether the server has GitHub OAuth configured (public probe, no auth). */
-export function useGithubEnabled(): boolean {
-  const [enabled, setEnabled] = useState(false);
+export interface AuthOptions {
+  github_enabled: boolean;
+  wechat_enabled: boolean;
+  /** Company single sign-on (OpenID Connect) is configured */
+  sso_enabled: boolean;
+  /** What the login button calls it, e.g. "企业账号" */
+  sso_name: string;
+  /** Email + password (and GitHub / WeChat) sign-in; off when everyone uses the company account */
+  password_login: boolean;
+}
+
+const DEFAULT_AUTH_OPTIONS: AuthOptions = {
+  github_enabled: false,
+  wechat_enabled: false,
+  sso_enabled: false,
+  sso_name: "",
+  password_login: true,
+};
+
+/** Which sign-in methods the server offers (public probe, no auth). */
+export function useAuthOptions(): AuthOptions {
+  const [opts, setOpts] = useState<AuthOptions>(DEFAULT_AUTH_OPTIONS);
   useEffect(() => {
     fetch(`${getApiBase()}/api/auth/registration-mode`)
       .then((r) => (r.ok ? r.json() : null))
-      .then((d) => setEnabled(!!d?.github_enabled))
+      .then((d) => {
+        if (!d) return;
+        setOpts({
+          github_enabled: !!d.github_enabled,
+          wechat_enabled: !!d.wechat_enabled,
+          sso_enabled: !!d.sso_enabled,
+          sso_name: d.sso_name || "",
+          password_login: d.password_login !== false,
+        });
+      })
       .catch(() => {});
   }, []);
-  return enabled;
+  return opts;
+}
+
+/** Whether the server has GitHub OAuth configured (public probe, no auth). */
+export function useGithubEnabled(): boolean {
+  return useAuthOptions().github_enabled;
+}
+
+/** "Sign in with <company account>": full-page redirect into the identity provider. */
+export function SsoLoginButton({ name }: { name: string }) {
+  const { t } = useI18n();
+  const handle = () => {
+    const next = new URLSearchParams(window.location.search).get("next");
+    window.location.href =
+      `${getApiBase()}/api/auth/oidc/authorize` + (next ? `?next=${encodeURIComponent(next)}` : "");
+  };
+  return (
+    <Btn
+      type="button"
+      size="lg"
+      style={{ width: "100%", justifyContent: "center", gap: 8 }}
+      onClick={handle}
+      iconRight="arrow_right"
+      data-testid="sso-login"
+    >
+      {t.auth.continueWithSso.replace("{name}", name || "企业账号")}
+    </Btn>
+  );
 }

@@ -48,6 +48,8 @@ from ..services.agent_limits import mark_usage_limit
 from ..services.ws_manager import ws_manager
 from ..services.device_dispatch import deliver_task
 from ..services.device_service import HEARTBEAT_WRITE_EVERY
+from ..services.enterprise_policy import sees_all
+from ..services import audit_service
 
 logger = logging.getLogger("server.tasks_api")
 
@@ -119,7 +121,7 @@ async def _authorize_device(db: AsyncSession, device_id: str, user: User) -> Mac
             (Machine.collector_token_hash == device_id) | (Machine.name == device_id)
         ).order_by(Machine.last_heartbeat.desc().nulls_last())
     )).scalars().first()
-    if user.role not in ("admin", "owner"):
+    if not sees_all(user):
         if not machine or machine.user_id != user.id:
             raise HTTPException(status_code=404, detail="Device not found")
     if machine and bool(getattr(machine, "is_archived", False)):
@@ -218,6 +220,12 @@ async def create_task(
     await db.commit()
     await db.refresh(task)
     await deliver_task(db, task, machine)
+    preview = task_payload.get("command") or task_payload.get("prompt") or task_payload.get("user_question") or ""
+    await audit_service.record(db, _user, "device_task.dispatch", target_user_id=machine.user_id if machine else None, detail={
+        "task_id": str(task.id), "task_action": body.action, "device": machine.name if machine else device_id,
+        "other_users_device": bool(machine and machine.user_id != _user.id),
+        "preview": str(preview)[:300],
+    }, commit=True)
     logger.info(
         "task %s %s: action=%s device=%s by=%s",
         task.id, task.status, task.action, device_id, _user.email,
@@ -240,7 +248,7 @@ async def list_tasks(
         .order_by(DeviceTask.created_at.desc())
         .limit(min(limit, 200))
     )
-    if _user.role not in ("admin", "owner"):
+    if not sees_all(_user):
         q = q.where(DeviceTask.user_id == _user.id)
     if device_id:
         q = q.where(DeviceTask.device_id == device_id)
@@ -261,7 +269,7 @@ async def get_task(
     if not task:
         raise HTTPException(status_code=404)
     # Mask as 404 rather than 403 so task ids can't be probed for existence.
-    if _user.role not in ("admin", "owner") and task.user_id != _user.id:
+    if not sees_all(_user) and task.user_id != _user.id:
         raise HTTPException(status_code=404)
     return _serialize(task)
 
@@ -288,7 +296,7 @@ async def cancel_task(
     )).scalar_one_or_none()
     if not task:
         raise HTTPException(status_code=404)
-    if _user.role not in ("admin", "owner") and task.user_id != _user.id:
+    if not sees_all(_user) and task.user_id != _user.id:
         raise HTTPException(status_code=404)
     if task.status in ("succeeded", "failed", "timeout", "cancelled"):
         return _serialize(task)
@@ -321,7 +329,7 @@ async def send_task_input(
     )).scalar_one_or_none()
     if not task:
         raise HTTPException(status_code=404)
-    if _user.role not in ("admin", "owner") and task.user_id != _user.id:
+    if not sees_all(_user) and task.user_id != _user.id:
         raise HTTPException(status_code=404)
     conv_id = str((task.payload or {}).get("conversation_id") or "").strip()
     if task.status not in ("queued", "running"):
@@ -349,6 +357,8 @@ async def _authenticate_ws(
     # 1. Verify collector token
     res = await db.execute(select(User).where(User.collector_token == collector_token))
     user = res.scalars().first()
+    if user is not None and user.status != "active":
+        return None
     if not user:
         from ..config import settings
         if not (settings.collector_token and secrets.compare_digest(collector_token, settings.collector_token)):

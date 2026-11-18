@@ -90,10 +90,14 @@ async def test_dispatch_endpoint_sends_the_task_it_creates():
             patch.object(tasks_api, "_authorize_device", AsyncMock(return_value=machine)), \
             patch.object(tasks_api, "deliver_task", deliver):
         out = await tasks_api.create_task("laptop", tasks_api.CreateTask(action="shell", payload={"command": "ls"}), db, user)
-    task = db.add.call_args.args[0]
+    added = [c.args[0] for c in db.add.call_args_list]
+    task = next(a for a in added if isinstance(a, tasks_api.DeviceTask))
     assert task.device_id == "tok-a" and task.machine_id == machine.id
     deliver.assert_awaited_once_with(db, task, machine)
     assert out["id"] == str(task.id)
+    # Sending a command to a device is in the audit log, with what it runs
+    audit = next(a for a in added if a.__class__.__name__ == "AccessLog")
+    assert audit.action == "device_task.dispatch" and audit.metadata_["preview"] == "ls"
 
 
 @pytest.mark.asyncio

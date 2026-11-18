@@ -61,6 +61,7 @@ celery_app = Celery(
         "server.tasks.task_reaper",
         "server.tasks.content_merge",
         "server.tasks.message_audit",
+        "server.tasks.audit_retention",
     ],
 )
 
@@ -150,6 +151,11 @@ celery_app.conf.beat_schedule = {
     "health-check": {
         "task": "server.tasks.health_check.check_health",
         "schedule": crontab(minute="5,35"),
+    },
+    # Daily 04:20 — drop audit log entries past MEMENTO_AUDIT_RETENTION_DAYS.
+    "audit-retention": {
+        "task": "server.tasks.audit_retention.purge_old_audit_entries",
+        "schedule": crontab(hour=4, minute=20),
     },
     # Every 10 min — mark device tasks no device will report on any more as timed out.
     "close-stale-tasks": {

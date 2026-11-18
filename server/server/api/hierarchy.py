@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..db.models import Document, Machine, Project, Tool, User
 from ..db.session import get_db
 from ..middleware.auth import get_current_user
+from ..services.enterprise_policy import sees_all
 
 router = APIRouter(prefix="/api/hierarchy", tags=["hierarchy"])
 
@@ -20,7 +21,7 @@ def _check_machine_access(machine: Machine | None, user: User) -> Machine | None
     """Return None if user has no access to the machine."""
     if machine is None:
         return None
-    if user.role in ("admin", "owner"):
+    if sees_all(user):
         return machine
     if machine.user_id != user.id:
         return None
@@ -59,7 +60,7 @@ async def list_devices_with_tools(
         return cached
 
     machines_q = select(Machine).where(Machine.merged_into.is_(None), Machine.is_archived.is_(False)).order_by(Machine.name)
-    if _user.role not in ("admin", "owner"):
+    if not sees_all(_user):
         machines_q = machines_q.where(Machine.user_id == _user.id)
     machines_res = await db.execute(machines_q)
     machines_list = list(machines_res.scalars().all())

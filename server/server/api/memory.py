@@ -26,7 +26,9 @@ router = APIRouter(prefix="/api/memory", tags=["memory"])
 
 
 def _is_admin(user: User) -> bool:
-    return user.role in ("admin", "owner")
+    # Sees every user's content (enterprise_policy: off for admins under MEMENTO_ADMIN_SCOPE=own)
+    from ..services.enterprise_policy import sees_all
+    return sees_all(user)
 
 
 def _user_entity_ids_subq(user: User):

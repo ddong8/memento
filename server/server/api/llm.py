@@ -13,6 +13,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..db.models import User
 from ..db.session import get_db
 from ..middleware.auth import get_current_user
+from ..services import audit_service
+from ..services.enterprise_policy import model_endpoint_violation
+from ..services.secret_box import reveal_llm_settings, seal_llm_settings
 from ..services.ai_provider import (
     get_system_default_llm_info,
 )
@@ -152,7 +155,7 @@ class LLMTestBody(BaseModel):
 @router.get("")
 async def get_llm_settings(user: User = Depends(get_current_user)) -> dict:
     """Retrieve current user's custom LLM settings along with system defaults and presets."""
-    saved = dict(user.llm_settings or {})
+    saved = reveal_llm_settings(user.llm_settings)
     raw_key = saved.get("api_key") or ""
     raw_fallback_key = saved.get("fallback_api_key") or ""
 
@@ -194,7 +197,7 @@ async def update_llm_settings(
     user: User = Depends(get_current_user),
 ) -> dict:
     """Update current user's custom LLM configuration."""
-    existing = dict(user.llm_settings or {})
+    existing = reveal_llm_settings(user.llm_settings)
     data = body.model_dump()
     # The agent settings live alongside, saved from their own section
     if isinstance(existing.get("agent"), dict):
@@ -223,14 +226,23 @@ async def update_llm_settings(
     if data.get("fallback_base_url"):
         data["fallback_base_url"] = data["fallback_base_url"].strip().rstrip("/")
 
-    user.llm_settings = data
+    policy_error = model_endpoint_violation(data)
+    if policy_error:
+        raise HTTPException(status_code=403, detail=policy_error)
+
+    user.llm_settings = seal_llm_settings(data)
     await db.commit()
+    await audit_service.record(db, user, "llm_settings.update", detail={
+        "base_url": data.get("base_url") or "", "fallback_base_url": data.get("fallback_base_url") or "",
+        "custom_enabled": bool(data.get("custom_enabled")),
+    }, commit=True)
 
     key_masked = _mask_key(data.get("api_key"))
     fallback_key_masked = _mask_key(data.get("fallback_api_key"))
 
+    # Never send a key back: the client only gets the masked form
     settings_resp = {
-        **data,
+        **{k: v for k, v in data.items() if k not in ("api_key", "fallback_api_key")},
         "api_key_masked": key_masked,
         "has_api_key": bool(data.get("api_key")),
         "fallback_api_key_masked": fallback_key_masked,
@@ -292,7 +304,7 @@ async def test_llm_connection(
 ) -> dict:
     """Test LLM API connectivity and latency."""
     import os
-    saved = dict(user.llm_settings or {})
+    saved = reveal_llm_settings(user.llm_settings)
     sys_def = get_system_default_llm_info()
 
     base_url = (body.base_url or "").strip().rstrip("/")
@@ -317,6 +329,10 @@ async def test_llm_connection(
     # If still no key, and targeting system default base_url, pick system key
     if not api_key and base_url == sys_def.get("base_url"):
         api_key = os.environ.get("MEMENTO_AI_API_KEY", "").strip()
+
+    policy_error = model_endpoint_violation({"base_url": base_url})
+    if policy_error:
+        return {"ok": False, "success": False, "error": policy_error, "latency_ms": 0}
 
     if not base_url:
         return {

@@ -29,7 +29,9 @@ raw_router = APIRouter(prefix="/agent/quotas", tags=["quotas"])
 raw_compat_router = APIRouter(prefix="/quotas", tags=["quotas"])
 
 def _sees_all(user: User) -> bool:
-    return user.role in ("admin", "owner")
+    # Sees every user's content (enterprise_policy: off for admins under MEMENTO_ADMIN_SCOPE=own)
+    from ..services.enterprise_policy import sees_all
+    return sees_all(user)
 
 
 async def _find_machine(db: AsyncSession, user: User, device_id: str) -> Machine | None:

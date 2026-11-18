@@ -63,6 +63,9 @@ async def verify_collector_token(
     result = await db.execute(select(User).where(User.collector_token == x_collector_token))
     user = result.scalar_one_or_none()
     if user:
+        # A disabled account's devices stop syncing too (offboarding, SCIM deactivation)
+        if user.status != "active":
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Account is not active")
         return await _signed_in(db, user)
 
     # Fallback: legacy global token → owner user

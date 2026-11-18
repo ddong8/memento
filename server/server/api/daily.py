@@ -15,6 +15,7 @@ from ..db.session import get_db
 from ..middleware.auth import get_current_user
 from ..services.cache import cache_delete_prefix, cache_get, cache_set
 from ..services.user_filter import user_machine_ids
+from ..services.enterprise_policy import sees_all
 
 router = APIRouter(prefix="/api/daily", tags=["daily"])
 
@@ -180,7 +181,7 @@ async def get_daily(
 
     # Get daily summaries — scoped to the current user. admin/owner see all.
     summary_q = select(DailySummary).where(DailySummary.summary_date == target_date)
-    if _user.role not in ("admin", "owner"):
+    if not sees_all(_user):
         summary_q = summary_q.where(DailySummary.user_id == _user.id)
     # as_of snapshot: don't reveal summaries baked AFTER the share was
     # created (otherwise late-night AI re-bakes show through to old

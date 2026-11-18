@@ -23,7 +23,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..config import settings
 from ..db.models import InviteCode, User
 from ..db.session import get_db
-from ..services import rate_limit
+from ..services import audit_service, rate_limit
+from .sso import oidc_enabled
 from ..services.cache import cache_get, cache_set
 from ..middleware.auth import (
     create_access_token, get_current_user, hash_password, verify_password,
@@ -53,6 +54,10 @@ class RegistrationModeResponse(BaseModel):
     has_any_user: bool
     github_enabled: bool = False
     wechat_enabled: bool = False
+    # Enterprise sign-in (api/sso.py) and whether email + password still works
+    sso_enabled: bool = False
+    sso_name: str = ""
+    password_login: bool = True
 
 
 class LoginRequest(BaseModel):
@@ -92,6 +97,9 @@ async def registration_mode(db: AsyncSession = Depends(get_db)) -> RegistrationM
         has_any_user=has_any,
         github_enabled=bool(settings.github_client_id and settings.github_client_secret),
         wechat_enabled=bool(settings.wechat_token),
+        sso_enabled=oidc_enabled(),
+        sso_name=settings.oidc_display_name or "",
+        password_login=settings.password_login,
     )
 
 
@@ -127,6 +135,10 @@ async def register(
             raise HTTPException(status_code=400, detail="Invite code expired")
         if invite.use_count >= invite.max_uses:
             raise HTTPException(status_code=400, detail="Invite code already used up")
+
+    # Everyone signs in through the company's identity provider: no email + password accounts
+    if not is_first_user and not settings.password_login:
+        raise HTTPException(status_code=403, detail="请使用企业账号登录")
 
     # Apply registration_mode gating (skipped for first user + when a valid invite consumed)
     if not is_first_user and invite is None:
@@ -239,11 +251,17 @@ async def login(
     if not user or not user.hashed_password or not verify_password(req.password, user.hashed_password):
         await rate_limit.hit(account_key, LOGIN_WINDOW)
         await rate_limit.hit(ip_key, LOGIN_WINDOW)
+        await audit_service.record(db, user, "auth.login_failed", detail={"email": req.email.strip().lower()},
+                                   request=request, commit=True)
         raise HTTPException(status_code=401, detail="Invalid credentials")
     if user.status != "active":
         raise HTTPException(status_code=403, detail="Account not yet approved")
+    # Password sign-in turned off for the company: only the owner keeps it, to get in if SSO breaks
+    if not settings.password_login and user.role != "owner":
+        raise HTTPException(status_code=403, detail="请使用企业账号登录")
 
     await rate_limit.reset(account_key)
+    await audit_service.record(db, user, "auth.login", request=request)
     token = create_access_token(str(user.id), user.role)
     return TokenResponse(access_token=token, user_id=str(user.id), role=user.role)
 
@@ -431,8 +449,12 @@ async def github_callback(
 
     if user.status != "active":
         return _error("account_disabled")
+    if not settings.password_login and user.role != "owner":
+        await db.rollback()
+        return _error("sso_required")
 
     await db.flush()
+    await audit_service.record(db, user, "auth.github.login", request=request)
     token = create_access_token(str(user.id), user.role)
     # Token goes in the URL FRAGMENT — fragments never reach server logs.
     return RedirectResponse(
@@ -794,6 +816,9 @@ async def poll_wechat_ticket_endpoint(
 
     if user.status != "active":
         return {"status": "account_disabled", "detail": "账号已被停用"}
+    if not settings.password_login and user.role != "owner":
+        await db.rollback()
+        return {"status": "sso_required", "detail": "请使用企业账号登录"}
 
     # Invalidate ticket so it cannot be reused
     await _delete_ticket_data(ticket)

@@ -17,6 +17,7 @@ from typing import Any
 
 from ..db.models import User
 from .cluster import SharedDict, cluster
+from .enterprise_policy import sees_all
 
 _capabilities = SharedDict(cluster, "device_capabilities")
 _quotas = SharedDict(cluster, "device_quotas")
@@ -30,7 +31,7 @@ def record_owner(names: Iterable[str | None], user_id: str | None) -> None:
 
 def visible_to(name: str, user: User | None) -> bool:
     """Admins and the owner see every device's reports, other users only their own."""
-    if user is None or user.role in ("admin", "owner"):
+    if user is None or sees_all(user):
         return True
     return _owners.data.get(name) == str(user.id)
 

@@ -3,16 +3,16 @@
 <!-- memento:business-index:start (自动生成，勿手改) -->
 > 先读这一段定位；要细节时按下表行号只读对应章节。改了「代码位置」里的文件，先看对应条目还成不成立。
 
-- 汇总：规则 61（✅ 61 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
+- 汇总：规则 65（✅ 65 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
 - 核对：全部通过（详见末尾「自动核对」）
 
 | 章节 | 行号 |
 | :--- | :--- |
 | 1. 业务对象与术语 | L21-L65 |
 | 2. 关键流程 | L67-L124 |
-| 3. 业务规则 | L126-L492 |
-| 4. 状态归属 | L494-L539 |
-| 自动核对 (Auto Check) | L542-L643 |
+| 3. 业务规则 | L126-L520 |
+| 4. 状态归属 | L522-L567 |
+| 自动核对 (Auto Check) | L570-L675 |
 <!-- memento:business-index:end -->
 > 业务蓝图：memento 应该做成什么样，每一条落在哪段代码、由哪个测试或检查保证。和代码蓝图 [CODE_BLUEPRINT.md](CODE_BLUEPRINT.md)（代码长什么样）配合看：代码蓝图回答"在哪里"，这份回答"应该怎样、为什么"。
 > 规则来自用户的原话和纠正（CLAUDE.md、长期记忆、每晚复盘），不是从代码里反推的；代码和这里对不上，先当成代码的问题查。
@@ -177,6 +177,34 @@
 - 代码: `server/server/services/business_blueprint.py#auto_generate`, `server/server/services/business_blueprint.py#needs_generation`, `server/server/services/business_blueprint.py#dispatch_generation`, `server/server/services/pulse_service.py#_pulse_user`, `server/server/api/projects.py#generate_business_blueprint`
 - 测试: `server/tests/test_business_blueprint.py#test_sends_one_for_a_project_with_rules_and_none_yet_on_an_online_device`, `server/tests/test_business_blueprint.py#test_offline_device_or_switch_off_sends_nothing_and_keeps_the_weeks_turn`, `server/tests/test_business_blueprint.py#test_which_projects_need_one`
 - 要求: `business_blueprint.auto_generate` @ `server/server/services/pulse_service.py`
+
+### R-ENT-ADMIN-SCOPE 企业部署里管理员只管账号，不看别人的对话、记忆和设备
+- 来源: 用户 11-18「我这个系统给企业部署你觉得可行吗」→「全部做完吧」（排查发现管理员和所有者能看所有人的对话、往任何人的电脑派命令）
+- 说明: 部署设置 MEMENTO_ADMIN_SCOPE=own 时，管理员和所有者跟普通用户一样只看得到、只操作得了自己的设备、对话、记忆和任务，仍可管理账号、邀请码、权限和看审计日志；用户列表也不再给出别人的采集令牌（凭它能以那人的身份登录）。默认 all 保持个人部署原来的样子。账号停用后它的采集令牌立即失效，设备不再能同步和接收命令。
+- 代码: `server/server/services/enterprise_policy.py#sees_all`, `server/server/services/user_filter.py#user_machine_ids`, `server/server/api/tasks.py#_authorize_device`, `server/server/api/admin.py#list_users`, `server/server/middleware/auth.py#verify_collector_token`
+- 测试: `server/tests/test_enterprise.py#test_admins_see_everyone_by_default_and_only_their_own_under_own`, `server/tests/test_enterprise.py#test_under_own_an_admin_cant_send_commands_to_someone_elses_device`, `server/tests/test_enterprise.py#test_under_own_the_user_list_doesnt_hand_out_other_peoples_collector_tokens`, `server/tests/test_enterprise.py#test_a_disabled_accounts_collector_token_stops_working`
+- 要求: `admin_scope: str = "all"` @ `server/server/config.py`; `if not sees_all(user):` @ `server/server/api/tasks.py`
+
+### R-ENT-SSO 企业员工用公司统一账号登录，离职由身份平台自动停用
+- 来源: 用户 11-18「全部做完吧」（企业部署缺单点登录和离职自动停用）
+- 说明: 配好 OpenID Connect（Keycloak、Authing、Azure AD、Okta 等，公司目录可经 Keycloak 接入）后登录页出现「使用企业账号登录」。按身份平台的主体标识认账号，邮箱经身份平台确认（或在公司域名内）才能关联已有账号；可限定邮箱域名，可按组决定管理员。关掉密码登录后，只有所有者还能用密码登录（身份平台出问题时进得来），GitHub、微信登录同样关闭。SCIM 接口供身份平台开通和停用账号，停用只改状态不删数据。
+- 代码: `server/server/api/sso.py#resolve_user`, `server/server/api/sso.py#oidc_callback`, `server/server/api/scim.py#patch_user`, `server/server/api/auth.py#login`, `apps/web/src/app/auth/github-login.tsx#SsoLoginButton`, `apps/web/src/app/auth/login/page.tsx`
+- 测试: `server/tests/test_enterprise.py#test_full_code_flow_verifies_signature_nonce_and_pkce`, `server/tests/test_enterprise.py#test_other_email_domains_are_turned_away`, `server/tests/test_enterprise.py#test_an_existing_account_is_linked_by_a_vouched_email_and_its_role_follows_the_groups`, `server/tests/test_enterprise.py#test_with_password_login_off_only_the_owner_still_signs_in_with_a_password`, `server/tests/test_enterprise.py#test_deactivating_disables_the_account_without_deleting_it`
+- 要求: `"code_challenge_method": "S256"` @ `server/server/api/sso.py`; `app.include_router(scim.router)` @ `server/server/main.py`
+
+### R-ENT-AUDIT 谁登录、改了账号和权限、往设备派了命令都留审计记录
+- 来源: 用户 11-18「全部做完吧」（审计日志原来只记文档访问）
+- 说明: 登录（成功、失败、企业账号、被拒）、批准和修改账号、重置令牌、删除账号、转让所有者、邀请码、授权和收权、向设备派命令（带命令前 300 字）、访问他人设备、修改模型配置、身份平台开通和停用，都记操作人、对象、来源地址。删除账号时保留它的审计记录。按 MEMENTO_AUDIT_RETENTION_DAYS（默认 365 天）每天清理过期记录。记录失败不影响操作本身。管理后台的审计页默认只看这些操作。
+- 代码: `server/server/services/audit_service.py#record`, `server/server/tasks/audit_retention.py#purge_old_audit_entries`, `server/server/api/admin.py#get_audit_log`, `apps/web/src/lib/audit-labels.ts#auditSummary`
+- 测试: `server/tests/test_enterprise.py#test_an_entry_records_actor_target_and_details`, `server/tests/test_enterprise.py#test_recording_never_breaks_the_action`, `server/tests/test_enterprise.py#test_changing_a_role_is_audited`, `server/tests/test_device_dispatch.py#test_dispatch_endpoint_sends_the_task_it_creates`, `apps/web/test/audit-labels.test.ts#sums an entry up`
+- 要求: `"device_task.dispatch"` @ `server/server/api/tasks.py`; `"server.tasks.audit_retention"` @ `server/server/tasks/celery_app.py`
+
+### R-ENT-SECRETS 用户填的模型密钥加密存库，只能用管理员允许的模型服务
+- 来源: 用户 11-18「全部做完吧」（模型密钥明文存在数据库里，员工可以把内容发给任意模型服务）
+- 说明: 用户的模型 API 密钥加密后存入数据库，接口只返回遮住的形式；启动时把以前明文存的密钥补加密。部署设置 MEMENTO_ALLOWED_MODEL_HOSTS 列出允许的模型服务域名后，填别的服务保存和测试都会被拒，以前存的也不再使用。
+- 代码: `server/server/services/secret_box.py#seal`, `server/server/services/secret_box.py#seal_existing`, `server/server/api/llm.py#update_llm_settings`, `server/server/services/ai_provider.py#get_ai_providers`, `server/server/services/enterprise_policy.py#model_endpoint_violation`
+- 测试: `server/tests/test_enterprise.py#test_saving_model_settings_stores_the_key_encrypted_and_never_returns_it`, `server/tests/test_enterprise.py#test_saving_an_endpoint_the_deployment_doesnt_allow_is_refused`, `server/tests/test_enterprise.py#test_a_users_own_endpoint_outside_the_allowed_ones_isnt_used`, `server/tests/test_enterprise.py#test_seal_reveal_roundtrip_and_plaintext_passthrough`
+- 要求: `user.llm_settings = seal_llm_settings(data)` @ `server/server/api/llm.py`; `seal_existing` @ `server/server/main.py`
 
 ### R-WS-EXEC-STOP 代码所在设备上一条慢命令或停掉的任务不卡住后面的命令
 - 来源: 用户 11-17「我发现有时候远程任务执行命令会卡住啊」（vps3 上 Antigravity 在 Mac 上跑 `find ~ -maxdepth 4` 没结束，任务停掉后它还在跑，后面的 `ls -d` 和别的任务的命令都排在它后面等到 30 分钟超时）
@@ -543,7 +571,7 @@
 
 > 生成器随每次提交核对：代码位置还在不在、测试还在不在、禁止 / 要求的写法满不满足。✅ 通过 · ⚠️ 缺代码位置、测试或来源 · ❌ 位置失效或违反规则（CI 会拦下）。
 
-- 汇总：规则 61（✅ 61 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
+- 汇总：规则 65（✅ 65 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
 
 | 编号 | 名称 | 代码位置 | 测试 | 检查 | 结论 |
 | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -575,6 +603,10 @@
 | `R-WS-BIG-UNTRACKED` | 跨设备改代码时，没进 .gitignore 的大文件不让任务失败 | 4/4 | 1/1 | 1/1 | ✅ |
 | `R-WS-EDIT-ONLY` | 远程执行机只改代码，测试、构建、提交、推送等其余工作都在代码所在的设备上做 | 9/9 | 8/8 | 2/2 | ✅ |
 | `R-BIZ-AUTO` | 画像里有项目规则的项目自动生成业务蓝图，不靠手动点按钮 | 5/5 | 3/3 | 1/1 | ✅ |
+| `R-ENT-ADMIN-SCOPE` | 企业部署里管理员只管账号，不看别人的对话、记忆和设备 | 5/5 | 4/4 | 2/2 | ✅ |
+| `R-ENT-SSO` | 企业员工用公司统一账号登录，离职由身份平台自动停用 | 6/6 | 5/5 | 2/2 | ✅ |
+| `R-ENT-AUDIT` | 谁登录、改了账号和权限、往设备派了命令都留审计记录 | 4/4 | 5/5 | 2/2 | ✅ |
+| `R-ENT-SECRETS` | 用户填的模型密钥加密存库，只能用管理员允许的模型服务 | 5/5 | 4/4 | 2/2 | ✅ |
 | `R-WS-EXEC-STOP` | 代码所在设备上一条慢命令或停掉的任务不卡住后面的命令 | 6/6 | 5/5 | 2/2 | ✅ |
 | `R-PROJECT-EXCLUDE` | 测试用的项目可以不采集，已采集的数据和从中学到的东西一并清掉 | 8/8 | 3/3 | 3/3 | ✅ |
 | `R-RUN-OUTLIVES-PAGE` | 运行不因页面关闭、切后台、发版而中断 | 2/2 | 4/4 | — | ✅ |

@@ -22,6 +22,7 @@ from sqlalchemy.orm import defer
 
 from ..db.models import Document, Machine, User
 from .ingest_service import _clean_source_path, _is_invalid_project_name, _prettify_project_name, is_junk_project
+from .enterprise_policy import sees_all
 
 _EPOCH = datetime.min.replace(tzinfo=timezone.utc)
 
@@ -86,7 +87,7 @@ def pick_project_path(placements: Iterable[Placement], slug: str, title: str | N
 async def device_index(db: AsyncSession, user: User) -> dict[uuid.UUID, DeviceRef]:
     """Map every machine record, merged ones included, to the device the device list shows for it."""
     q = select(Machine)
-    if user.role not in ("admin", "owner"):
+    if not sees_all(user):
         q = q.where(Machine.user_id == user.id)
     machines = list((await db.execute(q)).scalars().all())
     by_id = {m.id: m for m in machines}

@@ -47,6 +47,7 @@ from .agent_limits import mark_usage_limit, usage_limit_message
 from .risk_policy import classify_shell_command
 from .device_dispatch import OFFLINE_ERROR, SEND_FAILED_ERROR
 from .ws_manager import ws_manager
+from .enterprise_policy import sees_all
 
 logger = logging.getLogger("server.orchestrator")
 
@@ -422,7 +423,7 @@ async def _tool_list_devices(db: AsyncSession, user: User) -> dict:
     try:
         from .mind_resonance_service import detect_scenario, enrich_device_listing
         q = select(Machine).where(Machine.merged_into.is_(None), Machine.is_archived.is_(False)).order_by(Machine.last_heartbeat.desc().nulls_last())
-        if user.role not in ("admin", "owner"):
+        if not sees_all(user):
             q = q.where(Machine.user_id == user.id)
         machines = (await db.execute(q)).scalars().all()
         now = datetime.now(timezone.utc)
@@ -748,7 +749,7 @@ async def _tool_run_on_device(db: AsyncSession, user: User, args: dict, *, class
         # If device_id is omitted by the model, select target machine via affinity routing
         if not device_id:
             mq = select(Machine).where(Machine.merged_into.is_(None), Machine.is_archived.is_(False)).order_by(Machine.last_heartbeat.desc().nulls_last())
-            if user.role not in ("admin", "owner"):
+            if not sees_all(user):
                 mq = mq.where(Machine.user_id == user.id)
             machines = (await db.execute(mq)).scalars().all()
             machine = await _select_affinity_machine(db, user, list(machines), args)
@@ -763,7 +764,7 @@ async def _tool_run_on_device(db: AsyncSession, user: User, args: dict, *, class
                 ).order_by(Machine.last_heartbeat.desc().nulls_last())
             )).scalars().first()
 
-        if not machine or (user.role not in ("admin", "owner") and machine.user_id != user.id):
+        if not machine or (not sees_all(user) and machine.user_id != user.id):
             yield {
                 "type": "tool_result",
                 "name": "run_on_device",

@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `0f38d660` · Updated: `2026-11-18`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `6eeb517a` · Updated: `2026-11-18`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,7 +16,7 @@
 - 规模 (Scale): 9 个子系统 · 36 组 API 路由 / 242 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 230 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `0f38d660` (2026-11-18): fix(web): 后台智能体运行提示改成醒目的绿色标签，手机上也写明「后台任务 N」
+- 最近改动 (Latest): `6eeb517a` (2026-11-18): fix(web): 后台智能体运行标签恢复最初设计的深色胶囊，不再半透明透出下面的文字
 - 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 61（✅ 61 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `F-ASK`, `R-ISLAND-CLEANUP`, `S-RUN-STATE`, `R-WS-EDIT-ONLY`, `R-WS-EXEC-STOP`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `S-CLIENT-VERSION`
 
 | 章节 (Section) | 行号 (Lines) |
@@ -624,10 +624,10 @@ erDiagram
 - [`apps/web/src/components/ExecutionCard.tsx`](apps/web/src/components/ExecutionCard.tsx) (7 commits)
 - [`apps/web/src/components/persona/DigitalTwinAvatar3D.tsx`](apps/web/src/components/persona/DigitalTwinAvatar3D.tsx) (7 commits)
 - [`apps/web/src/app/memory/page.tsx`](apps/web/src/app/memory/page.tsx) (6 commits)
+- [`apps/web/src/components/agent/ActiveRunsMonitor.tsx`](apps/web/src/components/agent/ActiveRunsMonitor.tsx) (6 commits)
 - [`apps/web/src/components/viewers/MediaInspectorPanel.tsx`](apps/web/src/components/viewers/MediaInspectorPanel.tsx) (6 commits)
 - [`packages/daemon/src/source-exec.ts`](packages/daemon/src/source-exec.ts) (6 commits)
 - [`apps/web/src/app/app/page.tsx`](apps/web/src/app/app/page.tsx) (5 commits)
-- [`apps/web/src/components/agent/ActiveRunsMonitor.tsx`](apps/web/src/components/agent/ActiveRunsMonitor.tsx) (5 commits)
 - [`apps/web/src/components/layout/Sidebar.tsx`](apps/web/src/components/layout/Sidebar.tsx) (5 commits)
 
 ## 8. Development & Verification Commands
@@ -651,12 +651,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `6eeb517a` (2026-11-18): fix(web): 后台智能体运行标签恢复最初设计的深色胶囊，不再半透明透出下面的文字
 - `0f38d660` (2026-11-18): fix(web): 后台智能体运行提示改成醒目的绿色标签，手机上也写明「后台任务 N」
 - `ff1ed31e` (2026-11-18): fix(远程任务): 代码所在设备上一条慢命令不再卡住同一项目后面的命令；升级客户端版本至 v1.0.142
 - `236ff4b5` (2026-11-18): feat(蓝图): 画像里有项目规则的项目自动生成业务蓝图，不再只能手动点按钮
 - `cab07086` (2026-11-18): fix(远程任务): 代码所在设备上的命令不再卡住后面的命令；任务停了它的命令一起停
 - `b2efa0d0` (2026-11-17): fix(技能): 手机上技能星图的「已接入」栏不再把名字挤断，操作提示不再被它盖住
-- `18070f04` (2026-11-17): fix(记忆): 手机上星图图例六项一行放下，不用横向滚动才看到「规则」「其它」
 
 ## 10. Key Environment Variables & Configuration
 
@@ -679,10 +679,10 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ### 最近提交碰到的业务条目（改动后复查它们还成不成立）
 
+- `6eeb517a` fix(web): 后台智能体运行标签恢复最初设计的深色胶囊，不再半透明透出下面的文字 → `F-ASK`, `R-ISLAND-CLEANUP`, `S-RUN-STATE`
 - `0f38d660` fix(web): 后台智能体运行提示改成醒目的绿色标签，手机上也写明「后台任务 N」 → `F-ASK`, `R-ISLAND-CLEANUP`, `S-RUN-STATE`
 - `ff1ed31e` fix(远程任务): 代码所在设备上一条慢命令不再卡住同一项目后面的命令；升级客户端版本至 v1.0.142 → `R-WS-EDIT-ONLY`, `R-WS-EXEC-STOP`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `S-CLIENT-VERSION`
 - `236ff4b5` feat(蓝图): 画像里有项目规则的项目自动生成业务蓝图，不再只能手动点按钮 → `R-BIZ-AUTO`, `R-BUSINESS-CHECKED`
-- `cab07086` fix(远程任务): 代码所在设备上的命令不再卡住后面的命令；任务停了它的命令一起停 → `R-WS-EDIT-ONLY`, `R-WS-EXEC-STOP`, `R-DEVICE-ENV-PROFILE`
 
 ---
 _Auto-maintained by `scripts/project_blueprint.mjs` (v20261126) & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._

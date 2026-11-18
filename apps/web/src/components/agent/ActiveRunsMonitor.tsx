@@ -714,24 +714,25 @@ export default function ActiveRunsMonitor() {
               </div>
             ) : (
               <div
-                className="rounded-2xl transition-all duration-300 overflow-hidden w-full flex flex-col"
+                className="rounded-2xl shadow-2xl transition-all duration-300 overflow-hidden w-full flex flex-col"
                 style={{
-                  background: "var(--aurora-surface-solid)",
-                  border: "1px solid var(--aurora-border)",
-                  boxShadow: "var(--aurora-card-shadow-hover)",
+                  background: "linear-gradient(145deg, rgba(15, 23, 42, 0.98), rgba(30, 41, 59, 0.97))",
+                  border: "1px solid rgba(56, 189, 248, 0.35)",
+                  boxShadow: "0 20px 45px -10px rgba(0, 0, 0, 0.55), 0 0 25px rgba(56, 189, 248, 0.2)",
                   maxHeight: "min(480px, 70vh)",
                 }}
+                data-testid="active-runs-panel"
               >
                 {/* Header bar */}
-                <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-[var(--aurora-border)] shrink-0">
+                <div className="flex items-center justify-between px-3.5 py-2.5 bg-white/5 border-b border-white/10 shrink-0">
                   <div className="flex items-center gap-2.5">
                     <span className="relative flex h-2.5 w-2.5">
                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                       <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
                     </span>
-                    <span className="text-xs font-semibold text-[var(--aurora-fg1)] tracking-wide flex items-center gap-1.5">
+                    <span className="text-xs font-semibold text-white tracking-wide flex items-center gap-1.5">
                       后台智能体运行中
-                      <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-[var(--aurora-accent-soft)] text-[var(--aurora-accent)] font-mono">
+                      <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-sky-500/20 text-sky-300 font-mono">
                         {unobservedActiveRuns.length}
                       </span>
                     </span>
@@ -742,7 +743,7 @@ export default function ActiveRunsMonitor() {
                       type="button"
                       onClick={() => setCollapsed(true)}
                       title="收起为精简胶囊"
-                      className="px-2 py-1 rounded-lg text-[var(--aurora-fg2)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)] transition-colors flex items-center gap-1 text-[11px]"
+                      className="px-2 py-1 rounded-lg text-gray-300 hover:text-white hover:bg-white/10 transition-colors flex items-center gap-1 text-[11px]"
                     >
                       <span>收起</span>
                       <Icon name="chevron_up" size={13} />
@@ -752,7 +753,7 @@ export default function ActiveRunsMonitor() {
 
                 {/* Expanded list of active runs */}
                 <div
-                  className="divide-y divide-[var(--aurora-border)] overflow-y-auto flex-1"
+                  className="divide-y divide-white/5 overflow-y-auto flex-1"
                   style={{
                     overscrollBehavior: "contain",
                     WebkitOverflowScrolling: "touch",
@@ -766,7 +767,7 @@ export default function ActiveRunsMonitor() {
                     return (
                       <div
                         key={run.conversation_id}
-                        className="p-3.5 flex flex-col gap-2 hover:bg-[var(--aurora-chip)] transition-colors"
+                        className="p-3.5 flex flex-col gap-2 hover:bg-white/[0.03] transition-colors"
                       >
                         {/* Top status info line */}
                         <div className="flex items-center justify-between gap-2">
@@ -785,26 +786,26 @@ export default function ActiveRunsMonitor() {
 
                             {/* Model or device info */}
                             {run.model && (
-                              <span className="px-1.5 py-0.5 rounded text-[10px] bg-[var(--aurora-chip)] text-[var(--aurora-fg2)] font-mono border border-[var(--aurora-border)]">
+                              <span className="px-1.5 py-0.5 rounded text-[10px] bg-white/5 text-gray-300 font-mono border border-white/10">
                                 {run.model}
                               </span>
                             )}
                             {run.device_name && (
-                              <span className="px-1.5 py-0.5 rounded text-[10px] bg-[var(--aurora-chip)] text-[var(--aurora-fg3)] border border-[var(--aurora-border)]">
+                              <span className="px-1.5 py-0.5 rounded text-[10px] bg-white/5 text-gray-400 border border-white/10">
                                 {run.device_name}
                               </span>
                             )}
                           </div>
 
                           {/* Live Timer */}
-                          <div className="flex items-center gap-1 font-mono text-xs text-emerald-600 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/25 flex-shrink-0">
+                          <div className="flex items-center gap-1 font-mono text-xs text-emerald-400 bg-emerald-950/40 px-2 py-0.5 rounded-full border border-emerald-500/30 flex-shrink-0">
                             <Icon name="clock" size={11} />
                             <span>{formatDuration(run.started_at)}</span>
                           </div>
                         </div>
 
                         {/* Question / Task title */}
-                        <div className="text-xs font-medium text-[var(--aurora-fg1)] line-clamp-1">
+                        <div className="text-xs font-medium text-white line-clamp-1">
                           {run.question || run.title || "后台长任务"}
                         </div>
 
@@ -812,19 +813,19 @@ export default function ActiveRunsMonitor() {
                         <div
                           className="rounded-xl px-2.5 py-2 flex items-center gap-2 border"
                           style={{
-                            background: "var(--aurora-chip)",
-                            borderColor: "var(--aurora-border)",
+                            background: "rgba(15, 23, 42, 0.6)",
+                            borderColor: "rgba(56, 189, 248, 0.2)",
                           }}
                         >
-                          <Icon name={getStepIcon(run.step_type)} size={12} className="flex-shrink-0 animate-pulse" style={{ color: "var(--aurora-accent)" }} />
-                          <span className="text-[11px] text-[var(--aurora-fg2)] line-clamp-1 font-mono flex-1">
+                          <Icon name={getStepIcon(run.step_type)} size={12} className="flex-shrink-0 animate-pulse" style={{ color: "#38bdf8" }} />
+                          <span className="text-[11px] text-sky-200 line-clamp-1 font-mono flex-1">
                             {run.current_step || "正在执行…"}
                           </span>
                         </div>
 
                         {/* Action buttons */}
                         <div className="flex items-center justify-between gap-2 pt-1">
-                          <span className="text-[10px] text-[var(--aurora-fg3)]">
+                          <span className="text-[10px] text-gray-400">
                             {run.events} 步
                           </span>
 
@@ -835,9 +836,11 @@ export default function ActiveRunsMonitor() {
                               onClick={() => jumpToChat(run.conversation_id)}
                               className="px-2.5 py-1 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all"
                               style={{
-                                background: isCurrentChat ? "var(--aurora-chip)" : "var(--aurora-accent-soft)",
-                                border: "1px solid var(--aurora-border)",
-                                color: isCurrentChat ? "var(--aurora-fg3)" : "var(--aurora-accent)",
+                                background: isCurrentChat
+                                  ? "rgba(255, 255, 255, 0.1)"
+                                  : "linear-gradient(135deg, rgba(56, 189, 248, 0.2), rgba(99, 102, 241, 0.2))",
+                                border: "1px solid rgba(56, 189, 248, 0.4)",
+                                color: isCurrentChat ? "#94a3b8" : "#38bdf8",
                               }}
                             >
                               <span>{isCurrentChat ? "当前所在对话" : "直达对话"}</span>
@@ -849,7 +852,7 @@ export default function ActiveRunsMonitor() {
                               type="button"
                               disabled={isCancelling}
                               onClick={(e) => handleCancel(e, run.conversation_id)}
-                              className="px-2 py-1 rounded-lg text-xs font-medium text-rose-600 hover:text-rose-700 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 transition-all flex items-center gap-1"
+                              className="px-2 py-1 rounded-lg text-xs font-medium text-rose-300 hover:text-white bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 transition-all flex items-center gap-1"
                             >
                               <span>{isCancelling ? "停止中..." : "终止"}</span>
                             </button>

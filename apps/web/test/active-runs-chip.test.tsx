@@ -65,4 +65,26 @@ describe("background runs chip", () => {
     // Opaque dark background: the page under it doesn't show through
     expect(chip!.getAttribute("style") || "").toContain("rgba(15, 23, 42, 0.97)");
   });
+
+  it("expanded, the panel is the same opaque dark navy as first designed, not a white card", async () => {
+    Object.defineProperty(window, "innerWidth", { value: 1440, configurable: true });
+    await act(async () => {
+      root.render(<ActiveRunsMonitor />);
+    });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
+    const chip = container.querySelector('[data-testid="active-runs-chip"]') as HTMLElement | null;
+    expect(chip).not.toBeNull();
+    await act(async () => {
+      chip!.click();
+    });
+    const panel = container.querySelector('[data-testid="active-runs-panel"]') as HTMLElement | null;
+    expect(panel).not.toBeNull();
+    const style = panel!.getAttribute("style") || "";
+    expect(style).toContain("rgba(15, 23, 42, 0.98)");
+    expect(style).not.toContain("aurora-surface");
+    expect(panel!.textContent).toContain("后台智能体运行中");
+    expect(panel!.textContent).toContain("直达对话");
+  });
 });

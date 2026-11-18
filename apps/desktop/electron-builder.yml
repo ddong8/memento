@@ -25,14 +25,17 @@ mac:
     - target: zip
       arch: [arm64]
   icon: build/icon.png
-  # No Developer ID yet: ad-hoc signed in CI with a stable designated
-  # requirement (afterSign), so auto-updates keep the same identity.
+  # Without a Developer ID in the repository's secrets: ad-hoc signed in CI with a stable designated
+  # requirement (afterSign), so auto-updates keep the same identity. With one, desktop-release.yml
+  # passes the identity, the hardened runtime and build/entitlements.mac.plist, and notarizes.
   identity: null
   hardenedRuntime: false
   extendInfo:
     LSUIElement: false
     CFBundleDisplayName: Memento
     CFBundleName: Memento
+    # Asked for under the hardened runtime of a Developer ID build (osascript in updates)
+    NSAppleEventsUsageDescription: Memento 更新自身和打开其他应用时需要发送 Apple 事件。
 win:
   target:
     - target: nsis

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Used only when the app is signed with a Developer ID (hardened runtime, for notarization). -->
+<plist version="1.0">
+<dict>
+  <!-- V8's JIT in Electron and the bundled Node runtimes -->
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+  <!-- Native modules of the daemon and the agent CLIs it starts -->
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+  <!-- The agents and terminals it runs get the user's environment -->
+  <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+  <true/>
+  <!-- osascript for updating in place and talking to other apps -->
+  <key>com.apple.security.automation.apple-events</key>
+  <true/>
+</dict>
+</plist>

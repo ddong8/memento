@@ -17,7 +17,10 @@ app.setName("Memento");
 app.commandLine.appendSwitch("enable-gpu-rasterization");
 app.commandLine.appendSwitch("enable-zero-copy");
 
-import { deviceFilePath, loadConfig, saveConfig, type CollectorConfig } from "@memento/daemon";
+import { DEFAULT_SERVER_URL, deviceFilePath, loadConfig, managedPolicy, saveConfig, type CollectorConfig } from "@memento/daemon";
+
+/** The server this computer uses by default: the one the company's IT fixed (managed policy), else memento's. */
+const defaultServerUrl = (): string => managedPolicy().serverUrl || DEFAULT_SERVER_URL;
 
 import { DaemonHost, type DaemonMode } from "./daemon-host";
 import {
@@ -1036,7 +1039,7 @@ function createTray(): void {
 async function checkForUpdates(manual: boolean): Promise<void> {
   if (!app.isPackaged) return;
   try {
-    const baseUrl = (config?.serverUrl || "https://mem.ihasy.com").replace(/\/+$/, "");
+    const baseUrl = (config?.serverUrl || defaultServerUrl()).replace(/\/+$/, "");
     autoUpdater.setFeedURL({
       provider: "generic",
       url: `${baseUrl}/api/system/update`,
@@ -1116,7 +1119,10 @@ if [ -n "$SRC_APP" ] && [ -d "$SRC_APP" ] && [ -n "$TARGET_APP" ]; then
         cp -R "$SRC_APP" "$TARGET_APP"
         xattr -cr "$TARGET_APP" 2>/dev/null || true
     fi
-    codesign --force --deep -s - -r='designated => identifier "com.ihasy.memento.desktop"' "$TARGET_APP" 2>/dev/null || true
+    # An ad-hoc build gets its stable designated requirement back; one signed with a Developer ID keeps that signature
+    if ! codesign -dv "$TARGET_APP" 2>&1 | grep -q "Authority=Developer ID Application"; then
+        codesign --force --deep -s - -r='designated => identifier "com.ihasy.memento.desktop"' "$TARGET_APP" 2>/dev/null || true
+    fi
 fi
 
 if [ -n "$TEMP_DIR" ] && [ -d "$TEMP_DIR" ]; then
@@ -1198,7 +1204,7 @@ function setupUpdater(): void {
           detail: `下载遇到网络阻断或超时：${err instanceof Error ? err.message : String(err)}\n建议直接通过官网下载完整安装包。`,
         });
         if (errResp === 0) {
-          const baseUrl = (config?.serverUrl || "https://mem.ihasy.com").replace(/\/+$/, "");
+          const baseUrl = (config?.serverUrl || defaultServerUrl()).replace(/\/+$/, "");
           void shell.openExternal(`${baseUrl}/download`);
         }
       });
@@ -1415,9 +1421,11 @@ function setupIpc(): void {
     return false;
   });
   handle("server:get", () => ({
-    current: config?.serverUrl || "https://mem.ihasy.com",
+    current: config?.serverUrl || defaultServerUrl(),
     webUrl: config?.webUrl,
-    defaultUrl: "https://mem.ihasy.com",
+    defaultUrl: defaultServerUrl(),
+    // The company's IT fixed the server: the page hides switching
+    locked: !!managedPolicy().serverUrl,
   }));
   handle("server:test", async (_e, url: unknown) => {
     if (typeof url !== "string") return { ok: false, latencyMs: 0, error: "无效的 URL" };
@@ -1442,6 +1450,10 @@ function setupIpc(): void {
       return { ok: false, error: "无效的服务器地址" };
     }
     const cleanUrl = opt.url.trim().replace(/\/+$/, "");
+    const fixed = managedPolicy().serverUrl;
+    if (fixed && cleanUrl !== fixed) {
+      return { ok: false, error: `这台电脑的管理员已指定服务器 ${fixed}，不能切换` };
+    }
     if (!/^https?:\/\/[^/]/.test(cleanUrl) || !URL.canParse(cleanUrl)) {
       return { ok: false, error: "服务器地址必须以 http:// 或 https:// 开头" };
     }

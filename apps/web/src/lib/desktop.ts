@@ -65,6 +65,8 @@ export interface ServerInfo {
   current: string;
   webUrl?: string;
   defaultUrl: string;
+  /** The company's IT fixed the server on this computer (managed policy): switching is refused */
+  locked?: boolean;
 }
 
 export interface ServerTestResult {

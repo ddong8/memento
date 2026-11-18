@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { hostname, platform as osPlatform } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
+import { managedPolicy } from "./managed-policy.js";
 
 /**
  * The daemon's settings, in ~/.memento (collector.json, device_id, remote_exec_key).
@@ -123,6 +124,10 @@ export async function loadConfig(options: { home?: string; env?: NodeJS.ProcessE
   } catch {
     // A broken config file falls back to environment and defaults.
   }
+
+  // The company's IT fixed the server on this computer (managed-policy.ts): it wins over everything
+  const managed = managedPolicy(env).serverUrl;
+  if (managed) serverUrl = managed;
 
   const plat = platformLabel();
   return {

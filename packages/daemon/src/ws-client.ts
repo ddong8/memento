@@ -15,6 +15,7 @@ import { cancelSourceExec, commitOnSource, execOnSource, readOnSource, writeOnSo
 import { computeBackoffWithJitter, parseTaskDispatch, TaskRunner } from "./task-runner.js";
 import { applyWorkspaceRequest, exportWorkspace, WorkspaceError } from "./workspace.js";
 import { flushPendingPatches, type Relay } from "./workspace-sync.js";
+import { assertPathAllowed } from "./managed-policy.js";
 
 type Log = (message: string) => void;
 
@@ -453,6 +454,7 @@ export class WsTaskClient {
   private async handleFileStat(reqId: string, rawPath: string): Promise<void> {
     const path = deviceFilePath(rawPath);
     try {
+      assertPathAllowed(path);
       const st = await stat(path);
       if (!st.isFile()) throw new Error(`File not found on device: ${path}`);
       this.sendJson({ type: "file_stat_resp", req_id: reqId, exists: true, total_size: st.size });
@@ -471,6 +473,7 @@ export class WsTaskClient {
     const path = deviceFilePath(rawPath);
     let handle: Awaited<ReturnType<typeof open>> | undefined;
     try {
+      assertPathAllowed(path);
       handle = await open(path, "r");
       const buffer = Buffer.alloc(Math.max(0, Math.min(length, 8 * 1024 * 1024)));
       const { bytesRead } = await handle.read(buffer, 0, buffer.length, offset);
@@ -498,7 +501,7 @@ export class WsTaskClient {
     const reqId = String(data.req_id ?? "");
     try {
       const have = Array.isArray(data.have) ? data.have.map(String) : [];
-      const r = await exportWorkspace(deviceFilePath(String(data.path ?? "")), have);
+      const r = await exportWorkspace(assertPathAllowed(deviceFilePath(String(data.path ?? ""))), have);
       this.log(`Workspace export of ${r.root}: ${r.upToDate ? "up to date" : `${r.size} bytes`}`);
       this.sendJson({
         type: "workspace_resp",
@@ -528,7 +531,7 @@ export class WsTaskClient {
     const path = String(data.path ?? "");
     try {
       this.log(`Running a command for an agent on another device in ${path}: ${String(data.command ?? "").slice(0, 200)}`);
-      const r = await execOnSource(deviceFilePath(path), data);
+      const r = await execOnSource(assertPathAllowed(deviceFilePath(path)), data);
       this.log(`Command for the agent on another device exited ${r.exit_code} after ${r.seconds}s`);
       this.sendJson({ type: "workspace_resp", req_id: reqId, ...r });
     } catch (e) {
@@ -542,7 +545,7 @@ export class WsTaskClient {
     const path = String(data.path ?? "");
     try {
       this.log(`Committing for an agent on another device in ${path}: ${String(data.message ?? "").split("\n")[0]!.slice(0, 120)}`);
-      const r = await commitOnSource(deviceFilePath(path), data);
+      const r = await commitOnSource(assertPathAllowed(deviceFilePath(path)), data);
       this.log(r.sha ? `Committed ${r.sha.slice(0, 8)} for the agent on another device` : `Commit for the agent on another device failed (exit ${r.exit_code})`);
       this.sendJson({ type: "workspace_resp", req_id: reqId, ...r });
     } catch (e) {
@@ -554,7 +557,7 @@ export class WsTaskClient {
   private async handleWorkspaceGet(data: Record<string, unknown>): Promise<void> {
     const reqId = String(data.req_id ?? "");
     try {
-      const r = await readOnSource(deviceFilePath(String(data.path ?? "")), data);
+      const r = await readOnSource(assertPathAllowed(deviceFilePath(String(data.path ?? ""))), data);
       this.log(`Sent ${r.path} (${r.size} bytes) to an agent on another device`);
       this.sendJson({ type: "workspace_resp", req_id: reqId, ...r });
     } catch (e) {
@@ -566,7 +569,7 @@ export class WsTaskClient {
   private async handleWorkspacePut(data: Record<string, unknown>): Promise<void> {
     const reqId = String(data.req_id ?? "");
     try {
-      const r = await writeOnSource(deviceFilePath(String(data.path ?? "")), data);
+      const r = await writeOnSource(assertPathAllowed(deviceFilePath(String(data.path ?? ""))), data);
       this.log(`Wrote ${r.path} (${r.size} bytes) for an agent on another device${r.backup ? `, backup ${r.backup}` : ""}`);
       this.sendJson({ type: "workspace_resp", req_id: reqId, ...r });
     } catch (e) {
@@ -616,7 +619,7 @@ export class WsTaskClient {
   private async handleWorkspaceApply(data: Record<string, unknown>): Promise<void> {
     const reqId = String(data.req_id ?? "");
     try {
-      const { result: r, reply } = await applyWorkspaceRequest(deviceFilePath(String(data.path ?? "")), data);
+      const { result: r, reply } = await applyWorkspaceRequest(assertPathAllowed(deviceFilePath(String(data.path ?? ""))), data);
       const commits = r.commits?.length ? `, ${r.commits.length} commit(s) ${r.committed === "branch" ? "on the branch" : `kept on ${r.commitBranch}`}` : "";
       const push = r.push ? `, push ${r.push.status}` : "";
       this.log(`Workspace patch of task ${String(data.task_id ?? "")}: ${r.applied ? "applied" : r.conflict ? `conflict, kept on ${r.branch ?? "patch file"}` : "saved"}${commits}${push}`);

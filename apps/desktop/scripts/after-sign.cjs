@@ -6,6 +6,8 @@ const path = require("node:path");
 
 exports.default = async function afterSign(context) {
   if (context.electronPlatformName !== "darwin") return;
+  // Signed with a Developer ID (and notarized) in CI: re-signing ad hoc would undo that
+  if (process.env.MEMENTO_DEVELOPER_ID === "1") return;
   const app = path.join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`);
   const id = context.packager.appInfo.id;
   execFileSync("codesign", ["--force", "--deep", "-s", "-", `-r=designated => identifier "${id}"`, app], { stdio: "inherit" });

@@ -52,6 +52,7 @@ import { IdleCompactor, matchingBuild } from "./claude-cache.js";
 import { fetchClaudeSession, findClaudeSession } from "./session-sync.js";
 import { executorDenyReason, executorOnlyEdits, SourceExecBridge, sourceExecHint } from "./source-exec.js";
 import { TaskWorktree } from "./worktree.js";
+import { managedPolicy, pathAllowed, taskRefusal } from "./managed-policy.js";
 import { finishWorkspace, parseWorkspaceSpec, prepareWorkspace, toSourcePaths, type Relay, type WorkspaceRun } from "./workspace-sync.js";
 
 /** A task the server dispatched to this device. */
@@ -1018,6 +1019,12 @@ export class TaskRunner {
     const taskId = task.id;
     const { action, payload } = task;
     const text = (key: string) => (payload[key] == null ? "" : String(payload[key]));
+    const notAllowed = taskRefusal(action);
+    if (notAllowed) {
+      this.log(`Refused task ${taskId}: ${notAllowed}`);
+      this.send(taskFinishedMessage({ taskId, status: "failed", exitCode: 1, error: notAllowed, errorType: "policy" }));
+      return;
+    }
     const wsSpec = action === "agent" ? parseWorkspaceSpec(payload.workspace) : undefined;
     /** The code is on another device: the agent works in this device's clone of it. */
     let wsRun: WorkspaceRun | undefined;
@@ -1046,6 +1053,18 @@ export class TaskRunner {
       }
     } else {
       workDir = resolveWorkingDir(text("cwd"), this.log);
+    }
+
+    // The company's policy on this computer (managed-policy.ts): which tasks, in which directories
+    const refusal =
+      (!wsRun && managedPolicy().allowedRoots.length && !(workDir && pathAllowed(workDir))
+        ? `这台电脑的管理员策略只允许在 ${managedPolicy().allowedRoots.join("、")} 里运行任务${workDir ? `，${workDir} 不在其中` : ""}`
+        : null);
+    if (refusal) {
+      this.log(`Refused task ${taskId}: ${refusal}`);
+      this.send(taskFinishedMessage({ taskId, status: "failed", exitCode: 1, error: refusal, errorType: "policy" }));
+      this.eventLogs.delete(taskId);
+      return;
     }
 
     // Refresh the living blueprint before the agent starts, but never hold the task up more than 3 s

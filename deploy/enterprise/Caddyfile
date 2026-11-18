@@ -1,0 +1,20 @@
+# memento 的统一入口。MEMENTO_SITE 和 MEMENTO_TLS 来自 .env（见 .env.example）。
+{$MEMENTO_SITE} {
+	{$MEMENTO_TLS}
+	encode gzip
+
+	@api path /api/* /health /health/* /docs /docs/* /openapi.json /install /install/* /install.sh /install.ps1
+	handle @api {
+		# Answers stream (SSE) and devices hold WebSockets: pass everything through as it comes
+		reverse_proxy api:8000 {
+			flush_interval -1
+		}
+	}
+	handle {
+		reverse_proxy web:3000
+	}
+
+	request_body {
+		max_size 512MB
+	}
+}

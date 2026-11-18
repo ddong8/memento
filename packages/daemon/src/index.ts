@@ -18,3 +18,4 @@ export * from "./task-runner.js";
 export * from "./workbuddy.js";
 export * from "./worktree.js";
 export * from "./ws-client.js";
+export * from "./managed-policy.js";

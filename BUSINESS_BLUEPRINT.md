@@ -3,16 +3,16 @@
 <!-- memento:business-index:start (自动生成，勿手改) -->
 > 先读这一段定位；要细节时按下表行号只读对应章节。改了「代码位置」里的文件，先看对应条目还成不成立。
 
-- 汇总：规则 65（✅ 65 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
+- 汇总：规则 67（✅ 67 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
 - 核对：全部通过（详见末尾「自动核对」）
 
 | 章节 | 行号 |
 | :--- | :--- |
 | 1. 业务对象与术语 | L21-L65 |
 | 2. 关键流程 | L67-L124 |
-| 3. 业务规则 | L126-L520 |
-| 4. 状态归属 | L522-L567 |
-| 自动核对 (Auto Check) | L570-L675 |
+| 3. 业务规则 | L126-L533 |
+| 4. 状态归属 | L535-L580 |
+| 自动核对 (Auto Check) | L583-L690 |
 <!-- memento:business-index:end -->
 > 业务蓝图：memento 应该做成什么样，每一条落在哪段代码、由哪个测试或检查保证。和代码蓝图 [CODE_BLUEPRINT.md](CODE_BLUEPRINT.md)（代码长什么样）配合看：代码蓝图回答"在哪里"，这份回答"应该怎样、为什么"。
 > 规则来自用户的原话和纠正（CLAUDE.md、长期记忆、每晚复盘），不是从代码里反推的；代码和这里对不上，先当成代码的问题查。
@@ -205,6 +205,19 @@
 - 代码: `server/server/services/secret_box.py#seal`, `server/server/services/secret_box.py#seal_existing`, `server/server/api/llm.py#update_llm_settings`, `server/server/services/ai_provider.py#get_ai_providers`, `server/server/services/enterprise_policy.py#model_endpoint_violation`
 - 测试: `server/tests/test_enterprise.py#test_saving_model_settings_stores_the_key_encrypted_and_never_returns_it`, `server/tests/test_enterprise.py#test_saving_an_endpoint_the_deployment_doesnt_allow_is_refused`, `server/tests/test_enterprise.py#test_a_users_own_endpoint_outside_the_allowed_ones_isnt_used`, `server/tests/test_enterprise.py#test_seal_reveal_roundtrip_and_plaintext_passthrough`
 - 要求: `user.llm_settings = seal_llm_settings(data)` @ `server/server/api/llm.py`; `seal_existing` @ `server/server/main.py`
+
+### R-ENT-DEVICE-POLICY 公司 IT 下发的策略文件管住员工电脑：固定服务器、限定远程任务和目录
+- 来源: 用户 11-18「全部做完吧」（守护进程能在员工电脑上执行命令、读写文件，企业安全审查要能管住；客户端默认连官方服务器）
+- 说明: 系统级的 managed.json（macOS /Library/Application Support/Memento、Windows %ProgramData%\Memento、Linux /etc/memento）由 MDM 或组策略下发。server_url 固定连接的服务器，应用里不能切换；remote_tasks 为 agent 时只接收智能体任务、不直接执行命令，为 none 时什么都不接收；allowed_roots 限定任务运行目录，以及服务端能读、写、打包的文件范围。文件格式错误时忽略出错的字段，不会让员工用不了。
+- 代码: `packages/daemon/src/managed-policy.ts#managedPolicy`, `packages/daemon/src/managed-policy.ts#taskRefusal`, `packages/daemon/src/managed-policy.ts#pathAllowed`, `packages/daemon/src/task-runner.ts`, `packages/daemon/src/ws-client.ts`, `packages/daemon/src/config.ts#loadConfig`, `apps/desktop/src/main.ts`
+- 测试: `packages/daemon/test/managed-policy.test.ts#reaches only inside the allowed directories, not a sibling that shares a prefix`, `packages/daemon/test/managed-policy.test.ts#the server it names wins over the user's own setting`, `packages/daemon/test/managed-policy.test.ts#a refused task is reported failed, with the reason, and nothing runs`, `packages/daemon/test/managed-policy.test.ts#a task outside the allowed directories doesn't start`
+- 要求: `assertPathAllowed(deviceFilePath(path))` @ `packages/daemon/src/ws-client.ts`; `taskRefusal(action)` @ `packages/daemon/src/task-runner.ts`; `managedPolicy().serverUrl` @ `apps/desktop/src/main.ts`
+
+### R-ENT-DEPLOY 企业能在自己的服务器上一键部署、备份恢复、离线安装，安装包可正式签名
+- 来源: 用户 11-18「全部做完吧」（生产只在自己的 NAS 集群上部署，没有给企业的安装包；安装包没有正式签名）
+- 说明: deploy/enterprise 下的 compose、入口代理和 memento.sh：init 生成随机密码密钥并取当前发布的镜像版本，up 启动，backup/restore 备份恢复（恢复前先备份），upgrade 先备份再升级，bundle/load 做离线镜像包。仓库配了签名证书时发版自动做 Mac Developer ID 签名加公证、Windows 签名，没配时和原来一样。说明在 docs/enterprise.md。
+- 代码: `deploy/enterprise/docker-compose.yml`, `deploy/enterprise/memento.sh`, `deploy/enterprise/Caddyfile`, `.github/workflows/desktop-release.yml`, `apps/desktop/scripts/after-sign.cjs`, `docs/enterprise.md`
+- 要求: `cmd_backup` @ `deploy/enterprise/memento.sh`; `MAC_CSC_LINK` @ `.github/workflows/desktop-release.yml`; `MEMENTO_DEVELOPER_ID` @ `apps/desktop/scripts/after-sign.cjs`; `Authority=Developer ID Application` @ `apps/desktop/src/main.ts`
 
 ### R-WS-EXEC-STOP 代码所在设备上一条慢命令或停掉的任务不卡住后面的命令
 - 来源: 用户 11-17「我发现有时候远程任务执行命令会卡住啊」（vps3 上 Antigravity 在 Mac 上跑 `find ~ -maxdepth 4` 没结束，任务停掉后它还在跑，后面的 `ls -d` 和别的任务的命令都排在它后面等到 30 分钟超时）
@@ -571,7 +584,7 @@
 
 > 生成器随每次提交核对：代码位置还在不在、测试还在不在、禁止 / 要求的写法满不满足。✅ 通过 · ⚠️ 缺代码位置、测试或来源 · ❌ 位置失效或违反规则（CI 会拦下）。
 
-- 汇总：规则 65（✅ 65 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
+- 汇总：规则 67（✅ 67 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
 
 | 编号 | 名称 | 代码位置 | 测试 | 检查 | 结论 |
 | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -607,6 +620,8 @@
 | `R-ENT-SSO` | 企业员工用公司统一账号登录，离职由身份平台自动停用 | 6/6 | 5/5 | 2/2 | ✅ |
 | `R-ENT-AUDIT` | 谁登录、改了账号和权限、往设备派了命令都留审计记录 | 4/4 | 5/5 | 2/2 | ✅ |
 | `R-ENT-SECRETS` | 用户填的模型密钥加密存库，只能用管理员允许的模型服务 | 5/5 | 4/4 | 2/2 | ✅ |
+| `R-ENT-DEVICE-POLICY` | 公司 IT 下发的策略文件管住员工电脑：固定服务器、限定远程任务和目录 | 7/7 | 4/4 | 3/3 | ✅ |
+| `R-ENT-DEPLOY` | 企业能在自己的服务器上一键部署、备份恢复、离线安装，安装包可正式签名 | 6/6 | — | 4/4 | ✅ |
 | `R-WS-EXEC-STOP` | 代码所在设备上一条慢命令或停掉的任务不卡住后面的命令 | 6/6 | 5/5 | 2/2 | ✅ |
 | `R-PROJECT-EXCLUDE` | 测试用的项目可以不采集，已采集的数据和从中学到的东西一并清掉 | 8/8 | 3/3 | 3/3 | ✅ |
 | `R-RUN-OUTLIVES-PAGE` | 运行不因页面关闭、切后台、发版而中断 | 2/2 | 4/4 | — | ✅ |

@@ -46,6 +46,7 @@ export function ServerSwitchModal({ open: externalOpen, onClose: externalClose }
   const [latencies, setLatencies] = useState<Record<string, LatencyState>>({});
   const [switching, setSwitching] = useState(false);
   const [statusMsg, setStatusMsg] = useState<{ text: string; tone: "success" | "error" } | null>(null);
+  const [locked, setLocked] = useState(false);
 
   const close = useCallback(() => {
     if (externalClose) externalClose();
@@ -83,6 +84,7 @@ export function ServerSwitchModal({ open: externalOpen, onClose: externalClose }
       if (d?.server?.get) {
         try {
           const info = await d.server.get();
+          setLocked(!!info.locked);
           if (info.current) {
             setCurrentServer(info.current.replace(/\/+$/, ""));
             return;
@@ -292,6 +294,16 @@ export function ServerSwitchModal({ open: externalOpen, onClose: externalClose }
               <Icon name="close" size={18} />
             </button>
           </div>
+
+          {locked && (
+            <div
+              data-testid="server-locked"
+              style={{ padding: "10px 14px", borderRadius: 12, fontSize: 12.5, lineHeight: 1.6,
+                       background: "var(--aurora-chip)", color: "var(--aurora-fg2)", border: "1px solid var(--aurora-border)" }}
+            >
+              这台电脑的管理员已指定使用 {currentServer}，不能切换到其他服务器。
+            </div>
+          )}
 
           {/* Status feedback message */}
           {statusMsg && (

@@ -66,12 +66,38 @@ jobs:
       - name: Build
         run: npm run build -w @memento/desktop
 
+      # Signing: with no certificates in the repository's secrets this builds exactly as before (macOS
+      # ad-hoc signed by scripts/after-sign.cjs, Windows unsigned). With them, macOS is signed with the
+      # Developer ID and notarized, Windows signed with its certificate (docs/enterprise.md, "安装包签名").
       - name: Package
         shell: bash
         working-directory: apps/desktop
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
-        run: npx electron-builder ${{ matrix.args }} --publish never -c.extraMetadata.version="$VERSION"
+          MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          MAC_CSC_NAME: ${{ secrets.MAC_CSC_NAME }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+        run: |
+          EXTRA=()
+          if [ "$RUNNER_OS" = "macOS" ] && [ -n "$MAC_CSC_LINK" ] && [ -n "$MAC_CSC_NAME" ]; then
+            export CSC_LINK="$MAC_CSC_LINK" CSC_KEY_PASSWORD="$MAC_CSC_KEY_PASSWORD" MEMENTO_DEVELOPER_ID=1
+            # Notarization needs the hardened runtime; Electron needs these entitlements under it
+            EXTRA+=(-c.mac.identity="$MAC_CSC_NAME" -c.mac.hardenedRuntime=true
+                    -c.mac.entitlements=build/entitlements.mac.plist -c.mac.entitlementsInherit=build/entitlements.mac.plist)
+            [ -n "$APPLE_ID" ] || echo "::warning::Developer ID signing without APPLE_ID: the app is signed but not notarized"
+          else
+            # Notarizing an ad-hoc signed app fails: only with the certificate
+            unset APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID
+          fi
+          [ -n "$APPLE_ID" ] || unset APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID
+          [ -n "$WIN_CSC_LINK" ] || unset WIN_CSC_LINK WIN_CSC_KEY_PASSWORD
+          unset MAC_CSC_LINK MAC_CSC_KEY_PASSWORD
+          npx electron-builder ${{ matrix.args }} --publish never -c.extraMetadata.version="$VERSION" "${EXTRA[@]}"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

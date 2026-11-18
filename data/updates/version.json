@@ -4,22 +4,22 @@
   "release_notes": "1. 跨设备任务里，远程智能体在代码所在电脑上执行的命令不会再莫名卡住：命令期间那台电脑和服务器重连过，结果也能送回来；那台电脑上的 Memento 重启过或断网超过 2 分钟，会立刻告诉智能体，不再空等 30 分钟\n2. 企业可以给员工电脑下发策略文件：固定连接公司的服务器、限制远程任务的类型和能访问的目录\n3. 手机端版本号与客户端统一为 1.0.143",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.142-win-x64.zip",
-      "size": 158342253,
-      "sha256": "8b6e4807f7a87d2cfa0fb4752bfa1072bfcfd2788c69414b0795698240c9369d",
-      "sha512": "lcRPD3hX2GHc62JkhnBUESW+ygxjndaflKLE/bp1hBqasfJOckKI3ZTT9iLABHlR9MLbjF6pBK5O6pdCKLDSbQ=="
+      "asset_name": "Memento-1.0.143-win-x64.zip",
+      "size": 158352390,
+      "sha256": "9c0917043c7593ea3adbfeb12fb865dd31b0d7f76720d0b3cbd1abd9670f87e3",
+      "sha512": "uBG0AUfrR7mHsOsihDChC45CHmlH73Ar4vnWkGB6t1adh5sqwbfHfVPEG+VfjlVdO2g0qglqm+gOCogmdIrYYg=="
     },
     "macos": {
-      "asset_name": "Memento-1.0.142-mac-arm64.zip",
-      "size": 132831254,
-      "sha256": "9c1e6a2fae08c61e81a105934a9ed70c1a718fed7d4f38cc0abb5aed75bcc24d",
-      "sha512": "Lq1JZD27dVkQevo1Wn8LP8j53xoKGQ26K6asa1QcbwocHnbHD4CYW+FO1MoBsa12PPtZ/LopvC3Ou6/p9G6b5g=="
+      "asset_name": "Memento-1.0.143-mac-arm64.zip",
+      "size": 132842356,
+      "sha256": "dfeb83e031a6db4225cd645f8022ba4e4504275ec0e07c316948f05493534a8c",
+      "sha512": "PI4VRFJ+NPVcAVg6iY4UGFYnIWKO7LrBLGbgc/fz/ZZZ07xQbOCwEv1sDoS/hZA0GNyP/kEEqGqY0SV2rQfATw=="
     },
     "linux": {
-      "asset_name": "Memento-1.0.142-linux-x64.tar.gz",
-      "size": 132107849,
-      "sha256": "60ebe304702766d378917120f0948c2a1028c76b30c6985d14d8cb11f7afb870",
-      "sha512": "WIyXYAPoyyhl8YDAu9RAQR7DiGOPYBnwrg9gmuXiDBwGyLebFbIzHta0W2eKxC+UfTbh3cXskXPIdXn9OMNuCw=="
+      "asset_name": "Memento-1.0.143-linux-x64.tar.gz",
+      "size": 132118307,
+      "sha256": "b25ea1e917ec3419bc69d68b3a7f31cd3d5994196df8c8d09cc482228e4e7d52",
+      "sha512": "nmy+2Cbd8Q28d0csmjABDPZIo7T8oubh5Sd3B96VlANBFAfwG9W+tc9Hr4seVWbj4YeaCoBrdL2GLFuhBbAEzQ=="
     }
   }
 }

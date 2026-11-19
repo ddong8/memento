@@ -5,6 +5,8 @@ import { describe, expect, it } from "vitest";
 import {
   agedClaudeUsage,
   agyCliQuotaModels,
+  agyUsageSummary,
+  quotaGroups,
   claudePlanTier,
   claudeCredentialAccount,
   claudeCredentialService,
@@ -235,6 +237,7 @@ describe("quota reads that stay readable", () => {
           { modelId: "gpt-oss-120b-medium", remainingFraction: 1, resetTime: "2026-11-14T08:05:56Z" },
         ],
       },
+      now: Date.parse("2026-11-14T06:00:00Z"),
       summary: {
         groups: [
           {
@@ -255,5 +258,69 @@ describe("quota reads that stay readable", () => {
     expect(pct).toEqual({ "gemini-4-argon-medium": null, "gemini-3.8-flash-high": 95.4, "claude-opus-5-5-low": 42, "gpt-oss-120b-medium": 42 });
     expect(models.find((m) => m.model_id === "claude-opus-5-5-low")!.reset_time).toBe("2026-11-18T15:33:47Z");
     expect(groups[0]!.buckets.map((b) => b.label)).toEqual(["周额度", "5 小时额度"]);
+  });
+  it("reads the Gemini models' and Gemini 4 Argon's weekly limits from the CLI's /usage (the quota API only has Claude and GPT)", () => {
+    // `agy -p /usage --output-format json` on vps3, 2026-11-19
+    const stdout = JSON.stringify({
+      conversation_id: "",
+      status: "SUCCESS",
+      response: "Gemini Models\tWeekly Limit Remaining\t31%\t2026-11-25T08:05:57Z\n",
+      command: {
+        name: "usage",
+        data: {
+          groups: [
+            {
+              name: "Gemini Models",
+              description: "Models within this group: Gemini 4 Neon, Gemini 4 Hydrogen, Orchestrator (Neon), Gemini 3.8 Flash",
+              buckets: [
+                { id: "gemini-weekly", name: "Weekly Limit Remaining", window: "weekly", remaining_fraction: 0.3064723610877991, reset_time: "2026-11-25T08:05:57Z" },
+                { id: "gemini-5h", name: "Five Hour Limit Remaining", window: "5h", remaining_fraction: 0.18200726807117462, reset_time: "2026-11-19T11:03:59Z" },
+              ],
+            },
+            {
+              name: "Claude and GPT models",
+              description: "Models within this group: Claude Opus 5.5, Claude Sonnet 5.5, GPT-OSS 120B",
+              buckets: [
+                { id: "3p-weekly", name: "Weekly Limit Remaining", window: "weekly", remaining_fraction: 0.49340400099754333, reset_time: "2026-11-25T08:53:47Z" },
+                { id: "3p-5h", name: "Five Hour Limit Remaining", window: "5h", remaining_fraction: 1, reset_time: "2026-11-19T15:46:13Z" },
+              ],
+            },
+            {
+              name: "Gemini 4 Argon",
+              description: "For paid Pro plans, Argon quota is separate. Higher Argon quota (included as part of the larger Gemini quota bucket) is available on Ultra plans.",
+              buckets: [{ id: "gemini-argon-wtu-weekly", name: "Gemini 4 Argon Weekly Limit", window: "weekly", remaining_fraction: 0.0024844000581651926, reset_time: "2026-11-25T08:57:52Z" }],
+            },
+          ],
+        },
+      },
+    });
+    const summary = agyUsageSummary(`Fetching...\n${stdout}\n`);
+    expect(agyUsageSummary("Error: not signed in")).toBeUndefined();
+    const list = parseAgyModels(
+      "gemini-4-neon-high\tGemini 4 Neon (High)\ngemini-4-argon-medium\tGemini 4 Argon (Medium)\ngemini-4-hydrogen-low\tGemini 4 Hydrogen (Low)\ngemini-pro-orchestrator-neon\tOrchestrator (Neon)\ngemini-pro-orchestrator-g1-pro\tOrchestrator (Argon)\ngemini-3.8-flash-high\tGemini 3.8 Flash (High)\nclaude-opus-5-5-low\tClaude Opus 5.5 (Low)\n",
+    );
+    const { models, groups } = agyCliQuotaModels({ list, available: { models: {} }, quota: { buckets: [] }, summary, now: Date.parse("2026-11-19T10:45:00Z") });
+    const byId = Object.fromEntries(models.map((m) => [m.model_id, m]));
+    // The Gemini group's tighter limit (the 5-hour one here), Argon its own weekly one, Claude its group's weekly one
+    for (const id of ["gemini-4-neon-high", "gemini-4-hydrogen-low", "gemini-pro-orchestrator-neon", "gemini-3.8-flash-high"]) {
+      expect(byId[id]!.remaining_percent).toBe(18.2);
+      expect(byId[id]!.status_text).toBe("18.2% 剩余（5 小时额度）");
+    }
+    expect(byId["gemini-4-argon-medium"]!).toMatchObject({ remaining_percent: 0.2, reset_time: "2026-11-25T08:57:52Z", status_text: "0.2% 剩余（周额度）" });
+    expect(byId["claude-opus-5-5-low"]!.remaining_percent).toBe(49.3);
+    // Nothing says which limit it draws on
+    expect(byId["gemini-pro-orchestrator-g1-pro"]!.remaining_percent).toBeNull();
+    expect(groups).toEqual([
+      { name: "Gemini 模型", buckets: [{ label: "周额度", remaining_percent: 30.6, reset_time: "2026-11-25T08:05:57Z" }, { label: "5 小时额度", remaining_percent: 18.2, reset_time: "2026-11-19T11:03:59Z" }] },
+      { name: "Claude 和 GPT 模型", buckets: [{ label: "周额度", remaining_percent: 49.3, reset_time: "2026-11-25T08:53:47Z" }, { label: "5 小时额度", remaining_percent: 100, reset_time: "2026-11-19T15:46:13Z" }] },
+      { name: "Gemini 4 Argon", buckets: [{ label: "周额度", remaining_percent: 0.2, reset_time: "2026-11-25T08:57:52Z" }] },
+    ]);
+    // A limit past its reset time is full again; a spent one (no remainingFraction in proto3 JSON) is at 0
+    const later = quotaGroups(
+      { groups: [{ displayName: "Gemini 4 Argon", description: "", buckets: [{ window: "weekly", resetTime: "2026-11-25T08:57:52Z" }] }, ...summary.groups] },
+      Date.parse("2026-11-19T12:00:00Z"),
+    );
+    expect(later[0]!.buckets).toEqual([{ fraction: 0, reset: "2026-11-25T08:57:52Z", label: "周额度" }]);
+    expect(later[1]!.buckets[1]).toEqual({ fraction: 1, reset: undefined, label: "5 小时额度" });
   });
 });

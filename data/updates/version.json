@@ -1,7 +1,7 @@
 {
-  "version": "1.0.144",
-  "title": "Memento v1.0.144",
-  "release_notes": "1. Antigravity 在没有桌面应用的服务器上（用 Google 的 agy 命令行）运行任务时，智能体放到后台的命令跑完了，不会再显示「还有后台任务没有跑完」；真的还在运行的才会提示\n2. 远程任务在代码所在电脑上执行有风险的命令、写敏感文件时不再拦截，照常执行并把提醒记到任务上、推送到手机\n3. 手机端版本号与客户端统一为 1.0.144",
+  "version": "1.0.145",
+  "title": "Memento v1.0.145",
+  "release_notes": "1. Antigravity 的额度详情里每个模型都有额度了：Gemini 4 Neon、Hydrogen 和 Gemini 3.8 Flash 共用 Gemini 模型的额度，Gemini 4 Argon 单独一个周额度，Claude 和 GPT 共用一组\n2. Antigravity 额度详情新增各组的周额度和 5 小时额度用量与重置时间，没有桌面应用的服务器（agy 命令行）和装了 Antigravity 应用的电脑都支持\n3. 手机端版本号与客户端统一为 1.0.145",
   "platforms": {
     "windows": {
       "asset_name": "Memento-1.0.144-win-x64.zip",

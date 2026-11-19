@@ -71,6 +71,27 @@ describe("Antigravity quota", () => {
 
   beforeAll(async () => {
     server = createServer((req, res) => {
+      if (req.url === "/exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary" && req.headers["x-codeium-csrf-token"] === csrf) {
+        // As the Mac app's server answers (2026-11-19)
+        res.writeHead(200, { "Content-Type": "application/json" }).end(
+          JSON.stringify({
+            response: {
+              groups: [
+                {
+                  displayName: "Gemini Models",
+                  description: "Models within this group: Gemini 4 Hydrogen, Gemini 3.8 Flash",
+                  buckets: [
+                    { bucketId: "gemini-weekly", window: "weekly", remainingFraction: 0.8956823, resetTime: "2099-01-01T00:00:00Z" },
+                    { bucketId: "gemini-5h", window: "5h", remainingFraction: 0.94303066, resetTime: "2026-11-15T12:54:48Z" },
+                  ],
+                },
+                { displayName: "Gemini 4 Argon", description: "For paid Pro plans, Argon quota is separate.", buckets: [{ window: "weekly", resetTime: "2099-01-01T00:00:00Z" }] },
+              ],
+            },
+          }),
+        );
+        return;
+      }
       if (req.url !== "/exa.language_server_pb.LanguageServerService/GetUserStatus" || req.method !== "POST") {
         res.writeHead(404).end();
         return;
@@ -115,6 +136,11 @@ describe("Antigravity quota", () => {
       ["pro", 100],
       ["free", null],
       ["gemini-4-argon-medium", 0],
+    ]);
+    // The weekly and 5-hour limits the app reports, a 5-hour one past its reset full again
+    expect(quota.details?.quota_groups).toEqual([
+      { name: "Gemini 模型", buckets: [{ label: "周额度", remaining_percent: 89.6, reset_time: "2099-01-01T00:00:00Z" }, { label: "5 小时额度", remaining_percent: 100, reset_time: undefined }] },
+      { name: "Gemini 4 Argon", buckets: [{ label: "周额度", remaining_percent: 0, reset_time: "2099-01-01T00:00:00Z" }] },
     ]);
     // The spent model is skipped by later runs until it resets
     expect(isModelLimited("antigravity", "gemini-4-argon-high")).toBe(true);

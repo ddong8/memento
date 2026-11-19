@@ -67,6 +67,22 @@ function run(cmd: string, args: string[], timeout = 6000): Promise<{ code: numbe
 }
 
 /** GetUserStatus from the language server's Connect RPC API; undefined when it doesn't answer. */
+/** The app's quota groups (its language server's RetrieveUserQuotaSummary); undefined when it has none. */
+async function antigravityQuotaSummary(ls: AntigravityLanguageServer): Promise<any> {
+  try {
+    const res = await fetch(`http://127.0.0.1:${ls.port}/exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(ls.csrf ? { "x-codeium-csrf-token": ls.csrf } : {}) },
+      body: "{}",
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return undefined;
+    return ((await res.json()) as { response?: unknown }).response || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 async function antigravityUserStatus(ls: AntigravityLanguageServer): Promise<any> {
   try {
     const res = await fetch(`http://127.0.0.1:${ls.port}/exa.language_server_pb.LanguageServerService/GetUserStatus`, {
@@ -167,6 +183,7 @@ export async function probeAntigravityQuota(
 
     const planStatus = us.planStatus || {};
     const planInfo = planStatus.planInfo || {};
+    const groups = quotaGroups(ls ? await antigravityQuotaSummary(ls) : undefined);
 
     return {
       tool: "antigravity",
@@ -190,6 +207,7 @@ export async function probeAntigravityQuota(
         monthly_prompt_credits: planInfo.monthlyPromptCredits,
         available_flow_credits: planStatus.availableFlowCredits,
         monthly_flow_credits: planInfo.monthlyFlowCredits,
+        quota_groups: shownGroups(groups),
       },
     };
   } catch (err: any) {
@@ -247,6 +265,56 @@ async function agyCliModelList(home: string): Promise<AgyModel[] | undefined> {
   return agyModelsCache;
 }
 
+let agyUsageAt = 0;
+let agyUsageCache: any;
+
+/**
+ * The quota groups `agy -p /usage --output-format json` reports, in retrieveUserQuotaSummary's shape
+ * ({groups: [{displayName, description, buckets: [{window, remainingFraction, resetTime, displayName}]}]});
+ * undefined when the output has none. The CLI reads them from an API of its own that has the groups
+ * retrieveUserQuotaSummary leaves out: the Gemini models' weekly and 5-hour limits and Gemini 4 Argon's
+ * weekly one (2026-11-19 on vps3: retrieveUserQuotaSummary only had Claude and GPT).
+ */
+export function agyUsageSummary(stdout: string): any {
+  for (const line of stdout.split("\n").reverse()) {
+    let out: any;
+    try {
+      out = JSON.parse(line.trim());
+    } catch {
+      continue;
+    }
+    const data = out?.command?.data;
+    if (!Array.isArray(data?.groups)) continue;
+    const groups = data.groups
+      .filter((g: any) => typeof g?.name === "string" && Array.isArray(g.buckets))
+      .map((g: any) => ({
+        displayName: g.name,
+        description: typeof g.description === "string" ? g.description : "",
+        buckets: g.buckets
+          .filter((b: any) => typeof b?.remaining_fraction === "number")
+          .map((b: any) => ({ window: b.window, displayName: b.name, remainingFraction: b.remaining_fraction, resetTime: b.reset_time })),
+      }))
+      .filter((g: any) => g.buckets.length);
+    return groups.length ? { groups } : undefined;
+  }
+  return undefined;
+}
+
+/** The CLI's own quota report (agyUsageSummary), at most once a minute; it answers from the API, no conversation, no model. */
+async function agyCliUsage(home: string): Promise<any> {
+  if (Date.now() - agyUsageAt < 60_000) return agyUsageCache;
+  agyUsageAt = Date.now();
+  const bin = await officialAgyCli(home);
+  if (!bin) return agyUsageCache;
+  const env = await executionEnvironment();
+  const stdout = await new Promise<string>((resolve) => {
+    execFile(bin, ["-p", "/usage", "--output-format", "json"], { env, timeout: 30_000, windowsHide: true, maxBuffer: 1 << 20 }, (_e, out) => resolve(String(out ?? "")));
+  });
+  const summary = agyUsageSummary(stdout);
+  if (summary) agyUsageCache = summary;
+  return agyUsageCache;
+}
+
 async function agyCliAccessToken(home: string): Promise<{ token: string; email?: string; models?: AgyModel[] } | undefined> {
   let saved = await readAgyCliToken(home);
   if (!saved) return undefined;
@@ -285,36 +353,72 @@ function tightest(buckets: QuotaBucket[]): QuotaBucket | undefined {
 }
 
 /**
+ * The groups of a quota summary (retrieveUserQuotaSummary's shape: the CLI's /usage, the app's language
+ * server), each with the models in it and its limits. A limit whose reset time has passed is full again
+ * (a summary the app's server kept from before the reset still says otherwise).
+ */
+export function quotaGroups(summary: any, now = Date.now()): Array<{ name: string; members: string[]; buckets: QuotaBucket[] }> {
+  const groups: Array<{ name: string; members: string[]; buckets: QuotaBucket[] }> = [];
+  for (const g of summary?.groups || []) {
+    const buckets: QuotaBucket[] = (g?.buckets || [])
+      .filter((b: any) => typeof b?.remainingFraction === "number" || b?.resetTime)
+      .map((b: any) => {
+        const reset = Date.parse(b.resetTime);
+        const over = Number.isFinite(reset) && reset <= now;
+        return {
+          // A spent limit's 0 is left out of proto3 JSON: only its reset time is there
+          fraction: over ? 1 : typeof b.remainingFraction === "number" ? b.remainingFraction : 0,
+          reset: over ? undefined : b.resetTime,
+          label: b.window === "weekly" ? "周额度" : b.window === "5h" ? "5 小时额度" : b.displayName,
+        };
+      });
+    // "Models within this group: Claude Opus, Claude Sonnet, GPT-OSS"; a group without that line is one model's
+    // ("Gemini 4 Argon", its description only saying Pro plans have it apart)
+    const listed = /Models within this group:/i.exec(String(g?.description || ""));
+    const members = (listed ? String(g.description).slice(listed.index + listed[0].length).split(",") : [String(g?.displayName || "")])
+      .map((m: string) => m.trim().toLowerCase())
+      .filter(Boolean);
+    const display = String(g?.displayName || "");
+    const name = /claude/i.test(display) && /gpt/i.test(display) ? "Claude 和 GPT 模型" : /^gemini models$/i.test(display) ? "Gemini 模型" : display || members.join(", ");
+    if (buckets.length && members.length) groups.push({ name, members, buckets });
+  }
+  return groups;
+}
+
+/** Groups as the quota popover shows them (details.quota_groups). */
+function shownGroups(groups: ReturnType<typeof quotaGroups>) {
+  return groups.map((g) => ({
+    name: g.name,
+    buckets: g.buckets.map((b) => ({ label: b.label || "", remaining_percent: Math.round(b.fraction * 1000) / 10, reset_time: b.reset })),
+  }));
+}
+
+/**
  * The quota each of the CLI's models draws on.
  * - A model in a group of retrieveUserQuotaSummary (Claude and GPT share a weekly and a 5-hour limit)
  *   has the tighter of them left; its per-model bucket only shows the 5-hour one.
  * - Otherwise its own bucket in retrieveUserQuota, when it has one.
  * - Otherwise a Flash level the CLI names on its own (Gemini 3.8 Flash High/Medium/Low) draws on the
  *   tier's Flash pool fetchAvailableModels points to (tieredModelIds.flash / flashLite).
- * - Gemini 4 has a quota of its own that no API reports (it ran out on 11-12 while Flash still answered),
- *   so it shows none rather than the Flash pool's; the caller marks it spent once a task hits its limit.
+ * - Groups come from the CLI's /usage when it has them: Gemini 4 Neon, Hydrogen, Orchestrator (Neon) and
+ *   3.8 Flash share the Gemini models' weekly and 5-hour limits, Gemini 4 Argon has a weekly limit of its own.
+ * - A model none of these covers shows none rather than borrowing another pool's; the caller marks it spent
+ *   once a task hits its limit.
  */
 export function agyCliQuotaModels(input: {
   list?: AgyModel[];
   available?: any;
   quota?: any;
   summary?: any;
+  /** For tests: when the limits' reset times are compared to. */
+  now?: number;
 }): { models: QuotaModelItem[]; defaultId: string; groups: Array<{ name: string; buckets: Array<{ label: string; remaining_percent: number; reset_time?: string }> }> } {
   const all: Record<string, any> = input.available?.models || {};
   const perModel = new Map<string, QuotaBucket>();
   for (const b of input.quota?.buckets || []) {
     if (b?.modelId && typeof b.remainingFraction === "number") perModel.set(b.modelId, { fraction: b.remainingFraction, reset: b.resetTime });
   }
-  const groups: Array<{ name: string; members: string[]; buckets: QuotaBucket[] }> = [];
-  for (const g of input.summary?.groups || []) {
-    const buckets: QuotaBucket[] = (g?.buckets || [])
-      .filter((b: any) => typeof b?.remainingFraction === "number")
-      .map((b: any) => ({ fraction: b.remainingFraction, reset: b.resetTime, label: b.window === "weekly" ? "周额度" : b.window === "5h" ? "5 小时额度" : b.displayName }));
-    // "Models within this group: Claude Opus, Claude Sonnet, GPT-OSS"
-    const members = String(g?.description || "").replace(/^.*?:/, "").split(",").map((m: string) => m.trim().toLowerCase()).filter(Boolean);
-    const name = /claude/i.test(g?.displayName || "") && /gpt/i.test(g?.displayName || "") ? "Claude 和 GPT 模型" : g?.displayName || members.join(", ");
-    if (buckets.length && members.length) groups.push({ name, members, buckets });
-  }
+  const groups = quotaGroups(input.summary, input.now);
   const tiered = input.available?.tieredModelIds || {};
   const tierBucket = (key: string) => {
     const id = Array.isArray(tiered[key]) ? tiered[key][0] : undefined;
@@ -359,10 +463,7 @@ export function agyCliQuotaModels(input: {
   return {
     models,
     defaultId: input.list?.[0]?.id || (typeof input.available?.defaultAgentModelId === "string" ? input.available.defaultAgentModelId : ""),
-    groups: groups.map((g) => ({
-      name: g.name,
-      buckets: g.buckets.map((b) => ({ label: b.label || "", remaining_percent: Math.round(b.fraction * 1000) / 10, reset_time: b.reset })),
-    })),
+    groups: shownGroups(groups),
   };
 }
 
@@ -379,7 +480,8 @@ export async function probeAntigravityCliQuota(home = homeDir()): Promise<ToolQu
   if (!available && !quota) {
     return { tool: "antigravity", name: "Google Antigravity", available: false, error: "无法读取 Antigravity 额度（agy 命令行）" };
   }
-  const { models, defaultId, groups } = agyCliQuotaModels({ list: login.models, available, quota, summary });
+  const usage = await agyCliUsage(home);
+  const { models, defaultId, groups } = agyCliQuotaModels({ list: login.models, available, quota, summary: usage ?? summary });
   const held = limitedModels("antigravity");
   for (const m of models) {
     // A model whose quota no API reports, known to be spent because a task ran into its limit
@@ -407,7 +509,9 @@ export async function probeAntigravityCliQuota(home = homeDir()): Promise<ToolQu
     plan_name: tier.name || "Antigravity",
     tier: /pro/i.test(tier.id || "") ? "PRO" : /ultra/i.test(tier.id || "") ? "ULTRA" : String(tier.id || "FREE").toUpperCase(),
     quota_type: "percentage",
-    quota_desc: groups.length ? `${tier.name || "Antigravity"}：Gemini Flash 共用一个额度池，Gemini 4 单独计算（不公开），${groups.map((g) => g.name).join("、")}共用周额度和 5 小时额度` : `${tier.name || "Antigravity"} 按模型计费`,
+    quota_desc: groups.length
+      ? `${tier.name || "Antigravity"}：${groups.map((g) => `${g.name}${g.buckets.length > 1 ? "共用周额度和 5 小时额度" : `单独计算${g.buckets[0]?.label || "额度"}`}`).join("；")}`
+      : `${tier.name || "Antigravity"} 按模型计费`,
     probe_source: "agy 命令行登录",
     remaining_percent: primary?.remaining_percent ?? null,
     reset_time: primary?.reset_time ?? null,

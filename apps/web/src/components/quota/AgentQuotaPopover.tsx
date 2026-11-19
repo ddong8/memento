@@ -68,6 +68,12 @@ export interface AgentQuotaPopoverProps {
   activeModelId?: string;
 }
 
+/** One of the quota groups the daemon reads from Google's agy CLI (details.quota_groups). */
+interface AgyQuotaGroup {
+  name: string;
+  buckets: Array<{ label: string; remaining_percent: number; reset_time?: string }>;
+}
+
 function formatRelativeReset(isoStr?: string | null): string {
   if (!isoStr) return "";
   try {
@@ -390,8 +396,44 @@ export function AgentQuotaPopover({
         );
       })()}
 
-      {/* Antigravity Credits details */}
-      {agy?.available && agy?.details && (
+      {/* Quota groups (Google's agy CLI): each group's weekly and 5-hour limits, the models in it share them */}
+      {agy?.available && Array.isArray(agy?.details?.quota_groups) && agy.details.quota_groups.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {(agy.details.quota_groups as AgyQuotaGroup[]).map((group) => (
+            <div
+              key={group.name}
+              style={{
+                padding: "10px 12px",
+                borderRadius: 10,
+                background: "var(--aurora-chip)",
+                border: "1px solid var(--aurora-border)",
+              }}
+            >
+              <div style={{ fontSize: 11.5, fontWeight: 600, color: "var(--aurora-fg2)", marginBottom: 6 }}>{group.name}</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                {group.buckets.map((bucket) => {
+                  const used = Math.max(0, Math.min(100, Math.round(100 - bucket.remaining_percent)));
+                  return (
+                    <div key={bucket.label} style={{ display: "flex", flexDirection: "column", gap: 3, minWidth: 0 }}>
+                      <span style={{ fontSize: 11, color: "var(--aurora-fg3)" }}>{bucket.label}</span>
+                      <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: used > 85 ? "#EF4444" : "var(--aurora-fg1)" }}>已用 {used}%</span>
+                        <span style={{ fontSize: 11, color: "var(--aurora-fg3)" }}>(剩 {100 - used}%)</span>
+                      </div>
+                      {bucket.reset_time && (
+                        <span style={{ fontSize: 10.5, color: "var(--aurora-fg3)", marginTop: 2 }}>{formatRelativeReset(bucket.reset_time)}</span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Antigravity Credits details (the app reports them; Google's CLI doesn't) */}
+      {agy?.available && agy?.details && [agy.details.available_prompt_credits, agy.details.monthly_prompt_credits, agy.details.available_flow_credits, agy.details.monthly_flow_credits].some((v) => v != null) && (
         <div
           style={{
             display: "grid",

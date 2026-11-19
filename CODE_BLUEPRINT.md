@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `f212a39c` · Updated: `2026-11-19`
+> **Living Blueprint Auto-Generated** · Branch: `v1.0.144` · Commit: `58a2a3db` · Updated: `2026-11-19`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,8 +16,8 @@
 - 规模 (Scale): 9 个子系统 · 38 组 API 路由 / 252 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 234 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `f212a39c` (2026-11-19): feat(远程任务): 代码所在设备上的命令默认不再拦截，有风险的照常执行并推送提醒
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 68（✅ 68 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-WS-EDIT-ONLY`, `R-ENT-DEPLOY`, `R-WS-EXEC-STOP`, `R-WS-EXEC-REMIND`, `R-ENT-DEVICE-POLICY`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `S-CLIENT-VERSION`
+- 最近改动 (Latest): `58a2a3db` (2026-11-19): fix(Antigravity): 服务器上用 agy 命令行跑的任务，后台命令跑完了不再显示还有后台任务没跑完；升级客户端版本至 v1.0.144
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 69（✅ 69 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-TRACK-BACKGROUND`, `R-ENT-DEVICE-POLICY`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `S-CLIENT-VERSION`, `R-WS-EDIT-ONLY`, `R-ENT-DEPLOY`, `R-WS-EXEC-STOP`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -665,12 +665,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `58a2a3db` (2026-11-19): fix(Antigravity): 服务器上用 agy 命令行跑的任务，后台命令跑完了不再显示还有后台任务没跑完；升级客户端版本至 v1.0.144
 - `f212a39c` (2026-11-19): feat(远程任务): 代码所在设备上的命令默认不再拦截，有风险的照常执行并推送提醒
 - `6bedacfa` (2026-11-19): fix(远程任务): 命令期间代码所在设备重连过、Memento 重启过或断网时，执行机不再空等 30 分钟；升级客户端版本至 v1.0.143
 - `d58c629c` (2026-11-18): feat(enterprise): 员工电脑策略文件、企业部署包与安装包正式签名
 - `e251b518` (2026-11-18): feat(enterprise): 企业部署——管理员可见范围开关、OIDC 单点登录与 SCIM 停用、操作审计、模型密钥加密和模型服务白名单
 - `94139deb` (2026-11-18): fix(web): 后台智能体展开面板也恢复最初设计的深海蓝底，不再是白色卡片
-- `6eeb517a` (2026-11-18): fix(web): 后台智能体运行标签恢复最初设计的深色胶囊，不再半透明透出下面的文字
 
 ## 10. Key Environment Variables & Configuration
 
@@ -688,15 +688,15 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 11. 业务蓝图核对 (Business Blueprint Check)
 
-- 业务蓝图：[BUSINESS_BLUEPRINT.md](BUSINESS_BLUEPRINT.md) · 规则 68（✅ 68 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
+- 业务蓝图：[BUSINESS_BLUEPRINT.md](BUSINESS_BLUEPRINT.md) · 规则 69（✅ 69 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
 - 结论：✅ 没有失效或违规
 
 ### 最近提交碰到的业务条目（改动后复查它们还成不成立）
 
+- `58a2a3db` fix(Antigravity): 服务器上用 agy 命令行跑的任务，后台命令跑完了不再显示还有后台任务没跑完；升级客户端版本至 v1.0.144 → `R-TRACK-BACKGROUND`, `R-ENT-DEVICE-POLICY`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `S-CLIENT-VERSION`
 - `f212a39c` feat(远程任务): 代码所在设备上的命令默认不再拦截，有风险的照常执行并推送提醒 → `R-WS-EDIT-ONLY`, `R-ENT-DEPLOY`, `R-WS-EXEC-STOP`, `R-WS-EXEC-REMIND`
 - `6bedacfa` fix(远程任务): 命令期间代码所在设备重连过、Memento 重启过或断网时，执行机不再空等 30 分钟；升级客户端版本至 v1.0.143 → `R-WS-EDIT-ONLY`, `R-ENT-DEVICE-POLICY`, `R-WS-EXEC-STOP`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `S-CLIENT-VERSION`
 - `d58c629c` feat(enterprise): 员工电脑策略文件、企业部署包与安装包正式签名 → `F-CLIENT-UPGRADE`, `R-ENT-DEVICE-POLICY`, `R-ENT-DEPLOY`, `R-WS-EXEC-STOP`, `R-UPGRADE-SAFE`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`
-- `e251b518` feat(enterprise): 企业部署——管理员可见范围开关、OIDC 单点登录与 SCIM 停用、操作审计、模型密钥加密和模型服务白名单 → `R-ENT-ADMIN-SCOPE`, `R-ENT-SSO`, `R-ENT-AUDIT`, `R-ENT-SECRETS`, `R-WS-EXEC-REMIND`, `R-DEVICE-ENV-PROFILE`, `R-DOCS-WRITE-LIGHT`, `R-LOGIN-PERSIST`
 
 ---
 _Auto-maintained by `scripts/project_blueprint.mjs` (v20261126) & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._

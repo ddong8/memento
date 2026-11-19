@@ -3,16 +3,16 @@
 <!-- memento:business-index:start (自动生成，勿手改) -->
 > 先读这一段定位；要细节时按下表行号只读对应章节。改了「代码位置」里的文件，先看对应条目还成不成立。
 
-- 汇总：规则 68（✅ 68 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
+- 汇总：规则 69（✅ 69 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
 - 核对：全部通过（详见末尾「自动核对」）
 
 | 章节 | 行号 |
 | :--- | :--- |
 | 1. 业务对象与术语 | L21-L65 |
 | 2. 关键流程 | L67-L124 |
-| 3. 业务规则 | L126-L541 |
-| 4. 状态归属 | L543-L588 |
-| 自动核对 (Auto Check) | L591-L699 |
+| 3. 业务规则 | L126-L548 |
+| 4. 状态归属 | L550-L595 |
+| 自动核对 (Auto Check) | L598-L707 |
 <!-- memento:business-index:end -->
 > 业务蓝图：memento 应该做成什么样，每一条落在哪段代码、由哪个测试或检查保证。和代码蓝图 [CODE_BLUEPRINT.md](CODE_BLUEPRINT.md)（代码长什么样）配合看：代码蓝图回答"在哪里"，这份回答"应该怎样、为什么"。
 > 规则来自用户的原话和纠正（CLAUDE.md、长期记忆、每晚复盘），不是从代码里反推的；代码和这里对不上，先当成代码的问题查。
@@ -253,6 +253,13 @@
 - 测试: `apps/web/test/model-limits.test.ts#gives the quota of the model a conversation runs on, not the default model's`
 - 说明: 输入框上方收起的配置栏里，点智能体胶囊（如「Claude Code 94%」）打开额度详情，点栏的其它地方才展开配置；3b1f1013 曾去掉胶囊的点击，导致点它弹出配置表单（用户 2026-11-16 截图反馈）。
 - 要求: `modelQuotaOf(quotasData` @ `apps/web/src/app/ask/page.tsx`; `/onClick=\{\(e\) => \{ if \(isAgentMode\) \{ e\.stopPropagation\(\)[^}]*setQuotaOpen\(true\)/` @ `apps/web/src/app/ask/page.tsx`
+
+### R-QUOTA-AGY-GROUPS Antigravity 每个模型都显示额度，并显示各组的周额度和 5 小时额度
+- 来源: 用户 2026-11-19「为什么antigravity的有些模型额度没显示，而且没有周额度使用量呢」（vps3 截图：Gemini 4 Neon/Argon 显示「额度未公开」）
+- 说明: Gemini 4 Neon、Hydrogen、Orchestrator (Neon)、Gemini 3.8 Flash 共用 Gemini 模型的周额度和 5 小时额度，Claude 和 GPT 共用一组，Gemini 4 Argon 单独一个周额度。模型显示所在组里更紧的那个。没有桌面应用的设备按 agy 命令行 `agy -p /usage --output-format json` 读（retrieveUserQuotaSummary 只给 Claude 和 GPT 一组）；有应用的读它语言服务的 RetrieveUserQuotaSummary。过了重置时间的额度算满。
+- 代码: `packages/daemon/src/quotas.ts#agyUsageSummary`, `packages/daemon/src/quotas.ts#quotaGroups`, `packages/daemon/src/quotas.ts#probeAntigravityCliQuota`, `apps/web/src/components/quota/AgentQuotaPopover.tsx#AgyQuotaGroup`
+- 测试: `packages/daemon/test/quotas.test.ts#reads the Gemini models' and Gemini 4 Argon's weekly limits from the CLI's /usage (the quota API only has Claude and GPT)`, `packages/daemon/test/antigravity-language-server.test.ts#reads per-model quotas from the server the lookup found`
+- 要求: `"/usage"` @ `packages/daemon/src/quotas.ts`; `quota_groups` @ `apps/web/src/components/quota/AgentQuotaPopover.tsx`
 
 ### R-MODEL-SWITCH 某个模型额度用完，能换同一工具的其它模型，三个工具都要支持
 - 来源: 用户 2026-11-11「antigravity有多个模型可以选择啊……是不是应该可以切换模型？」「还有你目前只处理了antigravity，codex和Claude处理了吗」
@@ -592,7 +599,7 @@
 
 > 生成器随每次提交核对：代码位置还在不在、测试还在不在、禁止 / 要求的写法满不满足。✅ 通过 · ⚠️ 缺代码位置、测试或来源 · ❌ 位置失效或违反规则（CI 会拦下）。
 
-- 汇总：规则 68（✅ 68 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
+- 汇总：规则 69（✅ 69 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
 
 | 编号 | 名称 | 代码位置 | 测试 | 检查 | 结论 |
 | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -635,6 +642,7 @@
 | `R-PROJECT-EXCLUDE` | 测试用的项目可以不采集，已采集的数据和从中学到的东西一并清掉 | 8/8 | 3/3 | 3/3 | ✅ |
 | `R-RUN-OUTLIVES-PAGE` | 运行不因页面关闭、切后台、发版而中断 | 2/2 | 4/4 | — | ✅ |
 | `R-QUOTA-PER-MODEL` | 额度按当前对话用的模型显示 | 3/3 | 1/1 | 2/2 | ✅ |
+| `R-QUOTA-AGY-GROUPS` | Antigravity 每个模型都显示额度，并显示各组的周额度和 5 小时额度 | 4/4 | 2/2 | 2/2 | ✅ |
 | `R-MODEL-SWITCH` | 某个模型额度用完，能换同一工具的其它模型，三个工具都要支持 | 4/4 | 3/3 | — | ✅ |
 | `R-MODELS-DYNAMIC` | 模型列表从工具实际能力动态获取，不硬编码过时模型 | 3/3 | 2/2 | — | ✅ |
 | `R-QUOTA-NO-RETRY` | 账号额度用完就停，不反复重试 | 2/2 | 2/2 | — | ✅ |

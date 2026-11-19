@@ -321,6 +321,73 @@ export async function healAllAntigravitySessions(home = homeDir()): Promise<numb
   return count;
 }
 
+const BACKGROUND_STARTED = /(?:Tool is running as a background task with task id|Command running in background with ID|Task running in background with ID):\s*((?:[0-9a-fA-F-]+\/)?task-\d+)/i;
+const BACKGROUND_ENDED = ["finished with result", "The command exited with code", "Command exited with code", "Timer fired", "Timer cancelled", "Status: DONE", "was canceled", "was cancelled", "Status: CANCELLED", "Status: CANCELED", "Status: ERROR", "Status: FAILED", "failed with result"];
+
+/**
+ * The background tasks an Antigravity conversation started at or after `since` (ms) and hasn't seen end,
+ * from its transcript (transcript_full.jsonl lines). A task ends with the system message it sends
+ * ("[Message] … sender=<id> … Task id "<id>" finished with result"), a step reporting its end, or the
+ * agent stopping it (manage_task). Steps that only show a file never count: they may quote any id.
+ */
+export function openBackgroundTasks(transcript: string, since: number): string[] {
+  const open = new Map<string, string>(); // full id -> short id
+  const short = (t: string) => t.split("/").pop()!;
+  for (const line of transcript.split("\n")) {
+    if (!line.trim()) continue;
+    let step: Record<string, unknown>;
+    try {
+      step = JSON.parse(line) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+    if (!step || typeof step !== "object") continue;
+    const content = typeof step.content === "string" ? step.content : "";
+    if (step.type === "GENERIC" && step.status === "RUNNING" && content.startsWith("Created At:")) {
+      const m = BACKGROUND_STARTED.exec(content);
+      const at = Date.parse(String(step.created_at ?? ""));
+      // A second's slack: the transcript's times are whole seconds
+      if (m && !(at < since - 1000)) open.set(m[1]!.trim(), short(m[1]!.trim()));
+      continue;
+    }
+    for (const call of Array.isArray(step.tool_calls) ? step.tool_calls : []) {
+      const c = call as { name?: unknown; args?: unknown };
+      let a: Record<string, unknown> = {};
+      try {
+        a = (typeof c.args === "string" ? JSON.parse(c.args) : c.args ?? {}) as Record<string, unknown>;
+      } catch {
+        // not JSON
+      }
+      if (c.name !== "manage_task" || !["kill", "stop", "cancel"].includes(String(a.Action ?? ""))) continue;
+      const target = String(a.TaskId ?? "");
+      for (const [tid, tc] of open) if (target && (tid.includes(target) || target.includes(tid) || short(target) === tc)) open.delete(tid);
+    }
+    if (!content || content.includes("File Path: `") || content.includes("The following changes were made by the ")) continue;
+    for (const [tid, tc] of open) {
+      const sender = step.type === "SYSTEM_MESSAGE" && (content.includes(`sender=${tid}`) || content.includes(`sender=${tc}`));
+      const mentioned = new RegExp(`(?:^|[^\\w-])${tc}(?!\\d)`).test(content);
+      if (sender || (mentioned && BACKGROUND_ENDED.some((kw) => content.includes(kw)))) open.delete(tid);
+    }
+  }
+  return [...open.keys()];
+}
+
+/**
+ * The background tasks a run of Google's agy CLI in conversation `conversationId` left running
+ * (see openBackgroundTasks); undefined when its transcript can't be read.
+ */
+export function agyCliOpenBackgroundTasks(conversationId: string, since: number, home = homeDir()): string[] | undefined {
+  if (!/^[\w-]+$/.test(conversationId)) return undefined;
+  const logs = join(home, ".gemini", "antigravity-cli", "brain", conversationId, ".system_generated", "logs");
+  for (const name of ["transcript_full.jsonl", "transcript.jsonl"]) {
+    try {
+      return openBackgroundTasks(readFileSync(join(logs, name), "utf8"), since);
+    } catch {
+      // try the next one
+    }
+  }
+  return undefined;
+}
 
 /**
  * Antigravity tasks go through memento's runner (assets/agy_cli.mjs, run on the

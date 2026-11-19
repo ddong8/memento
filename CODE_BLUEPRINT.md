@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `6bedacfa` · Updated: `2026-11-19`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `f212a39c` · Updated: `2026-11-19`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -13,11 +13,11 @@
 - 类型 (Type): Monorepo (Workspaces)
 - 技术栈 (Stack): TypeScript/JavaScript, Python, Shell / Bash · React, Electron, Next.js, TailwindCSS, Model Context Protocol (MCP), FastAPI, SQLAlchemy, Celery
 - 基础设施 (Infra): PostgreSQL, pgvector (Vector DB), Redis, MinIO / S3 Object Storage, Celery Task Queue
-- 规模 (Scale): 9 个子系统 · 38 组 API 路由 / 252 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 233 个测试文件
+- 规模 (Scale): 9 个子系统 · 38 组 API 路由 / 252 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 234 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `6bedacfa` (2026-11-19): fix(远程任务): 命令期间代码所在设备重连过、Memento 重启过或断网时，执行机不再空等 30 分钟；升级客户端版本至 v1.0.143
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 68（✅ 68 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-WS-EDIT-ONLY`, `R-ENT-DEVICE-POLICY`, `R-WS-EXEC-STOP`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `S-CLIENT-VERSION`, `F-CLIENT-UPGRADE`, `R-ENT-DEPLOY`
+- 最近改动 (Latest): `f212a39c` (2026-11-19): feat(远程任务): 代码所在设备上的命令默认不再拦截，有风险的照常执行并推送提醒
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 68（✅ 68 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-WS-EDIT-ONLY`, `R-ENT-DEPLOY`, `R-WS-EXEC-STOP`, `R-WS-EXEC-REMIND`, `R-ENT-DEVICE-POLICY`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `S-CLIENT-VERSION`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -31,7 +31,7 @@
 | 8. Development & Verification Commands | L647-L664 |
 | 9. Recent Architectural Evolutions | L666-L673 |
 | 10. Key Environment Variables & Configuration | L675-L687 |
-| 11. 业务蓝图核对 (Business Blueprint Check) | L689-L700 |
+| 11. 业务蓝图核对 (Business Blueprint Check) | L689-L699 |
 
 ## 1. Project Overview & Tech Stack
 
@@ -624,7 +624,7 @@ erDiagram
 | Suite | Directory | Files | Sample Tests |
 | :--- | :--- | :--- | :--- |
 | server/tests (pytest) | [`server/tests`](server/tests) | 122 | `test_agent_ids.py`, `test_agent_limits.py`, `test_agent_login.py`, `test_agent_run_states.py`, `test_ai_provider.py` |
-| packages/daemon/test (vitest / jest) | [`packages/daemon/test`](packages/daemon/test) | 59 | `agent-args.test.ts`, `agent-login.test.ts`, `agent-stream.test.ts`, `agy-models.test.ts`, `agy-project-folder.test.ts` |
+| packages/daemon/test (vitest / jest) | [`packages/daemon/test`](packages/daemon/test) | 60 | `agent-args.test.ts`, `agent-login.test.ts`, `agent-stream.test.ts`, `agy-background.test.ts`, `agy-models.test.ts` |
 | apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 46 | `active-runs-chip.test.tsx`, `api-client.test.ts`, `ask-reading-and-persona-rules.test.tsx`, `ask-top-bar.test.tsx`, `audit-labels.test.ts` |
 | apps/mobile/test (vitest / jest) | [`apps/mobile/test`](apps/mobile/test) | 2 | `deeplink.test.ts`, `webview-props.test.ts` |
 | packages/core/test (vitest / jest) | [`packages/core/test`](packages/core/test) | 2 | `ask-stream.test.ts`, `task-events.test.ts` |
@@ -634,15 +634,15 @@ erDiagram
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
 - [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (8 commits)
+- [`packages/daemon/src/source-exec.ts`](packages/daemon/src/source-exec.ts) (8 commits)
 - [`apps/web/src/app/globals.css`](apps/web/src/app/globals.css) (7 commits)
 - [`apps/web/src/components/agent/ActiveRunsMonitor.tsx`](apps/web/src/components/agent/ActiveRunsMonitor.tsx) (7 commits)
 - [`apps/web/src/components/persona/DigitalTwinAvatar3D.tsx`](apps/web/src/components/persona/DigitalTwinAvatar3D.tsx) (7 commits)
-- [`packages/daemon/src/source-exec.ts`](packages/daemon/src/source-exec.ts) (7 commits)
 - [`apps/web/src/app/memory/page.tsx`](apps/web/src/app/memory/page.tsx) (6 commits)
 - [`apps/web/src/components/ExecutionCard.tsx`](apps/web/src/components/ExecutionCard.tsx) (6 commits)
 - [`apps/web/src/components/viewers/MediaInspectorPanel.tsx`](apps/web/src/components/viewers/MediaInspectorPanel.tsx) (6 commits)
 - [`packages/daemon/test/source-exec.test.ts`](packages/daemon/test/source-exec.test.ts) (6 commits)
-- [`apps/web/src/app/app/page.tsx`](apps/web/src/app/app/page.tsx) (5 commits)
+- [`server/server/services/workspace_relay.py`](server/server/services/workspace_relay.py) (6 commits)
 
 ## 8. Development & Verification Commands
 
@@ -665,12 +665,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `f212a39c` (2026-11-19): feat(远程任务): 代码所在设备上的命令默认不再拦截，有风险的照常执行并推送提醒
 - `6bedacfa` (2026-11-19): fix(远程任务): 命令期间代码所在设备重连过、Memento 重启过或断网时，执行机不再空等 30 分钟；升级客户端版本至 v1.0.143
 - `d58c629c` (2026-11-18): feat(enterprise): 员工电脑策略文件、企业部署包与安装包正式签名
 - `e251b518` (2026-11-18): feat(enterprise): 企业部署——管理员可见范围开关、OIDC 单点登录与 SCIM 停用、操作审计、模型密钥加密和模型服务白名单
 - `94139deb` (2026-11-18): fix(web): 后台智能体展开面板也恢复最初设计的深海蓝底，不再是白色卡片
 - `6eeb517a` (2026-11-18): fix(web): 后台智能体运行标签恢复最初设计的深色胶囊，不再半透明透出下面的文字
-- `0f38d660` (2026-11-18): fix(web): 后台智能体运行提示改成醒目的绿色标签，手机上也写明「后台任务 N」
 
 ## 10. Key Environment Variables & Configuration
 
@@ -693,11 +693,10 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ### 最近提交碰到的业务条目（改动后复查它们还成不成立）
 
+- `f212a39c` feat(远程任务): 代码所在设备上的命令默认不再拦截，有风险的照常执行并推送提醒 → `R-WS-EDIT-ONLY`, `R-ENT-DEPLOY`, `R-WS-EXEC-STOP`, `R-WS-EXEC-REMIND`
 - `6bedacfa` fix(远程任务): 命令期间代码所在设备重连过、Memento 重启过或断网时，执行机不再空等 30 分钟；升级客户端版本至 v1.0.143 → `R-WS-EDIT-ONLY`, `R-ENT-DEVICE-POLICY`, `R-WS-EXEC-STOP`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `S-CLIENT-VERSION`
 - `d58c629c` feat(enterprise): 员工电脑策略文件、企业部署包与安装包正式签名 → `F-CLIENT-UPGRADE`, `R-ENT-DEVICE-POLICY`, `R-ENT-DEPLOY`, `R-WS-EXEC-STOP`, `R-UPGRADE-SAFE`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`
 - `e251b518` feat(enterprise): 企业部署——管理员可见范围开关、OIDC 单点登录与 SCIM 停用、操作审计、模型密钥加密和模型服务白名单 → `R-ENT-ADMIN-SCOPE`, `R-ENT-SSO`, `R-ENT-AUDIT`, `R-ENT-SECRETS`, `R-WS-EXEC-REMIND`, `R-DEVICE-ENV-PROFILE`, `R-DOCS-WRITE-LIGHT`, `R-LOGIN-PERSIST`
-- `94139deb` fix(web): 后台智能体展开面板也恢复最初设计的深海蓝底，不再是白色卡片 → `F-ASK`, `R-ISLAND-CLEANUP`, `S-RUN-STATE`
-- `6eeb517a` fix(web): 后台智能体运行标签恢复最初设计的深色胶囊，不再半透明透出下面的文字 → `F-ASK`, `R-ISLAND-CLEANUP`, `S-RUN-STATE`
 
 ---
 _Auto-maintained by `scripts/project_blueprint.mjs` (v20261126) & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._

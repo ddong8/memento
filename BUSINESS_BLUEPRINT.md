@@ -135,9 +135,9 @@
 
 ### R-TRACK-BACKGROUND 后台任务跟踪到结束，不提前收尾
 - 来源: CLAUDE.md（memento）「后台任务要跟踪到结束，不要提前结束」；用户 2026-11-14「antigravity经常会出现任务还没完成……不能精准的判断到任务是否结束吗」
-- 说明: 不能用固定的安静时长判定结束。Antigravity 的定时器到点前日志为空，按定时时长等到点再加宽限。
-- 代码: `packages/daemon/src/agy-runner/runner.ts#timerSeconds`, `packages/daemon/src/agy-runner/runner.ts#backgroundQuietMs`
-- 测试: `packages/daemon/test/antigravity-runner.test.ts#waits for a timer Antigravity set and ends on the work it wakes up for, not at the quiet limit`, `packages/daemon/test/agy-project-folder.test.ts#reads how long a schedule timer waits from its task description`, `packages/daemon/test/still-running.test.ts#detects Antigravity active background task`
+- 说明: 不能用固定的安静时长判定结束。Antigravity 的定时器到点前日志为空，按定时时长等到点再加宽限。用 Google 的 agy 命令行（没有桌面应用的服务器）跑的任务，后台命令是否跑完按它会话记录里每个后台任务自己的结束消息判断，不看回复里的字眼（2026-11-19 用户「antigravity 里的任务总是出现这种后台任务运行中的情况」：vps3 上两个后台命令都已退出码 0，仍显示没跑完）。
+- 代码: `packages/daemon/src/agy-runner/runner.ts#timerSeconds`, `packages/daemon/src/agy-runner/runner.ts#backgroundQuietMs`, `packages/daemon/src/antigravity.ts#openBackgroundTasks`, `packages/daemon/src/antigravity.ts#agyCliOpenBackgroundTasks`
+- 测试: `packages/daemon/test/antigravity-runner.test.ts#waits for a timer Antigravity set and ends on the work it wakes up for, not at the quiet limit`, `packages/daemon/test/agy-project-folder.test.ts#reads how long a schedule timer waits from its task description`, `packages/daemon/test/still-running.test.ts#detects Antigravity active background task`, `packages/daemon/test/antigravity-official-cli.test.ts#background commands: done once the transcript says they ended, whatever the reply says; one still going leaves the task running`, `packages/daemon/test/agy-background.test.ts#none once each one's own message says it finished (the run on vps3 that read as still running)`
 - 要求: `timerSeconds(` @ `packages/daemon/src/agy-runner/runner.ts`
 
 ### R-STOP-ALL-AGENTS Antigravity、Claude Code、Codex 运行中的任务都必须能停
@@ -617,7 +617,7 @@
 | `F-CLIENT-UPGRADE` | 客户端升级 | 3/3 | — | — | ✅ |
 | `F-BLUEPRINT` | 蓝图生成与核对 | 5/5 | — | — | ✅ |
 | `R-AGY-WORKDIR` | 选了哪个目录，Antigravity 就在那个目录干活 | 4/4 | 4/4 | 3/3 | ✅ |
-| `R-TRACK-BACKGROUND` | 后台任务跟踪到结束，不提前收尾 | 2/2 | 3/3 | 1/1 | ✅ |
+| `R-TRACK-BACKGROUND` | 后台任务跟踪到结束，不提前收尾 | 4/4 | 5/5 | 1/1 | ✅ |
 | `R-STOP-ALL-AGENTS` | Antigravity、Claude Code、Codex 运行中的任务都必须能停 | 3/3 | 4/4 | 1/1 | ✅ |
 | `R-ISLAND-CLEANUP` | 任务结束必须清掉灵动岛状态 | 3/3 | 3/3 | — | ✅ |
 | `R-MULTI-DEVICE-STABLE` | 多机任务并发执行，过程和结果稳定回传 | 4/4 | 4/4 | — | ✅ |

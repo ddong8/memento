@@ -11,6 +11,7 @@ import { WebSocketServer } from "ws";
 const dir = mkdtempSync(join(tmpdir(), "agy-official-"));
 const fakeAgy = join(dir, "agy");
 const CID = "c3b66b04-872b-4fbe-a3a4-058a026ef20a";
+const BG_CID = "5d0f1b8e-2a71-4c39-9e64-0b7f3c1a9d42";
 
 vi.mock("../src/antigravity.js", async (importOriginal) => {
   const real = await importOriginal<typeof import("../src/antigravity.js")>();
@@ -29,7 +30,7 @@ beforeAll(() => {
   writeFileSync(
     js,
     `
-import { appendFileSync, existsSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 const args = process.argv.slice(2);
 appendFileSync(${JSON.stringify(join(dir, "calls.jsonl"))}, JSON.stringify({ args, electron: process.env.ELECTRON_RUN_AS_NODE ?? null }) + "\\n");
@@ -37,6 +38,28 @@ const model = args.includes("--model") ? args[args.indexOf("--model") + 1] : "";
 const emit = (e) => console.log(JSON.stringify(e));
 if (args[0] === "models") {
   console.log("Fetching available models...\\ngemini-4-argon-medium\tGemini 4 Argon (Medium)\\ngemini-4-argon-high\tGemini 4 Argon (High)\\ngemini-3.8-flash-high\tGemini 3.8 Flash (High)\\ngemini-3.8-flash-medium\tGemini 3.8 Flash (Medium)");
+  process.exit(0);
+}
+// A run that starts commands in the background: the CLI writes the conversation's transcript, which says
+// whether each one ended (its stream and the reply don't)
+const bg = args.at(-1) === "后台跑测试" ? "ended" : args.at(-1) === "后台起服务" ? "open" : "";
+if (bg) {
+  const cid = "${BG_CID}";
+  const logs = join(${JSON.stringify(join(dir, "home"))}, ".gemini", "antigravity-cli", "brain", cid, ".system_generated", "logs");
+  mkdirSync(logs, { recursive: true });
+  const now = new Date().toISOString().replace(/\\.\\d+Z$/, "Z");
+  const step = (s) => appendFileSync(join(logs, "transcript_full.jsonl"), JSON.stringify(s) + "\\n");
+  // One from an earlier turn that never ended doesn't count for this one
+  step({ step_index: 1, source: "MODEL", type: "GENERIC", status: "RUNNING", created_at: "2026-01-01T00:00:00Z", content: "Created At: 2026-01-01T00:00:00Z\\nTool is running as a background task with task id: " + cid + "/task-1\\nTask Description: npm run dev" });
+  step({ step_index: 12, source: "MODEL", type: "GENERIC", status: "RUNNING", created_at: now, content: "Created At: " + now + "\\nTool is running as a background task with task id: " + cid + "/task-12\\nTask Description: npm test" });
+  emit({ event: "init", conversation_id: cid, init: { cwd: process.cwd() } });
+  emit({ event: "step_update", step_update: { conversation_id: cid, step_index: 12, state: "DONE", step_type: "tool", tool_name: "run_command", tool_info: { name: "run_command", parameters: { CommandLine: "npm test" }, output: "Tool is running as a background task with task id: " + cid + "/task-12" } } });
+  emit({ event: "step_update", step_update: { conversation_id: cid, step_index: 13, state: "DONE", step_type: "agent_response", text_delta: "正在后台执行测试（task-12），完成后汇总。" } });
+  if (bg === "ended") {
+    step({ step_index: 14, source: "SYSTEM", type: "SYSTEM_MESSAGE", status: "DONE", created_at: now, content: "<SYSTEM_MESSAGE>\\n[Message] timestamp=" + now + " sender=" + cid + "/task-12 priority=MESSAGE_PRIORITY_HIGH content=Task id \\"" + cid + "/task-12\\" finished with result:\\nCommand exited with code 0.\\n</SYSTEM_MESSAGE>" });
+  }
+  emit({ event: "step_update", step_update: { conversation_id: cid, step_index: 15, state: "DONE", step_type: "agent_response", text_delta: "测试全部通过。" } });
+  emit({ event: "result", result: { conversation_id: cid, status: "SUCCESS", response: "测试全部通过。", num_turns: 1 } });
   process.exit(0);
 }
 // Gemini 4 Argon (the default) out of its quota, once the test says so
@@ -164,6 +187,23 @@ it.skipIf(process.platform === "win32")(
     expect(done).toMatchObject({ status: "failed", error_type: "usage_limit" });
     expect(String(done.error)).toContain("Individual quota reached");
     expect(String(done.stderr)).not.toContain("模型容灾降级");
+  },
+  45_000,
+);
+
+it.skipIf(process.platform === "win32")(
+  "background commands: done once the transcript says they ended, whatever the reply says; one still going leaves the task running",
+  async () => {
+    const home = process.env.HOME;
+    process.env.HOME = join(dir, "home");
+    try {
+      const ended = await runTask("feedbeef-0000-4000-8000-0000000000b6", { prompt: "后台跑测试" });
+      expect(ended.done, `${ended.done.error}\n${ended.done.stderr}`).toMatchObject({ status: "succeeded", session_id: BG_CID });
+      const open = await runTask("feedbeef-0000-4000-8000-0000000000b7", { prompt: "后台起服务" });
+      expect(open.done).toMatchObject({ status: "still_running", session_id: BG_CID });
+    } finally {
+      process.env.HOME = home;
+    }
   },
   45_000,
 );

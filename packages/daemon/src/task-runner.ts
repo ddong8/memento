@@ -14,7 +14,7 @@ import {
   type AgentEvent,
   type AgentStreamParser,
 } from "./agent-stream.js";
-import { antigravityExecutable, discoverAntigravityEnv, officialAgyCli } from "./antigravity.js";
+import { agyCliOpenBackgroundTasks, antigravityExecutable, discoverAntigravityEnv, officialAgyCli } from "./antigravity.js";
 import { agyQuotaMessage, isExhausted, listAgyModels, nextAgyModel, noteDefaultModel, noteQuotaExhausted, quotaResetMs } from "./agy-models.js";
 import { ensureProjectBlueprint, findGitRoot } from "./blueprint-auto.js";
 import {
@@ -1080,6 +1080,8 @@ export class TaskRunner {
     let agyRunner: string | undefined;
     /** Google's own agy CLI runs the task: the Antigravity app isn't running here (a server without a desktop). */
     let officialAgy = false;
+    /** When the task started: the background tasks Google's agy CLI started in it are the ones after this. */
+    const startedAt = Date.now();
     // Structured agents (Claude, Codex) report every step through the parser.
     let parser: AgentStreamParser | undefined;
     let stdinPrompt: string | undefined;
@@ -1605,7 +1607,13 @@ export class TaskRunner {
       const streamErrors = parser?.errors.trim() ?? "";
       const timedOut = exitCode === TIMED_OUT;
       const hasStillRunningTag = out.stdout.includes("STATUS_STILL_RUNNING") || fullErr.includes("STATUS_STILL_RUNNING");
-      const isStillRunning = (!timedOut || hasStillRunningTag) && detectStillRunning(out.stdout, fullErr, parser, exitCode);
+      // Google's agy CLI: its conversation's transcript says which background tasks ended. Its stream and the
+      // agent's words don't (2026-11-19: both tasks of a run on vps3 exited 0 and it still read as left running).
+      const agyOpen = officialAgy && parser?.sessionId ? agyCliOpenBackgroundTasks(parser.sessionId, startedAt) : undefined;
+      const isStillRunning = agyOpen
+        ? agyOpen.length > 0
+        : (!timedOut || hasStillRunningTag) && detectStillRunning(out.stdout, fullErr, parser, exitCode);
+      if (agyOpen?.length) this.log(`Task ${taskId}: Antigravity left background tasks running: ${agyOpen.join(", ")}`);
       const promptTooLong = errScan().includes("Prompt is too long") || fullOut.includes("Prompt is too long");
 
       // memento's runners report the session on stderr, a "session id: <id>" line per run, the last one being

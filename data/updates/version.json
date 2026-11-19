@@ -4,22 +4,22 @@
   "release_notes": "1. Antigravity 的额度详情里每个模型都有额度了：Gemini 4 Neon、Hydrogen 和 Gemini 3.8 Flash 共用 Gemini 模型的额度，Gemini 4 Argon 单独一个周额度，Claude 和 GPT 共用一组\n2. Antigravity 额度详情新增各组的周额度和 5 小时额度用量与重置时间，没有桌面应用的服务器（agy 命令行）和装了 Antigravity 应用的电脑都支持\n3. 手机端版本号与客户端统一为 1.0.145",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.144-win-x64.zip",
-      "size": 158356574,
-      "sha256": "f3a5c812be50560c699271ecbb3c5d6feca607da04b030199f9333b2c218838b",
-      "sha512": "tIWIOkBg0XaT27wrJzrxKbgqMnOEJ1N1BWaYKMMc5j/iIseHUQzl4838T8w+KhG65IbR9w63LnIOyyPs3C3Jkw=="
+      "asset_name": "Memento-1.0.145-win-x64.zip",
+      "size": 158358967,
+      "sha256": "6f70aa1e2f33d90130a4036269211f71117d76bd0466761679f2ffef74959345",
+      "sha512": "CpAEW/PULqW0JCo3btoJZ7fVj0KXW+5S4IEokR6I9GsQwyBtqHFMTQj2LaRtI6X+DMdGeAI+GxfKa24tmygSvg=="
     },
     "macos": {
-      "asset_name": "Memento-1.0.144-mac-arm64.zip",
-      "size": 132846451,
-      "sha256": "467d95339071de924454bdbfbc8c2035feb5d12dc1005ebf6d1b10c67864ece9",
-      "sha512": "gNLnx6VnFuf4RTow8vIpksJU++dSNZnzb419PwxJc+B4/WgbR9AMFhwRg9Uv2EvRE6GljEQ/dm9LIhgQqCo7qA=="
+      "asset_name": "Memento-1.0.145-mac-arm64.zip",
+      "size": 132850262,
+      "sha256": "dad649b435b0f5f486b791ce64073a2a662d3e2ca761b9fce6ed71bb68dcca81",
+      "sha512": "3q6gHRxnQmyxibeCGONCHdMoq8j335U4NvjzSaeaNsra+SXqjXnllShP5l0A5FXrxPm0PcFiD6cfIAJA6Sd1bQ=="
     },
     "linux": {
-      "asset_name": "Memento-1.0.144-linux-x64.tar.gz",
-      "size": 132120032,
-      "sha256": "ca512a89f6b0ec39bf10b9d53078fa4b7dcda24d364024dc9742ae890cf52a2a",
-      "sha512": "/+3RmxyfN6RaTxG9WIppv0O4OqTo0wUmENyaiBsyLorXAbgX7Dq6+ZtSrIaXBcjBjJJSMZvh8bsfAsHaRjpT6w=="
+      "asset_name": "Memento-1.0.145-linux-x64.tar.gz",
+      "size": 132126019,
+      "sha256": "d35c3c0cbe53998137ed2c3742372e179619821ae94cf65efcb017466cf34d6c",
+      "sha512": "MxSqRjJQPvPZLw+eDavLMsLEb+RrGMff+rK3OHYdolC9Ln/pkASLJteJcmIzN1QbFFcxmt9YNWlzGZp9B8t63g=="
     }
   }
 }

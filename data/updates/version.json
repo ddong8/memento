@@ -4,22 +4,22 @@
   "release_notes": "1. Antigravity 在没有桌面应用的服务器上（用 Google 的 agy 命令行）运行任务时，智能体放到后台的命令跑完了，不会再显示「还有后台任务没有跑完」；真的还在运行的才会提示\n2. 远程任务在代码所在电脑上执行有风险的命令、写敏感文件时不再拦截，照常执行并把提醒记到任务上、推送到手机\n3. 手机端版本号与客户端统一为 1.0.144",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.143-win-x64.zip",
-      "size": 158352390,
-      "sha256": "9c0917043c7593ea3adbfeb12fb865dd31b0d7f76720d0b3cbd1abd9670f87e3",
-      "sha512": "uBG0AUfrR7mHsOsihDChC45CHmlH73Ar4vnWkGB6t1adh5sqwbfHfVPEG+VfjlVdO2g0qglqm+gOCogmdIrYYg=="
+      "asset_name": "Memento-1.0.144-win-x64.zip",
+      "size": 158356574,
+      "sha256": "f3a5c812be50560c699271ecbb3c5d6feca607da04b030199f9333b2c218838b",
+      "sha512": "tIWIOkBg0XaT27wrJzrxKbgqMnOEJ1N1BWaYKMMc5j/iIseHUQzl4838T8w+KhG65IbR9w63LnIOyyPs3C3Jkw=="
     },
     "macos": {
-      "asset_name": "Memento-1.0.143-mac-arm64.zip",
-      "size": 132842356,
-      "sha256": "dfeb83e031a6db4225cd645f8022ba4e4504275ec0e07c316948f05493534a8c",
-      "sha512": "PI4VRFJ+NPVcAVg6iY4UGFYnIWKO7LrBLGbgc/fz/ZZZ07xQbOCwEv1sDoS/hZA0GNyP/kEEqGqY0SV2rQfATw=="
+      "asset_name": "Memento-1.0.144-mac-arm64.zip",
+      "size": 132846451,
+      "sha256": "467d95339071de924454bdbfbc8c2035feb5d12dc1005ebf6d1b10c67864ece9",
+      "sha512": "gNLnx6VnFuf4RTow8vIpksJU++dSNZnzb419PwxJc+B4/WgbR9AMFhwRg9Uv2EvRE6GljEQ/dm9LIhgQqCo7qA=="
     },
     "linux": {
-      "asset_name": "Memento-1.0.143-linux-x64.tar.gz",
-      "size": 132118307,
-      "sha256": "b25ea1e917ec3419bc69d68b3a7f31cd3d5994196df8c8d09cc482228e4e7d52",
-      "sha512": "nmy+2Cbd8Q28d0csmjABDPZIo7T8oubh5Sd3B96VlANBFAfwG9W+tc9Hr4seVWbj4YeaCoBrdL2GLFuhBbAEzQ=="
+      "asset_name": "Memento-1.0.144-linux-x64.tar.gz",
+      "size": 132120032,
+      "sha256": "ca512a89f6b0ec39bf10b9d53078fa4b7dcda24d364024dc9742ae890cf52a2a",
+      "sha512": "/+3RmxyfN6RaTxG9WIppv0O4OqTo0wUmENyaiBsyLorXAbgX7Dq6+ZtSrIaXBcjBjJJSMZvh8bsfAsHaRjpT6w=="
     }
   }
 }

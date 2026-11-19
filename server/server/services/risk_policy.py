@@ -91,6 +91,34 @@ def classify_shell_command(command: str | None) -> RiskFinding | None:
     return None
 
 
+# What a command run for an agent on another device must never do to the computer it runs on: things
+# no undo brings back. Everything else risky runs there and is reported (workspace_relay._exec).
+_CATASTROPHIC_RULES: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(p), label) for p, label in [
+        (r"\bmkfs\b|\bdiskutil\s+(erase\w*|partition\w*|zeroDisk|randomDisk|secureErase)\b|\bdd\b[^;&|\n]*\bof=/dev/",
+         "格式化或直接写磁盘"),
+        (r"\brm\s+(-[a-zA-Z-]*\s+)*-[a-zA-Z]*[rR][a-zA-Z]*\s+(-[a-zA-Z-]*\s+)*"
+         r"(/|/\*|~|~/|~/\*|\$HOME/?|\$\{HOME\}/?|\$HOME/\*|/Users/?|/Users/[^/\s;&|]+/?|/System|/Applications|/Library|/usr|/etc|/var|/home/?|/home/[^/\s;&|]+/?)"
+         r"(?=\s|$|;|&|\|)", "删除系统目录或整个主目录"),
+        (r"(^|[;&|(]|&&|\|\|)\s*(sudo\s+)?(shutdown|reboot|halt|poweroff)\b", "关闭或重启这台电脑"),
+    ]
+]
+
+# `ssh host "…"` / `ssh host '…'`: the quoted part runs on that host, not here
+_SSH_REMOTE = re.compile(r"""\bssh\b[^"';&|\n]*("(?:[^"\\]|\\.)*"|'[^']*')""")
+
+
+def classify_catastrophic(command: str | None) -> RiskFinding | None:
+    """A command that would wreck the computer it runs on (what runs on another host over ssh doesn't count)."""
+    if not command:
+        return None
+    local = _SSH_REMOTE.sub(lambda m: m.group(0)[: m.start(1) - m.start(0)] + '""', command)
+    for pattern, label in _CATASTROPHIC_RULES:
+        if pattern.search(local):
+            return RiskFinding(label, _truncate(command), level="critical")
+    return None
+
+
 def _normalize_path(path: str) -> str:
     return path.replace("\\", "/").rstrip("/")
 

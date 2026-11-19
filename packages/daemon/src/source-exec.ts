@@ -292,7 +292,7 @@ export class SourceExecBridge {
     if (st.size > GET_LIMIT) return { error: `${local} 超过 ${GET_LIMIT / 1048576}MB，传不过去` };
     let r: Record<string, unknown>;
     try {
-      r = await relay("put", { source_device_id: run.spec.sourceDeviceId, path: run.spec.sourcePath, dest, data_b64: (await readFile(local)).toString("base64") }, 180_000);
+      r = await relay("put", { source_device_id: run.spec.sourceDeviceId, path: run.spec.sourcePath, dest, task_id: taskId, data_b64: (await readFile(local)).toString("base64") }, 180_000);
     } catch (e) {
       return { error: e instanceof Error ? e.message : String(e) };
     }
@@ -414,7 +414,7 @@ export function sourceExecHint(command: string, sourceName: string): string {
     `1) 测试、构建、lint、类型检查、安装依赖、运行程序、打开浏览器或截图、安卓模拟器、iOS 构建和上传 TestFlight 等，一律用 ${c} "<命令>"：带着你到目前为止的全部改动，在「${sourceName}」上单独的检出目录里执行（不碰用户的工作目录，依赖、.env、钥匙串和已登录的工具都用那台设备上现成的），输出和退出码原样返回；工作目录对应你当前所在的目录。一次最多 30 分钟，更久的命令放到后台执行。`,
     `2) 提交用 ${c} commit -m "说明" [-- 路径...]：在「${sourceName}」上真正执行 git commit，它的提交钩子照常运行；钩子失败会把输出返回给你，修好再提交；钩子自动改动的文件会同步回这里。要推送加 --push（或执行 ${c} push），任务结束、改动写回「${sourceName}」后由它推送。不要在这里 git commit / push，这里已拦截，绕过去的提交也不会带回。`,
     `3) 要看「${sourceName}」上生成的文件（截图、日志、构建产物），用 ${c} get <文件> [保存到] 取回这里再读；相对路径按当前目录在那边的检出目录里找，也可以给那台设备上的绝对路径。`,
-    `4) 要改「${sourceName}」上项目以外的文件（别的仓库、配置文件等）：先 ${c} get <那边的绝对路径> 取回，在这里改好，再 ${c} put <这里的文件> <那边的绝对路径> 写回（原文件自动备份；.ssh、.env、系统配置这类敏感位置会被拒绝）。本项目里的代码照常直接在这里改，任务结束自动写回。`,
+    `4) 要改「${sourceName}」上项目以外的文件（别的仓库、配置文件等）：先 ${c} get <那边的绝对路径> 取回，在这里改好，再 ${c} put <这里的文件> <那边的绝对路径> 写回（原文件自动备份；写 .ssh、.env、系统配置这类敏感位置会推送提醒给用户）。本项目里的代码照常直接在这里改，任务结束自动写回。`,
     `5) 不要在这台执行机上安装依赖、跑测试或构建。`,
   ].join("\n");
 }
@@ -1015,7 +1015,8 @@ export function editBackupDir(home = homeDir()): string {
 /**
  * The source's side of `workspace_put_req`: a file the agent wrote, put anywhere on this device
  * outside the task's project (that goes back with the task's patch instead). What was there is copied
- * to ~/.memento/source-edits first. The server already turned down sensitive places (.ssh, .env, /etc…).
+ * to ~/.memento/source-edits first. Sensitive places (.ssh, .env, /etc…) the server reports to the user's phone
+ * (and turns down only where the deployment is strict).
  */
 export async function writeOnSource(
   dir: string,

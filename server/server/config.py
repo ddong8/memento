@@ -88,6 +88,14 @@ class Settings(BaseSettings):
     password_login: bool = True
     # How long the audit log keeps entries, in days (0 keeps them forever)
     audit_retention_days: int = 365
+    # Commands an agent on another device runs on the computer the code is on (memento-source), and
+    # files it writes there outside the project:
+    #   off          — refuse nothing; risky ones (sudo, writing /etc or ~/.ssh, rm -rf…) run and the user's
+    #                  phone is told (11-19: the user asked for reminders instead of refusals)
+    #   catastrophic — also refuse what wrecks that computer (formatting a disk, rm -rf of / or the home
+    #                  folder, shutting it down)
+    #   strict       — refuse every risky command and sensitive file (the rule before 11-19)
+    remote_exec_policy: str = "off"
 
     # Single sign-on with any OpenID Connect provider (Keycloak, Authing, Azure AD / Entra ID,
     # Okta, Google Workspace, ...). Set issuer + client id + secret to enable it.

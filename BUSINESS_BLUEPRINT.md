@@ -3,16 +3,16 @@
 <!-- memento:business-index:start (自动生成，勿手改) -->
 > 先读这一段定位；要细节时按下表行号只读对应章节。改了「代码位置」里的文件，先看对应条目还成不成立。
 
-- 汇总：规则 67（✅ 67 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
+- 汇总：规则 68（✅ 68 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
 - 核对：全部通过（详见末尾「自动核对」）
 
 | 章节 | 行号 |
 | :--- | :--- |
 | 1. 业务对象与术语 | L21-L65 |
 | 2. 关键流程 | L67-L124 |
-| 3. 业务规则 | L126-L534 |
-| 4. 状态归属 | L536-L581 |
-| 自动核对 (Auto Check) | L584-L691 |
+| 3. 业务规则 | L126-L541 |
+| 4. 状态归属 | L543-L588 |
+| 自动核对 (Auto Check) | L591-L699 |
 <!-- memento:business-index:end -->
 > 业务蓝图：memento 应该做成什么样，每一条落在哪段代码、由哪个测试或检查保证。和代码蓝图 [CODE_BLUEPRINT.md](CODE_BLUEPRINT.md)（代码长什么样）配合看：代码蓝图回答"在哪里"，这份回答"应该怎样、为什么"。
 > 规则来自用户的原话和纠正（CLAUDE.md、长期记忆、每晚复盘），不是从代码里反推的；代码和这里对不上，先当成代码的问题查。
@@ -165,9 +165,9 @@
 
 ### R-WS-EDIT-ONLY 远程执行机只改代码，测试、构建、提交、推送等其余工作都在代码所在的设备上做
 - 来源: 用户 11-17「改代码也要可以」（直接改本机任意文件）；「远程机 vps3 只改代码，其它的所有工作，测试，提交，等等工作都由本地机完成」「包括调用浏览器，其它软件，安卓模拟器，ios 发到 testflight 等等操作」
-- 说明: 跨设备任务里执行机只读和改代码。测试、构建、装依赖、运行程序、浏览器、模拟器、iOS 上传等用 memento-source 在代码所在的设备上执行（带着当前改动，在单独的检出目录里，用那台设备的依赖、钥匙串和已登录工具）；提交用 memento-source commit 在那台设备上真正 git commit（它的钩子照常运行，钩子失败把输出交回智能体，钩子改的文件同步回执行机），只提交智能体改过的文件；推送在任务结束、改动写回后由那台设备做；那边的文件用 memento-source get 取回看；那台设备上项目以外的任意文件（别的仓库、配置）用 get 取回改好再 memento-source put 写回，原文件先备份到 ~/.memento/source-edits，.ssh、.env、/etc、shell 启动脚本、凭据文件等敏感位置服务端拒绝，本项目里的文件不走 put（用户 11-17「改代码也要可以」→ 选「直接改本机任意文件」）。执行机副本装拒绝 commit/push 的 git 钩子，Claude Code 在执行机直接跑测试、构建、装依赖、提交、推送会被拦下并指向 memento-source；绕过拦截在执行机上做的提交只带回文件改动。Codex、Antigravity 没有追加系统提示，规则放在任务开头。
+- 说明: 跨设备任务里执行机只读和改代码。测试、构建、装依赖、运行程序、浏览器、模拟器、iOS 上传等用 memento-source 在代码所在的设备上执行（带着当前改动，在单独的检出目录里，用那台设备的依赖、钥匙串和已登录工具）；提交用 memento-source commit 在那台设备上真正 git commit（它的钩子照常运行，钩子失败把输出交回智能体，钩子改的文件同步回执行机），只提交智能体改过的文件；推送在任务结束、改动写回后由那台设备做；那边的文件用 memento-source get 取回看；那台设备上项目以外的任意文件（别的仓库、配置）用 get 取回改好再 memento-source put 写回，原文件先备份到 ~/.memento/source-edits，.ssh、.env、/etc、shell 启动脚本、凭据文件等敏感位置照常写并推送提醒（11-19 起，见 R-WS-EXEC-REMIND），本项目里的文件不走 put（用户 11-17「改代码也要可以」→ 选「直接改本机任意文件」）。执行机副本装拒绝 commit/push 的 git 钩子，Claude Code 在执行机直接跑测试、构建、装依赖、提交、推送会被拦下并指向 memento-source；绕过拦截在执行机上做的提交只带回文件改动。Codex、Antigravity 没有追加系统提示，规则放在任务开头。
 - 代码: `packages/daemon/src/source-exec.ts#commitOnSource`, `packages/daemon/src/source-exec.ts#readOnSource`, `packages/daemon/src/source-exec.ts#writeOnSource`, `packages/daemon/src/source-exec.ts#executorOnlyEdits`, `packages/daemon/src/source-exec.ts#sourceExecHint`, `packages/daemon/src/workspace.ts#refuseCommitsHere`, `packages/daemon/src/workspace-sync.ts#finishWorkspace`, `packages/daemon/src/hook-bridge.ts#denyReply`, `server/server/services/workspace_relay.py`
-- 测试: `packages/daemon/test/workspace.test.ts#commits on the source with its hooks, takes in what they changed, and lands the commits on the branch`, `packages/daemon/test/workspace.test.ts#hands a failing hook's output back to the agent and commits nothing`, `packages/daemon/test/workspace.test.ts#only files come back when the agent forced a commit through on the executor`, `packages/daemon/test/source-exec.test.ts#turns down tests, builds, installs, commits and pushes run there, and lets memento-source and reading through`, `packages/daemon/test/hook-bridge.test.ts#reports every call and turns down the ones it is told to, with the reason for the model`, `server/tests/test_workspace_relay.py#test_the_agents_commit_is_made_on_the_source_and_an_old_source_is_told_to_upgrade`, `server/tests/test_workspace_relay.py#test_a_file_outside_the_project_is_written_on_the_source_but_never_a_sensitive_one`, `packages/daemon/test/workspace.test.ts#edits a file on the source outside the project: get it, change it here, put it back, the old one backed up`
+- 测试: `packages/daemon/test/workspace.test.ts#commits on the source with its hooks, takes in what they changed, and lands the commits on the branch`, `packages/daemon/test/workspace.test.ts#hands a failing hook's output back to the agent and commits nothing`, `packages/daemon/test/workspace.test.ts#only files come back when the agent forced a commit through on the executor`, `packages/daemon/test/source-exec.test.ts#turns down tests, builds, installs, commits and pushes run there, and lets memento-source and reading through`, `packages/daemon/test/hook-bridge.test.ts#reports every call and turns down the ones it is told to, with the reason for the model`, `server/tests/test_workspace_relay.py#test_the_agents_commit_is_made_on_the_source_and_an_old_source_is_told_to_upgrade`, `server/tests/test_workspace_relay.py#test_a_file_outside_the_project_is_written_on_the_source_and_a_sensitive_one_tells_the_phone`, `packages/daemon/test/workspace.test.ts#edits a file on the source outside the project: get it, change it here, put it back, the old one backed up`
 - 要求: `"source_commit"` @ `packages/daemon/src/capabilities.ts`; `"commit": _commit` @ `server/server/services/workspace_relay.py`
 
 
@@ -227,6 +227,13 @@
 - 代码: `packages/daemon/src/source-exec.ts#acquireCheckout`, `packages/daemon/src/source-exec.ts#cancelSourceExec`, `packages/daemon/src/source-exec.ts#execOnSource`, `packages/daemon/src/source-exec.ts#SourceExecBridge`, `packages/daemon/src/ws-client.ts`, `server/server/services/workspace_relay.py#_exec_cancel`, `server/server/services/workspace_relay.py#_await_source`, `server/server/services/ws_manager.py#handle_file_response`, `packages/daemon/src/source-exec.ts#execStatus`
 - 测试: `packages/daemon/test/source-exec.test.ts#tells the server, waiting on a command, whether it still runs here and its answer once done`, `server/tests/test_workspace_relay.py#test_an_answer_over_a_newer_connection_on_another_replica_reaches_the_one_that_asked`, `server/tests/test_workspace_relay.py#test_a_command_whose_answer_will_never_come_ends_the_wait`, `packages/daemon/test/source-exec.test.ts#a slow command takes one checkout; other commands, of any task, run beside it in another`, `packages/daemon/test/source-exec.test.ts#get finds a file a task's command made in whichever checkout it ran in`, `packages/daemon/test/source-exec.test.ts#a timed-out command's children die with it`, `packages/daemon/test/source-exec.test.ts#giving up on one command stops just that one; the task's next command still runs`, `server/tests/test_workspace_relay.py#test_a_stopped_tasks_commands_are_stopped_on_the_source`
 - 要求: `"exec_cancel": _exec_cancel` @ `server/server/services/workspace_relay.py`; `"workspace_exec_cancel"` @ `packages/daemon/src/ws-client.ts`; `"workspace_exec_status"` @ `packages/daemon/src/ws-client.ts`; `cl.op("ws.reply", self._op_reply)` @ `server/server/services/ws_manager.py`
+
+### R-WS-EXEC-REMIND 远程智能体在代码所在设备上的命令默认不拦截，有风险的推送提醒
+- 来源: 用户 11-19「执行命令权限能放开吗，有些没法操作」「全部改成推送提醒吧，尽量不拦截」（Antigravity 在 vps3 上经 memento-source 读 VPS 上的证书配置、写 nginx 配置，都因「以 root 权限执行」「修改系统全局配置」被服务端拒绝）
+- 说明: `MEMENTO_REMOTE_EXEC_POLICY` 默认 off：memento-source 的命令和 put 写项目以外的文件都不拦，风险规则判为 danger / critical 的（sudo、改 /etc、rm -rf、写 .ssh/.env 等）照常执行，同时记到智能体的任务上并推送到手机（找不到任务就直接推送）。catastrophic 另外拦下会毁掉那台电脑的命令（格式化磁盘、删整个主目录或系统目录、让它关机重启；`ssh 主机 "…"` 引号里在别的主机上执行的部分不算）；strict 是 11-19 以前的做法，有风险的命令和敏感位置一律拒绝。企业部署模板设为 catastrophic。
+- 代码: `server/server/services/workspace_relay.py#_refusal`, `server/server/services/workspace_relay.py#_tell_risky`, `server/server/services/workspace_relay.py#_put`, `server/server/services/risk_policy.py#classify_catastrophic`, `server/server/config.py`
+- 测试: `server/tests/test_workspace_relay.py#test_only_what_wrecks_the_source_is_refused_unless_the_deployment_says_otherwise`, `server/tests/test_workspace_relay.py#test_a_file_outside_the_project_is_written_on_the_source_and_a_sensitive_one_tells_the_phone`, `server/tests/test_workspace_relay.py#test_a_risky_command_is_recorded_on_the_task_and_pushed`, `server/tests/test_workspace_relay.py#test_a_strict_deployment_still_refuses_sensitive_files`
+- 要求: `remote_exec_policy: str = "off"` @ `server/server/config.py`; `notify_service.spawn(_tell_risky(` @ `server/server/services/workspace_relay.py`
 
 ### R-PROJECT-EXCLUDE 测试用的项目可以不采集，已采集的数据和从中学到的东西一并清掉
 - 来源: 用户 11-17「目前默认是所有项目都抓取的，如果用户有些项目是用来测试的，不想它被抓取……对应的记忆，画像等也要删除」
@@ -585,7 +592,7 @@
 
 > 生成器随每次提交核对：代码位置还在不在、测试还在不在、禁止 / 要求的写法满不满足。✅ 通过 · ⚠️ 缺代码位置、测试或来源 · ❌ 位置失效或违反规则（CI 会拦下）。
 
-- 汇总：规则 67（✅ 67 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
+- 汇总：规则 68（✅ 68 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
 
 | 编号 | 名称 | 代码位置 | 测试 | 检查 | 结论 |
 | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -624,6 +631,7 @@
 | `R-ENT-DEVICE-POLICY` | 公司 IT 下发的策略文件管住员工电脑：固定服务器、限定远程任务和目录 | 7/7 | 4/4 | 3/3 | ✅ |
 | `R-ENT-DEPLOY` | 企业能在自己的服务器上一键部署、备份恢复、离线安装，安装包可正式签名 | 6/6 | — | 4/4 | ✅ |
 | `R-WS-EXEC-STOP` | 代码所在设备上一条慢命令或停掉的任务不卡住后面的命令 | 9/9 | 8/8 | 4/4 | ✅ |
+| `R-WS-EXEC-REMIND` | 远程智能体在代码所在设备上的命令默认不拦截，有风险的推送提醒 | 5/5 | 4/4 | 2/2 | ✅ |
 | `R-PROJECT-EXCLUDE` | 测试用的项目可以不采集，已采集的数据和从中学到的东西一并清掉 | 8/8 | 3/3 | 3/3 | ✅ |
 | `R-RUN-OUTLIVES-PAGE` | 运行不因页面关闭、切后台、发版而中断 | 2/2 | 4/4 | — | ✅ |
 | `R-QUOTA-PER-MODEL` | 额度按当前对话用的模型显示 | 3/3 | 1/1 | 2/2 | ✅ |

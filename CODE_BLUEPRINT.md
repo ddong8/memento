@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `d58c629c` · Updated: `2026-11-18`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `6bedacfa` · Updated: `2026-11-19`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,8 +16,8 @@
 - 规模 (Scale): 9 个子系统 · 38 组 API 路由 / 252 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 233 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `d58c629c` (2026-11-18): feat(enterprise): 员工电脑策略文件、企业部署包与安装包正式签名
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 67（✅ 67 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `F-CLIENT-UPGRADE`, `R-ENT-DEVICE-POLICY`, `R-ENT-DEPLOY`, `R-WS-EXEC-STOP`, `R-UPGRADE-SAFE`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `R-ENT-ADMIN-SCOPE`
+- 最近改动 (Latest): `6bedacfa` (2026-11-19): fix(远程任务): 命令期间代码所在设备重连过、Memento 重启过或断网时，执行机不再空等 30 分钟；升级客户端版本至 v1.0.143
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 68（✅ 68 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-WS-EDIT-ONLY`, `R-ENT-DEVICE-POLICY`, `R-WS-EXEC-STOP`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `S-CLIENT-VERSION`, `F-CLIENT-UPGRADE`, `R-ENT-DEPLOY`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -635,14 +635,14 @@ erDiagram
 
 - [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (8 commits)
 - [`apps/web/src/app/globals.css`](apps/web/src/app/globals.css) (7 commits)
-- [`apps/web/src/components/ExecutionCard.tsx`](apps/web/src/components/ExecutionCard.tsx) (7 commits)
 - [`apps/web/src/components/agent/ActiveRunsMonitor.tsx`](apps/web/src/components/agent/ActiveRunsMonitor.tsx) (7 commits)
 - [`apps/web/src/components/persona/DigitalTwinAvatar3D.tsx`](apps/web/src/components/persona/DigitalTwinAvatar3D.tsx) (7 commits)
+- [`packages/daemon/src/source-exec.ts`](packages/daemon/src/source-exec.ts) (7 commits)
 - [`apps/web/src/app/memory/page.tsx`](apps/web/src/app/memory/page.tsx) (6 commits)
+- [`apps/web/src/components/ExecutionCard.tsx`](apps/web/src/components/ExecutionCard.tsx) (6 commits)
 - [`apps/web/src/components/viewers/MediaInspectorPanel.tsx`](apps/web/src/components/viewers/MediaInspectorPanel.tsx) (6 commits)
-- [`packages/daemon/src/source-exec.ts`](packages/daemon/src/source-exec.ts) (6 commits)
+- [`packages/daemon/test/source-exec.test.ts`](packages/daemon/test/source-exec.test.ts) (6 commits)
 - [`apps/web/src/app/app/page.tsx`](apps/web/src/app/app/page.tsx) (5 commits)
-- [`apps/web/src/components/layout/Sidebar.tsx`](apps/web/src/components/layout/Sidebar.tsx) (5 commits)
 
 ## 8. Development & Verification Commands
 
@@ -665,12 +665,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `6bedacfa` (2026-11-19): fix(远程任务): 命令期间代码所在设备重连过、Memento 重启过或断网时，执行机不再空等 30 分钟；升级客户端版本至 v1.0.143
 - `d58c629c` (2026-11-18): feat(enterprise): 员工电脑策略文件、企业部署包与安装包正式签名
 - `e251b518` (2026-11-18): feat(enterprise): 企业部署——管理员可见范围开关、OIDC 单点登录与 SCIM 停用、操作审计、模型密钥加密和模型服务白名单
 - `94139deb` (2026-11-18): fix(web): 后台智能体展开面板也恢复最初设计的深海蓝底，不再是白色卡片
 - `6eeb517a` (2026-11-18): fix(web): 后台智能体运行标签恢复最初设计的深色胶囊，不再半透明透出下面的文字
 - `0f38d660` (2026-11-18): fix(web): 后台智能体运行提示改成醒目的绿色标签，手机上也写明「后台任务 N」
-- `ff1ed31e` (2026-11-18): fix(远程任务): 代码所在设备上一条慢命令不再卡住同一项目后面的命令；升级客户端版本至 v1.0.142
 
 ## 10. Key Environment Variables & Configuration
 
@@ -688,16 +688,16 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 11. 业务蓝图核对 (Business Blueprint Check)
 
-- 业务蓝图：[BUSINESS_BLUEPRINT.md](BUSINESS_BLUEPRINT.md) · 规则 67（✅ 67 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
+- 业务蓝图：[BUSINESS_BLUEPRINT.md](BUSINESS_BLUEPRINT.md) · 规则 68（✅ 68 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
 - 结论：✅ 没有失效或违规
 
 ### 最近提交碰到的业务条目（改动后复查它们还成不成立）
 
+- `6bedacfa` fix(远程任务): 命令期间代码所在设备重连过、Memento 重启过或断网时，执行机不再空等 30 分钟；升级客户端版本至 v1.0.143 → `R-WS-EDIT-ONLY`, `R-ENT-DEVICE-POLICY`, `R-WS-EXEC-STOP`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `S-CLIENT-VERSION`
 - `d58c629c` feat(enterprise): 员工电脑策略文件、企业部署包与安装包正式签名 → `F-CLIENT-UPGRADE`, `R-ENT-DEVICE-POLICY`, `R-ENT-DEPLOY`, `R-WS-EXEC-STOP`, `R-UPGRADE-SAFE`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`
-- `e251b518` feat(enterprise): 企业部署——管理员可见范围开关、OIDC 单点登录与 SCIM 停用、操作审计、模型密钥加密和模型服务白名单 → `R-ENT-ADMIN-SCOPE`, `R-ENT-SSO`, `R-ENT-AUDIT`, `R-ENT-SECRETS`, `R-DEVICE-ENV-PROFILE`, `R-DOCS-WRITE-LIGHT`, `R-LOGIN-PERSIST`
+- `e251b518` feat(enterprise): 企业部署——管理员可见范围开关、OIDC 单点登录与 SCIM 停用、操作审计、模型密钥加密和模型服务白名单 → `R-ENT-ADMIN-SCOPE`, `R-ENT-SSO`, `R-ENT-AUDIT`, `R-ENT-SECRETS`, `R-WS-EXEC-REMIND`, `R-DEVICE-ENV-PROFILE`, `R-DOCS-WRITE-LIGHT`, `R-LOGIN-PERSIST`
 - `94139deb` fix(web): 后台智能体展开面板也恢复最初设计的深海蓝底，不再是白色卡片 → `F-ASK`, `R-ISLAND-CLEANUP`, `S-RUN-STATE`
 - `6eeb517a` fix(web): 后台智能体运行标签恢复最初设计的深色胶囊，不再半透明透出下面的文字 → `F-ASK`, `R-ISLAND-CLEANUP`, `S-RUN-STATE`
-- `0f38d660` fix(web): 后台智能体运行提示改成醒目的绿色标签，手机上也写明「后台任务 N」 → `F-ASK`, `R-ISLAND-CLEANUP`, `S-RUN-STATE`
 
 ---
 _Auto-maintained by `scripts/project_blueprint.mjs` (v20261126) & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._

@@ -14,13 +14,15 @@ server passes each request on to the device holding the code (the source) over t
   read like a bundle with ``chunk``;
 - ``exec``: a command of the agent's to run on the source, on the snapshot plus what the agent changed so
   far, in a checkout of the source's own (not the user's working tree): tests and builds run where the
-  code's environment is. Commands risk_policy rates danger or critical are refused;
+  code's environment is. Commands risk_policy rates danger or critical run and the user's phone is told
+  (refused only under MEMENTO_REMOTE_EXEC_POLICY, see ``_refusal``);
 - ``commit``: the agent's commit, made on the source (11-17: the executor only edits code): a real
   ``git commit`` of what it changed there, so the source's hooks run and the commit is the user's own;
   it waits there until ``apply`` puts it on the branch;
 - ``get``: a file the agent's commands made on the source (a screenshot, a log), for it to read;
 - ``put``: a file the agent wrote, put anywhere on the source outside the project (the old one backed up
-  there first); sensitive places (.ssh, .env, /etc, shell profiles, credentials) are refused here;
+  there first); sensitive places (.ssh, .env, /etc, shell profiles, credentials) tell the user's phone
+  (refused only when the policy is strict);
 - ``apply``: what the agent changed, as a patch for the source to apply to its working tree, plus
   its commits (made on the source, or a bundle from older executors) for the source to put on its
   branch, and push when asked: the executor holds no credentials, the source does.
@@ -38,10 +40,12 @@ import time
 import uuid
 from typing import Any
 
+from ..config import settings
 from ..db.session import async_session_factory
+from . import notify_service
 from .cluster import cluster
 from .device_reports import device_has_feature
-from .risk_policy import classify_file_change, classify_shell_command
+from .risk_policy import classify_catastrophic, classify_file_change, classify_shell_command
 from .user_filter import find_machine_by_id_or_hash
 from .ws_manager import ws_manager
 
@@ -200,11 +204,16 @@ async def _exec(data: dict[str, Any], user_id: Any) -> dict[str, Any]:
     if not command:
         return {"error": "没有要执行的命令"}
     risk = classify_shell_command(command)
-    if risk and risk.level in ("danger", "critical"):
-        return {"error": f"这条命令有风险（{risk.label}），不在代码所在的设备上执行；需要的话请用户自己在那台设备上执行", "code": "refused"}
+    risky = bool(risk and risk.level in ("danger", "critical"))
+    refused = _refusal(command, risk if risky else None)
+    if refused:
+        return {"error": refused, "code": "refused"}
     source, why = await _source_device(str(data.get("source_device_id") or ""), user_id, "source_exec")
     if not source:
         return {"error": why, "code": "source_unavailable"}
+    if risky and risk is not None:
+        # Run, and the user's phone told (sudo, writing /etc, a service restarted…): their own computer, their agent
+        notify_service.spawn(_tell_risky(str(data.get("task_id") or ""), risk, str(data.get("source_device_id") or ""), user_id))
     patch = str(data.get("patch_b64") or "")
     if len(patch) > PATCH_MAX:
         return {"error": "改动太大", "code": "too_big"}
@@ -223,6 +232,47 @@ async def _exec(data: dict[str, Any], user_id: Any) -> dict[str, Any]:
     if res.get("error"):
         return {"error": res["error"], "code": res.get("code") or "failed"}
     return {k: res[k] for k in ("exit_code", "stdout", "stderr", "timed_out", "seconds") if k in res}
+
+
+def _refusal(command: str, risk: Any) -> str | None:
+    """Why a command isn't run on the source under MEMENTO_REMOTE_EXEC_POLICY, or None.
+
+    11-19: every risky command used to be refused (sudo, writing /etc, a systemctl restart, even ones sent
+    on over ssh to another server), with no way to allow it: ops work an agent was asked to do couldn't be
+    done. Now nothing is refused by default and the user's phone is told of risky ones instead; a
+    deployment can refuse what wrecks the source (catastrophic) or every risky command (strict).
+    """
+    policy = _policy()
+    if policy not in ("strict", "catastrophic"):
+        return None
+    if policy == "strict":
+        if risk is not None:
+            return f"这条命令有风险（{risk.label}），这个部署不允许在代码所在的设备上执行；需要的话请用户自己在那台设备上执行"
+        return None
+    fatal = classify_catastrophic(command)
+    if fatal:
+        return f"这条命令会{fatal.label}，不在代码所在的设备上执行；确实需要请用户自己在那台设备上执行"
+    return None
+
+
+def _policy() -> str:
+    return (settings.remote_exec_policy or "off").strip().lower()
+
+
+async def _tell_risky(task_id: str, risk: Any, source_id: str, user_id: Any) -> None:
+    """Recorded on the agent's task and pushed to the user's phone (straight to the phone without a task)."""
+    from .task_alerts import display_device_name, raise_alert  # task_alerts pulls in more of the app than this module needs
+
+    try:
+        async with async_session_factory() as db:
+            m = await find_machine_by_id_or_hash(db, source_id)
+        name = m.name if m else None
+        if task_id and await raise_alert(task_id, risk, "memento-source", name, user_id=user_id):
+            return
+        if user_id is not None:
+            await notify_service.notify_user(user_id, "risky", f"⚠️ {risk.label}", f"{display_device_name(name)}：{risk.detail}")
+    except Exception as e:
+        logger.warning("risky command alert for %s failed: %s", task_id or user_id, e)
 
 
 async def _await_source(source: str, payload: dict[str, Any], timeout: float, exec_id: str = "") -> dict[str, Any]:
@@ -329,14 +379,19 @@ async def _put(data: dict[str, Any], user_id: Any) -> dict[str, Any]:
     if not dest:
         return {"error": "没有给要写到的位置"}
     risk = classify_file_change(dest, None)
-    if risk and risk.level in ("danger", "critical"):
-        return {"error": f"不能写这个位置（{risk.label}）；需要的话请用户自己在那台设备上改", "code": "refused"}
+    risky = risk is not None and risk.level in ("danger", "critical")
+    # Sensitive places (.ssh, .env, /etc, shell profiles, credentials): written and the phone told, the old
+    # file backed up there first; refused only where the deployment is strict
+    if risky and _policy() == "strict":
+        return {"error": f"这个部署不允许写这个位置（{risk.label}）；需要的话请用户自己在那台设备上改", "code": "refused"}
     content = str(data.get("data_b64") or "")
     if len(content) > GET_MAX:
         return {"error": "文件太大", "code": "too_big"}
     source, why = await _source_device(str(data.get("source_device_id") or ""), user_id, "source_put")
     if not source:
         return {"error": why, "code": "source_unavailable"}
+    if risky and risk is not None:
+        notify_service.spawn(_tell_risky(str(data.get("task_id") or ""), risk, str(data.get("source_device_id") or ""), user_id))
     res = await ws_manager.request_device(source, {
         "type": "workspace_put_req",
         "path": str(data.get("path") or ""),

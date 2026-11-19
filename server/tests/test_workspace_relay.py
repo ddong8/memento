@@ -285,7 +285,8 @@ async def test_a_stopped_tasks_commands_are_stopped_on_the_source():
 @pytest.mark.asyncio
 async def test_a_risky_command_or_an_old_source_is_refused_without_asking_it():
     patches, ws = _env(_machine())
-    patches.append(patch.object(wr, "device_has_feature", lambda *a, **k: False))
+    patches += [patch.object(wr, "device_has_feature", lambda *a, **k: False),
+                patch.object(wr.settings, "remote_exec_policy", "catastrophic")]
 
     async def go():
         out = await wr._exec({"source_device_id": "mac", "command": "rm -rf ~"}, USER)
@@ -344,22 +345,67 @@ async def test_a_file_comes_back_from_the_source_and_commits_made_there_go_on_to
 
 
 @pytest.mark.asyncio
-async def test_a_file_outside_the_project_is_written_on_the_source_but_never_a_sensitive_one():
+async def test_a_file_outside_the_project_is_written_on_the_source_and_a_sensitive_one_tells_the_phone():
     patches, ws = _env(_machine(), answer={"path": "/Users/me/other/conf.yaml", "size": 3, "backup": "/b/x"})
-    patches.append(patch.object(wr, "device_has_feature", lambda name, feature, user=None: feature == "source_put"))
+    told = []
+
+    async def tell(*a):
+        told.append(a)
+
+    patches += [patch.object(wr, "device_has_feature", lambda name, feature, user=None: feature == "source_put"),
+                patch.object(wr, "_tell_risky", tell),
+                patch.object(wr.notify_service, "spawn", lambda coro: asyncio.ensure_future(coro))]
 
     async def go():
-        for bad in ("/Users/me/.ssh/config", "/Users/me/app/.env", "/etc/hosts", "/Users/me/.zshrc", "/Users/me/.aws/credentials"):
-            out = await wr._put({"source_device_id": "mac", "dest": bad, "data_b64": "eA=="}, USER)
-            assert out["code"] == "refused", bad
-        ws.request_device.assert_not_awaited()
         out = await wr._put({"source_device_id": "mac", "path": "/Users/me/repo", "dest": "/Users/me/other/conf.yaml", "data_b64": "eHl6"}, USER)
         sent = ws.request_device.await_args.args[1]
         assert sent["type"] == "workspace_put_req" and sent["dest"] == "/Users/me/other/conf.yaml" and sent["data_b64"] == "eHl6"
         assert out == {"path": "/Users/me/other/conf.yaml", "size": 3, "backup": "/b/x"}
+        await asyncio.sleep(0)
+        assert told == []
+        # 11-19: written (the old file backed up there) and the phone told, instead of refused
+        for sensitive in ("/Users/me/.ssh/config", "/Users/me/app/.env", "/etc/hosts", "/Users/me/.zshrc", "/Users/me/.aws/credentials"):
+            out = await wr._put({"source_device_id": "mac", "dest": sensitive, "data_b64": "eA==", "task_id": "t1"}, USER)
+            assert "code" not in out, sensitive
+        await asyncio.sleep(0)
+        assert len(told) == 5 and told[0][0] == "t1"
 
     await _run(patches, go)
 
+
+@pytest.mark.asyncio
+async def test_a_strict_deployment_still_refuses_sensitive_files():
+    patches, ws = _env(_machine())
+    patches += [patch.object(wr, "device_has_feature", lambda *a, **k: True),
+                patch.object(wr.settings, "remote_exec_policy", "strict")]
+
+    async def go():
+        for bad in ("/Users/me/.ssh/config", "/etc/hosts"):
+            out = await wr._put({"source_device_id": "mac", "dest": bad, "data_b64": "eA=="}, USER)
+            assert out["code"] == "refused", bad
+        ws.request_device.assert_not_awaited()
+
+    await _run(patches, go)
+
+
+@pytest.mark.asyncio
+async def test_a_risky_command_is_recorded_on_the_task_and_pushed():
+    patches, ws = _env(_machine())
+    raised, pushed = AsyncMock(return_value={"label": "x"}), AsyncMock()
+    from server.services import task_alerts
+    patches += [patch.object(task_alerts, "raise_alert", raised), patch.object(wr.notify_service, "notify_user", pushed)]
+
+    async def go():
+        risk = wr.classify_shell_command("sudo tee /etc/hosts")
+        await wr._tell_risky("t1", risk, "mac", USER)
+        assert raised.await_args.args[:3] == ("t1", risk, "memento-source") and raised.await_args.args[3] == "Mac"
+        pushed.assert_not_awaited()
+        # Without a task (or one it can't find), straight to the phone
+        raised.return_value = None
+        await wr._tell_risky("", risk, "mac", USER)
+        assert pushed.await_args.args[0] == USER and "以 root 权限执行" in pushed.await_args.args[2]
+
+    await _run(patches, go)
 
 
 class _Cl:
@@ -457,5 +503,50 @@ async def test_a_source_still_running_the_command_or_too_old_to_say_is_waited_fo
             _waiting_source(ws, status)
             with pytest.raises(asyncio.TimeoutError):
                 await asyncio.wait_for(wr._exec({"source_device_id": "mac", "command": "npm test", "exec_id": "e1"}, USER), 0.1)
+
+    await _run(patches, go)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("policy,command,refused", [
+    # The default since 11-19: nothing refused, risky ones pushed
+    (None, "rm -rf ~", False),
+    (None, "sudo reboot", False),
+    # 11-19: ops work an agent was asked to do (sudo, writing nginx config on a server over ssh) ran nowhere
+    ("catastrophic", "sudo tee /etc/nginx/sites-available/film.example.com < conf", False),
+    ("catastrophic", 'ssh root@vps "cat /root/.acme.sh/account.conf; systemctl reload nginx; reboot"', False),
+    ("catastrophic", "git reset --hard && rm -rf dist", False),
+    # What wrecks the computer the code is on still doesn't run there
+    ("catastrophic", "rm -rf ~", True),
+    ("catastrophic", "sudo reboot", True),
+    ("catastrophic", "diskutil eraseDisk APFS X disk2", True),
+    # A deployment can keep the old rule, or drop every refusal
+    ("strict", "sudo tee /etc/hosts", True),
+    ("strict", "npm test", False),
+    ("off", "rm -rf ~", False),
+])
+async def test_only_what_wrecks_the_source_is_refused_unless_the_deployment_says_otherwise(policy, command, refused):
+    patches, ws = _env(_machine(), answer={"exit_code": 0, "stdout": "", "stderr": "", "seconds": 0.1})
+    told = []
+
+    async def tell(*a):
+        told.append(a)
+
+    patches += [patch.object(wr, "device_has_feature", lambda *a, **k: True),
+                patch.object(wr.settings, "remote_exec_policy", policy or wr.settings.__class__.model_fields["remote_exec_policy"].default),
+                patch.object(wr, "_tell_risky", tell),
+                patch.object(wr.notify_service, "spawn", lambda coro: asyncio.ensure_future(coro))]
+
+    async def go():
+        out = await wr._exec({"source_device_id": "mac", "command": command, "task_id": "t1", "exec_id": "e1"}, USER)
+        await asyncio.sleep(0)
+        if refused:
+            assert out["code"] == "refused"
+            assert not any(c.args[1].get("type") == "workspace_exec_req" for c in ws.request_device.await_args_list)
+        else:
+            assert out.get("exit_code") == 0, out
+            # A risky one that runs is reported to the user's phone
+            assert bool(told) == (wr.classify_shell_command(command) is not None
+                                  and wr.classify_shell_command(command).level in ("danger", "critical"))
 
     await _run(patches, go)

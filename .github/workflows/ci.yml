@@ -48,7 +48,7 @@ jobs:
         working-directory: ${{ matrix.package }}
         run: |
           uv pip install --system -e ".[dev]"
-          uv pip install --system ruff==0.13.0
+          uv pip install --system ruff==0.17.6
 
       - name: AST syntax check
         working-directory: ${{ matrix.package }}

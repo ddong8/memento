@@ -1,0 +1,1165 @@
+"use client";
+
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { api, AskConversationSummary } from "@/lib/api-client";
+import {
+  studioApi,
+  studioAssetUrl,
+  studioEpisodeVideoUrl,
+  StudioBgmItem,
+  StudioCharacter,
+  StudioComputeState,
+  StudioEpisode,
+  StudioEpisodeDetail,
+  StudioHealth,
+  StudioProject,
+  StudioShot,
+  StudioTask,
+  StudioVoiceOption,
+} from "@/lib/studio-api";
+import { Icon } from "@/components/aurora/Icon";
+import { Btn, Chip, Glass, TopBar } from "@/components/aurora/primitives";
+import { VideoPlayer } from "@/components/viewers/MediaPreview";
+
+type StudioTab = "storyboard" | "cast_audio" | "screening";
+
+const MOTION_OPTIONS = [
+  { id: "zoom_in", label: "缓慢推近" },
+  { id: "zoom_in_handheld", label: "手持呼吸推近" },
+  { id: "shock_zoom", label: "冲击震屏推近" },
+  { id: "zoom_out", label: "缓慢拉远" },
+  { id: "pan_left", label: "向左平移" },
+  { id: "pan_right", label: "向右平移" },
+  { id: "static", label: "静止定格" },
+];
+
+const VOICE_SPACE_OPTIONS = [
+  { id: "indoor_room", label: "室内自然声场" },
+  { id: "close_whisper", label: "贴耳呼吸气声" },
+  { id: "behind_door_ghost", label: "隔门雨夜鬼魅混响" },
+  { id: "cemetery_outdoor", label: "户外空旷反射" },
+  { id: "dry", label: "纯干声" },
+];
+
+const FX_OPTIONS = [
+  { id: "", label: "无微特效" },
+  { id: "rain_mist", label: "冷青夜雨雾" },
+  { id: "flicker", label: "灯管频闪" },
+  { id: "chromatic_shock", label: "高潮 RGB 色差冲击" },
+  { id: "riser_shake", label: "悬念渐强微颤" },
+  { id: "shake", label: "冲击闪白微颤" },
+];
+
+const SFX_OPTIONS = [
+  { id: "", label: "无点状音效" },
+  { id: "page_turn", label: "翻纸冷风" },
+  { id: "flashlight_click", label: "手电咔哒" },
+  { id: "midnight_bell", label: "午夜钟声" },
+  { id: "bulb_buzz", label: "电流滋啦" },
+  { id: "knock_3", label: "三声慢叩门" },
+  { id: "heartbeat", label: "急促心跳" },
+  { id: "horror_boom", label: "次低频重击" },
+  { id: "lock_slide,riser_cut", label: "插销滑动 + 急升骤停" },
+];
+
+const TRANSITION_OPTIONS = [
+  { id: "", label: "跟随剧集默认" },
+  { id: "cut", label: "干净硬切" },
+  { id: "flash", label: "惊悚闪白" },
+  { id: "fade", label: "黑场淡化" },
+];
+
+const fieldStyle = {
+  width: "100%",
+  background: "var(--aurora-chip)",
+  border: "1px solid var(--aurora-border)",
+  borderRadius: 10,
+  padding: "8px 10px",
+  color: "var(--aurora-fg1)",
+  fontSize: 13,
+  outline: "none",
+} as const;
+
+function StudioInner() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const initialProjectParam = searchParams.get("project") || "";
+  const initialEpisodeParam = searchParams.get("episode") || "";
+
+  const [health, setHealth] = useState<StudioHealth | null>(null);
+  const [projects, setProjects] = useState<StudioProject[]>([]);
+  const [selectedProjectId, setSelectedProjectId] = useState<string>(initialProjectParam);
+  const [episodes, setEpisodes] = useState<StudioEpisode[]>([]);
+  const [selectedEpisodeId, setSelectedEpisodeId] = useState<string>(initialEpisodeParam);
+  const [detail, setDetail] = useState<StudioEpisodeDetail | null>(null);
+  const [voices, setVoices] = useState<StudioVoiceOption[]>([]);
+  const [bgmList, setBgmList] = useState<StudioBgmItem[]>([]);
+  const [conversations, setConversations] = useState<AskConversationSummary[]>([]);
+  const [compute, setCompute] = useState<StudioComputeState | null>(null);
+
+  const [activeTab, setActiveTab] = useState<StudioTab>("storyboard");
+  const [loading, setLoading] = useState(true);
+  const [busyAction, setBusyAction] = useState<string>("");
+  const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null);
+
+  // Project / Episode create inline state
+  const [showNewProject, setShowNewProject] = useState(false);
+  const [newProjName, setNewProjName] = useState("");
+  const [newProjStyle, setNewProjStyle] = useState(
+    "dark Chinese supernatural anime comic style, cinematic dramatic lighting, crisp ink linework"
+  );
+  const [storyDraft, setStoryDraft] = useState("");
+  const [breakdownCount, setBreakdownCount] = useState(8);
+
+  // Lyria BGM prompt
+  const [bgmPrompt, setBgmPrompt] = useState(
+    "Cinematic dark Chinese folklore supernatural suspense film score, purely instrumental, eerie erhu and deep cello drone, escalating tension strings"
+  );
+
+  // Publish to chat state
+  const [targetConvId, setTargetConvId] = useState<string>("");
+  const [publishNote, setPublishNote] = useState<string>("");
+  const [publishedConvId, setPublishedConvId] = useState<string>("");
+  const [publishedVideoUrl, setPublishedVideoUrl] = useState<string>("");
+  const [videoBust, setVideoBust] = useState<number>(() => Date.now());
+  const [renderTask, setRenderTask] = useState<StudioTask | null>(null);
+
+  const notify = useCallback((ok: boolean, text: string) => {
+    setNotice({ ok, text });
+  }, []);
+
+  const loadEpisode = useCallback(async (eid: string) => {
+    if (!eid) return;
+    try {
+      const epDetail = await studioApi.getEpisode(eid);
+      setDetail(epDetail);
+      setStoryDraft(epDetail.episode.story_text || "");
+      setRenderTask(epDetail.last_task || null);
+      setVideoBust(Date.now());
+    } catch (e) {
+      notify(false, `加载剧集失败：${(e as Error).message}`);
+    }
+  }, [notify]);
+
+  const loadProject = useCallback(async (pid: string, preferEpisodeId?: string) => {
+    if (!pid) return;
+    try {
+      const data = await studioApi.getProject(pid);
+      setEpisodes(data.episodes || []);
+      const pick =
+        (preferEpisodeId && data.episodes.find((ep) => ep.id === preferEpisodeId)?.id) ||
+        data.episodes[0]?.id ||
+        "";
+      setSelectedEpisodeId(pick);
+      if (pick) {
+        await loadEpisode(pick);
+      } else {
+        setDetail(null);
+      }
+    } catch (e) {
+      notify(false, `加载项目失败：${(e as Error).message}`);
+    }
+  }, [loadEpisode, notify]);
+
+  const bootstrap = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [h, convs] = await Promise.all([
+        studioApi.health(),
+        api.listAskConversations(undefined, 30).catch(() => [] as AskConversationSummary[]),
+      ]);
+      setHealth(h);
+      setCompute(h.compute || null);
+      setConversations(Array.isArray(convs) ? convs : []);
+      if (typeof window !== "undefined") {
+        const lastConv = localStorage.getItem("memento_last_ask_conv_id") || "";
+        if (lastConv && convs.some((c) => c.id === lastConv)) {
+          setTargetConvId(lastConv);
+        }
+      }
+      if (!h.online) {
+        setLoading(false);
+        return;
+      }
+      const [projRes, voiceRes, bgmRes] = await Promise.all([
+        studioApi.listProjects(),
+        studioApi.listVoices().catch(() => ({ voices: [] })),
+        studioApi.listBgm().catch(() => ({ items: [] })),
+      ]);
+      const list = projRes.projects || [];
+      setProjects(list);
+      setVoices(voiceRes.voices || []);
+      setBgmList(bgmRes.items || []);
+
+      const targetProj =
+        (initialProjectParam && list.find((p) => p.id === initialProjectParam)?.id) ||
+        list[0]?.id ||
+        "";
+      setSelectedProjectId(targetProj);
+      if (targetProj) {
+        await loadProject(targetProj, initialEpisodeParam);
+      }
+    } catch (e) {
+      notify(false, (e as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }, [initialEpisodeParam, initialProjectParam, loadProject, notify]);
+
+  useEffect(() => {
+    void bootstrap();
+  }, [bootstrap]);
+
+  // Poll render task if active
+  useEffect(() => {
+    if (!renderTask || !["queued", "running"].includes(renderTask.status)) return;
+    const timer = setInterval(async () => {
+      try {
+        const res = await studioApi.getTask(renderTask.id);
+        setRenderTask(res.task);
+        if (res.task.status === "succeeded" || res.task.status === "done") {
+          setVideoBust(Date.now());
+          notify(true, "成片母带已渲染完成，可直接预览或发送到对话播放");
+          if (selectedEpisodeId) void loadEpisode(selectedEpisodeId);
+        } else if (res.task.status === "failed") {
+          notify(false, `渲染失败：${res.task.error || "请查看任务日志"}`);
+        }
+      } catch {}
+    }, 3000);
+    return () => clearInterval(timer);
+  }, [renderTask, selectedEpisodeId, loadEpisode, notify]);
+
+  const handleCreateProject = async () => {
+    if (!newProjName.trim()) return;
+    setBusyAction("create_project");
+    try {
+      const res = await studioApi.createProject({
+        name: newProjName.trim(),
+        style: newProjStyle.trim(),
+        aspect: "vertical",
+        default_engine: "external",
+      });
+      setNewProjName("");
+      setShowNewProject(false);
+      const listRes = await studioApi.listProjects();
+      setProjects(listRes.projects || []);
+      setSelectedProjectId(res.project.id);
+      await loadProject(res.project.id, res.episode?.id);
+      notify(true, `已创建项目「${res.project.name}」`);
+    } catch (e) {
+      notify(false, (e as Error).message);
+    } finally {
+      setBusyAction("");
+    }
+  };
+
+  const handleBreakdown = async () => {
+    if (!selectedEpisodeId || !storyDraft.trim()) return;
+    setBusyAction("breakdown");
+    try {
+      await studioApi.breakdownEpisode(selectedEpisodeId, storyDraft.trim(), breakdownCount);
+      await loadEpisode(selectedEpisodeId);
+      notify(true, "已完成 AI 剧本拆镜与角色提取");
+    } catch (e) {
+      notify(false, (e as Error).message);
+    } finally {
+      setBusyAction("");
+    }
+  };
+
+  const handleShotPatch = async (sid: string, patch: Partial<StudioShot>) => {
+    try {
+      const res = await studioApi.updateShot(sid, patch);
+      setDetail((prev) =>
+        prev
+          ? { ...prev, shots: prev.shots.map((s) => (s.id === sid ? res.shot : s)) }
+          : prev
+      );
+    } catch (e) {
+      notify(false, `保存分镜失败：${(e as Error).message}`);
+    }
+  };
+
+  const handleShotAction = async (
+    sid: string,
+    kind: "generate" | "tts" | "animate"
+  ) => {
+    setBusyAction(`${kind}:${sid}`);
+    try {
+      if (kind === "generate") {
+        const res = await studioApi.generateShot(sid, 1);
+        setDetail((prev) =>
+          prev ? { ...prev, shots: prev.shots.map((s) => (s.id === sid ? res.shot : s)) } : prev
+        );
+        notify(true, "新分镜候选图已生成");
+      } else if (kind === "tts") {
+        const res = await studioApi.ttsPreviewShot(sid);
+        setDetail((prev) =>
+          prev ? { ...prev, shots: prev.shots.map((s) => (s.id === sid ? res.shot : s)) } : prev
+        );
+        notify(true, `配音试听已生成 (${res.engine || "TTS"})`);
+      } else {
+        const res = await studioApi.animateShot(sid);
+        setDetail((prev) =>
+          prev ? { ...prev, shots: prev.shots.map((s) => (s.id === sid ? res.shot : s)) } : prev
+        );
+        notify(true, `单镜 I2V 动态视频已生成 (${res.source || "I2V"})`);
+      }
+    } catch (e) {
+      notify(false, (e as Error).message);
+    } finally {
+      setBusyAction("");
+    }
+  };
+
+  const handleRender = async () => {
+    if (!selectedEpisodeId) return;
+    setBusyAction("render");
+    try {
+      const res = await studioApi.renderEpisode(selectedEpisodeId);
+      setRenderTask(res.task);
+      setActiveTab("screening");
+      notify(true, "已提交全集母带合成任务，完成后可一键发往对话播放");
+    } catch (e) {
+      notify(false, `提交渲染失败：${(e as Error).message}`);
+    } finally {
+      setBusyAction("");
+    }
+  };
+
+  const handleGenerateBgm = async () => {
+    if (!bgmPrompt.trim() || !selectedEpisodeId) return;
+    setBusyAction("bgm_gen");
+    try {
+      const res = await studioApi.generateBgm(
+        bgmPrompt.trim(),
+        detail?.project.slug || "lyria_score",
+        "lyria-3-pro-preview"
+      );
+      const bgmRes = await studioApi.listBgm();
+      setBgmList(bgmRes.items || []);
+      await studioApi.updateEpisode(selectedEpisodeId, { bgm_path: res.item.path });
+      await loadEpisode(selectedEpisodeId);
+      notify(true, `Lyria 3 Pro 电影配乐已生成并绑定：${res.item.name}`);
+    } catch (e) {
+      notify(false, `生成配乐失败：${(e as Error).message}`);
+    } finally {
+      setBusyAction("");
+    }
+  };
+
+  const handlePublishToChat = async () => {
+    if (!selectedEpisodeId) return;
+    setBusyAction("publish");
+    try {
+      const res = await studioApi.publishToChat(selectedEpisodeId, {
+        conversation_id: targetConvId || null,
+        task_id: renderTask?.id || detail?.episode.last_task_id || null,
+        note: publishNote.trim(),
+      });
+      setPublishedConvId(res.conversation_id);
+      setPublishedVideoUrl(res.video_url);
+      if (typeof window !== "undefined") {
+        localStorage.setItem("memento_last_ask_conv_id", res.conversation_id);
+        window.dispatchEvent(new Event("memento_switch_chat"));
+      }
+      notify(true, `成片已归档并发送到对话「${res.conversation_title}」，点击下方按钮即可在对话内直接播放`);
+    } catch (e) {
+      notify(false, `发布到对话失败：${(e as Error).message}`);
+    } finally {
+      setBusyAction("");
+    }
+  };
+
+  const handleComputeAction = async (action: "start" | "stop" | "extend") => {
+    setBusyAction(`compute:${action}`);
+    try {
+      const res =
+        action === "start"
+          ? await studioApi.computeStart()
+          : action === "stop"
+          ? await studioApi.computeStop()
+          : await studioApi.computeExtend(15);
+      setCompute(res.compute);
+      notify(
+        true,
+        action === "start"
+          ? "已触发云端算力启动"
+          : action === "stop"
+          ? "已释放云端算力，停止计费"
+          : "已延长自动关机时间 15 分钟"
+      );
+    } catch (e) {
+      notify(false, (e as Error).message);
+    } finally {
+      setBusyAction("");
+    }
+  };
+
+  const episodePreviewSrc = useMemo(() => {
+    if (publishedVideoUrl) return publishedVideoUrl;
+    if (!selectedEpisodeId) return "";
+    return studioEpisodeVideoUrl(selectedEpisodeId, videoBust);
+  }, [publishedVideoUrl, selectedEpisodeId, videoBust]);
+
+  const computeOnline = compute?.status === "ready";
+  const computeBusy = compute && ["connecting", "awaiting_gpu", "booting", "stopping"].includes(compute.status);
+
+  return (
+    <div className="w-full max-w-6xl mx-auto pb-16 min-w-0 overflow-x-hidden">
+      <TopBar
+        title="演播台"
+        subtitle="AI 剧本拆镜、Gemini 情感配音、Lyria 交响配乐与商业母带出片，成片一键发往对话内联播放"
+      />
+
+      {/* 状态提示条 */}
+      {notice && (
+        <Glass
+          padding="10px 14px"
+          radius={12}
+          style={{
+            marginBottom: 14,
+            borderColor: notice.ok ? "var(--aurora-accent)" : "#DC2626",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 10,
+          }}
+        >
+          <span style={{ fontSize: 13, color: notice.ok ? "var(--aurora-fg1)" : "#DC2626" }}>
+            {notice.text}
+          </span>
+          <button
+            type="button"
+            onClick={() => setNotice(null)}
+            style={{ background: "none", border: "none", color: "var(--aurora-fg3)", cursor: "pointer" }}
+          >
+            <Icon name="close" size={14} />
+          </button>
+        </Glass>
+      )}
+
+      {/* 引擎离线提示 */}
+      {!loading && health && !health.online && (
+        <Glass padding={20} radius={16} style={{ marginBottom: 16 }}>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 text-sm font-semibold" style={{ color: "var(--aurora-fg1)" }}>
+                <Icon name="alert" size={16} style={{ color: "#D97706" }} />
+                <span>演播台渲染引擎 (filmkit) 尚未连接</span>
+              </div>
+              <p className="mt-1 text-xs leading-relaxed" style={{ color: "var(--aurora-fg3)" }}>
+                当前桥接地址：{health.filmkit_url}。请先在本机或集群启动 filmkit serve，或通过环境变量
+                MEMENTO_STUDIO_FILMKIT_URL 指向已运行的演播台服务。
+              </p>
+            </div>
+            <Btn icon="refresh" onClick={bootstrap}>
+              重新检测
+            </Btn>
+          </div>
+        </Glass>
+      )}
+
+      {loading && (
+        <div style={{ color: "var(--aurora-fg4)", textAlign: "center", padding: "48px 0", fontSize: 13 }}>
+          正在连接演播台引擎…
+        </div>
+      )}
+
+      {!loading && health?.online && (
+        <>
+          {/* 顶栏控制条：项目/剧集切换 + 云算力状态 + 主操作 */}
+          <Glass padding="14px 16px" radius={16} style={{ marginBottom: 14 }}>
+            <div className="flex flex-col gap-3">
+              <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-[1fr_1fr_auto]">
+                <div className="flex items-center gap-2 min-w-0">
+                  <select
+                    value={selectedProjectId}
+                    onChange={(e) => {
+                      const pid = e.target.value;
+                      setSelectedProjectId(pid);
+                      setPublishedVideoUrl("");
+                      void loadProject(pid);
+                    }}
+                    style={fieldStyle}
+                    aria-label="选择项目"
+                  >
+                    {projects.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        项目：{p.name}
+                      </option>
+                    ))}
+                  </select>
+                  <Btn icon="plus" variant="ghost" onClick={() => setShowNewProject((v) => !v)}>
+                    新建
+                  </Btn>
+                </div>
+
+                <select
+                  value={selectedEpisodeId}
+                  onChange={(e) => {
+                    const eid = e.target.value;
+                    setSelectedEpisodeId(eid);
+                    setPublishedVideoUrl("");
+                    void loadEpisode(eid);
+                  }}
+                  style={fieldStyle}
+                  aria-label="选择剧集"
+                >
+                  {episodes.map((ep) => (
+                    <option key={ep.id} value={ep.id}>
+                      剧集：{ep.title} ({ep.shot_count ?? 0} 镜)
+                    </option>
+                  ))}
+                </select>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <Btn
+                    icon="film"
+                    onClick={handleRender}
+                    disabled={!selectedEpisodeId || busyAction === "render"}
+                  >
+                    {busyAction === "render" ? "提交中…" : "合成母带"}
+                  </Btn>
+                  <Btn
+                    icon="share"
+                    variant="ghost"
+                    onClick={() => setActiveTab("screening")}
+                    disabled={!selectedEpisodeId}
+                  >
+                    放映并发送到对话
+                  </Btn>
+                </div>
+              </div>
+
+              {/* 新建项目面板 */}
+              {showNewProject && (
+                <div
+                  className="grid grid-cols-1 gap-2 pt-3 sm:grid-cols-[200px_1fr_auto]"
+                  style={{ borderTop: "1px solid var(--aurora-border)" }}
+                >
+                  <input
+                    value={newProjName}
+                    onChange={(e) => setNewProjName(e.target.value)}
+                    placeholder="新项目名称，如：夜班守墓人"
+                    style={fieldStyle}
+                  />
+                  <input
+                    value={newProjStyle}
+                    onChange={(e) => setNewProjStyle(e.target.value)}
+                    placeholder="全局统一画风英文提示词"
+                    style={fieldStyle}
+                  />
+                  <Btn
+                    icon="check"
+                    onClick={handleCreateProject}
+                    disabled={!newProjName.trim() || busyAction === "create_project"}
+                  >
+                    确认创建
+                  </Btn>
+                </div>
+              )}
+
+              {/* Colab 云算力轻量状态条 */}
+              <div
+                className="flex flex-wrap items-center justify-between gap-2 pt-2.5 text-xs"
+                style={{ borderTop: "1px solid var(--aurora-border)", color: "var(--aurora-fg3)" }}
+              >
+                <div className="flex flex-wrap items-center gap-2 min-w-0">
+                  <Icon name="server" size={14} style={{ color: computeOnline ? "#16A34A" : "var(--aurora-fg3)" }} />
+                  <span>
+                    云端 GPU 算力：
+                    {computeOnline
+                      ? `${compute?.gpu || "已就绪"} (${compute?.vram_free_gb?.toFixed(1) ?? "?"}G 可用)`
+                      : computeBusy
+                      ? compute?.stage || compute?.status
+                      : "离线（0 消耗）"}
+                  </span>
+                  {computeOnline && compute?.auto_shutdown_in_sec != null && (
+                    <Chip>{Math.ceil(compute.auto_shutdown_in_sec / 60)} 分钟后自动释放</Chip>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  {!computeOnline ? (
+                    <Btn
+                      icon="zap"
+                      variant="ghost"
+                      onClick={() => handleComputeAction("start")}
+                      disabled={!!busyAction || !!computeBusy}
+                    >
+                      按需启动 GPU
+                    </Btn>
+                  ) : (
+                    <>
+                      <Btn
+                        icon="clock"
+                        variant="ghost"
+                        onClick={() => handleComputeAction("extend")}
+                        disabled={!!busyAction}
+                      >
+                        续期 15m
+                      </Btn>
+                      <Btn
+                        icon="close"
+                        variant="ghost"
+                        onClick={() => handleComputeAction("stop")}
+                        disabled={!!busyAction}
+                      >
+                        立即释放
+                      </Btn>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+          </Glass>
+
+          {/* 工作区 Tabs */}
+          <div className="flex flex-wrap items-center gap-2 mb-3.5">
+            {(
+              [
+                { id: "storyboard", label: `分镜剧场 (${detail?.shots.length ?? 0})`, icon: "layers" },
+                { id: "cast_audio", label: "角色与配乐", icon: "music" },
+                { id: "screening", label: "成片放映与对话发布", icon: "film" },
+              ] as const
+            ).map((tab) => {
+              const active = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setActiveTab(tab.id)}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-medium transition-colors"
+                  style={{
+                    background: active ? "var(--aurora-accent)" : "var(--aurora-surface-solid)",
+                    color: active ? "#FFFFFF" : "var(--aurora-fg2)",
+                    border: `1px solid ${active ? "var(--aurora-accent)" : "var(--aurora-border)"}`,
+                    cursor: "pointer",
+                  }}
+                >
+                  <Icon name={tab.icon} size={14} />
+                  <span>{tab.label}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* TAB 1: 分镜剧场 */}
+          {activeTab === "storyboard" && detail && (
+            <div className="space-y-4">
+              {/* 剧本拆镜区 */}
+              <Glass padding="14px 16px" radius={16}>
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <span className="text-xs font-semibold" style={{ color: "var(--aurora-fg2)" }}>
+                    故事大纲 AI 拆镜
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={breakdownCount}
+                      onChange={(e) => setBreakdownCount(Number(e.target.value))}
+                      style={{ ...fieldStyle, width: 100, padding: "5px 8px" }}
+                    >
+                      {[6, 8, 10, 12].map((n) => (
+                        <option key={n} value={n}>
+                          {n} 镜
+                        </option>
+                      ))}
+                    </select>
+                    <Btn
+                      icon="sparkles"
+                      onClick={handleBreakdown}
+                      disabled={!storyDraft.trim() || busyAction === "breakdown"}
+                    >
+                      {busyAction === "breakdown" ? "拆镜中…" : "AI 拆镜"}
+                    </Btn>
+                  </div>
+                </div>
+                <textarea
+                  value={storyDraft}
+                  onChange={(e) => setStoryDraft(e.target.value)}
+                  rows={3}
+                  placeholder="粘贴小说片段或故事梗概，点击 AI 拆镜即可自动生成角色与分镜脚本…"
+                  style={{ ...fieldStyle, resize: "vertical", lineHeight: 1.55 }}
+                />
+              </Glass>
+
+              {/* 分镜卡片列表 */}
+              <div className="space-y-3">
+                {detail.shots.map((shot) => {
+                  const activeCand = shot.active_candidate;
+                  const isClip = activeCand?.kind === "clip";
+                  return (
+                    <Glass key={shot.id} padding="14px 16px" radius={16}>
+                      <div className="grid grid-cols-1 gap-4 md:grid-cols-[176px_1fr]">
+                        {/* 左侧分镜画面预览 */}
+                        <div className="flex flex-col gap-2">
+                          <div
+                            className="relative w-full overflow-hidden rounded-xl flex items-center justify-center"
+                            style={{
+                              aspectRatio: detail.episode.aspect === "landscape" ? "16 / 9" : "9 / 16",
+                              maxHeight: 290,
+                              background: "var(--aurora-chip)",
+                              border: "1px solid var(--aurora-border)",
+                            }}
+                          >
+                            {activeCand ? (
+                              isClip ? (
+                                <video
+                                  src={studioAssetUrl(activeCand.path)}
+                                  controls
+                                  playsInline
+                                  muted
+                                  className="h-full w-full object-cover"
+                                />
+                              ) : (
+                                <img
+                                  src={studioAssetUrl(activeCand.path)}
+                                  alt={`第 ${shot.sort_order} 镜`}
+                                  className="h-full w-full object-cover"
+                                />
+                              )
+                            ) : (
+                              <span className="text-xs" style={{ color: "var(--aurora-fg4)" }}>
+                                暂无画面
+                              </span>
+                            )}
+                            <span
+                              className="absolute left-2 top-2 rounded-md px-2 py-0.5 text-[11px] font-semibold"
+                              style={{ background: "rgba(15,23,42,0.78)", color: "#FFFFFF" }}
+                            >
+                              #{shot.sort_order} {isClip ? "动态" : "静态"}
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-3 gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => handleShotAction(shot.id, "generate")}
+                              disabled={!!busyAction}
+                              className="rounded-lg px-2 py-1.5 text-[11px] font-medium"
+                              style={{
+                                background: "var(--aurora-chip)",
+                                border: "1px solid var(--aurora-border)",
+                                color: "var(--aurora-fg1)",
+                                cursor: "pointer",
+                              }}
+                            >
+                              {busyAction === `generate:${shot.id}` ? "生图中" : "抽卡生图"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleShotAction(shot.id, "animate")}
+                              disabled={!!busyAction}
+                              className="rounded-lg px-2 py-1.5 text-[11px] font-medium"
+                              style={{
+                                background: "var(--aurora-chip)",
+                                border: "1px solid var(--aurora-border)",
+                                color: "var(--aurora-fg1)",
+                                cursor: "pointer",
+                              }}
+                            >
+                              {busyAction === `animate:${shot.id}` ? "I2V中" : "转动态"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleShotAction(shot.id, "tts")}
+                              disabled={!!busyAction}
+                              className="rounded-lg px-2 py-1.5 text-[11px] font-medium"
+                              style={{
+                                background: "var(--aurora-chip)",
+                                border: "1px solid var(--aurora-border)",
+                                color: "var(--aurora-fg1)",
+                                cursor: "pointer",
+                              }}
+                            >
+                              {busyAction === `tts:${shot.id}` ? "合成中" : "试听"}
+                            </button>
+                          </div>
+
+                          {shot.tts_preview_path && (
+                            <audio
+                              src={studioAssetUrl(shot.tts_preview_path)}
+                              controls
+                              className="w-full h-8"
+                            />
+                          )}
+                        </div>
+
+                        {/* 右侧导演参数编辑 */}
+                        <div className="space-y-2.5 min-w-0">
+                          <div>
+                            <label className="block text-[11px] mb-1" style={{ color: "var(--aurora-fg3)" }}>
+                              角色台词（格式：角色名: 台词）
+                            </label>
+                            <input
+                              defaultValue={shot.dialogue}
+                              onBlur={(e) => {
+                                if (e.target.value !== shot.dialogue) {
+                                  void handleShotPatch(shot.id, { dialogue: e.target.value });
+                                }
+                              }}
+                              style={fieldStyle}
+                            />
+                          </div>
+
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                            <div>
+                              <label className="block text-[11px] mb-1" style={{ color: "var(--aurora-fg3)" }}>
+                                导演表演指导（Gemini TTS 演技情绪）
+                              </label>
+                              <input
+                                defaultValue={shot.acting || ""}
+                                placeholder="例如：in a trembling hushed whisper..."
+                                onBlur={(e) => {
+                                  if (e.target.value !== (shot.acting || "")) {
+                                    void handleShotPatch(shot.id, { acting: e.target.value });
+                                  }
+                                }}
+                                style={fieldStyle}
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[11px] mb-1" style={{ color: "var(--aurora-fg3)" }}>
+                                顶部规则 / 高能警示徽章（可选）
+                              </label>
+                              <input
+                                defaultValue={shot.overlay_text || ""}
+                                placeholder="例如：【铁律第一条】午夜十二点后，绝不开门"
+                                onBlur={(e) => {
+                                  if (e.target.value !== (shot.overlay_text || "")) {
+                                    void handleShotPatch(shot.id, { overlay_text: e.target.value });
+                                  }
+                                }}
+                                style={fieldStyle}
+                              />
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+                            <select
+                              value={shot.motion || "zoom_in"}
+                              onChange={(e) => void handleShotPatch(shot.id, { motion: e.target.value })}
+                              style={fieldStyle}
+                              title="运镜"
+                            >
+                              {MOTION_OPTIONS.map((o) => (
+                                <option key={o.id} value={o.id}>
+                                  {o.label}
+                                </option>
+                              ))}
+                            </select>
+
+                            <select
+                              value={shot.voice_space || "indoor_room"}
+                              onChange={(e) => void handleShotPatch(shot.id, { voice_space: e.target.value })}
+                              style={fieldStyle}
+                              title="空间声学"
+                            >
+                              {VOICE_SPACE_OPTIONS.map((o) => (
+                                <option key={o.id} value={o.id}>
+                                  {o.label}
+                                </option>
+                              ))}
+                            </select>
+
+                            <select
+                              value={shot.fx || ""}
+                              onChange={(e) => void handleShotPatch(shot.id, { fx: e.target.value })}
+                              style={fieldStyle}
+                              title="微特效"
+                            >
+                              {FX_OPTIONS.map((o) => (
+                                <option key={o.id} value={o.id}>
+                                  {o.label}
+                                </option>
+                              ))}
+                            </select>
+
+                            <select
+                              value={shot.sfx || ""}
+                              onChange={(e) => void handleShotPatch(shot.id, { sfx: e.target.value })}
+                              style={fieldStyle}
+                              title="点状音效"
+                            >
+                              {SFX_OPTIONS.map((o) => (
+                                <option key={o.id} value={o.id}>
+                                  {o.label}
+                                </option>
+                              ))}
+                            </select>
+
+                            <select
+                              value={shot.transition || ""}
+                              onChange={(e) => void handleShotPatch(shot.id, { transition: e.target.value })}
+                              style={fieldStyle}
+                              title="转场"
+                            >
+                              {TRANSITION_OPTIONS.map((o) => (
+                                <option key={o.id} value={o.id}>
+                                  {o.label}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+                      </div>
+                    </Glass>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* TAB 2: 角色与配乐 */}
+          {activeTab === "cast_audio" && detail && (
+            <div className="space-y-4">
+              {/* 角色音色库 */}
+              <Glass padding="16px" radius={16}>
+                <h3 className="text-sm font-semibold mb-3" style={{ color: "var(--aurora-fg1)" }}>
+                  角色定妆与棚录音色（{detail.characters.length} 位）
+                </h3>
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                  {detail.characters.map((ch: StudioCharacter) => (
+                    <div
+                      key={ch.id}
+                      className="rounded-xl p-3 flex flex-col gap-2"
+                      style={{
+                        background: "var(--aurora-chip)",
+                        border: "1px solid var(--aurora-border)",
+                      }}
+                    >
+                      <div className="flex items-center gap-2.5">
+                        {ch.reference_path ? (
+                          <img
+                            src={studioAssetUrl(ch.reference_path)}
+                            alt={ch.name}
+                            className="h-12 w-12 rounded-lg object-cover shrink-0"
+                          />
+                        ) : (
+                          <div
+                            className="h-12 w-12 rounded-lg flex items-center justify-center shrink-0"
+                            style={{ background: "var(--aurora-surface-solid)" }}
+                          >
+                            <Icon name="user" size={18} />
+                          </div>
+                        )}
+                        <div className="min-w-0">
+                          <div className="text-sm font-semibold truncate" style={{ color: "var(--aurora-fg1)" }}>
+                            {ch.name}
+                          </div>
+                          <div className="text-xs truncate" style={{ color: "var(--aurora-fg3)" }}>
+                            {ch.role || "角色"}
+                          </div>
+                        </div>
+                      </div>
+                      <select
+                        value={ch.voice}
+                        onChange={async (e) => {
+                          await studioApi.updateCharacter(ch.id, { voice: e.target.value });
+                          await loadEpisode(detail.episode.id);
+                          notify(true, `已更新 ${ch.name} 音色为 ${e.target.value}`);
+                        }}
+                        style={fieldStyle}
+                      >
+                        {voices.map((v) => (
+                          <option key={v.id} value={v.id}>
+                            {v.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  ))}
+                </div>
+              </Glass>
+
+              {/* Lyria 3 Pro 电影配乐 + 片头片尾卡 */}
+              <Glass padding="16px" radius={16} className="space-y-3">
+                <h3 className="text-sm font-semibold" style={{ color: "var(--aurora-fg1)" }}>
+                  Lyria 3 Pro 电影交响原声配乐与包装
+                </h3>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto]">
+                  <input
+                    value={bgmPrompt}
+                    onChange={(e) => setBgmPrompt(e.target.value)}
+                    placeholder="描述电影配乐风格（纯器乐无歌词）…"
+                    style={fieldStyle}
+                  />
+                  <Btn
+                    icon="music"
+                    onClick={handleGenerateBgm}
+                    disabled={busyAction === "bgm_gen" || !bgmPrompt.trim()}
+                  >
+                    {busyAction === "bgm_gen" ? "谱曲中…" : "一键生成电影配乐"}
+                  </Btn>
+                </div>
+
+                <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
+                  <div>
+                    <label className="block text-[11px] mb-1" style={{ color: "var(--aurora-fg3)" }}>
+                      当前绑定配乐
+                    </label>
+                    <select
+                      value={detail.episode.bgm_path || ""}
+                      onChange={async (e) => {
+                        await studioApi.updateEpisode(detail.episode.id, { bgm_path: e.target.value });
+                        await loadEpisode(detail.episode.id);
+                      }}
+                      style={fieldStyle}
+                    >
+                      <option value="">无背景配乐</option>
+                      {bgmList.map((b) => (
+                        <option key={b.path} value={b.path}>
+                          {b.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] mb-1" style={{ color: "var(--aurora-fg3)" }}>
+                      片头标题卡（| 分隔主副标题）
+                    </label>
+                    <input
+                      defaultValue={detail.episode.title_banner || ""}
+                      onBlur={(e) =>
+                        void studioApi.updateEpisode(detail.episode.id, { title_banner: e.target.value })
+                      }
+                      placeholder="《夜班守墓人七条铁律》|第一集 · 午夜敲门声"
+                      style={fieldStyle}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] mb-1" style={{ color: "var(--aurora-fg3)" }}>
+                      片尾悬念追更卡（| 分隔三行）
+                    </label>
+                    <input
+                      defaultValue={detail.episode.end_card || ""}
+                      onBlur={(e) =>
+                        void studioApi.updateEpisode(detail.episode.id, { end_card: e.target.value })
+                      }
+                      placeholder="第一集 完|门开了……下一秒谁在外面？|关注追更 · 第二集"
+                      style={fieldStyle}
+                    />
+                  </div>
+                </div>
+              </Glass>
+            </div>
+          )}
+
+          {/* TAB 3: 成片放映与一键发送到对话播放 */}
+          {activeTab === "screening" && detail && (
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,440px)_1fr]">
+              <Glass padding="16px" radius={16} className="min-w-0">
+                <div className="flex items-center justify-between gap-2 mb-3">
+                  <h3 className="text-sm font-semibold truncate" style={{ color: "var(--aurora-fg1)" }}>
+                    {detail.project.name} · {detail.episode.title}
+                  </h3>
+                  {renderTask && (
+                    <Chip>
+                      {renderTask.status === "running"
+                        ? "渲染中…"
+                        : renderTask.status === "succeeded" || renderTask.status === "done"
+                        ? "已就绪"
+                        : renderTask.status}
+                    </Chip>
+                  )}
+                </div>
+
+                {episodePreviewSrc ? (
+                  <VideoPlayer
+                    src={episodePreviewSrc}
+                    title={`${detail.project.name} · ${detail.episode.title}`}
+                  />
+                ) : (
+                  <div
+                    className="rounded-xl p-10 text-center text-xs"
+                    style={{ background: "var(--aurora-chip)", color: "var(--aurora-fg4)" }}
+                  >
+                    尚未渲染成片，请先点击顶部「合成母带」
+                  </div>
+                )}
+              </Glass>
+
+              <Glass padding="18px" radius={16} className="space-y-4 min-w-0">
+                <div>
+                  <h3 className="text-sm font-semibold" style={{ color: "var(--aurora-fg1)" }}>
+                    一键归档并发送到 AI 执事对话中直接播放
+                  </h3>
+                  <p className="mt-1 text-xs leading-relaxed" style={{ color: "var(--aurora-fg3)" }}>
+                    点击发送后，系统会将最新成片持久化归档至 Memento 媒体库（支持 HTTP 206 Range 拖动、全屏播放与离线缓存），并在所选对话中插入原生视频播放器气泡，桌面端、Web 端与手机端均可随时秒开。
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-xs mb-1.5" style={{ color: "var(--aurora-fg2)" }}>
+                    目标对话
+                  </label>
+                  <select
+                    value={targetConvId}
+                    onChange={(e) => setTargetConvId(e.target.value)}
+                    style={fieldStyle}
+                  >
+                    <option value="">新建专属对话（自动命名为：演播台成片 · {detail.project.name}）</option>
+                    {conversations.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.title || "未命名对话"}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs mb-1.5" style={{ color: "var(--aurora-fg2)" }}>
+                    附带说明（可选）
+                  </label>
+                  <input
+                    value={publishNote}
+                    onChange={(e) => setPublishNote(e.target.value)}
+                    placeholder="例如：第1集 v4 商业母带，重点听门外红伞女人混响与结尾插销"
+                    style={fieldStyle}
+                  />
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2.5 pt-1">
+                  <Btn
+                    icon="sparkles"
+                    onClick={handlePublishToChat}
+                    disabled={busyAction === "publish"}
+                  >
+                    {busyAction === "publish" ? "正在归档并发送…" : "发送到对话直接播放"}
+                  </Btn>
+
+                  {publishedConvId && (
+                    <Btn
+                      icon="message"
+                      variant="ghost"
+                      onClick={() => router.push(`/ask?id=${encodeURIComponent(publishedConvId)}`)}
+                    >
+                      立即前往对话观看
+                    </Btn>
+                  )}
+                </div>
+              </Glass>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+export default function StudioPage() {
+  return (
+    <Suspense
+      fallback={
+        <div style={{ color: "var(--aurora-fg4)", textAlign: "center", padding: "48px 0", fontSize: 13 }}>
+          演播台加载中…
+        </div>
+      }
+    >
+      <StudioInner />
+    </Suspense>
+  );
+}

@@ -46,6 +46,8 @@ spec:
               valueFrom: { secretKeyRef: { name: memento-apns, key: team_id, optional: true } }
             - name: MEMENTO_APNS_BUNDLE_ID
               valueFrom: { secretKeyRef: { name: memento-apns, key: bundle_id, optional: true } }
+            - name: MEMENTO_STUDIO_FILMKIT_TOKEN
+              valueFrom: { secretKeyRef: { name: memento-studio, key: filmkit_token, optional: true } }
           ports:
             - containerPort: 8000
           # 启动约 2 秒就能接请求:早点开始探测,滚动更新时每个副本少等十几秒(两个副本逐个替换)。

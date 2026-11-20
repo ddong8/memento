@@ -120,6 +120,10 @@ function getRouteKeepAliveKey(pathname: string | null): string | null {
   if (pathname === "/tasks") {
     return "/tasks";
   }
+  // 演播台 (Studio)
+  if (pathname === "/studio" || pathname.startsWith("/studio/")) {
+    return "/studio";
+  }
   return null;
 }
 

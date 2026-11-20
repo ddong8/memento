@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `bfab89b1` · Updated: `2026-11-20`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `edd7812a` · Updated: `2026-11-20`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -13,25 +13,25 @@
 - 类型 (Type): Monorepo (Workspaces)
 - 技术栈 (Stack): TypeScript/JavaScript, Python, Shell / Bash · React, Electron, Next.js, TailwindCSS, Model Context Protocol (MCP), FastAPI, SQLAlchemy, Celery
 - 基础设施 (Infra): PostgreSQL, pgvector (Vector DB), Redis, MinIO / S3 Object Storage, Celery Task Queue
-- 规模 (Scale): 9 个子系统 · 38 组 API 路由 / 252 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 244 个测试文件
+- 规模 (Scale): 9 个子系统 · 39 组 API 路由 / 289 个接口 · 38 个前端页面 · 41 个数据模型 · 35 个服务模块 · 246 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `4e526788` (2026-11-20): style(ask): 收敛 PC 端对话区与底部输入框之间的多余留白
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 70（✅ 70 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-ENT-SSO`, `R-UI-COMMERCIAL`, `R-LLM-IN-PROFILE`, `R-THINKING-FULL`, `R-MEDIA-VIEW`, `R-WECHAT-DRAFT`, `R-PERSONA-ONBOARD`
+- 最近改动 (Latest): `a509a8b0` (2026-11-20): fix(mobile): 修复手机端后台智能体任务面板展开后向左溢出屏幕问题
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 71（✅ 71 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `F-ASK`, `R-ISLAND-CLEANUP`, `S-RUN-STATE`, `R-ENT-SSO`, `R-UI-COMMERCIAL`, `R-LLM-IN-PROFILE`, `R-THINKING-FULL`, `R-MEDIA-VIEW`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
 | 1. Project Overview & Tech Stack | L36-L42 |
 | 2. High-Level Architecture Topology | L44-L79 |
 | 3. Subsystem Breakdown & Responsibilities | L81-L93 |
-| 4. Key Entry Points & API Endpoints | L95-L485 |
-| 5. Core Domain Services & Background Schedules | L487-L527 |
-| 6.5. AST Call Graph, DTO Schemas & CLI Entrypoints | L529-L601 |
-| 7. CI/CD Pipelines, Code Hotspots & Test Suites | L603-L646 |
-| 8. Development & Verification Commands | L648-L665 |
-| 9. Recent Architectural Evolutions | L667-L674 |
-| 10. Key Environment Variables & Configuration | L676-L688 |
-| 11. 业务蓝图核对 (Business Blueprint Check) | L690-L699 |
+| 4. Key Entry Points & API Endpoints | L95-L496 |
+| 5. Core Domain Services & Background Schedules | L498-L538 |
+| 6.5. AST Call Graph, DTO Schemas & CLI Entrypoints | L540-L612 |
+| 7. CI/CD Pipelines, Code Hotspots & Test Suites | L614-L658 |
+| 8. Development & Verification Commands | L660-L677 |
+| 9. Recent Architectural Evolutions | L679-L686 |
+| 10. Key Environment Variables & Configuration | L688-L700 |
+| 11. 业务蓝图核对 (Business Blueprint Check) | L702-L711 |
 
 ## 1. Project Overview & Tech Stack
 
@@ -128,6 +128,7 @@ flowchart TD
 - `/search`
 - `/skills`
 - `/status`
+- `/studio`
 - `/support`
 - `/tasks`
 - `/tasks/[id]`
@@ -282,6 +283,7 @@ flowchart TD
 #### `/api/media` (media.py)
 
 - `GET /api/media/image/{key:path}`
+- `GET /api/media/video/{key:path}`
 
 #### `/api/memory` (memory.py)
 
@@ -388,6 +390,15 @@ flowchart TD
 
 - `GET /api/auth/oidc/authorize`
 - `GET /api/auth/oidc/callback`
+
+#### `/api/studio` (studio.py)
+
+- `GET /api/studio/health`
+- `GET /api/studio/compute/status`
+- `POST /api/studio/compute/start`
+- `POST /api/studio/compute/stop`
+- `POST /api/studio/compute/extend`
+- _... (31 more endpoints)_
 
 #### `/api/tasks` (tasks.py)
 
@@ -618,15 +629,16 @@ erDiagram
 | K8s / GitOps | `ingress.yaml` | [`deploy/k8s/ingress.yaml`](deploy/k8s/ingress.yaml) | Resources: Ingress |
 | K8s / GitOps | `kustomization.yaml` | [`deploy/k8s/kustomization.yaml`](deploy/k8s/kustomization.yaml) | Resources: Kustomization |
 | K8s / GitOps | `migrate-job.yaml` | [`deploy/k8s/migrate-job.yaml`](deploy/k8s/migrate-job.yaml) | Resources: Job |
+| K8s / GitOps | `studio.yaml` | [`deploy/k8s/studio.yaml`](deploy/k8s/studio.yaml) | Resources: PersistentVolumeClaim, Deployment, Service |
 | K8s / GitOps | `web.yaml` | [`deploy/k8s/web.yaml`](deploy/k8s/web.yaml) | Resources: Deployment, Service |
 
 ### Automated Test Suite Matrix
 
 | Suite | Directory | Files | Sample Tests |
 | :--- | :--- | :--- | :--- |
-| server/tests (pytest) | [`server/tests`](server/tests) | 125 | `test_agent_ids.py`, `test_agent_limits.py`, `test_agent_login.py`, `test_agent_run_states.py`, `test_ai_provider.py` |
+| server/tests (pytest) | [`server/tests`](server/tests) | 126 | `test_agent_ids.py`, `test_agent_limits.py`, `test_agent_login.py`, `test_agent_run_states.py`, `test_ai_provider.py` |
 | packages/daemon/test (vitest / jest) | [`packages/daemon/test`](packages/daemon/test) | 61 | `agent-args.test.ts`, `agent-login.test.ts`, `agent-stream.test.ts`, `agy-background.test.ts`, `agy-models.test.ts` |
-| apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 50 | `active-runs-chip.test.tsx`, `api-client.test.ts`, `ask-reading-and-persona-rules.test.tsx`, `ask-top-bar.test.tsx`, `audit-labels.test.ts` |
+| apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 51 | `active-runs-chip.test.tsx`, `api-client.test.ts`, `ask-reading-and-persona-rules.test.tsx`, `ask-top-bar.test.tsx`, `audit-labels.test.ts` |
 | apps/desktop/test (vitest / jest) | [`apps/desktop/test`](apps/desktop/test) | 2 | `helpers.test.ts`, `updater-and-daemon.test.ts` |
 | apps/mobile/test (vitest / jest) | [`apps/mobile/test`](apps/mobile/test) | 2 | `deeplink.test.ts`, `webview-props.test.ts` |
 | packages/core/test (vitest / jest) | [`packages/core/test`](packages/core/test) | 2 | `ask-stream.test.ts`, `task-events.test.ts` |
@@ -637,13 +649,13 @@ erDiagram
 - [`apps/web/src/components/persona/DigitalTwinAvatar3D.tsx`](apps/web/src/components/persona/DigitalTwinAvatar3D.tsx) (9 commits)
 - [`packages/daemon/src/source-exec.ts`](packages/daemon/src/source-exec.ts) (8 commits)
 - [`apps/web/src/app/memory/page.tsx`](apps/web/src/app/memory/page.tsx) (7 commits)
+- [`apps/web/src/components/agent/ActiveRunsMonitor.tsx`](apps/web/src/components/agent/ActiveRunsMonitor.tsx) (7 commits)
 - [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (6 commits)
 - [`apps/web/src/app/globals.css`](apps/web/src/app/globals.css) (6 commits)
 - [`apps/web/src/components/ExecutionCard.tsx`](apps/web/src/components/ExecutionCard.tsx) (6 commits)
-- [`apps/web/src/components/agent/ActiveRunsMonitor.tsx`](apps/web/src/components/agent/ActiveRunsMonitor.tsx) (6 commits)
-- [`apps/web/src/components/viewers/MediaInspectorPanel.tsx`](apps/web/src/components/viewers/MediaInspectorPanel.tsx) (6 commits)
 - [`packages/daemon/test/source-exec.test.ts`](packages/daemon/test/source-exec.test.ts) (6 commits)
 - [`server/server/services/workspace_relay.py`](server/server/services/workspace_relay.py) (6 commits)
+- [`apps/web/src/app/memory/persona/page.tsx`](apps/web/src/app/memory/persona/page.tsx) (5 commits)
 
 ## 8. Development & Verification Commands
 
@@ -666,12 +678,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `a509a8b0` (2026-11-20): fix(mobile): 修复手机端后台智能体任务面板展开后向左溢出屏幕问题
 - `4e526788` (2026-11-20): style(ask): 收敛 PC 端对话区与底部输入框之间的多余留白
 - `53d7fc47` (2026-11-20): style(ui): 恢复原版极光渐变配色与视觉质感，保留图标、布局与 Hook 修复
 - `aab609df` (2026-11-20): style(ui): 重构默认主题为曜石黑与宝石蓝配色、修复工作台窄栏裁切与 GitHub Alert 原样渲染
 - `68b04cd9` (2026-11-20): style(ui): 清除业务界面渐变色与表情符号、收敛侧边栏冗余悬停提示并清零 React 19 严格 Hook 告警
 - `a2a04adc` (2026-11-20): fix(dreaming): 补齐 dreaming_voice 拆离后的全部兼容符号重导出
-- `6797c5ef` (2026-11-20): ci(lint): 升级 CI 的 ruff 至 0.17.6 以支持 ASYNC240 异步阻塞门禁
 
 ## 10. Key Environment Variables & Configuration
 
@@ -689,14 +701,14 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 11. 业务蓝图核对 (Business Blueprint Check)
 
-- 业务蓝图：[BUSINESS_BLUEPRINT.md](BUSINESS_BLUEPRINT.md) · 规则 70（✅ 70 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
+- 业务蓝图：[BUSINESS_BLUEPRINT.md](BUSINESS_BLUEPRINT.md) · 规则 71（✅ 71 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
 - 结论：✅ 没有失效或违规
 
 ### 最近提交碰到的业务条目（改动后复查它们还成不成立）
 
+- `a509a8b0` fix(mobile): 修复手机端后台智能体任务面板展开后向左溢出屏幕问题 → `F-ASK`, `R-ISLAND-CLEANUP`, `S-RUN-STATE`
 - `53d7fc47` style(ui): 恢复原版极光渐变配色与视觉质感，保留图标、布局与 Hook 修复 → `R-ENT-SSO`, `R-UI-COMMERCIAL`, `R-LLM-IN-PROFILE`
 - `aab609df` style(ui): 重构默认主题为曜石黑与宝石蓝配色、修复工作台窄栏裁切与 GitHub Alert 原样渲染 → `R-ENT-SSO`, `R-UI-COMMERCIAL`, `R-THINKING-FULL`, `R-MEDIA-VIEW`, `R-LLM-IN-PROFILE`, `R-WECHAT-DRAFT`
-- `68b04cd9` style(ui): 清除业务界面渐变色与表情符号、收敛侧边栏冗余悬停提示并清零 React 19 严格 Hook 告警 → `R-THINKING-FULL`, `R-MEDIA-VIEW`, `R-LLM-IN-PROFILE`, `R-PERSONA-ONBOARD`, `R-WECHAT-DRAFT`
 
 ---
 _Auto-maintained by `scripts/project_blueprint.mjs` (v20261126) & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { getApiBase } from "@/lib/api-client";
 import { desktop } from "@/lib/desktop";
 import { deviceRelayUrl, fileDevice, foreignPathStyle, onThisDevice } from "@/lib/file-devices";
 import { directMediaUrl, markDirectFailed, viaRelay as isRelayed } from "@/lib/p2p";
@@ -325,9 +326,27 @@ export function resolveMediaUrl(rawUrl: string | null | undefined): ResolvedMedi
     };
   }
 
+  const trimmed = rawUrl.trim();
+  if (trimmed.startsWith("/api/media/") || trimmed.startsWith("/api/studio/")) {
+    let base = "";
+    try {
+      base = getApiBase().replace(/\/+$/, "");
+    } catch {
+      base = "";
+    }
+    const resolved = base ? `${base}${trimmed}` : trimmed;
+    return {
+      playUrl: resolved,
+      downloadUrl: resolved,
+      localPath: null,
+      filename,
+      isLocal: false,
+    };
+  }
+
   return {
-    playUrl: rawUrl.trim(),
-    downloadUrl: rawUrl.trim(),
+    playUrl: trimmed,
+    downloadUrl: trimmed,
     localPath: null,
     filename,
     isLocal: false,

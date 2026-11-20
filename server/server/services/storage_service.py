@@ -23,6 +23,7 @@ _bucket_ensured: bool = False
 
 # Stored image links are /api/media/image/<key>; clients get them signed with an expiry.
 MEDIA_IMAGE_PREFIX = "/api/media/image/"
+MEDIA_VIDEO_PREFIX = "/api/media/video/"
 MEDIA_URL_PERIOD = 7 * 86400
 
 
@@ -92,6 +93,53 @@ def media_signature_ok(key: str, exp: int | None, sig: str | None, now: float | 
     except ValueError:
         return False
     return hmac.compare_digest(_media_sig(normalized, exp), sig)
+
+
+def video_media_key(path_key: str) -> str:
+    clean = path_key.lstrip("/")
+    parts = [p for p in clean.split("/") if p]
+    if not parts or any(p in (".", "..") or "\x00" in p or "\\" in p for p in parts):
+        raise ValueError("Invalid video media key")
+    normalized = "/".join(parts)
+    return normalized if normalized.startswith("videos/") else f"videos/{normalized}"
+
+
+def sign_video_url(url: Any, now: float | None = None) -> Any:
+    """Sign a stored /api/media/video/<key> link with a 7~14 day rolling expiry."""
+    if not isinstance(url, str) or not url.startswith(MEDIA_VIDEO_PREFIX):
+        return url
+    path = url.split("?", 1)[0]
+    exp = (media_url_epoch(now) + 2) * MEDIA_URL_PERIOD
+    key = video_media_key(path[len(MEDIA_VIDEO_PREFIX):])
+    return f"{path}?exp={exp}&sig={_media_sig(key, exp)}"
+
+
+def video_signature_ok(key: str, exp: int | None, sig: str | None, now: float | None = None) -> bool:
+    if not exp or not sig or exp < (time.time() if now is None else now):
+        return False
+    try:
+        normalized = video_media_key(key)
+    except ValueError:
+        return False
+    return hmac.compare_digest(_media_sig(normalized, exp), sig)
+
+
+_VIDEO_LINK_RE = __import__("re").compile(r"/api/media/video/[A-Za-z0-9_.\-/]+(?:\?[^\s)\"'>]*)?")
+
+
+def sign_video_links_in_text(text: Any, now: float | None = None) -> Any:
+    """Re-sign every /api/media/video/<key> URL inside Markdown conversation text."""
+    if not isinstance(text, str) or MEDIA_VIDEO_PREFIX not in text:
+        return text
+
+    def _repl(m):
+        raw = m.group(0)
+        try:
+            return sign_video_url(raw, now=now)
+        except ValueError:
+            return raw
+
+    return _VIDEO_LINK_RE.sub(_repl, text)
 
 
 def get_s3_client() -> Any:
@@ -215,3 +263,108 @@ async def store_image_b64(data_uri: str) -> str:
         logger.warning("Failed to store image in S3: %s", e)
 
     return data_uri
+
+
+def _local_video_root() -> Any:
+    from pathlib import Path
+    import tempfile
+
+    preferred = Path(settings.studio_local_video_dir)
+    try:
+        preferred.mkdir(parents=True, exist_ok=True)
+        return preferred
+    except OSError:
+        fallback = Path(tempfile.gettempdir()) / "memento_studio_videos"
+        fallback.mkdir(parents=True, exist_ok=True)
+        return fallback
+
+
+async def store_video_bytes(
+    user_id: str,
+    filename: str,
+    data: bytes,
+    content_type: str = "video/mp4",
+) -> str:
+    """Archive a studio-rendered video into S3 (falling back to local disk when S3 is offline).
+    Returns the canonical unsigned URL `/api/media/video/videos/u/<user_id>/<hash>.<ext>`.
+    """
+    from pathlib import Path
+    import re as _re
+
+    ext = Path(filename or "video.mp4").suffix.lower().lstrip(".")
+    if ext not in ("mp4", "webm", "mov", "m4v"):
+        ext = "mp4"
+    safe_uid = _re.sub(r"[^A-Za-z0-9_\-]", "", str(user_id or "anon")) or "anon"
+    digest = hashlib.sha256(data).hexdigest()[:24]
+    key = f"videos/u/{safe_uid}/{digest}.{ext}"
+
+    uploaded = await upload_bytes(key, data, content_type=content_type)
+    if not uploaded:
+        dest = (_local_video_root() / key).resolve()
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        await asyncio.to_thread(dest.write_bytes, data)
+    return f"{MEDIA_VIDEO_PREFIX}{key}"
+
+
+async def head_video_object(key: str) -> tuple[int | None, str]:
+    """Return (content_length, content_type) for a video key from S3 or local disk fallback."""
+    normalized = video_media_key(key)
+    s3 = get_s3_client()
+    if s3 is not None:
+        def _head():
+            resp = s3.head_object(Bucket=settings.s3_bucket, Key=normalized)
+            return int(resp.get("ContentLength") or 0), resp.get("ContentType") or "video/mp4"
+        try:
+            size, ctype = await asyncio.to_thread(_head)
+            if size > 0:
+                return size, ctype
+        except Exception:
+            pass
+
+    local_path = (_local_video_root() / normalized).resolve()
+    root = _local_video_root().resolve()
+    try:
+        local_path.relative_to(root)
+    except ValueError:
+        return None, ""
+    if local_path.is_file():
+        suf = local_path.suffix.lower()
+        ctype = "video/webm" if suf == ".webm" else "video/quicktime" if suf == ".mov" else "video/mp4"
+        return local_path.stat().st_size, ctype
+    return None, ""
+
+
+async def read_video_range(key: str, start: int, end: int) -> bytes | None:
+    """Read inclusive byte slice [start, end] from S3 or local fallback without loading whole file."""
+    normalized = video_media_key(key)
+    s3 = get_s3_client()
+    if s3 is not None:
+        def _get_range():
+            resp = s3.get_object(
+                Bucket=settings.s3_bucket,
+                Key=normalized,
+                Range=f"bytes={start}-{end}",
+            )
+            return resp["Body"].read()
+        try:
+            chunk = await asyncio.to_thread(_get_range)
+            if chunk is not None:
+                return chunk
+        except Exception:
+            pass
+
+    local_path = (_local_video_root() / normalized).resolve()
+    root = _local_video_root().resolve()
+    try:
+        local_path.relative_to(root)
+    except ValueError:
+        return None
+    if not local_path.is_file():
+        return None
+
+    def _read_local():
+        with open(local_path, "rb") as f:
+            f.seek(start)
+            return f.read(end - start + 1)
+
+    return await asyncio.to_thread(_read_local)

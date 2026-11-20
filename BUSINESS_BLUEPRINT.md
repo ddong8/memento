@@ -3,16 +3,16 @@
 <!-- memento:business-index:start (自动生成，勿手改) -->
 > 先读这一段定位；要细节时按下表行号只读对应章节。改了「代码位置」里的文件，先看对应条目还成不成立。
 
-- 汇总：规则 70（✅ 70 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
+- 汇总：规则 71（✅ 71 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
 - 核对：全部通过（详见末尾「自动核对」）
 
 | 章节 | 行号 |
 | :--- | :--- |
 | 1. 业务对象与术语 | L21-L65 |
 | 2. 关键流程 | L67-L124 |
-| 3. 业务规则 | L126-L555 |
-| 4. 状态归属 | L557-L602 |
-| 自动核对 (Auto Check) | L605-L715 |
+| 3. 业务规则 | L126-L562 |
+| 4. 状态归属 | L564-L609 |
+| 自动核对 (Auto Check) | L612-L723 |
 <!-- memento:business-index:end -->
 > 业务蓝图：memento 应该做成什么样，每一条落在哪段代码、由哪个测试或检查保证。和代码蓝图 [CODE_BLUEPRINT.md](CODE_BLUEPRINT.md)（代码长什么样）配合看：代码蓝图回答"在哪里"，这份回答"应该怎样、为什么"。
 > 规则来自用户的原话和纠正（CLAUDE.md、长期记忆、每晚复盘），不是从代码里反推的；代码和这里对不上，先当成代码的问题查。
@@ -547,6 +547,13 @@
 - 代码: `apps/web/src/components/viewers/WeChatPublishModal.tsx#WeChatPublishModal`, `apps/web/src/components/viewers/MediaInspectorPanel.tsx`
 - 要求: `/api/wechat/draft` @ `apps/web/src/components/viewers/WeChatPublishModal.tsx`; `官方网址` @ `apps/web/src/components/viewers/WeChatPublishModal.tsx`
 
+### R-STUDIO-INLINE-PLAY 演播台成片归档支持 HTTP 206 流播，并可一键发送到对话中直接内联播放
+- 来源: 用户 2026-11-20「将 memento 加入演播台功能，做成的视频直接在对话中展示播放」
+- 说明: 左侧导航提供 `/studio` 演播台入口并接入 `RouteKeepAlive`；后端 `/api/studio` 桥接 `filmkit` 制作管线，发布到对话时将 MP4 持久化归档至对象存储（本地无 S3 时落盘兜底），以 `/api/media/video/...` 写入对话回合，每次读取对话或分享页时自动重签 7~14 天有效期并通过 `HTTP 206 Range` 流播，对话气泡由 `MarkdownViewer` 原位渲染 `<VideoPlayer />` 播放并附带跳回演播台精修链接。
+- 代码: `server/server/api/studio.py#publish_episode_to_chat`, `server/server/api/media.py#get_media_video`, `server/server/services/storage_service.py#store_video_bytes`, `server/server/services/storage_service.py#sign_video_links_in_text`, `apps/web/src/app/studio/page.tsx#StudioPage`, `apps/web/src/components/viewers/media-utils.ts#resolveMediaUrl`
+- 测试: `server/tests/test_studio_media.py#test_get_media_video_range_206_and_auth`, `server/tests/test_studio_media.py#test_publish_episode_to_chat_archives_and_embeds_video_markdown`, `apps/web/test/studio-video-media.test.tsx#renders inline VideoPlayer directly inside MarkdownViewer chat bubble`
+- 要求: `sign_video_links_in_text(` @ `server/server/services/ask_store.py`; `href="/studio"` @ `apps/web/src/components/layout/Sidebar.tsx`
+
 ### R-BUSINESS-CHECKED 业务规则挂到代码和测试上，每次提交自动核对
 - 来源: 用户 2026-11-14「是不是也要增加业务类似的蓝图才能更加准确的反映业务和代码之间的联系，甚至是否有bug，是否有优化的空间也可以从这两个之间找」「做详细，做到完美，一次性做完」
 - 说明: 本文件就是它。生成器随提交核对并写回结果，代码蓝图第 11 节列出最近提交碰到的条目，CI 有 ❌ 不部署；设备上传后项目页显示核对结果和还没写进来的项目规则，可以派智能体去写。
@@ -606,7 +613,7 @@
 
 > 生成器随每次提交核对：代码位置还在不在、测试还在不在、禁止 / 要求的写法满不满足。✅ 通过 · ⚠️ 缺代码位置、测试或来源 · ❌ 位置失效或违反规则（CI 会拦下）。
 
-- 汇总：规则 70（✅ 70 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
+- 汇总：规则 71（✅ 71 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
 
 | 编号 | 名称 | 代码位置 | 测试 | 检查 | 结论 |
 | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -699,6 +706,7 @@
 | `R-ASK-INSTANT` | AI 执事区域刷新尽量零延迟 | 3/3 | 2/2 | — | ✅ |
 | `R-SESSION-PREVIEW-WHOLE` | 项目对话和时间线先带每个会话的一段，展开全部一条不丢 | 4/4 | 2/2 | 2/2 | ✅ |
 | `R-WECHAT-DRAFT` | 工作台文本可多次润色，确认后推到公众号草稿，文章带官网链接 | 2/2 | — | 2/2 | ✅ |
+| `R-STUDIO-INLINE-PLAY` | 演播台成片归档支持 HTTP 206 流播，并可一键发送到对话中直接内联播放 | 6/6 | 3/3 | 2/2 | ✅ |
 | `R-BUSINESS-CHECKED` | 业务规则挂到代码和测试上，每次提交自动核对 | 6/6 | 4/4 | 1/1 | ✅ |
 | `S-CONV-LIST` | 对话列表 | 6/6 | — | — | ✅ |
 | `S-RUN-STATE` | 运行状态与灵动岛 | 5/5 | — | — | ✅ |

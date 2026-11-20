@@ -24,7 +24,7 @@ from ..db.models import Document, Machine, User, AskConversation, Project
 from ..db.session import async_session_factory
 from .agent_ids import clean_session_id, reported_session_id
 from .agent_limits import mark_usage_limit
-from .storage_service import sign_media_url, store_image_b64
+from .storage_service import sign_media_url, sign_video_links_in_text, store_image_b64
 
 logger = logging.getLogger("server.ask")
 
@@ -1103,6 +1103,8 @@ def sanitize_turns_for_response(turns: list[dict], fallback_iso: str | None = No
         imgs = t_copy.get("images")
         if imgs and isinstance(imgs, list):
             t_copy["images"] = [sign_media_url(_compress_b64_image_safe(img)) for img in imgs]
+        if isinstance(t_copy.get("content"), str) and "/api/media/video/" in t_copy["content"]:
+            t_copy["content"] = sign_video_links_in_text(t_copy["content"])
         tcs = t_copy.get("toolCalls") or t_copy.get("tool_calls")
         if tcs and isinstance(tcs, list):
             clean_tcs = []

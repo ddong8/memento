@@ -145,6 +145,11 @@ class Settings(BaseSettings):
     apns_bundle_id: str = "com.ihasy.memento"
     apns_production: bool = True
 
+    # Studio (演播台 / filmkit 渲染引擎桥接地址与离线视频本地兜底目录)
+    studio_filmkit_url: str = "http://127.0.0.1:8765"
+    studio_filmkit_token: str = ""
+    studio_local_video_dir: str = "/data2/memento/studio_videos"
+
     def validate_production(self) -> None:
         """Refuse to start with dev defaults when debug is off."""
         bad = []

@@ -150,7 +150,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
   useEffect(() => {
     if (typeof window === "undefined") return;
     const prewarmRoutes = () => {
-      const routes = ["/ask", "/app", "/inbox", "/plans", "/memory", "/projects", "/daily", "/skills"];
+      const routes = ["/ask", "/app", "/studio", "/inbox", "/plans", "/memory", "/projects", "/daily", "/skills"];
       for (const r of routes) {
         try {
           router.prefetch(r);
@@ -260,6 +260,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
   const isProjectsActive = effectivePath === "/projects" || effectivePath.startsWith("/projects/");
   const isInboxActive = effectivePath === "/inbox" || effectivePath.startsWith("/inbox/");
   const isPlansActive = effectivePath === "/plans" || effectivePath.startsWith("/plans/");
+  const isStudioActive = effectivePath === "/studio" || effectivePath.startsWith("/studio/");
 
   return (
     <>
@@ -496,6 +497,15 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
             label="协作任务"
             icon="layers"
             active={isPlansActive}
+            collapsed={collapsed}
+            onNavigate={handleItemClick}
+            onHover={handleItemHover}
+          />
+          <NavRow
+            href="/studio"
+            label="演播台"
+            icon="film"
+            active={isStudioActive}
             collapsed={collapsed}
             onNavigate={handleItemClick}
             onHover={handleItemHover}

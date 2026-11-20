@@ -1,0 +1,92 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: filmkit-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: filmkit
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: filmkit
+  template:
+    metadata:
+      labels:
+        app: filmkit
+    spec:
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: filmkit
+          image: ghcr.io/ddong8/filmkit:02418b9060bc
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: FILMKIT_ROOT
+              value: /data/filmkit
+            - name: GEMINI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: memento-studio
+                  key: gemini_api_key
+                  optional: true
+            - name: FILMKIT_WEB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: memento-studio
+                  key: filmkit_token
+                  optional: true
+          ports:
+            - containerPort: 8765
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8765
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 12
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8765
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            failureThreshold: 6
+          lifecycle:
+            preStop:
+              sleep:
+                seconds: 5
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "4"
+              memory: 4Gi
+          volumeMounts:
+            - name: filmkit-data
+              mountPath: /data/filmkit
+      volumes:
+        - name: filmkit-data
+          persistentVolumeClaim:
+            claimName: filmkit-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: filmkit
+spec:
+  selector:
+    app: filmkit
+  ports:
+    - port: 8765
+      targetPort: 8765

@@ -7,6 +7,7 @@ resources:
 - api.yaml
 - celery.yaml
 - web.yaml
+- studio.yaml
 - ingress.yaml
 - fleet-watchdog.yaml
 
@@ -36,6 +37,7 @@ configMapGenerator:
   - MEMENTO_PORT=8000
   - MEMENTO_PUBLIC_URL=https://mem.ihasy.com
   - MEMENTO_REMOTE_EXEC=1
+  - MEMENTO_STUDIO_FILMKIT_URL=http://filmkit:8765
   name: memento-config
 
 # 镜像 tag 由 .github/workflows/deploy.yml 在每次构建后用

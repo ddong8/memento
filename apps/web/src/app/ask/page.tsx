@@ -4892,7 +4892,7 @@ function AskPageContent() {
             onTouchEnd={handleTouchEnd}
             onTouchCancel={handleTouchCancel}
             onWheel={handleWheel}
-            className="flex-1 overflow-y-auto px-1 sm:px-5 md:px-8 py-1.5 sm:py-6 select-text"
+            className="flex-1 overflow-y-auto px-1 sm:px-5 md:px-8 pt-1.5 pb-2 sm:pt-4 sm:pb-2 select-text"
             style={{
               overscrollBehaviorY: "contain",
               WebkitOverflowScrolling: "touch",
@@ -4985,9 +4985,9 @@ function AskPageContent() {
           pendingFollowUps={sentFollowUpTexts}
           t={t}
         />
-        <div ref={bottomRef} style={{ height: 1, minHeight: 1, overflow: "hidden", pointerEvents: "none" }} />
       </div>
     </div>
+    <div ref={bottomRef} style={{ height: 1, minHeight: 1, overflow: "hidden", pointerEvents: "none" }} />
   </div>
     {/* 回到底部悬浮快捷键 */}
     {showScrollBottom && turns.length > 0 && (
@@ -5035,7 +5035,7 @@ function AskPageContent() {
   {/* 中栏底部交互控制台 (作为 flex footer，全面屏安全区适配)。左右内边距和上面消息区一致，卡片和输入区左右对齐 */}
     <footer
       data-ask-footer="true"
-      className="shrink-0 px-1 pt-1 sm:px-5 sm:pt-2 md:px-8 lg:pt-2.5 bg-transparent"
+      className="shrink-0 px-1 pt-1 sm:px-5 sm:pt-1.5 md:px-8 lg:pt-2 bg-transparent"
       style={{
         paddingBottom: viewportBottomOffset > 0
           ? `${viewportBottomOffset + 4}px`

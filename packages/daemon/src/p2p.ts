@@ -59,6 +59,17 @@ export class P2PHost {
 
   /** The answer to a page's offer, with every candidate gathered (LAN, IPv6, STUN-mapped). */
   async answer(offerSdp: string, iceServers: string[]): Promise<{ sdp?: string; error?: string }> {
+    const first = await this.answerOnce(offerSdp, iceServers);
+    // ICE can fail the moment the offer is set, and libdatachannel then closes the connection under the
+    // offer's own candidates ("Got a remote candidate without ICE transport"; 2026-11-20 on a CI runner).
+    // A new connection gets past it.
+    if (!first.transient) return first;
+    this.log(`Direct (WebRTC) answer: ${first.error}; trying a new connection`);
+    const again = await this.answerOnce(offerSdp, iceServers);
+    return { sdp: again.sdp, error: again.error };
+  }
+
+  private async answerOnce(offerSdp: string, iceServers: string[]): Promise<{ sdp?: string; error?: string; transient?: boolean }> {
     const nd = await loadLib(this.log);
     if (!nd) return { error: "direct transfer is not available on this device" };
     if (this.sessions.size >= MAX_SESSIONS) this.closeOldest();
@@ -85,8 +96,10 @@ export class P2PHost {
     try {
       pc.setRemoteDescription(offerSdp, "offer" as never);
     } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
       this.close(id);
-      return { error: `bad offer: ${e instanceof Error ? e.message : e}` };
+      if (/without ICE transport/i.test(message)) return { error: `the connection failed while the offer was set (${message})`, transient: true };
+      return { error: `bad offer: ${message}` };
     }
     await gathered;
     const local = pc.localDescription();

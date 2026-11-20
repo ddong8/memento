@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `v1.0.145` · Commit: `b7977b7b` · Updated: `2026-11-19`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `1392ce7d` · Updated: `2026-11-20`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,8 +16,8 @@
 - 规模 (Scale): 9 个子系统 · 38 组 API 路由 / 252 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 235 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `b7977b7b` (2026-11-19): feat(额度): Antigravity 每个模型都显示额度，并显示 Gemini、Claude 和 GPT、Gemini 4 Argon 各组的周额度和 5 小时额度；升级客户端版本至 v1.0.145
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 70（✅ 70 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-QUOTA-AGY-GROUPS`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `S-CLIENT-VERSION`, `R-TRACK-BACKGROUND`, `R-ENT-DEVICE-POLICY`, `R-WS-EDIT-ONLY`, `R-ENT-DEPLOY`
+- 最近改动 (Latest): `1392ce7d` (2026-11-20): feat(对话): 对话开始后固定智能体、设备、项目和会话，要换请新建对话，避免上下文错乱
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 70（✅ 70 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `F-RESUME`, `R-CONFIG-LOCK`, `R-NEWCHAT-WORKS`, `R-QUOTA-AGY-GROUPS`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `S-CLIENT-VERSION`, `R-TRACK-BACKGROUND`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -635,14 +635,14 @@ erDiagram
 
 - [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (8 commits)
 - [`packages/daemon/src/source-exec.ts`](packages/daemon/src/source-exec.ts) (8 commits)
-- [`apps/web/src/app/globals.css`](apps/web/src/app/globals.css) (7 commits)
 - [`apps/web/src/components/agent/ActiveRunsMonitor.tsx`](apps/web/src/components/agent/ActiveRunsMonitor.tsx) (7 commits)
 - [`apps/web/src/components/persona/DigitalTwinAvatar3D.tsx`](apps/web/src/components/persona/DigitalTwinAvatar3D.tsx) (7 commits)
-- [`apps/web/src/app/memory/page.tsx`](apps/web/src/app/memory/page.tsx) (6 commits)
-- [`apps/web/src/components/ExecutionCard.tsx`](apps/web/src/components/ExecutionCard.tsx) (6 commits)
+- [`apps/web/src/app/globals.css`](apps/web/src/app/globals.css) (6 commits)
 - [`apps/web/src/components/viewers/MediaInspectorPanel.tsx`](apps/web/src/components/viewers/MediaInspectorPanel.tsx) (6 commits)
 - [`packages/daemon/test/source-exec.test.ts`](packages/daemon/test/source-exec.test.ts) (6 commits)
 - [`server/server/services/workspace_relay.py`](server/server/services/workspace_relay.py) (6 commits)
+- [`apps/web/src/app/memory/page.tsx`](apps/web/src/app/memory/page.tsx) (5 commits)
+- [`apps/web/src/components/ExecutionCard.tsx`](apps/web/src/components/ExecutionCard.tsx) (5 commits)
 
 ## 8. Development & Verification Commands
 
@@ -665,12 +665,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `1392ce7d` (2026-11-20): feat(对话): 对话开始后固定智能体、设备、项目和会话，要换请新建对话，避免上下文错乱
 - `b7977b7b` (2026-11-19): feat(额度): Antigravity 每个模型都显示额度，并显示 Gemini、Claude 和 GPT、Gemini 4 Argon 各组的周额度和 5 小时额度；升级客户端版本至 v1.0.145
 - `58a2a3db` (2026-11-19): fix(Antigravity): 服务器上用 agy 命令行跑的任务，后台命令跑完了不再显示还有后台任务没跑完；升级客户端版本至 v1.0.144
 - `f212a39c` (2026-11-19): feat(远程任务): 代码所在设备上的命令默认不再拦截，有风险的照常执行并推送提醒
 - `6bedacfa` (2026-11-19): fix(远程任务): 命令期间代码所在设备重连过、Memento 重启过或断网时，执行机不再空等 30 分钟；升级客户端版本至 v1.0.143
 - `d58c629c` (2026-11-18): feat(enterprise): 员工电脑策略文件、企业部署包与安装包正式签名
-- `e251b518` (2026-11-18): feat(enterprise): 企业部署——管理员可见范围开关、OIDC 单点登录与 SCIM 停用、操作审计、模型密钥加密和模型服务白名单
 
 ## 10. Key Environment Variables & Configuration
 
@@ -693,9 +693,9 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ### 最近提交碰到的业务条目（改动后复查它们还成不成立）
 
+- `1392ce7d` feat(对话): 对话开始后固定智能体、设备、项目和会话，要换请新建对话，避免上下文错乱 → `F-RESUME`, `R-CONFIG-LOCK`, `R-NEWCHAT-WORKS`
 - `b7977b7b` feat(额度): Antigravity 每个模型都显示额度，并显示 Gemini、Claude 和 GPT、Gemini 4 Argon 各组的周额度和 5 → `R-QUOTA-AGY-GROUPS`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `S-CLIENT-VERSION`
 - `58a2a3db` fix(Antigravity): 服务器上用 agy 命令行跑的任务，后台命令跑完了不再显示还有后台任务没跑完；升级客户端版本至 v1.0.144 → `R-TRACK-BACKGROUND`, `R-ENT-DEVICE-POLICY`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `S-CLIENT-VERSION`
-- `f212a39c` feat(远程任务): 代码所在设备上的命令默认不再拦截，有风险的照常执行并推送提醒 → `R-WS-EDIT-ONLY`, `R-ENT-DEPLOY`, `R-WS-EXEC-STOP`, `R-WS-EXEC-REMIND`
 
 ---
 _Auto-maintained by `scripts/project_blueprint.mjs` (v20261126) & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._

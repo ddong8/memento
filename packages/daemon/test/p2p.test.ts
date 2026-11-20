@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import nodeDataChannel from "node-datachannel";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
 
 import { DirectPullError, P2PHost, pullDirect } from "../src/p2p.js";
 
@@ -106,4 +106,22 @@ describe("direct (WebRTC) file transfer", () => {
     expect((err as DirectPullError).written).toBe(0);
     expect((err as DirectPullError).message).toContain("source offline");
   }, 20_000);
+});
+
+describe("answering an offer", () => {
+  it("tries a new connection once when ICE fails as the offer is set, and reports a bad offer as it is", async () => {
+    const h = new P2PHost();
+    const once = vi.spyOn(h as unknown as { answerOnce: () => Promise<unknown> }, "answerOnce");
+    once
+      .mockResolvedValueOnce({ error: "the connection failed while the offer was set (Got a remote candidate without ICE transport)", transient: true })
+      .mockResolvedValueOnce({ sdp: "v=0 answer" });
+    expect(await h.answer("v=0 offer", [])).toEqual({ sdp: "v=0 answer", error: undefined });
+    expect(once).toHaveBeenCalledTimes(2);
+
+    once.mockClear();
+    once.mockResolvedValueOnce({ error: "bad offer: Invalid SDP" });
+    expect(await h.answer("garbage", [])).toEqual({ error: "bad offer: Invalid SDP" });
+    expect(once).toHaveBeenCalledTimes(1);
+    h.dispose();
+  });
 });

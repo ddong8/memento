@@ -224,6 +224,65 @@ export function resolveRelativeLink(href: string, baseDir?: string | null): stri
   return windows || joined.startsWith("/") ? joined : `/${joined}`;
 }
 
+/**
+ * App page routes hosted inside Memento itself. Links pointing to these paths (either relative like
+ * `/studio?project=...` or full same-origin like `https://mem.ihasy.com/studio`) should stay inside
+ * the app instead of opening with `target="_blank"` (which causes Electron desktop to launch the
+ * external system browser).
+ */
+const INTERNAL_APP_ROUTE_RE =
+  /^\/(?:studio|ask|app|inbox|plans|memory|projects|daily|skills|devices|profile|tasks|search|tools|collector|conversations|documents|status|admin)(?:\/|$)/i;
+
+export function resolveInternalAppLink(href: string | null | undefined, currentOrigin?: string): string | null {
+  if (!href) return null;
+  const trimmed = href.trim();
+  if (!trimmed || trimmed.startsWith("#")) return null;
+
+  if (trimmed.startsWith("/") && !trimmed.startsWith("//")) {
+    if (isLocalFilePath(trimmed)) return null;
+    try {
+      const parsed = new URL(trimmed, "http://memento.local");
+      if (parsed.pathname.startsWith("/api/")) return null;
+      if (INTERNAL_APP_ROUTE_RE.test(parsed.pathname)) {
+        return parsed.pathname + parsed.search + parsed.hash;
+      }
+    } catch {
+      return null;
+    }
+    return null;
+  }
+
+  if (/^https?:\/\//i.test(trimmed)) {
+    try {
+      const parsed = new URL(trimmed);
+      const allowedOrigins = new Set<string>();
+      if (currentOrigin) {
+        try {
+          allowedOrigins.add(new URL(currentOrigin).origin);
+        } catch {}
+      } else if (typeof window !== "undefined" && window.location?.origin && window.location.origin !== "null") {
+        allowedOrigins.add(window.location.origin);
+      }
+      try {
+        const apiBase = getApiBase();
+        if (apiBase && /^https?:\/\//i.test(apiBase)) {
+          allowedOrigins.add(new URL(apiBase).origin);
+        }
+      } catch {}
+
+      if (allowedOrigins.has(parsed.origin) && !parsed.pathname.startsWith("/api/")) {
+        if (parsed.pathname === "/" || INTERNAL_APP_ROUTE_RE.test(parsed.pathname)) {
+          return parsed.pathname + parsed.search + parsed.hash;
+        }
+      }
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+}
+
 /** The folder of a local file path. */
 export function dirOfPath(path: string): string {
   const clean = safeDecodePath(path).replace(/^file:\/\//, "");

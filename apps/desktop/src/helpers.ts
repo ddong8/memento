@@ -202,6 +202,23 @@ export interface PageMenuItem {
   enabled?: boolean;
 }
 
+/**
+ * When a link asks for a new window (`target="_blank"` / `window.open`), decide whether it belongs
+ * inside Memento's own window (same web origin, non-API page route) instead of opening externally.
+ * Returns the in-app path (`pathname + search + hash`) to navigate to, or null to open externally.
+ */
+export function resolveSameOriginAppPath(rawUrl: string, appOrigins: string[]): string | null {
+  try {
+    const u = new URL(rawUrl);
+    if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+    if (!appOrigins.includes(u.origin)) return null;
+    if (u.pathname.startsWith("/api/") || u.pathname.startsWith("/s/")) return null;
+    return u.pathname + u.search + u.hash;
+  } catch {
+    return null;
+  }
+}
+
 /** The menu items a page asked for, kept to plain labels (at most 40, 120 characters each). */
 export function normalizeMenuItems(raw: unknown): PageMenuItem[] {
   if (!Array.isArray(raw)) return [];

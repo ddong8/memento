@@ -32,6 +32,7 @@ import {
   normalizeMenuItems,
   parseByteRange,
   parseMementoMediaFilePath,
+  resolveSameOriginAppPath,
 } from "./helpers";
 
 const UPDATE_CHECK_MS = 6 * 60 * 60_000;
@@ -256,6 +257,11 @@ function createWindow(show: boolean): void {
   // Only web and mail links leave the app: a file:// or memento-media:// one handed to the system opened
   // Finder / Explorer (or the file in some other app) by itself; the workbench opens those.
   win.webContents.setWindowOpenHandler(({ url }) => {
+    const inAppPath = resolveSameOriginAppPath(url, [serverOrigin()]);
+    if (inAppPath) {
+      void navigateApp(inAppPath);
+      return { action: "deny" };
+    }
     if (/^(https?|mailto):/i.test(url)) void shell.openExternal(url);
     return { action: "deny" };
   });

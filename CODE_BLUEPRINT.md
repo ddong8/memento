@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `740348b1` · Updated: `2026-11-20`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `8091ce90` · Updated: `2026-11-20`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,7 +16,7 @@
 - 规模 (Scale): 9 个子系统 · 39 组 API 路由 / 295 个接口 · 38 个前端页面 · 41 个数据模型 · 35 个服务模块 · 246 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `740348b1` (2026-11-20): chore(k8s): 更新 filmkit 演播台镜像至 774beb3f981c 并声明 ghcr-pull 拉取凭证
+- 最近改动 (Latest): `36dd3400` (2026-11-20): feat(studio): 演播台升级 AI 短剧量产版（写实预设、正反打景别机位、批量生图/I2V、首尾帧衔接与单镜对口型）
 - 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 71（✅ 71 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-WS-EXEC-REMIND`, `R-DOCS-WRITE-LIGHT`, `R-PUBLIC-REPO-CLEAN`, `R-NO-CONFIGMAP-HOTFIX`, `R-MENU-KEEPALIVE`, `R-STUDIO-INLINE-PLAY`, `F-ASK`, `R-ISLAND-CLEANUP`
 
 | 章节 (Section) | 行号 (Lines) |
@@ -653,9 +653,9 @@ erDiagram
 - [`packages/daemon/test/source-exec.test.ts`](packages/daemon/test/source-exec.test.ts) (6 commits)
 - [`server/server/services/workspace_relay.py`](server/server/services/workspace_relay.py) (6 commits)
 - [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (5 commits)
-- [`apps/web/src/app/globals.css`](apps/web/src/app/globals.css) (5 commits)
-- [`apps/web/src/components/ExecutionCard.tsx`](apps/web/src/components/ExecutionCard.tsx) (5 commits)
 - [`apps/web/src/components/layout/Sidebar.tsx`](apps/web/src/components/layout/Sidebar.tsx) (5 commits)
+- [`apps/web/src/components/layout/TopProgressBar.tsx`](apps/web/src/components/layout/TopProgressBar.tsx) (5 commits)
+- [`apps/web/test/ui-polish-guard.test.ts`](apps/web/test/ui-polish-guard.test.ts) (5 commits)
 
 ## 8. Development & Verification Commands
 
@@ -678,12 +678,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `36dd3400` (2026-11-20): feat(studio): 演播台升级 AI 短剧量产版（写实预设、正反打景别机位、批量生图/I2V、首尾帧衔接与单镜对口型）
 - `740348b1` (2026-11-20): chore(k8s): 更新 filmkit 演播台镜像至 774beb3f981c 并声明 ghcr-pull 拉取凭证
 - `c314dc62` (2026-11-20): feat(studio): 新增演播台工作区、HTTP 206 视频流播与成片一键发往对话内联播放
 - `a509a8b0` (2026-11-20): fix(mobile): 修复手机端后台智能体任务面板展开后向左溢出屏幕问题
 - `4e526788` (2026-11-20): style(ask): 收敛 PC 端对话区与底部输入框之间的多余留白
 - `53d7fc47` (2026-11-20): style(ui): 恢复原版极光渐变配色与视觉质感，保留图标、布局与 Hook 修复
-- `aab609df` (2026-11-20): style(ui): 重构默认主题为曜石黑与宝石蓝配色、修复工作台窄栏裁切与 GitHub Alert 原样渲染
 
 ## 10. Key Environment Variables & Configuration
 

@@ -14,6 +14,7 @@ import {
   MediaAttachmentCard,
   getFilenameFromUrl,
   isLocalFilePath,
+  resolveInternalAppLink,
   resolveMediaUrl,
   resolveRelativeLink,
   safeDecodePath,
@@ -661,6 +662,32 @@ const MarkdownViewer = memo(function MarkdownViewer({
             }
 
             const isLocal = isLocalFilePath(href);
+            const internalAppPath = !isLocal ? resolveInternalAppLink(href) : null;
+            if (internalAppPath) {
+              return (
+                <a
+                  href={internalAppPath}
+                  onClick={(e) => {
+                    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+                    const nav = window as unknown as {
+                      __memento_navigate?: (url: string) => void;
+                      __memento_client_push?: (path: string) => void;
+                    };
+                    if (typeof nav.__memento_navigate === "function") {
+                      e.preventDefault();
+                      nav.__memento_navigate(internalAppPath);
+                    } else if (typeof nav.__memento_client_push === "function") {
+                      e.preventDefault();
+                      nav.__memento_client_push(internalAppPath);
+                    }
+                  }}
+                  className="text-[var(--aurora-accent)] hover:underline underline-offset-2 break-all font-medium transition-colors"
+                  {...props}
+                >
+                  {children}
+                </a>
+              );
+            }
             const resolvedHref = isLocal ? resolveMediaUrl(href).downloadUrl : href;
 
             return (

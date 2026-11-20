@@ -57,6 +57,7 @@ export {
   getFilenameFromUrl,
   hasWildcard,
   isLocalFilePath,
+  resolveInternalAppLink,
   resolveRelativeLink,
   dirOfPath,
   useDirectSrc,

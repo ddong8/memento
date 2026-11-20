@@ -9,6 +9,7 @@ import {
   parseByteRange,
   mediaRemoteUrl,
   parseMementoMediaFilePath,
+  resolveSameOriginAppPath,
 } from "../src/helpers";
 
 describe("media byte ranges", () => {
@@ -115,5 +116,25 @@ describe("page menus shown as system menus", () => {
     expect(normalizeMenuItems("x")).toEqual([]);
     expect(normalizeMenuItems(Array.from({ length: 100 }, (_, i) => ({ id: String(i), label: `项 ${i}` }))).length).toBe(40);
     expect(normalizeMenuItems([{ label: "a".repeat(500) }])[0]?.label.length).toBe(120);
+  });
+});
+
+describe("same-origin window.open / target=_blank interception", () => {
+  const origins = ["https://mem.ihasy.com"];
+
+  it("keeps same-origin app routes inside the desktop window", () => {
+    expect(resolveSameOriginAppPath("https://mem.ihasy.com/studio", origins)).toBe("/studio");
+    expect(resolveSameOriginAppPath("https://mem.ihasy.com/studio?project=p1&episode=ep1#shots", origins)).toBe(
+      "/studio?project=p1&episode=ep1#shots",
+    );
+    expect(resolveSameOriginAppPath("https://mem.ihasy.com/ask?id=conv_1", origins)).toBe("/ask?id=conv_1");
+  });
+
+  it("lets API, public share, external, and non-HTTP URLs open externally", () => {
+    expect(resolveSameOriginAppPath("https://mem.ihasy.com/api/media/video/a.mp4", origins)).toBeNull();
+    expect(resolveSameOriginAppPath("https://mem.ihasy.com/s/share-token", origins)).toBeNull();
+    expect(resolveSameOriginAppPath("https://github.com/ddong8/memento", origins)).toBeNull();
+    expect(resolveSameOriginAppPath("mailto:test@example.com", origins)).toBeNull();
+    expect(resolveSameOriginAppPath("not a url", origins)).toBeNull();
   });
 });

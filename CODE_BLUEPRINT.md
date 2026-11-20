@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `af11af15` · Updated: `2026-11-20`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `ec7a1592` · Updated: `2026-11-20`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,7 +16,7 @@
 - 规模 (Scale): 9 个子系统 · 40 组 API 路由 / 300 个接口 · 39 个前端页面 · 41 个数据模型 · 35 个服务模块 · 248 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `7a8bd174` (2026-11-20): feat(plugins): 新增插件市场并将演播台与公众号一键分发改为按需安装配置启用
+- 最近改动 (Latest): `ec7a1592` (2026-11-20): chore(studio): 演播台改走 Cloudflare Workers 反代网关并移除直连 fleet-proxy
 - 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 72（✅ 72 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-ENT-SECRETS`, `R-DOCS-WRITE-LIGHT`, `R-PUBLIC-REPO-CLEAN`, `R-MENU-KEEPALIVE`, `R-MEDIA-VIEW`, `R-WECHAT-DRAFT`, `R-STUDIO-INLINE-PLAY`, `R-PLUGIN-MARKETPLACE`
 
 | 章节 (Section) | 行号 (Lines) |
@@ -656,15 +656,15 @@ erDiagram
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
 - [`packages/daemon/src/source-exec.ts`](packages/daemon/src/source-exec.ts) (8 commits)
-- [`apps/web/src/components/persona/DigitalTwinAvatar3D.tsx`](apps/web/src/components/persona/DigitalTwinAvatar3D.tsx) (7 commits)
-- [`apps/web/src/app/memory/page.tsx`](apps/web/src/app/memory/page.tsx) (6 commits)
 - [`apps/web/src/components/agent/ActiveRunsMonitor.tsx`](apps/web/src/components/agent/ActiveRunsMonitor.tsx) (6 commits)
 - [`apps/web/src/components/layout/Sidebar.tsx`](apps/web/src/components/layout/Sidebar.tsx) (6 commits)
+- [`apps/web/src/components/persona/DigitalTwinAvatar3D.tsx`](apps/web/src/components/persona/DigitalTwinAvatar3D.tsx) (6 commits)
+- [`deploy/k8s/studio.yaml`](deploy/k8s/studio.yaml) (6 commits)
 - [`packages/daemon/test/source-exec.test.ts`](packages/daemon/test/source-exec.test.ts) (6 commits)
 - [`server/server/main.py`](server/server/main.py) (6 commits)
 - [`server/server/services/workspace_relay.py`](server/server/services/workspace_relay.py) (6 commits)
 - [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (5 commits)
-- [`apps/web/src/components/layout/TopProgressBar.tsx`](apps/web/src/components/layout/TopProgressBar.tsx) (5 commits)
+- [`apps/web/src/app/memory/page.tsx`](apps/web/src/app/memory/page.tsx) (5 commits)
 
 ## 8. Development & Verification Commands
 
@@ -687,12 +687,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `ec7a1592` (2026-11-20): chore(studio): 演播台改走 Cloudflare Workers 反代网关并移除直连 fleet-proxy
 - `7a8bd174` (2026-11-20): feat(plugins): 新增插件市场并将演播台与公众号一键分发改为按需安装配置启用
 - `edf2d53e` (2026-11-20): fix(studio): 为集群 filmkit Pod 配置出口代理确保稳定访问 Gemini 与外部视频网关
 - `b62f9fc5` (2026-11-20): fix(desktop,web): 同源应用路由链接在桌面端窗口内直接跳转不再跳出外部浏览器
 - `36dd3400` (2026-11-20): feat(studio): 演播台升级 AI 短剧量产版（写实预设、正反打景别机位、批量生图/I2V、首尾帧衔接与单镜对口型）
 - `740348b1` (2026-11-20): chore(k8s): 更新 filmkit 演播台镜像至 774beb3f981c 并声明 ghcr-pull 拉取凭证
-- `c314dc62` (2026-11-20): feat(studio): 新增演播台工作区、HTTP 206 视频流播与成片一键发往对话内联播放
 
 ## 10. Key Environment Variables & Configuration
 

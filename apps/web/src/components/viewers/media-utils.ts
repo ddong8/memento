@@ -231,7 +231,7 @@ export function resolveRelativeLink(href: string, baseDir?: string | null): stri
  * external system browser).
  */
 const INTERNAL_APP_ROUTE_RE =
-  /^\/(?:studio|ask|app|inbox|plans|memory|projects|daily|skills|devices|profile|tasks|search|tools|collector|conversations|documents|status|admin)(?:\/|$)/i;
+  /^\/(?:studio|plugins|ask|app|inbox|plans|memory|projects|daily|skills|devices|profile|tasks|search|tools|collector|conversations|documents|status|admin)(?:\/|$)/i;
 
 export function resolveInternalAppLink(href: string | null | undefined, currentOrigin?: string): string | null {
   if (!href) return null;

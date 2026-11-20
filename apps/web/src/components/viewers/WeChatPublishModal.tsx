@@ -4,16 +4,21 @@ import { memo, useEffect, useRef, useState } from "react";
 import { FiX, FiCheck, FiSend, FiAlertCircle, FiImage, FiExternalLink, FiCopy, FiUpload, FiTrash2, FiCheckCircle } from "react-icons/fi";
 import { SiWechat, SiZhihu, SiSinaweibo, SiXiaohongshu } from "react-icons/si";
 
+export interface WeChatPluginConfig {
+  api_base_url?: string;
+  default_author?: string;
+  default_cover_media_id?: string;
+  official_site_url?: string;
+}
+
 export interface WeChatPublishModalProps {
   isOpen: boolean;
   onClose: () => void;
   markdown: string;
   defaultTitle?: string;
   initialThemeId?: string;
+  pluginConfig?: WeChatPluginConfig;
 }
-
-const DEFAULT_COVER_MEDIA_ID = "CaYoocON3zFj43tFOB-ctJe58evZROH9yeZgaaJHpkC2Bk9dtkZ3ehgSMHosD1Mk";
-const WX_API_BASE = "https://wx.ihasy.com";
 
 const THEMES = [
   { id: "tech", name: "科技蓝调", color: "#2563eb", desc: "商务沉稳，适合技术与分析文章" },
@@ -22,11 +27,12 @@ const THEMES = [
   { id: "red", name: "中国红韵", color: "#dc2626", desc: "喜庆醒目，适合重要通告与节日" },
 ];
 
-function extractTitleAndDigest(md: string, fallbackTitle?: string): { title: string; digest: string; firstImage?: string } {
+function extractTitleAndDigest(md: string, fallbackTitle?: string, siteOrigin?: string): { title: string; digest: string; firstImage?: string } {
   const lines = md.split("\n");
   let foundTitle = "";
   const digestCandidates: string[] = [];
   let firstImage = "";
+  const originBase = (siteOrigin || (typeof window !== "undefined" ? window.location.origin : "")).replace(/\/+$/, "");
 
   for (const line of lines) {
     const trimmed = line.trim();
@@ -38,8 +44,8 @@ function extractTitleAndDigest(md: string, fallbackTitle?: string): { title: str
       const imgMatch = trimmed.match(/!\[.*?\]\((https?:\/\/[^\s)]+|\/[^\s)]+|\.\/[^\s)]+)\)/);
       if (imgMatch && imgMatch[1]) {
         let u = imgMatch[1];
-        if (u.startsWith("/article/")) u = `https://mem.ihasy.com${u}`;
-        else if (u.includes("assets/")) u = u.replace(/^.*assets\//, "https://mem.ihasy.com/article/");
+        if (u.startsWith("/article/") && originBase) u = `${originBase}${u}`;
+        else if (u.includes("assets/") && originBase) u = u.replace(/^.*assets\//, `${originBase}/article/`);
         firstImage = u;
       }
     }
@@ -63,12 +69,18 @@ export const WeChatPublishModal = memo(function WeChatPublishModal({
   markdown,
   defaultTitle,
   initialThemeId,
+  pluginConfig,
 }: WeChatPublishModalProps) {
+  const wxApiBase = (pluginConfig?.api_base_url || "").trim().replace(/\/+$/, "");
+  const configuredDefaultAuthor = (pluginConfig?.default_author || "Memento").trim() || "Memento";
+  const configuredDefaultCoverId = (pluginConfig?.default_cover_media_id || "").trim();
+  const configuredOfficialSite = (pluginConfig?.official_site_url || "").trim().replace(/\/+$/, "");
+
   const [title, setTitle] = useState("");
-  const [author, setAuthor] = useState("Memento");
+  const [author, setAuthor] = useState(configuredDefaultAuthor);
   const [digest, setDigest] = useState("");
   const [themeId, setThemeId] = useState(initialThemeId || "tech");
-  const [thumbMediaId, setThumbMediaId] = useState(DEFAULT_COVER_MEDIA_ID);
+  const [thumbMediaId, setThumbMediaId] = useState(configuredDefaultCoverId);
   const [coverPreviewUrl, setCoverPreviewUrl] = useState<string | null>(null);
   const [coverUploading, setCoverUploading] = useState(false);
   const [detectedArticleCover, setDetectedArticleCover] = useState<string | null>(null);
@@ -84,32 +96,37 @@ export const WeChatPublishModal = memo(function WeChatPublishModal({
 
   useEffect(() => {
     if (isOpen) {
-      const extracted = extractTitleAndDigest(markdown, defaultTitle);
+      const extracted = extractTitleAndDigest(markdown, defaultTitle, configuredOfficialSite);
       setTitle(extracted.title);
+      setAuthor(configuredDefaultAuthor);
       setDigest(extracted.digest);
       setDetectedArticleCover(extracted.firstImage || null);
       setThemeId(initialThemeId || "tech");
-      setThumbMediaId(DEFAULT_COVER_MEDIA_ID);
+      setThumbMediaId(configuredDefaultCoverId);
       setCoverPreviewUrl(null);
-      setShowManualMediaId(false);
+      setShowManualMediaId(!configuredDefaultCoverId);
       setError(null);
       setSuccessMediaId(null);
       setStepStatus("");
       setLoading(false);
     }
-  }, [isOpen, markdown, defaultTitle, initialThemeId]);
+  }, [isOpen, markdown, defaultTitle, initialThemeId, configuredDefaultAuthor, configuredDefaultCoverId, configuredOfficialSite]);
 
   if (!isOpen) return null;
 
   const handleCoverFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (!wxApiBase) {
+      setError("请先在「插件市场」配置公众号推送服务地址");
+      return;
+    }
     setCoverUploading(true);
     setError(null);
     try {
       const formData = new FormData();
       formData.append("file", file);
-      const res = await fetch(`${WX_API_BASE}/api/wechat/upload-cover`, {
+      const res = await fetch(`${wxApiBase}/api/wechat/upload-cover`, {
         method: "POST",
         body: formData,
       });
@@ -128,6 +145,10 @@ export const WeChatPublishModal = memo(function WeChatPublishModal({
   };
 
   const handleUseArticleCover = async (imgUrl: string) => {
+    if (!wxApiBase) {
+      setError("请先在「插件市场」配置公众号推送服务地址");
+      return;
+    }
     setCoverUploading(true);
     setError(null);
     try {
@@ -136,7 +157,7 @@ export const WeChatPublishModal = memo(function WeChatPublishModal({
       const blob = await resp.blob();
       const formData = new FormData();
       formData.append("file", blob, "article_cover.png");
-      const res = await fetch(`${WX_API_BASE}/api/wechat/upload-cover`, {
+      const res = await fetch(`${wxApiBase}/api/wechat/upload-cover`, {
         method: "POST",
         body: formData,
       });
@@ -154,17 +175,21 @@ export const WeChatPublishModal = memo(function WeChatPublishModal({
   };
 
   const handleResetCover = () => {
-    setThumbMediaId(DEFAULT_COVER_MEDIA_ID);
+    setThumbMediaId(configuredDefaultCoverId);
     setCoverPreviewUrl(null);
   };
 
   const handlePublish = async () => {
+    if (!wxApiBase) {
+      setError("尚未配置公众号推送服务地址，请先在「插件市场」配置「公众号一键分发」插件");
+      return;
+    }
     if (!title.trim()) {
       setError("文章标题不能为空");
       return;
     }
     if (!thumbMediaId.trim()) {
-      setError("必须指定微信封面素材 ID (thumb_media_id)");
+      setError("请上传封面图或填写微信封面素材 ID (thumb_media_id)");
       return;
     }
 
@@ -173,17 +198,21 @@ export const WeChatPublishModal = memo(function WeChatPublishModal({
     setSuccessMediaId(null);
 
     try {
-      // 1. 样式转换与微信特化内联，规范追加 Memento 官方落款与官网链接
+      // 1. 样式转换与微信特化内联，按插件配置追加官网链接
       setStepStatus("正在进行微信专属排版与内联样式编译...");
-      let normalizedMarkdown = markdown
-        .replace(/\((?:https?:\/\/[^/]+)?(?:\.\/|\.\.\/)?assets\/([^)]+)\)/g, "(https://mem.ihasy.com/article/$1)")
-        .replace(/\(\/article\/([^)]+)\)/g, "(https://mem.ihasy.com/article/$1)");
-
-      if (!normalizedMarkdown.includes("https://mem.ihasy.com") && !normalizedMarkdown.includes("mem.ihasy.com")) {
-        normalizedMarkdown = `${normalizedMarkdown.trimEnd()}\n\n---\n\n> 🌐 **官方网址**：[https://mem.ihasy.com](https://mem.ihasy.com)\n> 🧠 **关于 Memento**：具备跨设备生命节律与持续进化的个人 AI 数字心智体，让技术思考与业务智慧终身沉淀。`;
+      const siteOrigin = configuredOfficialSite || (typeof window !== "undefined" ? window.location.origin : "");
+      let normalizedMarkdown = markdown;
+      if (siteOrigin) {
+        normalizedMarkdown = normalizedMarkdown
+          .replace(/\((?:https?:\/\/[^/]+)?(?:\.\/|\.\.\/)?assets\/([^)]+)\)/g, `(${siteOrigin}/article/$1)`)
+          .replace(/\(\/article\/([^)]+)\)/g, `(${siteOrigin}/article/$1)`);
       }
 
-      const convertRes = await fetch(`${WX_API_BASE}/api/convert`, {
+      if (configuredOfficialSite && !normalizedMarkdown.includes(configuredOfficialSite)) {
+        normalizedMarkdown = `${normalizedMarkdown.trimEnd()}\n\n---\n\n> **官方网址**：[${configuredOfficialSite}](${configuredOfficialSite})\n> **关于 Memento**：具备跨设备生命节律与持续进化的个人 AI 数字心智体，让技术思考与业务智慧终身沉淀。`;
+      }
+
+      const convertRes = await fetch(`${wxApiBase}/api/convert`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -205,12 +234,12 @@ export const WeChatPublishModal = memo(function WeChatPublishModal({
 
       // 2. 直推微信公众号官方草稿箱
       setStepStatus("正在推送到微信公众平台官方草稿箱 (自动转存图片 CDN)...");
-      const draftRes = await fetch(`${WX_API_BASE}/api/wechat/draft`, {
+      const draftRes = await fetch(`${wxApiBase}/api/wechat/draft`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           title: title.trim(),
-          author: author.trim() || "Memento",
+          author: author.trim() || configuredDefaultAuthor,
           digest: digest.trim(),
           content: convertData.html,
           thumbMediaId: thumbMediaId.trim(),
@@ -240,8 +269,8 @@ export const WeChatPublishModal = memo(function WeChatPublishModal({
   const handleCopyZhihu = async () => {
     const header = title ? `## ${title}\n\n` : "";
     let zhihuText = `${header}${markdown}\n\n---\n*本文由 Memento 数字心智体深度推演创作*`;
-    if (!zhihuText.includes("mem.ihasy.com")) {
-      zhihuText += "\n官网体验：https://mem.ihasy.com";
+    if (configuredOfficialSite && !zhihuText.includes(configuredOfficialSite)) {
+      zhihuText += `\n官网体验：${configuredOfficialSite}`;
     }
     await navigator.clipboard.writeText(zhihuText);
     setCopiedPlatform("zhihu");

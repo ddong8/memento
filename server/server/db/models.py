@@ -412,6 +412,8 @@ class User(Base):
     avatar_settings: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
     # {"excluded_projects": [...]}: projects not to collect, see services/project_exclusion.py
     collect_settings: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
+    # Installed plugins & encrypted configs from the Plugin Marketplace, see services/plugin_service.py
+    plugin_settings: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

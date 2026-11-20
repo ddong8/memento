@@ -23,7 +23,7 @@ logger = logging.getLogger("server.migrations")
 
 # Taken for the migration transaction so replicas starting together migrate one at a time
 MIGRATION_LOCK_ID = 0x6D656D656E746F  # "memento"
-CURRENT_SCHEMA_VERSION = "20261120_001_baseline"
+CURRENT_SCHEMA_VERSION = "20261120_002_plugin_marketplace"
 
 
 def _record_schema_version(conn, version: str = CURRENT_SCHEMA_VERSION) -> None:
@@ -138,6 +138,9 @@ def _run_migrations(conn) -> None:
     # User.collect_settings — projects the user doesn't want collected (project_exclusion)
     if "collect_settings" not in user_cols:
         conn.execute(text("ALTER TABLE users ADD COLUMN collect_settings JSONB NOT NULL DEFAULT '{}'"))
+    # User.plugin_settings — Plugin Marketplace installations & sealed configs
+    if "plugin_settings" not in user_cols:
+        conn.execute(text("ALTER TABLE users ADD COLUMN plugin_settings JSONB NOT NULL DEFAULT '{}'"))
 
     # AskConversation.config — stores tool/engine, project, session, model, effort, worktree, compact preferences.
     if "ask_conversations" in tables:

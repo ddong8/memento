@@ -124,6 +124,10 @@ function getRouteKeepAliveKey(pathname: string | null): string | null {
   if (pathname === "/studio" || pathname.startsWith("/studio/")) {
     return "/studio";
   }
+  // 插件市场 (Plugins Marketplace)
+  if (pathname === "/plugins" || pathname.startsWith("/plugins/")) {
+    return "/plugins";
+  }
   return null;
 }
 

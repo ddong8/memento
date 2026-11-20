@@ -38,7 +38,8 @@ import {
 import { useMediaInspector, type MediaItem } from "./MediaInspectorContext";
 import { VideoPlayer, AudioPlayer, ImagePreview, MediaAttachmentCard, resolveMediaUrl, safeDecodePath, getFilenameFromUrl, isLocalFilePath, dirOfPath, useDirectSrc } from "./MediaPreview";
 import MarkdownViewer from "./MarkdownViewer";
-import { WeChatPublishModal } from "./WeChatPublishModal";
+import { WeChatPublishModal, type WeChatPluginConfig } from "./WeChatPublishModal";
+import { usePlugins } from "@/lib/plugins-context";
 import { getApiBase, authFetch, isOwnUrl } from "@/lib/api-client";
 import { desktop } from "@/lib/desktop";
 import { OfficePreview, canPreviewOffice } from "./OfficePreview";
@@ -666,6 +667,10 @@ const THEME_OPTIONS = [
 
 function MarkdownDocViewer({ item }: { item: MediaItem }) {
   const inspector = useMediaInspector();
+  const { isPluginReady, getPlugin } = usePlugins();
+  const wechatReady = isPluginReady("wechat_publish");
+  const wechatConfig = (getPlugin("wechat_publish")?.config || {}) as WeChatPluginConfig;
+  const wechatApiBase = (wechatConfig.api_base_url || "").trim().replace(/\/+$/, "");
   const [content, setContent] = useState<string>(item.content || "");
   const [originalContent, setOriginalContent] = useState<string>(item.content || "");
   const [loading, setLoading] = useState<boolean>(!item.content);
@@ -952,12 +957,19 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
   };
 
   const handleCopyRichText = async () => {
+    if (!wechatReady || !wechatApiBase) {
+      showInAppToast("未启用公众号分发插件", "请先前往插件市场安装并配置「公众号一键分发」插件");
+      return;
+    }
     try {
       setCopyingRich(true);
-      const normalizedContent = content
-        .replace(/\((?:https?:\/\/[^/]+)?(?:\.\/|\.\.\/)?assets\/([^)]+)\)/g, "(https://mem.ihasy.com/article/$1)")
-        .replace(/\(\/article\/([^)]+)\)/g, "(https://mem.ihasy.com/article/$1)");
-      const res = await fetch("https://wx.ihasy.com/api/convert", {
+      const siteOrigin = (wechatConfig.official_site_url || (typeof window !== "undefined" ? window.location.origin : "")).replace(/\/+$/, "");
+      const normalizedContent = siteOrigin
+        ? content
+            .replace(/\((?:https?:\/\/[^/]+)?(?:\.\/|\.\.\/)?assets\/([^)]+)\)/g, `(${siteOrigin}/article/$1)`)
+            .replace(/\(\/article\/([^)]+)\)/g, `(${siteOrigin}/article/$1)`)
+        : content;
+      const res = await fetch(`${wechatApiBase}/api/convert`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ markdown: normalizedContent, themeId, extractLinks: true }),
@@ -1109,26 +1121,30 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
               <span>{copied ? "已复制" : "源码"}</span>
             </button>
 
-            <button
-              type="button"
-              onClick={handleCopyRichText}
-              disabled={copyingRich}
-              title="复制微信富文本"
-              className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-emerald-600/30 bg-emerald-600/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-600/15 transition-colors cursor-pointer text-[11.5px] font-medium disabled:opacity-50 whitespace-nowrap"
-            >
-              <FiCopy className={`w-3.5 h-3.5 ${copyingRich ? "animate-spin" : ""}`} />
-              <span>{copyingRich ? "编译中" : "富文本"}</span>
-            </button>
+            {wechatReady && (
+              <>
+                <button
+                  type="button"
+                  onClick={handleCopyRichText}
+                  disabled={copyingRich}
+                  title="复制微信富文本"
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-emerald-600/30 bg-emerald-600/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-600/15 transition-colors cursor-pointer text-[11.5px] font-medium disabled:opacity-50 whitespace-nowrap"
+                >
+                  <FiCopy className={`w-3.5 h-3.5 ${copyingRich ? "animate-spin" : ""}`} />
+                  <span>{copyingRich ? "编译中" : "富文本"}</span>
+                </button>
 
-            <button
-              type="button"
-              onClick={() => setShowWechatModal(true)}
-              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-[11.5px] shadow-xs transition-all active:scale-95 cursor-pointer whitespace-nowrap"
-              title="多平台分发中心：推送到微信公众号草稿箱，或导出知乎、微博、小红书排版"
-            >
-              <FiShare2 className="w-3.5 h-3.5" />
-              <span>分发</span>
-            </button>
+                <button
+                  type="button"
+                  onClick={() => setShowWechatModal(true)}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-[11.5px] shadow-xs transition-all active:scale-95 cursor-pointer whitespace-nowrap"
+                  title="多平台分发中心：推送到微信公众号草稿箱，或导出知乎、微博、小红书排版"
+                >
+                  <FiShare2 className="w-3.5 h-3.5" />
+                  <span>分发</span>
+                </button>
+              </>
+            )}
           </div>
         </div>
 
@@ -1366,14 +1382,17 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
         </div>
       )}
 
-      {/* 微信公众号官方草稿发布弹层 */}
-      <WeChatPublishModal
-        isOpen={showWechatModal}
-        onClose={() => setShowWechatModal(false)}
-        markdown={content}
-        defaultTitle={item.title}
-        initialThemeId={themeId}
-      />
+      {/* 微信公众号官方草稿发布弹层（仅安装并配置公众号分发插件后激活） */}
+      {wechatReady && (
+        <WeChatPublishModal
+          isOpen={showWechatModal}
+          onClose={() => setShowWechatModal(false)}
+          markdown={content}
+          defaultTitle={item.title}
+          initialThemeId={themeId}
+          pluginConfig={wechatConfig}
+        />
+      )}
     </div>
   );
 }

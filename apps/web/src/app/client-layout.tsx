@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
+import { PluginProvider } from "@/lib/plugins-context";
 import { DeviceProvider } from "@/lib/device-context";
 import { ThemeProvider } from "@/lib/theme-context";
 import { I18nContext, locales, type Locale } from "@/lib/i18n";
@@ -64,9 +65,11 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
     <ThemeProvider>
       <I18nContext.Provider value={{ locale, t, setLocale: handleSetLocale }}>
         <AuthProvider>
-          <AuroraBackdrop />
-          <TopProgressBar />
-          <AppShell>{children}</AppShell>
+          <PluginProvider>
+            <AuroraBackdrop />
+            <TopProgressBar />
+            <AppShell>{children}</AppShell>
+          </PluginProvider>
         </AuthProvider>
       </I18nContext.Provider>
     </ThemeProvider>

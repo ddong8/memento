@@ -74,6 +74,34 @@ def reveal_llm_settings(data: dict | None) -> dict:
     return out
 
 
+def mask_secret(value: str | None) -> str:
+    """Return a non-reversible masked preview of a secret for UI display."""
+    raw = (value or "").strip()
+    if not raw:
+        return ""
+    if len(raw) <= 6:
+        return "••••"
+    return f"{raw[:3]}••••{raw[-3:]}"
+
+
+def seal_fields(data: dict | None, secret_fields: tuple[str, ...] | list[str]) -> dict:
+    out = dict(data or {})
+    for f in secret_fields:
+        val = out.get(f)
+        if isinstance(val, str) and val.strip():
+            out[f] = seal(val.strip())
+    return out
+
+
+def reveal_fields(data: dict | None, secret_fields: tuple[str, ...] | list[str]) -> dict:
+    out = dict(data or {})
+    for f in secret_fields:
+        val = out.get(f)
+        if isinstance(val, str) and val:
+            out[f] = reveal(val)
+    return out
+
+
 def seal_existing(conn) -> int:
     """Seal plaintext keys already in users.llm_settings (sync connection, at startup). Idempotent."""
     from sqlalchemy import text

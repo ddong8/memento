@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `c781806f` · Updated: `2026-11-20`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `edf2d53e` · Updated: `2026-11-20`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -13,25 +13,25 @@
 - 类型 (Type): Monorepo (Workspaces)
 - 技术栈 (Stack): TypeScript/JavaScript, Python, Shell / Bash · React, Electron, Next.js, TailwindCSS, Model Context Protocol (MCP), FastAPI, SQLAlchemy, Celery
 - 基础设施 (Infra): PostgreSQL, pgvector (Vector DB), Redis, MinIO / S3 Object Storage, Celery Task Queue
-- 规模 (Scale): 9 个子系统 · 39 组 API 路由 / 295 个接口 · 38 个前端页面 · 41 个数据模型 · 35 个服务模块 · 246 个测试文件
+- 规模 (Scale): 9 个子系统 · 40 组 API 路由 / 300 个接口 · 39 个前端页面 · 41 个数据模型 · 35 个服务模块 · 248 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `b62f9fc5` (2026-11-20): fix(desktop,web): 同源应用路由链接在桌面端窗口内直接跳转不再跳出外部浏览器
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 71（✅ 70 · ⚠️ 0 · ❌ 1）· 流程 9 · 术语 11 · 状态 9 · ❌ 1 条失效/违规 · 最近提交碰到 `R-ENT-DEVICE-POLICY`, `R-THINKING-FULL`, `R-MEDIA-VIEW`, `R-WS-EXEC-REMIND`, `R-DOCS-WRITE-LIGHT`, `R-PUBLIC-REPO-CLEAN`, `R-NO-CONFIGMAP-HOTFIX`, `R-MENU-KEEPALIVE`
+- 最近改动 (Latest): `edf2d53e` (2026-11-20): fix(studio): 为集群 filmkit Pod 配置出口代理确保稳定访问 Gemini 与外部视频网关
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 72（✅ 72 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-PUBLIC-REPO-CLEAN`, `R-ENT-DEVICE-POLICY`, `R-THINKING-FULL`, `R-MEDIA-VIEW`, `R-WS-EXEC-REMIND`, `R-DOCS-WRITE-LIGHT`, `R-NO-CONFIGMAP-HOTFIX`, `R-MENU-KEEPALIVE`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
 | 1. Project Overview & Tech Stack | L36-L42 |
 | 2. High-Level Architecture Topology | L44-L79 |
 | 3. Subsystem Breakdown & Responsibilities | L81-L93 |
-| 4. Key Entry Points & API Endpoints | L95-L496 |
-| 5. Core Domain Services & Background Schedules | L498-L538 |
-| 6.5. AST Call Graph, DTO Schemas & CLI Entrypoints | L540-L612 |
-| 7. CI/CD Pipelines, Code Hotspots & Test Suites | L614-L658 |
-| 8. Development & Verification Commands | L660-L677 |
-| 9. Recent Architectural Evolutions | L679-L686 |
-| 10. Key Environment Variables & Configuration | L688-L700 |
-| 11. 业务蓝图核对 (Business Blueprint Check) | L702-L714 |
+| 4. Key Entry Points & API Endpoints | L95-L505 |
+| 5. Core Domain Services & Background Schedules | L507-L547 |
+| 6.5. AST Call Graph, DTO Schemas & CLI Entrypoints | L549-L621 |
+| 7. CI/CD Pipelines, Code Hotspots & Test Suites | L623-L667 |
+| 8. Development & Verification Commands | L669-L686 |
+| 9. Recent Architectural Evolutions | L688-L695 |
+| 10. Key Environment Variables & Configuration | L697-L709 |
+| 11. 业务蓝图核对 (Business Blueprint Check) | L711-L720 |
 
 ## 1. Project Overview & Tech Stack
 
@@ -118,6 +118,7 @@ flowchart TD
 - `/memory/persona`
 - `/plans`
 - `/plans/[id]`
+- `/plugins`
 - `/privacy`
 - `/profile`
 - `/projects`
@@ -320,6 +321,14 @@ flowchart TD
 - `GET /api/plans/{plan_id}`
 - `POST /api/plans/{plan_id}/start`
 - _... (5 more endpoints)_
+
+#### `/api/plugins` (plugins.py)
+
+- `GET /api/plugins`
+- `POST /api/plugins/{plugin_id}/install`
+- `PATCH /api/plugins/{plugin_id}/config`
+- `POST /api/plugins/{plugin_id}/test`
+- `DELETE /api/plugins/{plugin_id}`
 
 #### `/api/proactive` (proactive.py)
 
@@ -636,9 +645,9 @@ erDiagram
 
 | Suite | Directory | Files | Sample Tests |
 | :--- | :--- | :--- | :--- |
-| server/tests (pytest) | [`server/tests`](server/tests) | 126 | `test_agent_ids.py`, `test_agent_limits.py`, `test_agent_login.py`, `test_agent_run_states.py`, `test_ai_provider.py` |
+| server/tests (pytest) | [`server/tests`](server/tests) | 127 | `test_agent_ids.py`, `test_agent_limits.py`, `test_agent_login.py`, `test_agent_run_states.py`, `test_ai_provider.py` |
 | packages/daemon/test (vitest / jest) | [`packages/daemon/test`](packages/daemon/test) | 61 | `agent-args.test.ts`, `agent-login.test.ts`, `agent-stream.test.ts`, `agy-background.test.ts`, `agy-models.test.ts` |
-| apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 51 | `active-runs-chip.test.tsx`, `api-client.test.ts`, `ask-reading-and-persona-rules.test.tsx`, `ask-top-bar.test.tsx`, `audit-labels.test.ts` |
+| apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 52 | `active-runs-chip.test.tsx`, `api-client.test.ts`, `ask-reading-and-persona-rules.test.tsx`, `ask-top-bar.test.tsx`, `audit-labels.test.ts` |
 | apps/desktop/test (vitest / jest) | [`apps/desktop/test`](apps/desktop/test) | 2 | `helpers.test.ts`, `updater-and-daemon.test.ts` |
 | apps/mobile/test (vitest / jest) | [`apps/mobile/test`](apps/mobile/test) | 2 | `deeplink.test.ts`, `webview-props.test.ts` |
 | packages/core/test (vitest / jest) | [`packages/core/test`](packages/core/test) | 2 | `ask-stream.test.ts`, `task-events.test.ts` |
@@ -646,8 +655,8 @@ erDiagram
 
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
-- [`apps/web/src/components/persona/DigitalTwinAvatar3D.tsx`](apps/web/src/components/persona/DigitalTwinAvatar3D.tsx) (8 commits)
 - [`packages/daemon/src/source-exec.ts`](packages/daemon/src/source-exec.ts) (8 commits)
+- [`apps/web/src/components/persona/DigitalTwinAvatar3D.tsx`](apps/web/src/components/persona/DigitalTwinAvatar3D.tsx) (7 commits)
 - [`apps/web/src/app/memory/page.tsx`](apps/web/src/app/memory/page.tsx) (6 commits)
 - [`apps/web/src/components/agent/ActiveRunsMonitor.tsx`](apps/web/src/components/agent/ActiveRunsMonitor.tsx) (6 commits)
 - [`packages/daemon/test/source-exec.test.ts`](packages/daemon/test/source-exec.test.ts) (6 commits)
@@ -655,7 +664,7 @@ erDiagram
 - [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (5 commits)
 - [`apps/web/src/components/layout/Sidebar.tsx`](apps/web/src/components/layout/Sidebar.tsx) (5 commits)
 - [`apps/web/src/components/layout/TopProgressBar.tsx`](apps/web/src/components/layout/TopProgressBar.tsx) (5 commits)
-- [`apps/web/test/ui-polish-guard.test.ts`](apps/web/test/ui-polish-guard.test.ts) (5 commits)
+- [`packages/daemon/src/ws-client.ts`](packages/daemon/src/ws-client.ts) (5 commits)
 
 ## 8. Development & Verification Commands
 
@@ -678,12 +687,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `edf2d53e` (2026-11-20): fix(studio): 为集群 filmkit Pod 配置出口代理确保稳定访问 Gemini 与外部视频网关
 - `b62f9fc5` (2026-11-20): fix(desktop,web): 同源应用路由链接在桌面端窗口内直接跳转不再跳出外部浏览器
 - `36dd3400` (2026-11-20): feat(studio): 演播台升级 AI 短剧量产版（写实预设、正反打景别机位、批量生图/I2V、首尾帧衔接与单镜对口型）
 - `740348b1` (2026-11-20): chore(k8s): 更新 filmkit 演播台镜像至 774beb3f981c 并声明 ghcr-pull 拉取凭证
 - `c314dc62` (2026-11-20): feat(studio): 新增演播台工作区、HTTP 206 视频流播与成片一键发往对话内联播放
 - `a509a8b0` (2026-11-20): fix(mobile): 修复手机端后台智能体任务面板展开后向左溢出屏幕问题
-- `4e526788` (2026-11-20): style(ask): 收敛 PC 端对话区与底部输入框之间的多余留白
 
 ## 10. Key Environment Variables & Configuration
 
@@ -701,15 +710,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 11. 业务蓝图核对 (Business Blueprint Check)
 
-- 业务蓝图：[BUSINESS_BLUEPRINT.md](BUSINESS_BLUEPRINT.md) · 规则 71（✅ 70 · ⚠️ 0 · ❌ 1）· 流程 9 · 术语 11 · 状态 9
-- 结论：❌ 1 条位置失效或违反规则
-
-### 需要处理
-
-- ❌ `R-PUBLIC-REPO-CLEAN` 公开仓库里没有内网地址和密钥（L428）：出现了禁止的写法 `/\b192\.168\.\d{1,3}\.\d{1,3}\b/`：deploy/k8s/studio.yaml:43, deploy/k8s/studio.yaml:49；出现了禁止的写法 `/\b10\.42\.\d{1,3}\.\d{1,3}\b/`：deploy/k8s/studio.yaml:43, deploy/k8s/studio.yaml:49
+- 业务蓝图：[BUSINESS_BLUEPRINT.md](BUSINESS_BLUEPRINT.md) · 规则 72（✅ 72 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
+- 结论：✅ 没有失效或违规
 
 ### 最近提交碰到的业务条目（改动后复查它们还成不成立）
 
+- `edf2d53e` fix(studio): 为集群 filmkit Pod 配置出口代理确保稳定访问 Gemini 与外部视频网关 → `R-PUBLIC-REPO-CLEAN`
 - `b62f9fc5` fix(desktop,web): 同源应用路由链接在桌面端窗口内直接跳转不再跳出外部浏览器 → `R-ENT-DEVICE-POLICY`, `R-THINKING-FULL`, `R-MEDIA-VIEW`
 - `c314dc62` feat(studio): 新增演播台工作区、HTTP 206 视频流播与成片一键发往对话内联播放 → `R-WS-EXEC-REMIND`, `R-DOCS-WRITE-LIGHT`, `R-PUBLIC-REPO-CLEAN`, `R-NO-CONFIGMAP-HOTFIX`, `R-MENU-KEEPALIVE`, `R-STUDIO-INLINE-PLAY`
 

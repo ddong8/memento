@@ -3,16 +3,16 @@
 <!-- memento:business-index:start (自动生成，勿手改) -->
 > 先读这一段定位；要细节时按下表行号只读对应章节。改了「代码位置」里的文件，先看对应条目还成不成立。
 
-- 汇总：规则 71（✅ 70 · ⚠️ 0 · ❌ 1）· 流程 9 · 术语 11 · 状态 9
-- 核对：❌ 1 条需要处理（详见末尾「自动核对」）
+- 汇总：规则 72（✅ 72 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
+- 核对：全部通过（详见末尾「自动核对」）
 
 | 章节 | 行号 |
 | :--- | :--- |
 | 1. 业务对象与术语 | L21-L65 |
 | 2. 关键流程 | L67-L124 |
-| 3. 业务规则 | L126-L562 |
-| 4. 状态归属 | L564-L609 |
-| 自动核对 (Auto Check) | L612-L723 |
+| 3. 业务规则 | L126-L570 |
+| 4. 状态归属 | L572-L617 |
+| 自动核对 (Auto Check) | L620-L732 |
 <!-- memento:business-index:end -->
 > 业务蓝图：memento 应该做成什么样，每一条落在哪段代码、由哪个测试或检查保证。和代码蓝图 [CODE_BLUEPRINT.md](CODE_BLUEPRINT.md)（代码长什么样）配合看：代码蓝图回答"在哪里"，这份回答"应该怎样、为什么"。
 > 规则来自用户的原话和纠正（CLAUDE.md、长期记忆、每晚复盘），不是从代码里反推的；代码和这里对不上，先当成代码的问题查。
@@ -554,6 +554,14 @@
 - 测试: `server/tests/test_studio_media.py#test_get_media_video_range_206_and_auth`, `server/tests/test_studio_media.py#test_publish_episode_to_chat_archives_and_embeds_video_markdown`, `apps/web/test/studio-video-media.test.tsx#renders inline VideoPlayer directly inside MarkdownViewer chat bubble`
 - 要求: `sign_video_links_in_text(` @ `server/server/services/ask_store.py`; `href="/studio"` @ `apps/web/src/components/layout/Sidebar.tsx`
 
+### R-PLUGIN-MARKETPLACE 演播台与公众号分发做成插件市场按需安装并配置后启用
+- 来源: 用户 2026-11-20「把演播台和一键推送到公众号的两个服务做成插件吧，安装并配置后才能用」「对做成插件市场中安装」
+- 说明: 演播台（`studio`）与公众号一键分发（`wechat_publish`）作为插件市场（`/plugins`）可选扩展，按用户维度持久化安装状态与加密配置（`User.plugin_settings` + `secret_box`）；未安装或未配置时自动隐藏侧边栏演播台与工作台分发按钮，后端 `/api/studio/*` 返回 HTTP 412，避免自部署环境出现不可用入口或泄露硬编码个人服务地址。
+- 代码: `server/server/services/plugin_service.py#resolve_studio_connection`, `server/server/services/plugin_service.py#get_user_plugins_payload`, `server/server/api/plugins.py#install_plugin`, `apps/web/src/lib/plugins-context.tsx#PluginProvider`, `apps/web/src/app/plugins/page.tsx#PluginsPage`
+- 测试: `server/tests/test_plugins.py#test_uninstalled_plugins_are_hidden_and_blocked_for_self_hosted`, `server/tests/test_plugins.py#test_install_configure_seal_secrets_and_uninstall_lifecycle`, `apps/web/test/plugins-marketplace.test.tsx#uses pluginConfig api_base_url and default_cover_media_id instead of hardcoded personal URLs`
+- 要求: `resolve_studio_connection(` @ `server/server/api/studio.py`; `isPluginReady("studio")` @ `apps/web/src/components/layout/Sidebar.tsx`; `isPluginReady("wechat_publish")` @ `apps/web/src/components/viewers/MediaInspectorPanel.tsx`
+- 禁止: `https://wx.ihasy.com` @ `apps/web/src/components/viewers/WeChatPublishModal.tsx`; `https://wx.ihasy.com` @ `apps/web/src/components/viewers/MediaInspectorPanel.tsx`
+
 ### R-BUSINESS-CHECKED 业务规则挂到代码和测试上，每次提交自动核对
 - 来源: 用户 2026-11-14「是不是也要增加业务类似的蓝图才能更加准确的反映业务和代码之间的联系，甚至是否有bug，是否有优化的空间也可以从这两个之间找」「做详细，做到完美，一次性做完」
 - 说明: 本文件就是它。生成器随提交核对并写回结果，代码蓝图第 11 节列出最近提交碰到的条目，CI 有 ❌ 不部署；设备上传后项目页显示核对结果和还没写进来的项目规则，可以派智能体去写。
@@ -613,7 +621,7 @@
 
 > 生成器随每次提交核对：代码位置还在不在、测试还在不在、禁止 / 要求的写法满不满足。✅ 通过 · ⚠️ 缺代码位置、测试或来源 · ❌ 位置失效或违反规则（CI 会拦下）。
 
-- 汇总：规则 71（✅ 70 · ⚠️ 0 · ❌ 1）· 流程 9 · 术语 11 · 状态 9
+- 汇总：规则 72（✅ 72 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
 
 | 编号 | 名称 | 代码位置 | 测试 | 检查 | 结论 |
 | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -685,7 +693,7 @@
 | `R-CODE-BLUEPRINT-NAME` | 代码蓝图叫 CODE_BLUEPRINT.md，和业务蓝图成对；旧名字照常能读，旧客户端不被打断 | 6/6 | 5/5 | 2/2 | ✅ |
 | `R-USER-BLUEPRINT-BUSINESS` | 个人蓝图读各项目的业务蓝图 | 2/2 | 1/1 | — | ✅ |
 | `R-DOCS-WRITE-LIGHT` | documents 表上不加大的 GIN / 表达式索引 | 3/3 | — | 2/2 | ✅ |
-| `R-PUBLIC-REPO-CLEAN` | 公开仓库里没有内网地址和密钥 | 2/2 | — | 0/2 | ❌ |
+| `R-PUBLIC-REPO-CLEAN` | 公开仓库里没有内网地址和密钥 | 2/2 | — | 2/2 | ✅ |
 | `R-NO-CONFIGMAP-HOTFIX` | 不用 ConfigMap 挂载覆盖镜像里的代码 | 1/1 | — | 1/1 | ✅ |
 | `R-CI-KUSTOMIZE-PINNED` | CI 装 kustomize 用固定版直链，不用 install_kustomize.sh | 1/1 | — | 1/1 | ✅ |
 | `R-COMMIT-CONVENTION` | 提交用中文 Conventional Commits，不加 Claude 共同作者尾注，历史保持线性 | — | — | — | ✅ 约定 |
@@ -707,6 +715,7 @@
 | `R-SESSION-PREVIEW-WHOLE` | 项目对话和时间线先带每个会话的一段，展开全部一条不丢 | 4/4 | 2/2 | 2/2 | ✅ |
 | `R-WECHAT-DRAFT` | 工作台文本可多次润色，确认后推到公众号草稿，文章带官网链接 | 2/2 | — | 2/2 | ✅ |
 | `R-STUDIO-INLINE-PLAY` | 演播台成片归档支持 HTTP 206 流播，并可一键发送到对话中直接内联播放 | 6/6 | 3/3 | 2/2 | ✅ |
+| `R-PLUGIN-MARKETPLACE` | 演播台与公众号分发做成插件市场按需安装并配置后启用 | 5/5 | 3/3 | 5/5 | ✅ |
 | `R-BUSINESS-CHECKED` | 业务规则挂到代码和测试上，每次提交自动核对 | 6/6 | 4/4 | 1/1 | ✅ |
 | `S-CONV-LIST` | 对话列表 | 6/6 | — | — | ✅ |
 | `S-RUN-STATE` | 运行状态与灵动岛 | 5/5 | — | — | ✅ |
@@ -720,5 +729,5 @@
 
 ### 需要处理
 
-- ❌ `R-PUBLIC-REPO-CLEAN` 公开仓库里没有内网地址和密钥（L428）：出现了禁止的写法 `/\b192\.168\.\d{1,3}\.\d{1,3}\b/`：deploy/k8s/studio.yaml:43, deploy/k8s/studio.yaml:49；出现了禁止的写法 `/\b10\.42\.\d{1,3}\.\d{1,3}\b/`：deploy/k8s/studio.yaml:43, deploy/k8s/studio.yaml:49
+- 没有。
 <!-- memento:business-check:end -->

@@ -1,8 +1,10 @@
 "use client";
 
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { api, AskConversationSummary } from "@/lib/api-client";
+import { usePlugins } from "@/lib/plugins-context";
 import {
   studioApi,
   studioAssetUrl,
@@ -1466,6 +1468,47 @@ function StudioInner() {
   );
 }
 
+function StudioPluginGate() {
+  const { loaded, isPluginReady } = usePlugins();
+  if (!loaded) {
+    return (
+      <div style={{ color: "var(--aurora-fg4)", textAlign: "center", padding: "48px 0", fontSize: 13 }}>
+        正在检查演播台插件状态…
+      </div>
+    );
+  }
+  if (!isPluginReady("studio")) {
+    return (
+      <div className="max-w-xl mx-auto py-16 px-4">
+        <Glass className="p-7 text-center space-y-4">
+          <div
+            className="w-12 h-12 rounded-2xl mx-auto flex items-center justify-center"
+            style={{
+              background: "var(--aurora-accent-soft)",
+              color: "var(--aurora-accent)",
+              border: "1px solid var(--aurora-border)",
+            }}
+          >
+            <Icon name="film" size={24} />
+          </div>
+          <h2 className="text-lg font-semibold text-[var(--aurora-fg1)]">
+            AI 演播台插件尚未安装或配置
+          </h2>
+          <p className="text-sm leading-relaxed text-[var(--aurora-fg3)]">
+            演播台属于插件市场可选扩展能力。请先前往插件市场安装「AI 演播台」并配置你的 filmkit 引擎地址（或启用当前服务端托管引擎），保存后即可立即使用。
+          </p>
+          <div className="pt-2 flex items-center justify-center gap-3">
+            <Link href="/plugins?highlight=studio" style={{ textDecoration: "none" }}>
+              <Btn icon="box">前往插件市场安装配置</Btn>
+            </Link>
+          </div>
+        </Glass>
+      </div>
+    );
+  }
+  return <StudioInner />;
+}
+
 export default function StudioPage() {
   return (
     <Suspense
@@ -1475,7 +1518,7 @@ export default function StudioPage() {
         </div>
       }
     >
-      <StudioInner />
+      <StudioPluginGate />
     </Suspense>
   );
 }

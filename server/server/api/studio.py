@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextvars import ContextVar
 import logging
 import re
 from typing import Any
@@ -17,21 +18,32 @@ from ..db.models import User
 from ..db.session import get_db
 from ..middleware.auth import get_current_user
 from ..services.ask_store import append_conversation_turns, bust_conv_list, get_or_create_conversation
+from ..services.plugin_service import is_plugin_ready, resolve_studio_connection
 from ..services.storage_service import sign_video_url, store_video_bytes
 
 router = APIRouter(prefix="/api/studio", tags=["studio"])
 logger = logging.getLogger("server.studio")
 
 _SAFE_ID_RE = re.compile(r"^[A-Za-z0-9_\-.:]{1,80}$")
+_current_studio_conn: ContextVar[tuple[str, str] | None] = ContextVar("_current_studio_conn", default=None)
+
+
+async def _require_studio_plugin(user: User = Depends(get_current_user)) -> User:
+    _current_studio_conn.set(resolve_studio_connection(user))
+    return user
 
 
 def _filmkit_base() -> str:
+    conn = _current_studio_conn.get()
+    if conn and conn[0]:
+        return conn[0]
     return (settings.studio_filmkit_url or "http://127.0.0.1:8765").strip().rstrip("/")
 
 
 def _filmkit_headers(extra: dict[str, str] | None = None) -> dict[str, str]:
     headers: dict[str, str] = {}
-    token = (settings.studio_filmkit_token or "").strip()
+    conn = _current_studio_conn.get()
+    token = conn[1] if conn is not None else (settings.studio_filmkit_token or "").strip()
     if token:
         headers["Authorization"] = f"Bearer {token}"
     if extra:
@@ -100,13 +112,24 @@ class PublishToChatReq(BaseModel):
 # ---------- Health & Compute ----------
 
 @router.get("/health")
-async def studio_health(_user: User = Depends(get_current_user)) -> dict[str, Any]:
-    base = _filmkit_base()
+async def studio_health(user: User = Depends(get_current_user)) -> dict[str, Any]:
+    try:
+        base, token = resolve_studio_connection(user)
+    except HTTPException as exc:
+        return {
+            "online": False,
+            "installed": is_plugin_ready(user, "studio"),
+            "configured": False,
+            "filmkit_url": "",
+            "compute": None,
+            "error": str(exc.detail),
+        }
+    _current_studio_conn.set((base, token))
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             r = await client.get(f"{base}/health", headers=_filmkit_headers())
             if r.status_code != 200:
-                return {"online": False, "filmkit_url": base, "error": f"HTTP {r.status_code}"}
+                return {"online": False, "installed": True, "configured": True, "filmkit_url": base, "error": f"HTTP {r.status_code}"}
             compute = None
             try:
                 rc = await client.get(f"{base}/api/studio/compute/status", headers=_filmkit_headers())
@@ -114,29 +137,29 @@ async def studio_health(_user: User = Depends(get_current_user)) -> dict[str, An
                     compute = (rc.json() or {}).get("compute")
             except Exception:
                 pass
-            return {"online": True, "filmkit_url": base, "compute": compute, "error": ""}
+            return {"online": True, "installed": True, "configured": True, "filmkit_url": base, "compute": compute, "error": ""}
     except Exception as e:
-        return {"online": False, "filmkit_url": base, "compute": None, "error": str(e)}
+        return {"online": False, "installed": True, "configured": True, "filmkit_url": base, "compute": None, "error": str(e)}
 
 
 @router.get("/compute/status")
-async def compute_status(_user: User = Depends(get_current_user)):
+async def compute_status(_user: User = Depends(_require_studio_plugin)):
     return await _proxy_json("GET", "/api/studio/compute/status", timeout=15.0)
 
 
 @router.post("/compute/start")
-async def compute_start(request: Request, _user: User = Depends(get_current_user)):
+async def compute_start(request: Request, _user: User = Depends(_require_studio_plugin)):
     body = await request.json() if await request.body() else {}
     return await _proxy_json("POST", "/api/studio/compute/start", payload=body, timeout=30.0)
 
 
 @router.post("/compute/stop")
-async def compute_stop(_user: User = Depends(get_current_user)):
+async def compute_stop(_user: User = Depends(_require_studio_plugin)):
     return await _proxy_json("POST", "/api/studio/compute/stop", timeout=30.0)
 
 
 @router.post("/compute/extend")
-async def compute_extend(request: Request, _user: User = Depends(get_current_user)):
+async def compute_extend(request: Request, _user: User = Depends(_require_studio_plugin)):
     body = await request.json() if await request.body() else {}
     return await _proxy_json("POST", "/api/studio/compute/extend", payload=body, timeout=15.0)
 
@@ -144,22 +167,22 @@ async def compute_extend(request: Request, _user: User = Depends(get_current_use
 # ---------- Projects, Characters, Voices & BGM ----------
 
 @router.get("/presets")
-async def list_presets(_user: User = Depends(get_current_user)):
+async def list_presets(_user: User = Depends(_require_studio_plugin)):
     return await _proxy_json("GET", "/api/studio/presets")
 
 
 @router.get("/projects")
-async def list_projects(_user: User = Depends(get_current_user)):
+async def list_projects(_user: User = Depends(_require_studio_plugin)):
     return await _proxy_json("GET", "/api/studio/projects")
 
 
 @router.post("/projects")
-async def create_project(request: Request, _user: User = Depends(get_current_user)):
+async def create_project(request: Request, _user: User = Depends(_require_studio_plugin)):
     return await _proxy_json("POST", "/api/studio/projects", payload=await request.json())
 
 
 @router.get("/projects/{pid}")
-async def get_project(pid: str, _user: User = Depends(get_current_user)):
+async def get_project(pid: str, _user: User = Depends(_require_studio_plugin)):
     clean_pid = _check_id(pid, "project_id")
     projs_res = await _proxy_json("GET", "/api/studio/projects")
     proj = next((p for p in (projs_res.get("projects") or []) if p.get("id") == clean_pid), None)
@@ -175,22 +198,22 @@ async def get_project(pid: str, _user: User = Depends(get_current_user)):
 
 
 @router.get("/projects/{pid}/characters")
-async def list_project_characters(pid: str, _user: User = Depends(get_current_user)):
+async def list_project_characters(pid: str, _user: User = Depends(_require_studio_plugin)):
     return await _proxy_json("GET", f"/api/studio/projects/{_check_id(pid, 'project_id')}/characters")
 
 
 @router.get("/projects/{pid}/episodes")
-async def list_project_episodes(pid: str, _user: User = Depends(get_current_user)):
+async def list_project_episodes(pid: str, _user: User = Depends(_require_studio_plugin)):
     return await _proxy_json("GET", f"/api/studio/projects/{_check_id(pid, 'project_id')}/episodes")
 
 
 @router.delete("/projects/{pid}")
-async def delete_project(pid: str, _user: User = Depends(get_current_user)):
+async def delete_project(pid: str, _user: User = Depends(_require_studio_plugin)):
     return await _proxy_json("DELETE", f"/api/studio/projects/{_check_id(pid, 'project_id')}")
 
 
 @router.post("/projects/{pid}/characters")
-async def create_character(pid: str, request: Request, _user: User = Depends(get_current_user)):
+async def create_character(pid: str, request: Request, _user: User = Depends(_require_studio_plugin)):
     return await _proxy_json(
         "POST",
         f"/api/studio/projects/{_check_id(pid, 'project_id')}/characters",
@@ -199,7 +222,7 @@ async def create_character(pid: str, request: Request, _user: User = Depends(get
 
 
 @router.patch("/characters/{cid}")
-async def update_character(cid: str, request: Request, _user: User = Depends(get_current_user)):
+async def update_character(cid: str, request: Request, _user: User = Depends(_require_studio_plugin)):
     return await _proxy_json(
         "PATCH",
         f"/api/studio/characters/{_check_id(cid, 'character_id')}",
@@ -208,34 +231,34 @@ async def update_character(cid: str, request: Request, _user: User = Depends(get
 
 
 @router.delete("/characters/{cid}")
-async def delete_character(cid: str, _user: User = Depends(get_current_user)):
+async def delete_character(cid: str, _user: User = Depends(_require_studio_plugin)):
     return await _proxy_json("DELETE", f"/api/studio/characters/{_check_id(cid, 'character_id')}")
 
 
 @router.get("/voices")
-async def list_voices(_user: User = Depends(get_current_user)):
+async def list_voices(_user: User = Depends(_require_studio_plugin)):
     return await _proxy_json("GET", "/api/studio/voices")
 
 
 @router.post("/voices/preview")
-async def preview_voice(request: Request, _user: User = Depends(get_current_user)):
+async def preview_voice(request: Request, _user: User = Depends(_require_studio_plugin)):
     return await _proxy_json("POST", "/api/studio/voices/preview", payload=await request.json(), timeout=90.0)
 
 
 @router.get("/bgm")
-async def list_bgm(_user: User = Depends(get_current_user)):
+async def list_bgm(_user: User = Depends(_require_studio_plugin)):
     return await _proxy_json("GET", "/api/studio/bgm")
 
 
 @router.post("/bgm/generate")
-async def generate_bgm(request: Request, _user: User = Depends(get_current_user)):
+async def generate_bgm(request: Request, _user: User = Depends(_require_studio_plugin)):
     return await _proxy_json("POST", "/api/studio/bgm/generate", payload=await request.json(), timeout=240.0)
 
 
 # ---------- Episodes & Shots ----------
 
 @router.post("/projects/{pid}/episodes")
-async def create_episode(pid: str, request: Request, _user: User = Depends(get_current_user)):
+async def create_episode(pid: str, request: Request, _user: User = Depends(_require_studio_plugin)):
     return await _proxy_json(
         "POST",
         f"/api/studio/projects/{_check_id(pid, 'project_id')}/episodes",
@@ -244,12 +267,12 @@ async def create_episode(pid: str, request: Request, _user: User = Depends(get_c
 
 
 @router.get("/episodes/{eid}")
-async def get_episode(eid: str, _user: User = Depends(get_current_user)):
+async def get_episode(eid: str, _user: User = Depends(_require_studio_plugin)):
     return await _proxy_json("GET", f"/api/studio/episodes/{_check_id(eid, 'episode_id')}")
 
 
 @router.patch("/episodes/{eid}")
-async def update_episode(eid: str, request: Request, _user: User = Depends(get_current_user)):
+async def update_episode(eid: str, request: Request, _user: User = Depends(_require_studio_plugin)):
     return await _proxy_json(
         "PATCH",
         f"/api/studio/episodes/{_check_id(eid, 'episode_id')}",
@@ -258,7 +281,7 @@ async def update_episode(eid: str, request: Request, _user: User = Depends(get_c
 
 
 @router.post("/episodes/{eid}/breakdown")
-async def breakdown_episode(eid: str, request: Request, _user: User = Depends(get_current_user)):
+async def breakdown_episode(eid: str, request: Request, _user: User = Depends(_require_studio_plugin)):
     return await _proxy_json(
         "POST",
         f"/api/studio/episodes/{_check_id(eid, 'episode_id')}/ai-breakdown",
@@ -268,7 +291,7 @@ async def breakdown_episode(eid: str, request: Request, _user: User = Depends(ge
 
 
 @router.post("/episodes/{eid}/sync-audio-durations")
-async def sync_audio_durations(eid: str, _user: User = Depends(get_current_user)):
+async def sync_audio_durations(eid: str, _user: User = Depends(_require_studio_plugin)):
     return await _proxy_json(
         "POST",
         f"/api/studio/episodes/{_check_id(eid, 'episode_id')}/sync-audio-durations",
@@ -277,12 +300,12 @@ async def sync_audio_durations(eid: str, _user: User = Depends(get_current_user)
 
 
 @router.post("/episodes/{eid}/render")
-async def render_episode(eid: str, _user: User = Depends(get_current_user)):
+async def render_episode(eid: str, _user: User = Depends(_require_studio_plugin)):
     return await _proxy_json("POST", f"/api/studio/episodes/{_check_id(eid, 'episode_id')}/render", timeout=60.0)
 
 
 @router.post("/episodes/{eid}/shots")
-async def add_shot(eid: str, request: Request, _user: User = Depends(get_current_user)):
+async def add_shot(eid: str, request: Request, _user: User = Depends(_require_studio_plugin)):
     return await _proxy_json(
         "POST",
         f"/api/studio/episodes/{_check_id(eid, 'episode_id')}/shots",
@@ -291,7 +314,7 @@ async def add_shot(eid: str, request: Request, _user: User = Depends(get_current
 
 
 @router.patch("/shots/{sid}")
-async def update_shot(sid: str, request: Request, _user: User = Depends(get_current_user)):
+async def update_shot(sid: str, request: Request, _user: User = Depends(_require_studio_plugin)):
     return await _proxy_json(
         "PATCH",
         f"/api/studio/shots/{_check_id(sid, 'shot_id')}",
@@ -300,12 +323,12 @@ async def update_shot(sid: str, request: Request, _user: User = Depends(get_curr
 
 
 @router.delete("/shots/{sid}")
-async def delete_shot(sid: str, _user: User = Depends(get_current_user)):
+async def delete_shot(sid: str, _user: User = Depends(_require_studio_plugin)):
     return await _proxy_json("DELETE", f"/api/studio/shots/{_check_id(sid, 'shot_id')}")
 
 
 @router.post("/shots/{sid}/generate")
-async def generate_shot(sid: str, request: Request, _user: User = Depends(get_current_user)):
+async def generate_shot(sid: str, request: Request, _user: User = Depends(_require_studio_plugin)):
     return await _proxy_json(
         "POST",
         f"/api/studio/shots/{_check_id(sid, 'shot_id')}/generate",
@@ -315,7 +338,7 @@ async def generate_shot(sid: str, request: Request, _user: User = Depends(get_cu
 
 
 @router.post("/shots/{sid}/pick")
-async def pick_shot(sid: str, request: Request, _user: User = Depends(get_current_user)):
+async def pick_shot(sid: str, request: Request, _user: User = Depends(_require_studio_plugin)):
     return await _proxy_json(
         "POST",
         f"/api/studio/shots/{_check_id(sid, 'shot_id')}/pick",
@@ -324,7 +347,7 @@ async def pick_shot(sid: str, request: Request, _user: User = Depends(get_curren
 
 
 @router.post("/shots/{sid}/tts-preview")
-async def shot_tts_preview(sid: str, _user: User = Depends(get_current_user)):
+async def shot_tts_preview(sid: str, _user: User = Depends(_require_studio_plugin)):
     return await _proxy_json(
         "POST",
         f"/api/studio/shots/{_check_id(sid, 'shot_id')}/tts-preview",
@@ -333,7 +356,7 @@ async def shot_tts_preview(sid: str, _user: User = Depends(get_current_user)):
 
 
 @router.post("/shots/{sid}/animate")
-async def animate_shot(sid: str, _user: User = Depends(get_current_user)):
+async def animate_shot(sid: str, _user: User = Depends(_require_studio_plugin)):
     return await _proxy_json(
         "POST",
         f"/api/studio/shots/{_check_id(sid, 'shot_id')}/animate",
@@ -342,7 +365,7 @@ async def animate_shot(sid: str, _user: User = Depends(get_current_user)):
 
 
 @router.post("/shots/{sid}/use-prev-last-frame")
-async def use_prev_last_frame(sid: str, _user: User = Depends(get_current_user)):
+async def use_prev_last_frame(sid: str, _user: User = Depends(_require_studio_plugin)):
     return await _proxy_json(
         "POST",
         f"/api/studio/shots/{_check_id(sid, 'shot_id')}/use-prev-last-frame",
@@ -351,7 +374,7 @@ async def use_prev_last_frame(sid: str, _user: User = Depends(get_current_user))
 
 
 @router.post("/shots/{sid}/lipsync")
-async def lipsync_shot(sid: str, _user: User = Depends(get_current_user)):
+async def lipsync_shot(sid: str, _user: User = Depends(_require_studio_plugin)):
     return await _proxy_json(
         "POST",
         f"/api/studio/shots/{_check_id(sid, 'shot_id')}/lipsync",
@@ -360,7 +383,7 @@ async def lipsync_shot(sid: str, _user: User = Depends(get_current_user)):
 
 
 @router.post("/episodes/{eid}/batch-generate")
-async def batch_generate_episode(eid: str, request: Request, _user: User = Depends(get_current_user)):
+async def batch_generate_episode(eid: str, request: Request, _user: User = Depends(_require_studio_plugin)):
     body = await request.json() if await request.body() else {}
     return await _proxy_json(
         "POST",
@@ -371,7 +394,7 @@ async def batch_generate_episode(eid: str, request: Request, _user: User = Depen
 
 
 @router.post("/episodes/{eid}/batch-animate")
-async def batch_animate_episode(eid: str, request: Request, _user: User = Depends(get_current_user)):
+async def batch_animate_episode(eid: str, request: Request, _user: User = Depends(_require_studio_plugin)):
     body = await request.json() if await request.body() else {}
     return await _proxy_json(
         "POST",
@@ -382,7 +405,7 @@ async def batch_animate_episode(eid: str, request: Request, _user: User = Depend
 
 
 @router.get("/episodes/{eid}/batch-status")
-async def get_batch_status(eid: str, _user: User = Depends(get_current_user)):
+async def get_batch_status(eid: str, _user: User = Depends(_require_studio_plugin)):
     return await _proxy_json(
         "GET",
         f"/api/studio/episodes/{_check_id(eid, 'episode_id')}/batch-status",
@@ -391,7 +414,7 @@ async def get_batch_status(eid: str, _user: User = Depends(get_current_user)):
 
 
 @router.get("/tasks/{task_id}")
-async def get_task(task_id: str, _user: User = Depends(get_current_user)):
+async def get_task(task_id: str, _user: User = Depends(_require_studio_plugin)):
     return await _proxy_json("GET", f"/api/tasks/{_check_id(task_id, 'task_id')}")
 
 
@@ -403,7 +426,9 @@ async def _require_media_user(
     db: AsyncSession = Depends(get_db),
 ) -> User:
     auth_header = authorization or (f"Bearer {token.strip()}" if token and token.strip() else None)
-    return await get_current_user(auth_header, db)
+    user = await get_current_user(auth_header, db)
+    _current_studio_conn.set(resolve_studio_connection(user))
+    return user
 
 
 @router.get("/assets")
@@ -543,7 +568,7 @@ async def proxy_episode_latest_video(
 async def publish_episode_to_chat(
     eid: str,
     body: PublishToChatReq,
-    user: User = Depends(get_current_user),
+    user: User = Depends(_require_studio_plugin),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """将演播台成片持久化归档到 Memento S3/媒体库，并直接写入对话气泡实现内联播放、全屏与缓存。"""

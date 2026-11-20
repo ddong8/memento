@@ -143,6 +143,11 @@ async def compute_extend(request: Request, _user: User = Depends(get_current_use
 
 # ---------- Projects, Characters, Voices & BGM ----------
 
+@router.get("/presets")
+async def list_presets(_user: User = Depends(get_current_user)):
+    return await _proxy_json("GET", "/api/studio/presets")
+
+
 @router.get("/projects")
 async def list_projects(_user: User = Depends(get_current_user)):
     return await _proxy_json("GET", "/api/studio/projects")
@@ -333,6 +338,55 @@ async def animate_shot(sid: str, _user: User = Depends(get_current_user)):
         "POST",
         f"/api/studio/shots/{_check_id(sid, 'shot_id')}/animate",
         timeout=600.0,
+    )
+
+
+@router.post("/shots/{sid}/use-prev-last-frame")
+async def use_prev_last_frame(sid: str, _user: User = Depends(get_current_user)):
+    return await _proxy_json(
+        "POST",
+        f"/api/studio/shots/{_check_id(sid, 'shot_id')}/use-prev-last-frame",
+        timeout=60.0,
+    )
+
+
+@router.post("/shots/{sid}/lipsync")
+async def lipsync_shot(sid: str, _user: User = Depends(get_current_user)):
+    return await _proxy_json(
+        "POST",
+        f"/api/studio/shots/{_check_id(sid, 'shot_id')}/lipsync",
+        timeout=600.0,
+    )
+
+
+@router.post("/episodes/{eid}/batch-generate")
+async def batch_generate_episode(eid: str, request: Request, _user: User = Depends(get_current_user)):
+    body = await request.json() if await request.body() else {}
+    return await _proxy_json(
+        "POST",
+        f"/api/studio/episodes/{_check_id(eid, 'episode_id')}/batch-generate",
+        payload=body,
+        timeout=30.0,
+    )
+
+
+@router.post("/episodes/{eid}/batch-animate")
+async def batch_animate_episode(eid: str, request: Request, _user: User = Depends(get_current_user)):
+    body = await request.json() if await request.body() else {}
+    return await _proxy_json(
+        "POST",
+        f"/api/studio/episodes/{_check_id(eid, 'episode_id')}/batch-animate",
+        payload=body,
+        timeout=30.0,
+    )
+
+
+@router.get("/episodes/{eid}/batch-status")
+async def get_batch_status(eid: str, _user: User = Depends(get_current_user)):
+    return await _proxy_json(
+        "GET",
+        f"/api/studio/episodes/{_check_id(eid, 'episode_id')}/batch-status",
+        timeout=15.0,
     )
 
 

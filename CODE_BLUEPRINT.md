@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `e05c1628` · Updated: `2026-11-20`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `740348b1` · Updated: `2026-11-20`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -13,10 +13,10 @@
 - 类型 (Type): Monorepo (Workspaces)
 - 技术栈 (Stack): TypeScript/JavaScript, Python, Shell / Bash · React, Electron, Next.js, TailwindCSS, Model Context Protocol (MCP), FastAPI, SQLAlchemy, Celery
 - 基础设施 (Infra): PostgreSQL, pgvector (Vector DB), Redis, MinIO / S3 Object Storage, Celery Task Queue
-- 规模 (Scale): 9 个子系统 · 39 组 API 路由 / 289 个接口 · 38 个前端页面 · 41 个数据模型 · 35 个服务模块 · 246 个测试文件
+- 规模 (Scale): 9 个子系统 · 39 组 API 路由 / 295 个接口 · 38 个前端页面 · 41 个数据模型 · 35 个服务模块 · 246 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `c314dc62` (2026-11-20): feat(studio): 新增演播台工作区、HTTP 206 视频流播与成片一键发往对话内联播放
+- 最近改动 (Latest): `740348b1` (2026-11-20): chore(k8s): 更新 filmkit 演播台镜像至 774beb3f981c 并声明 ghcr-pull 拉取凭证
 - 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 71（✅ 71 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-WS-EXEC-REMIND`, `R-DOCS-WRITE-LIGHT`, `R-PUBLIC-REPO-CLEAN`, `R-NO-CONFIGMAP-HOTFIX`, `R-MENU-KEEPALIVE`, `R-STUDIO-INLINE-PLAY`, `F-ASK`, `R-ISLAND-CLEANUP`
 
 | 章节 (Section) | 行号 (Lines) |
@@ -31,7 +31,7 @@
 | 8. Development & Verification Commands | L660-L677 |
 | 9. Recent Architectural Evolutions | L679-L686 |
 | 10. Key Environment Variables & Configuration | L688-L700 |
-| 11. 业务蓝图核对 (Business Blueprint Check) | L702-L711 |
+| 11. 业务蓝图核对 (Business Blueprint Check) | L702-L710 |
 
 ## 1. Project Overview & Tech Stack
 
@@ -398,7 +398,7 @@ flowchart TD
 - `POST /api/studio/compute/start`
 - `POST /api/studio/compute/stop`
 - `POST /api/studio/compute/extend`
-- _... (31 more endpoints)_
+- _... (37 more endpoints)_
 
 #### `/api/tasks` (tasks.py)
 
@@ -646,16 +646,16 @@ erDiagram
 
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
-- [`apps/web/src/components/persona/DigitalTwinAvatar3D.tsx`](apps/web/src/components/persona/DigitalTwinAvatar3D.tsx) (9 commits)
+- [`apps/web/src/components/persona/DigitalTwinAvatar3D.tsx`](apps/web/src/components/persona/DigitalTwinAvatar3D.tsx) (8 commits)
 - [`packages/daemon/src/source-exec.ts`](packages/daemon/src/source-exec.ts) (8 commits)
-- [`apps/web/src/app/memory/page.tsx`](apps/web/src/app/memory/page.tsx) (7 commits)
-- [`apps/web/src/components/agent/ActiveRunsMonitor.tsx`](apps/web/src/components/agent/ActiveRunsMonitor.tsx) (7 commits)
-- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (6 commits)
-- [`apps/web/src/components/ExecutionCard.tsx`](apps/web/src/components/ExecutionCard.tsx) (6 commits)
+- [`apps/web/src/app/memory/page.tsx`](apps/web/src/app/memory/page.tsx) (6 commits)
+- [`apps/web/src/components/agent/ActiveRunsMonitor.tsx`](apps/web/src/components/agent/ActiveRunsMonitor.tsx) (6 commits)
 - [`packages/daemon/test/source-exec.test.ts`](packages/daemon/test/source-exec.test.ts) (6 commits)
 - [`server/server/services/workspace_relay.py`](server/server/services/workspace_relay.py) (6 commits)
+- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (5 commits)
 - [`apps/web/src/app/globals.css`](apps/web/src/app/globals.css) (5 commits)
-- [`apps/web/src/app/memory/persona/page.tsx`](apps/web/src/app/memory/persona/page.tsx) (5 commits)
+- [`apps/web/src/components/ExecutionCard.tsx`](apps/web/src/components/ExecutionCard.tsx) (5 commits)
+- [`apps/web/src/components/layout/Sidebar.tsx`](apps/web/src/components/layout/Sidebar.tsx) (5 commits)
 
 ## 8. Development & Verification Commands
 
@@ -678,12 +678,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `740348b1` (2026-11-20): chore(k8s): 更新 filmkit 演播台镜像至 774beb3f981c 并声明 ghcr-pull 拉取凭证
 - `c314dc62` (2026-11-20): feat(studio): 新增演播台工作区、HTTP 206 视频流播与成片一键发往对话内联播放
 - `a509a8b0` (2026-11-20): fix(mobile): 修复手机端后台智能体任务面板展开后向左溢出屏幕问题
 - `4e526788` (2026-11-20): style(ask): 收敛 PC 端对话区与底部输入框之间的多余留白
 - `53d7fc47` (2026-11-20): style(ui): 恢复原版极光渐变配色与视觉质感，保留图标、布局与 Hook 修复
 - `aab609df` (2026-11-20): style(ui): 重构默认主题为曜石黑与宝石蓝配色、修复工作台窄栏裁切与 GitHub Alert 原样渲染
-- `68b04cd9` (2026-11-20): style(ui): 清除业务界面渐变色与表情符号、收敛侧边栏冗余悬停提示并清零 React 19 严格 Hook 告警
 
 ## 10. Key Environment Variables & Configuration
 
@@ -708,7 +708,6 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 - `c314dc62` feat(studio): 新增演播台工作区、HTTP 206 视频流播与成片一键发往对话内联播放 → `R-WS-EXEC-REMIND`, `R-DOCS-WRITE-LIGHT`, `R-PUBLIC-REPO-CLEAN`, `R-NO-CONFIGMAP-HOTFIX`, `R-MENU-KEEPALIVE`, `R-STUDIO-INLINE-PLAY`
 - `a509a8b0` fix(mobile): 修复手机端后台智能体任务面板展开后向左溢出屏幕问题 → `F-ASK`, `R-ISLAND-CLEANUP`, `S-RUN-STATE`
-- `53d7fc47` style(ui): 恢复原版极光渐变配色与视觉质感，保留图标、布局与 Hook 修复 → `R-ENT-SSO`, `R-UI-COMMERCIAL`, `R-LLM-IN-PROFILE`
 
 ---
 _Auto-maintained by `scripts/project_blueprint.mjs` (v20261126) & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._

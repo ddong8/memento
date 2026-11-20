@@ -7,12 +7,14 @@ import {
   studioApi,
   studioAssetUrl,
   studioEpisodeVideoUrl,
+  StudioBatchState,
   StudioBgmItem,
   StudioCharacter,
   StudioComputeState,
   StudioEpisode,
   StudioEpisodeDetail,
   StudioHealth,
+  StudioPreset,
   StudioProject,
   StudioShot,
   StudioTask,
@@ -70,6 +72,50 @@ const TRANSITION_OPTIONS = [
   { id: "fade", label: "黑场淡化" },
 ];
 
+const SHOT_SCALE_OPTIONS = [
+  { id: "", label: "自动景别" },
+  { id: "wide", label: "远景定场" },
+  { id: "medium", label: "中景叙事" },
+  { id: "ots", label: "过肩正反打" },
+  { id: "closeup", label: "近景情绪" },
+  { id: "extreme_closeup", label: "特写钩子" },
+];
+
+const CAMERA_ANGLE_OPTIONS = [
+  { id: "", label: "默认机位" },
+  { id: "eye_level", label: "平拍视角" },
+  { id: "low_angle", label: "仰拍压迫" },
+  { id: "high_angle", label: "俯拍窥视" },
+  { id: "dutch", label: "荷兰斜角" },
+];
+
+const FALLBACK_PRESETS: Record<string, StudioPreset> = {
+  live_action_drama: {
+    label: "真人写实短剧（35mm 电影级）",
+    style:
+      "cinematic live-action Chinese short drama, shot on 35mm anamorphic lens, natural human skin texture, realistic practical lighting, shallow depth of field, film color grading, photorealistic, 8k",
+    subtitle_preset: "cinema_sub",
+  },
+  urban_romance: {
+    label: "都市情感爽剧（高端影视）",
+    style:
+      "high-budget modern Chinese urban television drama, realistic cinematography, soft key lighting, sleek metropolitan interiors, expressive human facial micro-expressions, shallow depth of field, photorealistic",
+    subtitle_preset: "manga_gold",
+  },
+  costume_drama: {
+    label: "古装仙侠短剧（电影实拍感）",
+    style:
+      "cinematic Chinese historical costume wuxia drama, realistic silk hanfu embroidery, misty courtyard lighting, 35mm film grain, epic dramatic composition, photorealistic live-action",
+    subtitle_preset: "manga_gold",
+  },
+  suspense_anime: {
+    label: "悬疑暗黑国漫（爆款漫剧）",
+    style:
+      "dark Chinese supernatural anime comic style, moody volumetric lighting, crisp ink linework, cinematic suspense framing, rich shadows, masterpiece",
+    subtitle_preset: "manga_gold",
+  },
+};
+
 const fieldStyle = {
   width: "100%",
   background: "var(--aurora-chip)",
@@ -104,13 +150,15 @@ function StudioInner() {
   const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null);
 
   // Project / Episode create inline state
+  const [presets, setPresets] = useState<Record<string, StudioPreset>>(FALLBACK_PRESETS);
   const [showNewProject, setShowNewProject] = useState(false);
+  const [newProjPreset, setNewProjPreset] = useState("live_action_drama");
   const [newProjName, setNewProjName] = useState("");
-  const [newProjStyle, setNewProjStyle] = useState(
-    "dark Chinese supernatural anime comic style, cinematic dramatic lighting, crisp ink linework"
-  );
+  const [newProjStyle, setNewProjStyle] = useState(FALLBACK_PRESETS.live_action_drama.style);
   const [storyDraft, setStoryDraft] = useState("");
   const [breakdownCount, setBreakdownCount] = useState(8);
+  const [batchState, setBatchState] = useState<StudioBatchState | null>(null);
+  const [chainFrames, setChainFrames] = useState(true);
 
   // Lyria BGM prompt
   const [bgmPrompt, setBgmPrompt] = useState(
@@ -182,15 +230,19 @@ function StudioInner() {
         setLoading(false);
         return;
       }
-      const [projRes, voiceRes, bgmRes] = await Promise.all([
+      const [projRes, voiceRes, bgmRes, presetRes] = await Promise.all([
         studioApi.listProjects(),
         studioApi.listVoices().catch(() => ({ voices: [] })),
         studioApi.listBgm().catch(() => ({ items: [] })),
+        studioApi.listPresets().catch(() => ({ presets: FALLBACK_PRESETS })),
       ]);
       const list = projRes.projects || [];
       setProjects(list);
       setVoices(voiceRes.voices || []);
       setBgmList(bgmRes.items || []);
+      if (presetRes.presets && Object.keys(presetRes.presets).length > 0) {
+        setPresets(presetRes.presets);
+      }
 
       const targetProj =
         (initialProjectParam && list.find((p) => p.id === initialProjectParam)?.id) ||
@@ -230,6 +282,28 @@ function StudioInner() {
     return () => clearInterval(timer);
   }, [renderTask, selectedEpisodeId, loadEpisode, notify]);
 
+  // Poll batch job if running
+  useEffect(() => {
+    if (!selectedEpisodeId || !batchState?.running) return;
+    const timer = setInterval(async () => {
+      try {
+        const res = await studioApi.batchStatus(selectedEpisodeId);
+        setBatchState(res.batch);
+        if (!res.batch.running) {
+          await loadEpisode(selectedEpisodeId);
+          const modeLabel = res.batch.mode === "animate" ? "全集转动态 (I2V)" : "全集批量生图";
+          notify(
+            res.batch.failed === 0,
+            `${modeLabel}已完成：成功 ${res.batch.succeeded}/${res.batch.total}${
+              res.batch.failed > 0 ? `，失败 ${res.batch.failed}` : ""
+            }`
+          );
+        }
+      } catch {}
+    }, 2500);
+    return () => clearInterval(timer);
+  }, [selectedEpisodeId, batchState?.running, loadEpisode, notify]);
+
   const handleCreateProject = async () => {
     if (!newProjName.trim()) return;
     setBusyAction("create_project");
@@ -237,6 +311,7 @@ function StudioInner() {
       const res = await studioApi.createProject({
         name: newProjName.trim(),
         style: newProjStyle.trim(),
+        preset: newProjPreset,
         aspect: "vertical",
         default_engine: "external",
       });
@@ -245,7 +320,7 @@ function StudioInner() {
       const listRes = await studioApi.listProjects();
       setProjects(listRes.projects || []);
       setSelectedProjectId(res.project.id);
-      await loadProject(res.project.id, res.episode?.id);
+      await loadProject(res.project.id, res.default_episode?.id || res.episode?.id);
       notify(true, `已创建项目「${res.project.name}」`);
     } catch (e) {
       notify(false, (e as Error).message);
@@ -283,7 +358,7 @@ function StudioInner() {
 
   const handleShotAction = async (
     sid: string,
-    kind: "generate" | "tts" | "animate"
+    kind: "generate" | "tts" | "animate" | "linkprev" | "lipsync"
   ) => {
     setBusyAction(`${kind}:${sid}`);
     try {
@@ -299,6 +374,18 @@ function StudioInner() {
           prev ? { ...prev, shots: prev.shots.map((s) => (s.id === sid ? res.shot : s)) } : prev
         );
         notify(true, `配音试听已生成 (${res.engine || "TTS"})`);
+      } else if (kind === "linkprev") {
+        const res = await studioApi.usePrevLastFrame(sid);
+        setDetail((prev) =>
+          prev ? { ...prev, shots: prev.shots.map((s) => (s.id === sid ? res.shot : s)) } : prev
+        );
+        notify(true, "已提取上一镜尾帧作为本镜首帧，确保动作与光影连贯");
+      } else if (kind === "lipsync") {
+        const res = await studioApi.lipsyncShot(sid);
+        setDetail((prev) =>
+          prev ? { ...prev, shots: prev.shots.map((s) => (s.id === sid ? res.shot : s)) } : prev
+        );
+        notify(true, `单镜对口型已完成 (${res.source || "InfiniteTalk"})`);
       } else {
         const res = await studioApi.animateShot(sid);
         setDetail((prev) =>
@@ -306,6 +393,63 @@ function StudioInner() {
         );
         notify(true, `单镜 I2V 动态视频已生成 (${res.source || "I2V"})`);
       }
+    } catch (e) {
+      notify(false, (e as Error).message);
+    } finally {
+      setBusyAction("");
+    }
+  };
+
+  const handleBatchGenerate = async () => {
+    if (!selectedEpisodeId) return;
+    setBusyAction("batch_gen");
+    try {
+      const res = await studioApi.batchGenerate(selectedEpisodeId, { force: false, max_workers: 3 });
+      setBatchState(res.batch);
+      if (res.batch.total === 0) {
+        notify(true, "所有分镜已有画面，无需重复生成");
+      } else {
+        notify(true, `已启动后台并发批量生图（共 ${res.batch.total} 镜）`);
+      }
+    } catch (e) {
+      notify(false, (e as Error).message);
+    } finally {
+      setBusyAction("");
+    }
+  };
+
+  const handleBatchAnimate = async () => {
+    if (!selectedEpisodeId) return;
+    setBusyAction("batch_anim");
+    try {
+      const res = await studioApi.batchAnimate(selectedEpisodeId, {
+        force: false,
+        chain_frames: chainFrames,
+        max_workers: 3,
+      });
+      setBatchState(res.batch);
+      if (res.batch.total === 0) {
+        notify(true, "全集分镜均已是动态视频片段");
+      } else {
+        notify(
+          true,
+          `已启动后台批量转动态 I2V（共 ${res.batch.total} 镜${chainFrames ? "，已开启首尾帧衔接" : ""}）`
+        );
+      }
+    } catch (e) {
+      notify(false, (e as Error).message);
+    } finally {
+      setBusyAction("");
+    }
+  };
+
+  const handleSyncAudio = async () => {
+    if (!selectedEpisodeId) return;
+    setBusyAction("sync_audio");
+    try {
+      const res = await studioApi.syncAudioDurations(selectedEpisodeId);
+      await loadEpisode(selectedEpisodeId);
+      notify(true, `已按真实情感配音时长对齐 ${res.adjusted?.length ?? 0} 个分镜`);
     } catch (e) {
       notify(false, (e as Error).message);
     } finally {
@@ -533,16 +677,34 @@ function StudioInner() {
                 </div>
               </div>
 
-              {/* 新建项目面板 */}
+              {/* 新建项目面板（内置 AI 短剧 / 漫剧商业预设） */}
               {showNewProject && (
                 <div
-                  className="grid grid-cols-1 gap-2 pt-3 sm:grid-cols-[200px_1fr_auto]"
+                  className="grid grid-cols-1 gap-2 pt-3 sm:grid-cols-[180px_190px_1fr_auto]"
                   style={{ borderTop: "1px solid var(--aurora-border)" }}
                 >
+                  <select
+                    value={newProjPreset}
+                    onChange={(e) => {
+                      const key = e.target.value;
+                      setNewProjPreset(key);
+                      if (presets[key]?.style) {
+                        setNewProjStyle(presets[key].style);
+                      }
+                    }}
+                    style={fieldStyle}
+                    aria-label="项目类型预设"
+                  >
+                    {Object.entries(presets).map(([key, meta]) => (
+                      <option key={key} value={key}>
+                        {meta.label}
+                      </option>
+                    ))}
+                  </select>
                   <input
                     value={newProjName}
                     onChange={(e) => setNewProjName(e.target.value)}
-                    placeholder="新项目名称，如：夜班守墓人"
+                    placeholder="新短剧名称，如：豪门暗局"
                     style={fieldStyle}
                   />
                   <input
@@ -679,9 +841,76 @@ function StudioInner() {
                   value={storyDraft}
                   onChange={(e) => setStoryDraft(e.target.value)}
                   rows={3}
-                  placeholder="粘贴小说片段或故事梗概，点击 AI 拆镜即可自动生成角色与分镜脚本…"
+                  placeholder="粘贴短剧冲突剧本或小说片段，点击 AI 拆镜自动按正反打/景别/口型标记拆出全集分镜…"
                   style={{ ...fieldStyle, resize: "vertical", lineHeight: 1.55 }}
                 />
+
+                {/* 短剧量产批量流水线工具条 */}
+                <div
+                  className="mt-3 pt-3 flex flex-wrap items-center justify-between gap-2"
+                  style={{ borderTop: "1px solid var(--aurora-border)" }}
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Btn
+                      icon="image"
+                      variant="ghost"
+                      onClick={handleBatchGenerate}
+                      disabled={!!busyAction || !!batchState?.running || detail.shots.length === 0}
+                    >
+                      全集批量生图
+                    </Btn>
+                    <Btn
+                      icon="film"
+                      variant="ghost"
+                      onClick={handleBatchAnimate}
+                      disabled={!!busyAction || !!batchState?.running || detail.shots.length === 0}
+                    >
+                      全集批量转动态 (I2V)
+                    </Btn>
+                    <Btn
+                      icon="clock"
+                      variant="ghost"
+                      onClick={handleSyncAudio}
+                      disabled={!!busyAction || detail.shots.length === 0}
+                    >
+                      {busyAction === "sync_audio" ? "对齐中…" : "以声定画对齐时长"}
+                    </Btn>
+                  </div>
+
+                  <label
+                    className="inline-flex items-center gap-1.5 text-xs cursor-pointer"
+                    style={{ color: "var(--aurora-fg3)" }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={chainFrames}
+                      onChange={(e) => setChainFrames(e.target.checked)}
+                    />
+                    批量动态时按标记自动首尾帧衔接
+                  </label>
+                </div>
+
+                {batchState && (batchState.running || batchState.total > 0) && (
+                  <div
+                    className="mt-2.5 rounded-xl px-3 py-2 text-xs flex flex-wrap items-center justify-between gap-2"
+                    style={{
+                      background: "var(--aurora-chip)",
+                      border: "1px solid var(--aurora-border)",
+                      color: "var(--aurora-fg2)",
+                    }}
+                  >
+                    <span>
+                      {batchState.running
+                        ? `后台执行中（${batchState.mode === "animate" ? "批量转动态" : "批量生图"}）：已完成 ${batchState.done}/${batchState.total} 镜`
+                        : `最近批量任务：成功 ${batchState.succeeded}/${batchState.total}${
+                            batchState.failed > 0 ? `，失败 ${batchState.failed}` : ""
+                          }`}
+                    </span>
+                    {batchState.errors?.length > 0 && (
+                      <span style={{ color: "#DC2626" }}>{batchState.errors[0]}</span>
+                    )}
+                  </div>
+                )}
               </Glass>
 
               {/* 分镜卡片列表 */}
@@ -777,6 +1006,39 @@ function StudioInner() {
                             </button>
                           </div>
 
+                          <div className="grid grid-cols-2 gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => handleShotAction(shot.id, "lipsync")}
+                              disabled={!!busyAction || !shot.dialogue}
+                              className="rounded-lg px-2 py-1.5 text-[11px] font-medium"
+                              style={{
+                                background: shot.lip_sync ? "var(--aurora-accent)" : "var(--aurora-chip)",
+                                border: `1px solid ${shot.lip_sync ? "var(--aurora-accent)" : "var(--aurora-border)"}`,
+                                color: shot.lip_sync ? "#FFFFFF" : "var(--aurora-fg1)",
+                                cursor: "pointer",
+                                opacity: !shot.dialogue ? 0.5 : 1,
+                              }}
+                            >
+                              {busyAction === `lipsync:${shot.id}` ? "口型中…" : "对口型"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleShotAction(shot.id, "linkprev")}
+                              disabled={!!busyAction || shot.sort_order <= 1}
+                              className="rounded-lg px-2 py-1.5 text-[11px] font-medium"
+                              style={{
+                                background: "var(--aurora-chip)",
+                                border: "1px solid var(--aurora-border)",
+                                color: "var(--aurora-fg1)",
+                                cursor: "pointer",
+                                opacity: shot.sort_order <= 1 ? 0.5 : 1,
+                              }}
+                            >
+                              {busyAction === `linkprev:${shot.id}` ? "抽帧中" : "取上镜尾帧"}
+                            </button>
+                          </div>
+
                           {shot.tts_preview_path && (
                             <audio
                               src={studioAssetUrl(shot.tts_preview_path)}
@@ -834,6 +1096,60 @@ function StudioInner() {
                                 style={fieldStyle}
                               />
                             </div>
+                          </div>
+
+                          {/* 短剧多机位/景别/口型/首尾帧衔接导演栏 */}
+                          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 items-center">
+                            <select
+                              value={shot.shot_scale || ""}
+                              onChange={(e) => void handleShotPatch(shot.id, { shot_scale: e.target.value })}
+                              style={fieldStyle}
+                              title="景别（正反打）"
+                            >
+                              {SHOT_SCALE_OPTIONS.map((o) => (
+                                <option key={o.id} value={o.id}>
+                                  {o.label}
+                                </option>
+                              ))}
+                            </select>
+
+                            <select
+                              value={shot.camera_angle || ""}
+                              onChange={(e) => void handleShotPatch(shot.id, { camera_angle: e.target.value })}
+                              style={fieldStyle}
+                              title="机位角度"
+                            >
+                              {CAMERA_ANGLE_OPTIONS.map((o) => (
+                                <option key={o.id} value={o.id}>
+                                  {o.label}
+                                </option>
+                              ))}
+                            </select>
+
+                            <label
+                              className="inline-flex items-center gap-1.5 text-xs cursor-pointer px-2"
+                              style={{ color: "var(--aurora-fg2)" }}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={Boolean(shot.lip_sync)}
+                                onChange={(e) => void handleShotPatch(shot.id, { lip_sync: e.target.checked })}
+                              />
+                              近景对口型
+                            </label>
+
+                            <label
+                              className="inline-flex items-center gap-1.5 text-xs cursor-pointer px-2"
+                              style={{ color: "var(--aurora-fg2)" }}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={Boolean(shot.link_prev)}
+                                disabled={shot.sort_order <= 1}
+                                onChange={(e) => void handleShotPatch(shot.id, { link_prev: e.target.checked })}
+                              />
+                              衔接上镜尾帧
+                            </label>
                           </div>
 
                           <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">

@@ -10,6 +10,25 @@ export interface StudioProject {
   aspect: string;
   default_engine: string;
   bgm_path: string;
+  preset?: string;
+}
+
+export interface StudioPreset {
+  label: string;
+  style: string;
+  subtitle_preset: string;
+}
+
+export interface StudioBatchState {
+  running: boolean;
+  mode: "" | "generate" | "animate";
+  total: number;
+  done: number;
+  succeeded: number;
+  failed: number;
+  current_shot?: number;
+  errors: string[];
+  updated_at?: number;
 }
 
 export interface StudioCharacter {
@@ -67,6 +86,10 @@ export interface StudioShot {
   acting?: string;
   voice_space?: string;
   overlay_text?: string;
+  shot_scale?: string;
+  camera_angle?: string;
+  lip_sync?: boolean;
+  link_prev?: boolean;
   cast: string[];
   dialogue: string;
   subtitle: string;
@@ -200,9 +223,10 @@ export const studioApi = {
   computeExtend: (minutes = 15) =>
     studioReq<{ compute: StudioComputeState }>("/api/studio/compute/extend", jsonPost("POST", { minutes })),
 
+  listPresets: () => studioReq<{ presets: Record<string, StudioPreset> }>("/api/studio/presets"),
   listProjects: () => studioReq<{ projects: StudioProject[] }>("/api/studio/projects"),
-  createProject: (body: { name: string; style?: string; aspect?: string; default_engine?: string }) =>
-    studioReq<{ project: StudioProject; episode?: StudioEpisode }>(
+  createProject: (body: { name: string; style?: string; aspect?: string; default_engine?: string; preset?: string }) =>
+    studioReq<{ project: StudioProject; default_episode?: StudioEpisode; episode?: StudioEpisode }>(
       "/api/studio/projects",
       jsonPost("POST", body)
     ),
@@ -279,6 +303,28 @@ export const studioApi = {
       `/api/studio/shots/${encodeURIComponent(sid)}/animate`,
       jsonPost("POST", {})
     ),
+  usePrevLastFrame: (sid: string) =>
+    studioReq<{ shot: StudioShot; url: string }>(
+      `/api/studio/shots/${encodeURIComponent(sid)}/use-prev-last-frame`,
+      jsonPost("POST", {})
+    ),
+  lipsyncShot: (sid: string) =>
+    studioReq<{ shot: StudioShot; url: string; source?: string }>(
+      `/api/studio/shots/${encodeURIComponent(sid)}/lipsync`,
+      jsonPost("POST", {})
+    ),
+  batchGenerate: (eid: string, body: { force?: boolean; max_workers?: number } = {}) =>
+    studioReq<{ batch: StudioBatchState }>(
+      `/api/studio/episodes/${encodeURIComponent(eid)}/batch-generate`,
+      jsonPost("POST", body)
+    ),
+  batchAnimate: (eid: string, body: { force?: boolean; chain_frames?: boolean; max_workers?: number } = {}) =>
+    studioReq<{ batch: StudioBatchState }>(
+      `/api/studio/episodes/${encodeURIComponent(eid)}/batch-animate`,
+      jsonPost("POST", body)
+    ),
+  batchStatus: (eid: string) =>
+    studioReq<{ batch: StudioBatchState }>(`/api/studio/episodes/${encodeURIComponent(eid)}/batch-status`),
 
   listVoices: () => studioReq<{ voices: StudioVoiceOption[] }>("/api/studio/voices"),
   listBgm: () => studioReq<{ items: StudioBgmItem[] }>("/api/studio/bgm"),

@@ -663,9 +663,22 @@ export default function ActiveRunsMonitor() {
                 // over the middle of every page, over cards and inputs); expanded, the list opens up from there
                 { left: 12, bottom: 152, width: collapsed ? (sidebarCollapsed ? 44 : 216) : 390 }
               : isMobile
-                ? // Phones: a small chip in the top bar, left of its theme button (on /ask, whose bar is full of
-                  // buttons, just under it), not over the middle of the content or a page's action buttons
-                  { top: pathname?.startsWith("/ask") ? "calc(env(safe-area-inset-top, 0px) + 52px)" : "calc(env(safe-area-inset-top, 0px) + 8px)", right: pathname?.startsWith("/ask") ? "10px" : "56px", maxWidth: "calc(100vw - 20px)", width: collapsed ? "auto" : "calc(100vw - 20px)" }
+                ? collapsed
+                  ? // Phones (collapsed): small chip in the top bar, left of the theme button (on /ask, just under it)
+                    {
+                      top: pathname?.startsWith("/ask") ? "calc(env(safe-area-inset-top, 0px) + 52px)" : "calc(env(safe-area-inset-top, 0px) + 8px)",
+                      right: pathname?.startsWith("/ask") ? "10px" : "56px",
+                      maxWidth: pathname?.startsWith("/ask") ? "calc(100vw - 20px)" : "calc(100vw - 68px)",
+                      width: "auto",
+                    }
+                  : // Phones (expanded): full-width floating card with symmetric 10px side margins so it never overflows off-screen
+                    {
+                      top: pathname?.startsWith("/ask") ? "calc(env(safe-area-inset-top, 0px) + 52px)" : "calc(env(safe-area-inset-top, 0px) + 8px)",
+                      left: "10px",
+                      right: "10px",
+                      maxWidth: "calc(100vw - 20px)",
+                      width: "auto",
+                    }
                 : {
                   top: "48%",
                   right: `calc(var(--inspector-width, 0px) + ${collapsed ? 16 : 20}px)`,
@@ -719,7 +732,9 @@ export default function ActiveRunsMonitor() {
                   background: "linear-gradient(145deg, rgba(15, 23, 42, 0.98), rgba(30, 41, 59, 0.97))",
                   border: "1px solid rgba(56, 189, 248, 0.35)",
                   boxShadow: "0 20px 45px -10px rgba(0, 0, 0, 0.55), 0 0 25px rgba(56, 189, 248, 0.2)",
-                  maxHeight: "min(480px, 70vh)",
+                  maxHeight: isMobile
+                    ? "min(480px, calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 88px))"
+                    : "min(480px, 70vh)",
                 }}
                 data-testid="active-runs-panel"
               >
@@ -770,11 +785,11 @@ export default function ActiveRunsMonitor() {
                         className="p-3.5 flex flex-col gap-2 hover:bg-white/[0.03] transition-colors"
                       >
                         {/* Top status info line */}
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="flex items-center gap-1.5 flex-wrap">
+                        <div className="flex items-start justify-between gap-2 min-w-0">
+                          <div className="flex items-center gap-1.5 flex-wrap min-w-0 flex-1">
                             {/* Mode tag */}
                             <span
-                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium border"
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium border shrink-0"
                               style={{
                                 background: badge.bgColor,
                                 borderColor: badge.borderColor,
@@ -786,12 +801,12 @@ export default function ActiveRunsMonitor() {
 
                             {/* Model or device info */}
                             {run.model && (
-                              <span className="px-1.5 py-0.5 rounded text-[10px] bg-white/5 text-gray-300 font-mono border border-white/10">
+                              <span className="px-1.5 py-0.5 rounded text-[10px] bg-white/5 text-gray-300 font-mono border border-white/10 max-w-full truncate">
                                 {run.model}
                               </span>
                             )}
                             {run.device_name && (
-                              <span className="px-1.5 py-0.5 rounded text-[10px] bg-white/5 text-gray-400 border border-white/10">
+                              <span className="px-1.5 py-0.5 rounded text-[10px] bg-white/5 text-gray-400 border border-white/10 max-w-full truncate">
                                 {run.device_name}
                               </span>
                             )}

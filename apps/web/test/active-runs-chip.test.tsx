@@ -87,4 +87,26 @@ describe("background runs chip", () => {
     expect(panel!.textContent).toContain("后台智能体运行中");
     expect(panel!.textContent).toContain("直达对话");
   });
+
+  it("on a phone, expanded panel stays symmetrically inside viewport without overflowing left", async () => {
+    Object.defineProperty(window, "innerWidth", { value: 390, configurable: true });
+    await act(async () => {
+      root.render(<ActiveRunsMonitor />);
+    });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
+    const chip = container.querySelector('[data-testid="active-runs-chip"]') as HTMLElement | null;
+    expect(chip).not.toBeNull();
+    await act(async () => {
+      chip!.click();
+    });
+    const panel = container.querySelector('[data-testid="active-runs-panel"]') as HTMLElement | null;
+    expect(panel).not.toBeNull();
+    const fixedDock = panel!.closest(".fixed") as HTMLElement | null;
+    expect(fixedDock).not.toBeNull();
+    expect(fixedDock!.style.left).toBe("10px");
+    expect(fixedDock!.style.right).toBe("10px");
+    expect(fixedDock!.style.width).toBe("auto");
+  });
 });

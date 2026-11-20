@@ -5,6 +5,11 @@ import { desktop } from "@/lib/desktop";
 
 const noopSubscribe = () => () => {};
 
+/** SSR-safe mounted check (false during SSR/hydration, true on client) without a mount-time setState effect. */
+export function useIsClient(): boolean {
+  return useSyncExternalStore(noopSubscribe, () => true, () => false);
+}
+
 /** SSR-safe detection of the Memento desktop Electron shell without a mount-time setState effect. */
 export function useIsDesktopApp(): boolean {
   return useSyncExternalStore(

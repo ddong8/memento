@@ -187,10 +187,7 @@ export default function SkillMatrix3D({
     isPaused || (!isPanelCollapsed && typeof window !== "undefined" && window.innerWidth < 1024);
 
   const isPausedRef = useRef(effectivePaused);
-  isPausedRef.current = effectivePaused;
-
   const isRotatingRef = useRef(isRotating);
-  isRotatingRef.current = isRotating;
 
   const hoveredSlugRef = useRef<string | null>(null);
   // Skills whose name always shows (the most refined few); the rest show on hover / selection. Every
@@ -198,14 +195,18 @@ export default function SkillMatrix3D({
   const labelSlugsRef = useRef<Set<string>>(new Set());
 
   const onSelectSkillRef = useRef(onSelectSkill);
-  onSelectSkillRef.current = onSelectSkill;
-
   const selectedSlugRef = useRef(selectedSlug);
-  selectedSlugRef.current = selectedSlug;
+
+  useEffect(() => {
+    isPausedRef.current = effectivePaused;
+    isRotatingRef.current = isRotating;
+    onSelectSkillRef.current = onSelectSkill;
+    selectedSlugRef.current = selectedSlug;
+  }, [effectivePaused, isRotating, onSelectSkill, selectedSlug]);
 
   const resetCameraRef = useRef<() => void>(() => {});
   const ensureLoopRunningRef = useRef<() => void>(() => {});
-  const lastInteractionTimeRef = useRef<number>(Date.now());
+  const lastInteractionTimeRef = useRef<number>(0);
   const sceneCtxRef = useRef<SkillSceneContext | null>(null);
 
   // 当从后台切换回当前路由或收起移动端抽屉（effectivePaused 变为 false）时，立即唤醒渲染循环

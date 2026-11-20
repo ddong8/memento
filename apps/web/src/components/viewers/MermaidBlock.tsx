@@ -241,7 +241,8 @@ export function MermaidBlock({ code, className }: MermaidBlockProps) {
           <div className="p-4 bg-black/30 font-mono text-xs overflow-x-auto text-[var(--aurora-fg2)]">
             {error && (
               <div className="mb-3 p-2.5 rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-300 text-xs flex items-center gap-2">
-                <span>⚠️ 图表语法未闭合或存在解析异常，已自动切换为源码模式展示：</span>
+                <Icon name="alert" size={14} className="shrink-0" />
+                <span>图表语法未闭合或存在解析异常，已自动切换为源码模式展示：</span>
               </div>
             )}
             <pre className="m-0 leading-relaxed whitespace-pre font-mono">

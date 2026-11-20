@@ -180,14 +180,14 @@ export function LLMSettingsView() {
                 height: 48,
                 borderRadius: 16,
                 background: enabled
-                  ? "linear-gradient(135deg, #8B5CF6 0%, #3B82F6 100%)"
+                  ? "var(--aurora-accent, #6D28D9)"
                   : "var(--aurora-chip)",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
                 color: "#fff",
                 boxShadow: enabled
-                  ? "0 4px 16px -2px rgba(139,92,246,0.4)"
+                  ? "0 4px 12px -2px color-mix(in srgb, var(--aurora-accent, #6D28D9) 35%, transparent)"
                   : "none",
                 flexShrink: 0,
               }}

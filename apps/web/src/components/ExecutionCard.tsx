@@ -924,7 +924,7 @@ const ExecutionCard = memo(function ExecutionCard({
               <div style={{ color: "var(--aurora-fg2)", lineHeight: 1.5 }}>
                 “Prompt is too long” 并非指您输入的提问过长，而是当前续接的历史会话已累计大量消息与工具记录（超过了 200,000 Token 上下文限制）。
                 <br />
-                👉 <b>推荐解决办法</b>：点击下方按钮在<b>当前对话内就地智能提炼</b>并无缝轻装重试（保持当前对话连贯，无需新开会话）；或在下方下拉框中切换为<b>【➕ 新建独立会话】</b>。
+                推荐解决办法：点击下方按钮在<b>当前对话内就地智能提炼</b>并无缝轻装重试（保持当前对话连贯，无需新开会话）；或在下方下拉框中切换为<b>「新建独立会话」</b>。
               </div>
               {onSmartCompactAndRetry && (
                 <div style={{ marginTop: 10 }}>
@@ -939,7 +939,7 @@ const ExecutionCard = memo(function ExecutionCard({
                       display: "inline-flex",
                       alignItems: "center",
                       gap: 6,
-                      background: "linear-gradient(135deg, #f59e0b, #d97706)",
+                      background: "#D97706",
                       color: "#fff",
                       border: "none",
                       borderRadius: 6,
@@ -947,7 +947,7 @@ const ExecutionCard = memo(function ExecutionCard({
                       fontSize: 12,
                       fontWeight: 600,
                       cursor: "pointer",
-                      boxShadow: "0 2px 6px rgba(245, 158, 11, 0.25)",
+                      boxShadow: "0 2px 6px rgba(217, 119, 6, 0.24)",
                     }}
                   >
                     <Icon name="sparkles" size={13} />
@@ -984,7 +984,7 @@ const ExecutionCard = memo(function ExecutionCard({
                     display: "inline-flex",
                     alignItems: "center",
                     gap: 6,
-                    background: "linear-gradient(135deg, #f59e0b, #d97706)",
+                    background: "#D97706",
                     color: "#fff",
                     border: "none",
                     borderRadius: 6,
@@ -1038,7 +1038,7 @@ const ExecutionCard = memo(function ExecutionCard({
                   display: "inline-flex",
                   alignItems: "center",
                   gap: 5,
-                  background: "linear-gradient(135deg, #ef4444, #dc2626)",
+                  background: "#DC2626",
                   color: "#fff",
                   border: "none",
                   borderRadius: 6,

@@ -742,7 +742,7 @@ const NavRow = memo(function NavRow({
       onClick={handleClick}
       onMouseEnter={handleMouseEnter}
       onTouchStart={handleMouseEnter}
-      title={label + (badge ? ` (${badge})` : "")}
+      title={collapsed ? label + (badge ? ` (${badge})` : "") : undefined}
       className={`group flex items-center relative select-none transition-all duration-150 ${
         collapsed ? "justify-center py-2 px-0 mx-2 my-0.5" : "justify-start py-1.5 px-3 mx-2 my-0.5"
       } rounded-lg ${

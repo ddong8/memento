@@ -1129,7 +1129,7 @@ export default function PersonaPage() {
         {!isPanelCollapsed && (
           <div className="lg:col-span-7 h-full flex flex-col min-h-0 bg-[var(--aurora-surface)] rounded-3xl border border-[var(--aurora-border)] shadow-2xl overflow-hidden animate-in fade-in duration-300 max-lg:min-h-[500px]">
           {/* A. 顶部仪表盘概览与 Tab 导航区 (Sticky Header) */}
-          <div className="p-3 bg-gradient-to-r from-[var(--aurora-surface-solid)] via-[var(--aurora-surface)] to-[var(--aurora-chip)] border-b border-[var(--aurora-border)] shrink-0 space-y-2.5">
+          <div className="p-3 bg-[var(--aurora-surface-solid)] border-b border-[var(--aurora-border)] shrink-0 space-y-2.5">
             {/* Mobile View Toggle */}
             <div className="flex items-center justify-between lg:hidden pb-1 border-b border-white/10">
               <button
@@ -1146,7 +1146,7 @@ export default function PersonaPage() {
               {/* Tile 1: 进化等级与 EXP */}
               <div className="p-2 rounded-xl bg-[var(--aurora-surface)]/80 border border-[var(--aurora-border)] flex flex-col justify-between">
                 <div className="flex items-center justify-between text-[11px]">
-                  <span className="font-bold text-transparent bg-clip-text bg-gradient-to-r from-[#F59E0B] via-[#EC4899] to-[#8B5CF6] font-mono">
+                  <span className="font-bold text-[var(--aurora-accent)] font-mono">
                     Lv.{evolutionData.level} · {evolutionData.stage}
                   </span>
                   <span className="text-[10px] font-mono text-[var(--aurora-fg4)]">
@@ -1155,7 +1155,7 @@ export default function PersonaPage() {
                 </div>
                 <div className="w-full h-1 rounded-full bg-black/20 overflow-hidden mt-1.5">
                   <div
-                    className="h-full rounded-full bg-gradient-to-r from-[#F59E0B] via-[#EC4899] to-[#8B5CF6] transition-all duration-500 shadow-sm"
+                    className="h-full rounded-full bg-[var(--aurora-accent)] transition-all duration-500 shadow-sm"
                     style={{ width: `${(evolutionData.exp / 1000) * 100}%` }}
                   />
                 </div>
@@ -1551,7 +1551,7 @@ export default function PersonaPage() {
             {activeTab === "sandbox" && (
               <div className="space-y-3 animate-in fade-in">
                 {/* Sandbox Header Banner */}
-                <div className="p-3.5 rounded-2xl border border-[var(--aurora-border)] bg-gradient-to-r from-[rgba(236,72,153,0.12)] via-[var(--aurora-surface-solid)] to-transparent flex items-center justify-between gap-3">
+                <div className="p-3.5 rounded-2xl border border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)] flex items-center justify-between gap-3">
                   <div>
                     <div className="flex items-center gap-2">
                       <Icon name="activity" size={15} />
@@ -1609,7 +1609,7 @@ export default function PersonaPage() {
                             </span>
                           </div>
                           <p className="text-[11px] text-[var(--aurora-fg2)] leading-relaxed italic bg-[var(--aurora-chip)]/50 p-2 rounded-lg border border-[var(--aurora-border)]/50 mb-1.5">
-                            "{preset.prompt}"
+                            “{preset.prompt}”
                           </p>
                         </div>
                         <div className="text-[10px] text-[var(--aurora-fg4)] flex items-center justify-between pt-1 border-t border-[var(--aurora-border)]/40">
@@ -1713,7 +1713,7 @@ export default function PersonaPage() {
                       <div className="text-[11px] text-[var(--aurora-fg3)] flex items-center gap-1.5">
                         <span className="font-semibold">测试输入:</span>
                         <span className="font-mono text-[var(--aurora-fg1)] italic">
-                          "{sandboxResult.prompt}"
+                          “{sandboxResult.prompt}”
                         </span>
                       </div>
 
@@ -1750,7 +1750,7 @@ export default function PersonaPage() {
             {activeTab === "privileges" && (
               <div className="space-y-3 animate-in fade-in">
                 {/* Privileges Overview Header */}
-                <div className="p-3.5 rounded-2xl border border-[var(--aurora-border)] bg-gradient-to-r from-[rgba(59,130,246,0.12)] via-[var(--aurora-surface-solid)] to-transparent flex items-center justify-between gap-3">
+                <div className="p-3.5 rounded-2xl border border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)] flex items-center justify-between gap-3">
                   <div>
                     <div className="flex items-center gap-2">
                       <Icon name="star" size={15} />
@@ -1766,7 +1766,7 @@ export default function PersonaPage() {
                     </p>
                   </div>
                   <div className="shrink-0 text-right">
-                    <span className="text-xs font-mono font-bold text-transparent bg-clip-text bg-gradient-to-r from-[#3B82F6] to-[#8B5CF6]">
+                    <span className="text-xs font-mono font-bold text-[var(--aurora-accent)]">
                       当前等级: Lv.{evolutionData.level}
                     </span>
                     <div className="text-[10px] font-mono text-[var(--aurora-fg4)] mt-0.5">
@@ -1848,7 +1848,7 @@ export default function PersonaPage() {
                 ───────────────────────────────────────────────────────────── */}
             {activeTab === "evolution" && (
               <div className="space-y-3">
-                <div className="p-3 rounded-2xl border border-[#FACC15]/30 bg-gradient-to-r from-[#FACC15]/10 via-[var(--aurora-surface-solid)] to-transparent flex items-center justify-between gap-3">
+                <div className="p-3 rounded-2xl border border-[#D97706]/30 bg-[var(--aurora-surface-solid)] flex items-center justify-between gap-3">
                   <div>
                     <div className="flex items-center gap-1.5">
                       <Icon name="sparkles" size={15} />
@@ -2095,7 +2095,7 @@ export default function PersonaPage() {
                 ───────────────────────────────────────────────────────────── */}
             {activeTab === "blueprint" && (
               <div className="space-y-3 animate-in fade-in">
-                <div className="p-3.5 rounded-2xl border border-[#6366F1]/40 bg-gradient-to-r from-[#6366F1]/12 via-[var(--aurora-surface-solid)] to-transparent flex items-center justify-between gap-3 flex-wrap">
+                <div className="p-3.5 rounded-2xl border border-[var(--aurora-accent)]/35 bg-[var(--aurora-surface-solid)] flex items-center justify-between gap-3 flex-wrap">
                   <div>
                     <div className="flex items-center gap-2">
                       <Icon name="layers" size={15} />

@@ -83,10 +83,10 @@ export default function RegisterPage() {
           <div
             style={{
               width: 56, height: 56, borderRadius: 16,
-              background: "linear-gradient(135deg,#10B981,#34D399)",
+              background: "#059669",
               display: "flex", alignItems: "center", justifyContent: "center",
               margin: hasToken ? "0 0 16px" : "0 auto 16px",
-              boxShadow: "0 12px 40px -10px rgba(16,185,129,0.5)",
+              boxShadow: "0 8px 24px -8px rgba(5,150,105,0.45)",
             }}
           >
             <Icon name="check" size={28} style={{ color: "#fff" }} strokeWidth={2.4} />

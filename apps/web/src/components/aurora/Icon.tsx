@@ -15,9 +15,12 @@ type IconName =
   | "settings" | "target" | "code" | "terminal" | "edit"
   | "activity" | "zap" | "grid" | "inbox" | "command"
   | "arrow_up" | "arrow_down" | "refresh" | "check" | "close"
-  | "menu" | "trash" | "link" | "copy" | "external_link" | "eye" | "camera" | "microphone" | "sidebar" | "image" | "paperclip" | "download" | "pin" | "star" | "share" | "more" | "maximize" | "server";
+  | "menu" | "trash" | "link" | "copy" | "external_link" | "eye" | "camera" | "microphone" | "sidebar" | "image" | "paperclip" | "download" | "pin" | "star" | "share" | "more" | "maximize" | "server" | "alert" | "film" | "music";
 
 const PATHS: Record<IconName, React.ReactElement> = {
+  alert: <><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></>,
+  film: <><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="2" y1="7" x2="7" y2="7"/><line x1="2" y1="17" x2="7" y2="17"/><line x1="17" y1="17" x2="22" y2="17"/><line x1="17" y1="7" x2="22" y2="7"/></>,
+  music: <><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></>,
   server: <><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></>,
   maximize: <><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></>,
   more: <><circle cx="12" cy="12" r="1.2" fill="currentColor"/><circle cx="19" cy="12" r="1.2" fill="currentColor"/><circle cx="5" cy="12" r="1.2" fill="currentColor"/></>,
@@ -113,18 +116,18 @@ export function Icon({ name, size = 16, strokeWidth = 1.6, style, ...rest }: Ico
   );
 }
 
-/** Tool id → gradient accent + icon */
+/** Tool id → solid brand accent + hue */
 export const TOOL_HUE: Record<string, { h: number; bg: string }> = {
-  claude_code: { h: 22,  bg: "linear-gradient(135deg,#FB923C,#D97757)" },
-  openclaw:    { h: 0,   bg: "linear-gradient(135deg,#FF5E5E,#DC2626)" },
-  codex:       { h: 160, bg: "linear-gradient(135deg,#34D399,#10A37F)" },
-  antigravity: { h: 220, bg: "linear-gradient(135deg,#1E293B,#0F172A)" },
-  workbuddy:   { h: 165, bg: "linear-gradient(135deg,#0EC7A8,#00C885)" },
-  obsidian:    { h: 260, bg: "linear-gradient(135deg,#A78BFA,#7C3AED)" },
-  cursor:      { h: 220, bg: "linear-gradient(135deg,#1E293B,#090D16)" },
-  windsurf:    { h: 170, bg: "linear-gradient(135deg,#2DD4BF,#0D9488)" },
-  vscode:      { h: 210, bg: "linear-gradient(135deg,#38BDF8,#0284C7)" },
-  hermes:      { h: 200, bg: "linear-gradient(135deg,#38BDF8,#0EA5E9)" },
+  claude_code: { h: 22,  bg: "#D97757" },
+  openclaw:    { h: 0,   bg: "#DC2626" },
+  codex:       { h: 160, bg: "#10A37F" },
+  antigravity: { h: 220, bg: "#0F172A" },
+  workbuddy:   { h: 165, bg: "#0D9488" },
+  obsidian:    { h: 260, bg: "#7C3AED" },
+  cursor:      { h: 220, bg: "#111827" },
+  windsurf:    { h: 170, bg: "#0D9488" },
+  vscode:      { h: 210, bg: "#0284C7" },
+  hermes:      { h: 200, bg: "#0EA5E9" },
 };
 
 const PLATFORM_ICON_NAME: Record<string, IconName> = {
@@ -171,17 +174,6 @@ export function ToolGlyph({ id, size = 36 }: { id: string; size?: number }) {
           color: "#fff",
         }}
       >
-        <div
-          aria-hidden
-          style={{
-            position: "absolute",
-            inset: 0,
-            background: isDarkTile
-              ? "radial-gradient(120% 80% at 30% 0%, rgba(255,255,255,0.15), transparent 60%)"
-              : "radial-gradient(120% 80% at 30% 0%, rgba(255,255,255,0.3), transparent 60%)",
-            pointerEvents: "none",
-          }}
-        />
         <BrandMark
           id={id}
           size={markSize}
@@ -194,16 +186,14 @@ export function ToolGlyph({ id, size = 36 }: { id: string; size?: number }) {
 
   // Arc / Baseline: subtle brand-tinted tile + colored brand mark
   const pad = size >= 18;
-  const tint = pad ? brandColor + (theme === "dark" ? "20" : "10") : "transparent";
+  const tint = pad ? brandColor + (theme === "dark" ? "1E" : "12") : "transparent";
   return (
     <div
       style={{
         width: size,
         height: size,
         borderRadius: radius,
-        background: pad
-          ? `linear-gradient(180deg, ${tint}, transparent 70%), var(--aurora-surface-solid)`
-          : "transparent",
+        background: pad ? tint : "transparent",
         border: pad ? "1px solid var(--aurora-border)" : "none",
         display: "flex",
         alignItems: "center",
@@ -225,7 +215,7 @@ export function PlatformGlyph({ name, size = 32 }: { name: string; size?: number
         width: size,
         height: size,
         borderRadius: size * 0.3,
-        background: "linear-gradient(135deg,#1F1B3A,#2A1F4F)",
+        background: "#1E1B38",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",

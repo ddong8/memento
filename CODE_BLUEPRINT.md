@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `a60b5e61` · Updated: `2026-11-20`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `17f66525` · Updated: `2026-11-20`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,8 +16,8 @@
 - 规模 (Scale): 9 个子系统 · 38 组 API 路由 / 252 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 244 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `a43b15c3` (2026-11-20): fix(测试): 对齐 project_maintenance 抽离后的冷却时间与项目名 mock 路径
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 70（✅ 70 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `T-FOLLOWUP`, `T-RUN`, `F-ASK`, `F-FOLLOWUP`, `F-STOP`, `F-BLUEPRINT`, `R-STOP-ALL-AGENTS`, `R-ISLAND-CLEANUP`
+- 最近改动 (Latest): `a2a04adc` (2026-11-20): fix(dreaming): 补齐 dreaming_voice 拆离后的全部兼容符号重导出
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 70（✅ 70 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-SELF-EVOLVE`, `F-BLUEPRINT`, `R-NO-CONFIGMAP-HOTFIX`, `R-UI-COMMERCIAL`, `R-MEDIA-VIEW`, `R-LLM-IN-PROFILE`, `R-WECHAT-DRAFT`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -31,7 +31,7 @@
 | 8. Development & Verification Commands | L648-L665 |
 | 9. Recent Architectural Evolutions | L667-L674 |
 | 10. Key Environment Variables & Configuration | L676-L688 |
-| 11. 业务蓝图核对 (Business Blueprint Check) | L690-L698 |
+| 11. 业务蓝图核对 (Business Blueprint Check) | L690-L700 |
 
 ## 1. Project Overview & Tech Stack
 
@@ -635,15 +635,15 @@ erDiagram
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
 - [`packages/daemon/src/source-exec.ts`](packages/daemon/src/source-exec.ts) (8 commits)
-- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (7 commits)
-- [`apps/web/src/components/agent/ActiveRunsMonitor.tsx`](apps/web/src/components/agent/ActiveRunsMonitor.tsx) (7 commits)
 - [`apps/web/src/components/persona/DigitalTwinAvatar3D.tsx`](apps/web/src/components/persona/DigitalTwinAvatar3D.tsx) (7 commits)
+- [`apps/web/src/components/agent/ActiveRunsMonitor.tsx`](apps/web/src/components/agent/ActiveRunsMonitor.tsx) (6 commits)
 - [`packages/daemon/test/source-exec.test.ts`](packages/daemon/test/source-exec.test.ts) (6 commits)
 - [`server/server/services/workspace_relay.py`](server/server/services/workspace_relay.py) (6 commits)
+- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (5 commits)
 - [`apps/web/src/app/globals.css`](apps/web/src/app/globals.css) (5 commits)
 - [`apps/web/src/app/memory/page.tsx`](apps/web/src/app/memory/page.tsx) (5 commits)
-- [`apps/web/src/components/memory/MemoryGalaxy3D.tsx`](apps/web/src/components/memory/MemoryGalaxy3D.tsx) (5 commits)
 - [`apps/web/src/components/viewers/MediaInspectorPanel.tsx`](apps/web/src/components/viewers/MediaInspectorPanel.tsx) (5 commits)
+- [`packages/daemon/src/ws-client.ts`](packages/daemon/src/ws-client.ts) (5 commits)
 
 ## 8. Development & Verification Commands
 
@@ -666,12 +666,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `a2a04adc` (2026-11-20): fix(dreaming): 补齐 dreaming_voice 拆离后的全部兼容符号重导出
+- `6797c5ef` (2026-11-20): ci(lint): 升级 CI 的 ruff 至 0.17.6 以支持 ASYNC240 异步阻塞门禁
+- `9ad8cdff` (2026-11-20): refactor(性能与防线): 清零后端异步阻塞 IO 并锁入 CI、补齐认证频控与头像魔数校验、清零前端 set-state-in-effect 告警、K8s 迁移 initContainer 化并拆解 MediaPreview 与 dreaming_service
 - `a43b15c3` (2026-11-20): fix(测试): 对齐 project_maintenance 抽离后的冷却时间与项目名 mock 路径
 - `1de43772` (2026-11-20): feat(架构与安全): 全维度安全隔离加固、并发稳定性收敛、CI 防线升级与核心模块拆解；升级客户端版本至 v1.0.146
 - `cf0d0531` (2026-11-20): fix(直传): ICE 在设置对端描述时瞬间失败，设备应答自动换新连接重试一次，修复 CI 上 WebRTC 测试偶发失败
-- `1392ce7d` (2026-11-20): feat(对话): 对话开始后固定智能体、设备、项目和会话，要换请新建对话，避免上下文错乱
-- `b7977b7b` (2026-11-19): feat(额度): Antigravity 每个模型都显示额度，并显示 Gemini、Claude 和 GPT、Gemini 4 Argon 各组的周额度和 5 小时额度；升级客户端版本至 v1.0.145
-- `58a2a3db` (2026-11-19): fix(Antigravity): 服务器上用 agy 命令行跑的任务，后台命令跑完了不再显示还有后台任务没跑完；升级客户端版本至 v1.0.144
 
 ## 10. Key Environment Variables & Configuration
 
@@ -694,8 +694,10 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ### 最近提交碰到的业务条目（改动后复查它们还成不成立）
 
+- `a2a04adc` fix(dreaming): 补齐 dreaming_voice 拆离后的全部兼容符号重导出 → `R-SELF-EVOLVE`
+- `6797c5ef` ci(lint): 升级 CI 的 ruff 至 0.17.6 以支持 ASYNC240 异步阻塞门禁 → `F-BLUEPRINT`
+- `9ad8cdff` refactor(性能与防线): 清零后端异步阻塞 IO 并锁入 CI、补齐认证频控与头像魔数校验、清零前端 set-state-in-effect 告警、K8 → `F-BLUEPRINT`, `R-NO-CONFIGMAP-HOTFIX`, `R-SELF-EVOLVE`, `R-UI-COMMERCIAL`, `R-MEDIA-VIEW`, `R-LLM-IN-PROFILE`, `R-WECHAT-DRAFT`
 - `1de43772` feat(架构与安全): 全维度安全隔离加固、并发稳定性收敛、CI 防线升级与核心模块拆解；升级客户端版本至 v1.0.146 → `T-FOLLOWUP`, `T-RUN`, `F-ASK`, `F-FOLLOWUP`, `F-STOP`, `F-BLUEPRINT`, `R-STOP-ALL-AGENTS`, `R-ISLAND-CLEANUP`, `R-ENT-DEVICE-POLICY`, `R-RUN-OUTLIVES-PAGE`, `R-CONFIG-LOCK`, `R-CLAUDE-TUI-SYNC`, `R-APP-NAME`, `R-DOCS-WRITE-LIGHT`, `R-ALL-TYPESCRIPT`, `R-LOGIN-PERSIST`, `S-RUN-STATE`, `S-CLIENT-VERSION`
-- `1392ce7d` feat(对话): 对话开始后固定智能体、设备、项目和会话，要换请新建对话，避免上下文错乱 → `F-RESUME`, `R-CONFIG-LOCK`, `R-NEWCHAT-WORKS`
 
 ---
 _Auto-maintained by `scripts/project_blueprint.mjs` (v20261126) & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._

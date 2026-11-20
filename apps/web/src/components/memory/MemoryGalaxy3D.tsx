@@ -159,13 +159,8 @@ export default function MemoryGalaxy3D({
   const ensureLoopRunningRef = useRef<(() => void) | null>(null);
 
   const isPausedRef = useRef(isPaused);
-  isPausedRef.current = isPaused;
-
   const isPanelCollapsedRef = useRef(isPanelCollapsed);
-  isPanelCollapsedRef.current = isPanelCollapsed;
-
   const isRotatingRef = useRef(isRotating);
-  isRotatingRef.current = isRotating;
 
   const hoveredNodeIdRef = useRef<string | null>(null);
 
@@ -197,13 +192,17 @@ export default function MemoryGalaxy3D({
 
   // Keep ref to latest callbacks & props for render loop
   const onSelectNodeRef = useRef(onSelectNode);
-  onSelectNodeRef.current = onSelectNode;
-
   const selectedNodeIdRef = useRef(selectedNodeId);
-  selectedNodeIdRef.current = selectedNodeId;
-
   const dreamingActiveRef = useRef(dreamingActive);
-  dreamingActiveRef.current = dreamingActive;
+
+  useEffect(() => {
+    isPausedRef.current = isPaused;
+    isPanelCollapsedRef.current = isPanelCollapsed;
+    isRotatingRef.current = isRotating;
+    onSelectNodeRef.current = onSelectNode;
+    selectedNodeIdRef.current = selectedNodeId;
+    dreamingActiveRef.current = dreamingActive;
+  }, [isPaused, isPanelCollapsed, isRotating, onSelectNode, selectedNodeId, dreamingActive]);
 
   // Wake up render loop immediately when unpaused or interacted (e.g. tab switch in RouteKeepAlive)
   useEffect(() => {

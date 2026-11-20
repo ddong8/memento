@@ -187,7 +187,7 @@ export function ProactiveAgentView() {
         await sendLocalNotification("今日复盘", res.message, "/daily");
         setTestMessage(`已推送：${res.message}`);
       } else {
-        setTestMessage(`ℹ️ ${res.message}`);
+        setTestMessage(res.message);
       }
       setTimeout(() => setTestMessage(null), 8000);
     } catch (e: unknown) {
@@ -253,14 +253,14 @@ export function ProactiveAgentView() {
                   height: 48,
                   borderRadius: 16,
                   background: settings.enabled
-                    ? "linear-gradient(135deg, #6D28D9 0%, #EC4899 50%, #06B6D4 100%)"
+                    ? "var(--aurora-accent, #6D28D9)"
                     : "var(--aurora-chip)",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
                   color: "#fff",
                   boxShadow: settings.enabled
-                    ? "0 6px 20px -3px rgba(124, 58, 237, 0.42), inset 0 1px 1px rgba(255, 255, 255, 0.4)"
+                    ? "0 4px 14px -3px color-mix(in srgb, var(--aurora-accent, #6D28D9) 40%, transparent)"
                     : "none",
                   flexShrink: 0,
                   transition: "all 0.3s ease",
@@ -309,12 +309,12 @@ export function ProactiveAgentView() {
 
           {/* Feature Highlight Tags */}
           <div className="flex items-center gap-2 flex-wrap">
-            {[
-              { icon: "🌅", label: "晨间主动简报" },
-              { icon: "🌌", label: "夜间认知整理" },
-              { icon: "⚡", label: "零延迟自保活" },
-              { icon: "🚨", label: "跨设备掉线告警" },
-            ].map((tag, idx) => (
+            {([
+              { icon: "sun" as const, label: "晨间主动简报" },
+              { icon: "moon" as const, label: "夜间认知整理" },
+              { icon: "zap" as const, label: "零延迟自保活" },
+              { icon: "alert" as const, label: "跨设备掉线告警" },
+            ]).map((tag, idx) => (
               <span
                 key={idx}
                 className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all"
@@ -325,7 +325,7 @@ export function ProactiveAgentView() {
                   boxShadow: "0 1px 3px rgba(0, 0, 0, 0.02)",
                 }}
               >
-                <span>{tag.icon}</span>
+                <Icon name={tag.icon} size={12} style={{ color: "var(--aurora-accent)" }} />
                 <span>{tag.label}</span>
               </span>
             ))}
@@ -382,16 +382,15 @@ export function ProactiveAgentView() {
                     width: 34,
                     height: 34,
                     borderRadius: 10,
-                    background: "linear-gradient(135deg, #F59E0B 0%, #EF4444 100%)",
+                    background: "#D97706",
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
-                    boxShadow: "0 3px 10px -2px rgba(245, 158, 11, 0.4)",
+                    boxShadow: "0 3px 10px -2px rgba(217, 119, 6, 0.32)",
                     color: "#fff",
-                    fontSize: 15,
                   }}
                 >
-                  🌅
+                  <Icon name="sun" size={17} />
                 </div>
                 <div>
                   <h4 className="text-sm font-semibold text-[var(--aurora-fg1)]">晨间主动简报</h4>
@@ -458,16 +457,15 @@ export function ProactiveAgentView() {
                     width: 34,
                     height: 34,
                     borderRadius: 10,
-                    background: "linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%)",
+                    background: "#4F46E5",
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
-                    boxShadow: "0 3px 10px -2px rgba(99, 102, 241, 0.4)",
+                    boxShadow: "0 3px 10px -2px rgba(79, 70, 229, 0.32)",
                     color: "#fff",
-                    fontSize: 15,
                   }}
                 >
-                  🌌
+                  <Icon name="moon" size={17} />
                 </div>
                 <div>
                   <h4 className="text-sm font-semibold text-[var(--aurora-fg1)]">晚间认知复盘</h4>
@@ -520,9 +518,9 @@ export function ProactiveAgentView() {
         <div
           className="p-3.5 text-xs rounded-xl text-center font-medium transition-all duration-300 shadow-sm"
           style={{
-            background: testMessage.startsWith("✅") ? "rgba(16,185,129,0.12)" : testMessage.startsWith("❌") ? "rgba(239,68,68,0.12)" : "rgba(148,163,184,0.12)",
-            color: testMessage.startsWith("✅") ? "#10B981" : testMessage.startsWith("❌") ? "#EF4444" : "var(--aurora-fg2)",
-            border: `1px solid ${testMessage.startsWith("✅") ? "rgba(16,185,129,0.28)" : testMessage.startsWith("❌") ? "rgba(239,68,68,0.28)" : "rgba(148,163,184,0.25)"}`,
+            background: testMessage.includes("异常") ? "rgba(239,68,68,0.12)" : testMessage.includes("已") ? "rgba(16,185,129,0.12)" : "rgba(148,163,184,0.12)",
+            color: testMessage.includes("异常") ? "#EF4444" : testMessage.includes("已") ? "#10B981" : "var(--aurora-fg2)",
+            border: `1px solid ${testMessage.includes("异常") ? "rgba(239,68,68,0.28)" : testMessage.includes("已") ? "rgba(16,185,129,0.28)" : "rgba(148,163,184,0.25)"}`,
           }}
         >
           {testMessage}
@@ -624,8 +622,8 @@ export function ProactiveAgentView() {
             disabled={saving}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold text-white transition-all duration-200 cursor-pointer shadow-sm disabled:opacity-50"
             style={{
-              background: "linear-gradient(135deg, #7C3AED 0%, #6366F1 100%)",
-              boxShadow: "0 4px 14px -3px rgba(124, 58, 237, 0.4)",
+              background: "var(--aurora-accent, #6D28D9)",
+              boxShadow: "0 3px 10px -2px color-mix(in srgb, var(--aurora-accent, #6D28D9) 35%, transparent)",
             }}
           >
             <Icon name={saving ? "refresh" : "check"} size={13} className={saving ? "animate-spin" : ""} />

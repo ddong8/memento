@@ -1208,7 +1208,7 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
           />
         </div>
       ) : viewMode === "mobile" ? (
-        <div className="flex justify-center py-4 px-2 bg-gradient-to-b from-black/40 via-black/20 to-black/40 rounded-3xl border border-[var(--aurora-border)]/40 select-text overflow-hidden">
+        <div className="flex justify-center py-4 px-2 bg-black/30 rounded-3xl border border-[var(--aurora-border)]/40 select-text overflow-hidden">
           {/* iPhone 16 Pro 机身模拟容器 */}
           <div className="w-full max-w-[375px] rounded-[48px] overflow-hidden border-[8px] border-slate-800 bg-[#ffffff] text-[#222222] shadow-[0_25px_60px_-15px_rgba(0,0,0,0.7)] flex flex-col transition-all">
             {/* 顶部灵动岛与状态栏 */}
@@ -1297,7 +1297,7 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
                 <div
                   className="mx-5 my-2 rounded-2xl overflow-hidden shadow-md relative text-white p-4 min-h-[140px] flex flex-col justify-end shrink-0 border border-black/5"
                   style={{
-                    background: coverUrl ? undefined : `linear-gradient(135deg, #090d16 0%, ${activeTheme.color}38 50%, #090d16 100%)`,
+                    background: coverUrl ? undefined : "#0F172A",
                     boxShadow: `0 10px 25px -5px ${activeTheme.color}22`,
                   }}
                 >
@@ -2129,8 +2129,9 @@ function OfficeDocViewer({ item }: { item: MediaItem }) {
     ? {
         name: "演示文稿 (Presentation)",
         appHint: "PowerPoint / Keynote / WPS 演示",
-        icon: "📽️",
-        accentColor: "from-orange-500/20 to-amber-500/5",
+        icon: "layers" as const,
+        iconBg: "bg-orange-500/15 text-orange-400",
+        surfaceBg: "bg-orange-500/10",
         borderColor: "border-orange-500/30",
         badgeColor: "bg-orange-500/15 text-orange-300 border-orange-500/30",
       }
@@ -2138,16 +2139,18 @@ function OfficeDocViewer({ item }: { item: MediaItem }) {
     ? {
         name: "电子表格 (Spreadsheet)",
         appHint: "Microsoft Excel / Numbers / WPS 表格",
-        icon: "📊",
-        accentColor: "from-emerald-500/20 to-teal-500/5",
+        icon: "grid" as const,
+        iconBg: "bg-emerald-500/15 text-emerald-400",
+        surfaceBg: "bg-emerald-500/10",
         borderColor: "border-emerald-500/30",
         badgeColor: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
       }
     : {
         name: "办公文档 (Word Document)",
         appHint: "Microsoft Word / Pages / WPS 文字",
-        icon: "📝",
-        accentColor: "from-blue-500/20 to-indigo-500/5",
+        icon: "file_text" as const,
+        iconBg: "bg-blue-500/15 text-blue-400",
+        surfaceBg: "bg-blue-500/10",
         borderColor: "border-blue-500/30",
         badgeColor: "bg-blue-500/15 text-blue-300 border-blue-500/30",
       };
@@ -2156,9 +2159,11 @@ function OfficeDocViewer({ item }: { item: MediaItem }) {
     <div className="w-full flex flex-col gap-4 p-3 sm:p-5 rounded-2xl border border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/90 shadow-xl text-left">
       {renderFullscreenPortal()}
       {/* Brand Header Banner */}
-      <div className={`p-3.5 sm:p-4 rounded-xl border ${formatMeta.borderColor} bg-gradient-to-br ${formatMeta.accentColor} flex items-start justify-between gap-3`}>
+      <div className={`p-3.5 sm:p-4 rounded-xl border ${formatMeta.borderColor} ${formatMeta.surfaceBg} flex items-start justify-between gap-3`}>
         <div className="flex items-start gap-3 min-w-0">
-          <span className="text-3xl select-none p-1 shrink-0">{formatMeta.icon}</span>
+          <div className={`w-10 h-10 rounded-xl ${formatMeta.iconBg} flex items-center justify-center shrink-0`}>
+            <Icon name={formatMeta.icon} size={20} />
+          </div>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
               <span className={`text-[10px] font-mono uppercase px-2 py-0.5 rounded-full border ${formatMeta.badgeColor} font-semibold shrink-0`}>
@@ -2290,7 +2295,7 @@ function OfficeDocViewer({ item }: { item: MediaItem }) {
                 className="text-[var(--aurora-accent)] hover:underline flex items-center gap-1 font-semibold cursor-pointer"
               >
                 <FiMaximize2 className="w-3.5 h-3.5" />
-                <span>全屏沉浸放映 ⛶</span>
+                <span>全屏沉浸放映</span>
               </button>
               <button
                 type="button"
@@ -2302,7 +2307,7 @@ function OfficeDocViewer({ item }: { item: MediaItem }) {
                 className="text-[var(--aurora-accent)] hover:underline flex items-center gap-1 font-medium cursor-pointer"
               >
                 <FiRotateCw className="w-3.5 h-3.5" />
-                <span>横屏 🔄</span>
+                <span>横屏</span>
               </button>
             </div>
           </div>
@@ -2350,7 +2355,7 @@ function OfficeDocViewer({ item }: { item: MediaItem }) {
                 className="text-[var(--aurora-accent)] hover:underline flex items-center gap-1 font-semibold cursor-pointer"
               >
                 <FiMaximize2 className="w-3.5 h-3.5" />
-                <span>全屏放映 ⛶</span>
+                <span>全屏放映</span>
               </button>
               <button
                 type="button"
@@ -2362,7 +2367,7 @@ function OfficeDocViewer({ item }: { item: MediaItem }) {
                 className="text-[var(--aurora-accent)] hover:underline flex items-center gap-1 font-medium cursor-pointer"
               >
                 <FiRotateCw className="w-3.5 h-3.5" />
-                <span>横屏 🔄</span>
+                <span>横屏</span>
               </button>
             </div>
           </div>

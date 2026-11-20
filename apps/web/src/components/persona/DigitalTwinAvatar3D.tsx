@@ -226,16 +226,12 @@ export default function DigitalTwinAvatar3D({
   const [isRotating, setIsRotating] = useState(false);
   const [isVoiceEnabled, setIsVoiceEnabled] = useState(true);
   const [viewMode, setViewMode] = useState<"full" | "close">("full");
-  const [hudSynapse, setHudSynapse] = useState<SynapsePulse | null>(null);
+  const [dismissedSynapseTs, setDismissedSynapseTs] = useState<number | null>(null);
+  const hudSynapse = activeSynapse && activeSynapse.timestamp !== dismissedSynapseTs ? activeSynapse : null;
 
   const isPausedRef = useRef(isPaused);
-  isPausedRef.current = isPaused;
-
   const isPanelCollapsedRef = useRef(isPanelCollapsed);
-  isPanelCollapsedRef.current = isPanelCollapsed;
-
   const isRotatingRef = useRef(isRotating);
-  isRotatingRef.current = isRotating;
 
   const ensureLoopRunningRef = useRef<() => void>(() => {});
 
@@ -263,7 +259,13 @@ export default function DigitalTwinAvatar3D({
   const activeMixerRef = useRef<THREE.AnimationMixer | null>(null);
   const cartoonRef = useRef<CartoonAvatar | null>(null);
   const avatarSettingsRef = useRef(avatarSettings);
-  avatarSettingsRef.current = avatarSettings;
+
+  useEffect(() => {
+    isPausedRef.current = isPaused;
+    isPanelCollapsedRef.current = isPanelCollapsed;
+    isRotatingRef.current = isRotating;
+    avatarSettingsRef.current = avatarSettings;
+  }, [isPaused, isPanelCollapsed, isRotating, avatarSettings]);
 
   // Dynamic animation states in frame loop
   const activeDimRef = useRef<PersonaDimension>(activeDimension);
@@ -334,7 +336,6 @@ export default function DigitalTwinAvatar3D({
       pulseIntensityRef.current = activeSynapse.complianceStatus === "intercepted" ? 3.0 : 2.4;
       nodProgressRef.current = 1.0;
       isInterceptRef.current = activeSynapse.complianceStatus === "intercepted";
-      setHudSynapse(activeSynapse);
 
       // Voice read out
       if (activeSynapse.complianceStatus === "intercepted") {
@@ -344,7 +345,7 @@ export default function DigitalTwinAvatar3D({
       }
 
       const timer = setTimeout(() => {
-        setHudSynapse((curr) => (curr?.timestamp === activeSynapse.timestamp ? null : curr));
+        setDismissedSynapseTs(activeSynapse.timestamp);
         isInterceptRef.current = false;
       }, 4000);
       return () => clearTimeout(timer);
@@ -1499,7 +1500,7 @@ export default function DigitalTwinAvatar3D({
           <div className="hidden sm:flex items-center gap-1.5 sm:gap-2.5 bg-black/65 backdrop-blur-xl px-2.5 sm:px-3.5 py-1 sm:py-1.5 rounded-full border border-white/15 shadow-xl shrink-0">
             <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-[#10B981] animate-ping" />
             <div className="flex items-center gap-1.5 sm:gap-2 text-[11px] sm:text-xs">
-              <span className="font-bold text-transparent bg-clip-text bg-gradient-to-r from-[#F59E0B] via-[#EC4899] to-[#8B5CF6] font-mono tracking-wide">
+              <span className="font-bold text-[#F59E0B] font-mono tracking-wide">
                 <span className="hidden sm:inline">{evolutionStage}</span>
               </span>
             </div>
@@ -1545,7 +1546,7 @@ export default function DigitalTwinAvatar3D({
                 onSparkEvolution();
               }}
               title="激发今日心智进化共鸣"
-              className="px-2 sm:px-2.5 py-1 rounded-xl text-[11px] font-medium transition-all backdrop-blur-md border bg-gradient-to-r from-[#F59E0B]/20 to-[#EC4899]/20 hover:from-[#F59E0B]/35 hover:to-[#EC4899]/35 text-[#F59E0B] border-[#F59E0B]/40 hover:scale-102 flex items-center gap-1 shadow-md"
+              className="px-2 sm:px-2.5 py-1 rounded-xl text-[11px] font-medium transition-all backdrop-blur-md border bg-[#F59E0B]/20 hover:bg-[#F59E0B]/30 text-[#F59E0B] border-[#F59E0B]/40 hover:scale-102 flex items-center gap-1 shadow-md"
             >
               <Icon name="lightning" size={12} />
               <span className="hidden xl:inline">共鸣</span>

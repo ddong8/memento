@@ -208,7 +208,7 @@ export const WaitingQuestionBanner = memo(function WaitingQuestionBanner({
         margin: "0 0 8px 0",
         padding: "7px 12px",
         borderRadius: 10,
-        background: "linear-gradient(90deg, rgba(245,158,11,0.18), rgba(245,158,11,0.08))",
+        background: "var(--aurora-warn-soft, rgba(217, 119, 6, 0.12))",
         border: "1px solid rgba(245,158,11,0.4)",
         display: "flex",
         alignItems: "center",

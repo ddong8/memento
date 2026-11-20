@@ -445,7 +445,10 @@ export const WeChatPublishModal = memo(function WeChatPublishModal({
                   <p className="text-[11px] font-semibold text-[var(--aurora-fg2)]">核心要点速览：</p>
                   <ul className="text-[11px] text-[var(--aurora-fg3)] space-y-1 pl-1">
                     {markdown.split("\n").filter((l) => l.trim().length > 3).slice(0, 3).map((l, i) => (
-                      <li key={i}>✨ {l.replace(/^[#\-*\d\.\s]+/, "").slice(0, 40)}</li>
+                      <li key={i} className="flex items-start gap-1.5">
+                        <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-rose-400 shrink-0" />
+                        <span>{l.replace(/^[#\-*\d\.\s]+/, "").slice(0, 40)}</span>
+                      </li>
                     ))}
                   </ul>
                   <p className="text-[11px] text-rose-400 font-medium pt-1">

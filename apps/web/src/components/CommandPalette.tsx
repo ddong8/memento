@@ -698,7 +698,7 @@ export default function CommandPalette() {
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 13.5, color: "var(--aurora-fg1)", fontWeight: 500 }} className="truncate">
                         {isZh ? "向 AI 执事提问：" : "Ask AI Deacon: "}
-                        <span style={{ color: "var(--aurora-brand-from)" }}>"{query.trim()}"</span>
+                        <span style={{ color: "var(--aurora-brand-from)" }}>“{query.trim()}”</span>
                       </div>
                       <div style={{ fontSize: 11.5, color: "var(--aurora-fg4)" }}>
                         {isZh ? "结合多智能体与记忆库进行心领神会与深度推理" : "Reason with core memories and multi-agent context"}

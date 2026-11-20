@@ -251,12 +251,11 @@ export default function AvatarOnboardingModal({
           boxShadow: `0 0 50px ${themeColor}20, 0 20px 40px rgba(0,0,0,0.8)`,
         }}
       >
-        {/* 顶部绚丽流光条 */}
+        {/* 顶部主题装饰条 */}
         <div
-          className="h-1.5 w-full shrink-0"
+          className="h-1 w-full shrink-0"
           style={{
-            background: `linear-gradient(90deg, ${themeColor}, #3B82F6, #EC4899, ${themeColor})`,
-            backgroundSize: "200% 100%",
+            background: themeColor,
           }}
         />
 
@@ -388,8 +387,8 @@ export default function AvatarOnboardingModal({
                       : "bg-white/5 border-white/10 hover:border-white/30 hover:bg-white/10"
                   }`}
                 >
-                  <div className="w-16 h-16 rounded-2xl bg-blue-500/20 flex items-center justify-center text-3xl">
-                    👦
+                  <div className="w-16 h-16 rounded-2xl bg-blue-500/20 text-blue-300 flex items-center justify-center">
+                    <Icon name="user" size={28} />
                   </div>
                   <div>
                     <h4 className="font-bold text-sm text-white">男性角色 · He / Him</h4>
@@ -416,8 +415,8 @@ export default function AvatarOnboardingModal({
                       : "bg-white/5 border-white/10 hover:border-white/30 hover:bg-white/10"
                   }`}
                 >
-                  <div className="w-16 h-16 rounded-2xl bg-pink-500/20 flex items-center justify-center text-3xl">
-                    👧
+                  <div className="w-16 h-16 rounded-2xl bg-pink-500/20 text-pink-300 flex items-center justify-center">
+                    <Icon name="sparkles" size={28} />
                   </div>
                   <div>
                     <h4 className="font-bold text-sm text-white">女性角色 · She / Her</h4>
@@ -444,8 +443,8 @@ export default function AvatarOnboardingModal({
                       : "bg-white/5 border-white/10 hover:border-white/30 hover:bg-white/10"
                   }`}
                 >
-                  <div className="w-16 h-16 rounded-2xl bg-purple-500/20 flex items-center justify-center text-3xl">
-                    🤖
+                  <div className="w-16 h-16 rounded-2xl bg-purple-500/20 text-purple-300 flex items-center justify-center">
+                    <Icon name="brain" size={28} />
                   </div>
                   <div>
                     <h4 className="font-bold text-sm text-white">硅基智能体 · AI Agent</h4>
@@ -616,8 +615,8 @@ export default function AvatarOnboardingModal({
                       </div>
                     ) : (
                       <div className="space-y-2 py-4">
-                        <div className="w-14 h-14 rounded-2xl bg-white/10 mx-auto flex items-center justify-center text-2xl">
-                          📷
+                        <div className="w-14 h-14 rounded-2xl bg-white/10 text-white/80 mx-auto flex items-center justify-center">
+                          <Icon name="camera" size={24} />
                         </div>
                         <h4 className="font-bold text-sm text-white">点击选择或拖放您的自拍/生活照</h4>
                         <p className="text-xs text-white/50 max-w-sm">
@@ -736,7 +735,7 @@ export default function AvatarOnboardingModal({
                   <div>
                     <h4 className="font-bold text-base text-white">{nickname || "极客孪生"}</h4>
                     <p className="text-xs text-white/60 font-mono mt-0.5">
-                      {activePreset.name} · {gender === "male" ? "男 👦" : gender === "female" ? "女 👧" : "智能体 🤖"}
+                      {activePreset.name} · {gender === "male" ? "男性角色" : gender === "female" ? "女性角色" : "硅基智能体"}
                     </p>
                   </div>
 

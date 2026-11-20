@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useIsClient } from "@/hooks/useClientEnv";
 import {
   FiPlay,
   FiPause,
@@ -256,13 +257,9 @@ export function VideoPlayer({
   const [showRateMenu, setShowRateMenu] = useState<boolean>(false);
   const [quality, setQuality] = useState<"1080p" | "720p">("1080p");
   const [showQualityMenu, setShowQualityMenu] = useState<boolean>(false);
-  const [isClientMounted, setIsClientMounted] = useState<boolean>(false);
+  const isClientMounted = useIsClient();
   const savedTimeBeforePortal = useRef<number>(0);
   const wasPlayingBeforePortal = useRef<boolean>(false);
-
-  useEffect(() => {
-    setIsClientMounted(true);
-  }, []);
   const [vttBlobUrl, setVttBlobUrl] = useState<string | null>(null);
   const [hasSubtitles, setHasSubtitles] = useState<boolean>(false);
   const [subtitlesVisible, setSubtitlesVisible] = useState<boolean>(true);
@@ -295,6 +292,7 @@ export function VideoPlayer({
   const gestureHideTimerRef = useRef<NodeJS.Timeout | null>(null);
   const lastSavePosTimeRef = useRef<number>(0);
   const retryCountRef = useRef<number>(0);
+  const [retryCount, setRetryCount] = useState<number>(0);
   const retryTimerRef = useRef<NodeJS.Timeout | null>(null);
   const touchStartRef = useRef<{
     x: number;
@@ -456,16 +454,16 @@ export function VideoPlayer({
     const touchX = touch.clientX - rect.left;
     const touchY = touch.clientY - rect.top;
 
+    const now = e.timeStamp;
     touchStartRef.current = {
       x: touchX,
       y: touchY,
-      time: Date.now(),
+      time: now,
       brightness,
       volume,
       mode: "none",
     };
 
-    const now = Date.now();
     const timeDelta = now - lastTapRef.current.time;
     const distDelta = Math.abs(touchX - lastTapRef.current.x);
 
@@ -601,31 +599,36 @@ export function VideoPlayer({
     return src;
   }, [src, quality]);
 
-  const [resolved, setResolved] = useState<ResolvedMedia>(() => resolveMediaUrl(activeSrc));
+  const relayMedia = useMemo(() => resolveMediaUrl(activeSrc), [activeSrc]);
+  const [resolved, setResolved] = useState<ResolvedMedia>(() => relayMedia);
   // A file on one of the user's devices plays straight from it over WebRTC when a direct path exists
   // (same LAN, IPv6, punched NAT), else through the server's stream URL. Briefly held back while trying.
-  const [direct, setDirect] = useState<"trying" | "on" | "off">("off");
-  const resumeAtRef = useRef<number | null>(null);
-  useEffect(() => {
-    const relay = resolveMediaUrl(activeSrc);
-    setResolved(relay);
+  const [direct, setDirect] = useState<"trying" | "on" | "off">(() =>
+    relayMedia.playUrl.includes("/files/stream/") ? "trying" : "off"
+  );
+  const [prevActiveSrc, setPrevActiveSrc] = useState(activeSrc);
+  if (prevActiveSrc !== activeSrc) {
+    setPrevActiveSrc(activeSrc);
+    setResolved(relayMedia);
     setHasError(false);
     setIsLoading(true);
-    if (!relay.playUrl.includes("/files/stream/")) {
-      setDirect("off");
+    setDirect(relayMedia.playUrl.includes("/files/stream/") ? "trying" : "off");
+  }
+  const resumeAtRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!relayMedia.playUrl.includes("/files/stream/")) {
       return;
     }
     let cancelled = false;
-    setDirect("trying");
-    void directMediaUrl(relay.playUrl).then((url) => {
+    void directMediaUrl(relayMedia.playUrl).then((url) => {
       if (cancelled) return;
-      if (url) setResolved({ ...relay, playUrl: url });
+      if (url) setResolved({ ...relayMedia, playUrl: url });
       setDirect(url ? "on" : "off");
     });
     return () => {
       cancelled = true;
     };
-  }, [activeSrc]);
+  }, [relayMedia]);
 
   // Viewport Intersection Preload Pipeline (instant first frame playback)
   useEffect(() => {
@@ -794,6 +797,7 @@ export function VideoPlayer({
 
     if (retryCountRef.current < 3) {
       retryCountRef.current += 1;
+      setRetryCount(retryCountRef.current);
       setIsRecovering(true);
       if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
       retryTimerRef.current = setTimeout(() => {
@@ -812,6 +816,7 @@ export function VideoPlayer({
             setIsRecovering(false);
             setHasError(false);
             retryCountRef.current = 0;
+            setRetryCount(0);
             videoRef.current?.removeEventListener("canplay", onCanPlayOnce);
           };
           videoRef.current.addEventListener("canplay", onCanPlayOnce, { once: true });
@@ -1729,8 +1734,8 @@ export function VideoPlayer({
             ? { aspectRatio: `${aspectRatio}` }
             : undefined
         }
-        onClick={() => {
-          if (Date.now() - lastTapRef.current.time < 280) return;
+        onClick={(e) => {
+          if (e.timeStamp - lastTapRef.current.time < 280) return;
           if (!effectiveFullscreen) {
             handleEnterFullscreenAndPlay();
           } else {
@@ -1922,7 +1927,7 @@ export function VideoPlayer({
         {isRecovering && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 pointer-events-none z-25 backdrop-blur-xs">
             <div className="w-9 h-9 border-3 border-[var(--aurora-accent)]/30 border-t-[var(--aurora-accent)] rounded-full animate-spin mb-2" />
-            <div className="text-white text-xs font-medium">网络抖动，正在自愈恢复播放（{retryCountRef.current}/3）...</div>
+            <div className="text-white text-xs font-medium">网络抖动，正在自愈恢复播放（{retryCount}/3）...</div>
           </div>
         )}
 
@@ -2481,7 +2486,7 @@ export function VideoPlayer({
             </button>
 
             {/* iOS Native Fullscreen Button (if supported) */}
-            {typeof window !== "undefined" && typeof (videoRef.current as any)?.webkitEnterFullscreen === "function" && (
+            {typeof HTMLVideoElement !== "undefined" && typeof (HTMLVideoElement.prototype as any).webkitEnterFullscreen === "function" && (
               <button
                 type="button"
                 onClick={enterNativeFullscreen}
@@ -2762,7 +2767,7 @@ export function ImagePreview({ src, alt, className = "" }: ImagePreviewProps) {
   if (loadError) {
     return (
       <div className={`my-2 inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border border-[var(--aurora-border)] bg-[var(--aurora-chip)]/40 text-xs text-[var(--aurora-fg2)] ${className}`}>
-        <span className="text-amber-400 shrink-0">🖼️</span>
+        <span className="text-amber-400 shrink-0"><FiImage className="w-3.5 h-3.5" /></span>
         <span className="font-mono text-xs truncate max-w-[240px] text-[var(--aurora-fg1)]" title={displayTitle}>
           {displayTitle}
         </span>

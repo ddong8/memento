@@ -13,7 +13,16 @@ const EMOJI_ALONE = /(>\s*[\u{1F300}-\u{1FAFF}☀-➿⭐✅❌]️?\s*<)|(\?\s*"
 const SKIP = /\\s|\\\[|RegExp|\.test\(|\.match\(|\.replace\(|startsWith|includes\(/;
 // Files that render agent output / markdown, where emoji come from the content itself; the video
 // player's on-screen volume / brightness / lock flashes (a media HUD, like a TV's)
-const ALLOW = new Set(["components/viewers/MarkdownViewer.tsx", "lib/ask/cache.ts", "lib/native-notify.ts", "components/landing/WorkbenchBlock.tsx", "components/viewers/MermaidBlock.tsx", "components/viewers/MediaPreview.tsx"]);
+const ALLOW = new Set(["components/viewers/MarkdownViewer.tsx", "lib/ask/cache.ts", "lib/native-notify.ts", "components/viewers/MediaPreview.tsx"]);
+
+// Functional gradients that remain intentional (legibility scrims, fade masks, slider fill, guarded chip)
+const GRADIENT_ALLOW = new Set([
+  "app/projects/[id]/page.tsx",
+  "components/agent/ActiveRunsMonitor.tsx",
+  "components/projects/BusinessBlueprintCard.tsx",
+  "components/viewers/MediaInspectorPanel.tsx",
+  "components/viewers/MediaPreview.tsx",
+]);
 
 function files(dir: string): string[] {
   return readdirSync(dir).flatMap((n) => {
@@ -40,5 +49,22 @@ describe("UI polish guard", () => {
   it("the top bar has no language or skin switcher", () => {
     const header = readFileSync(join(SRC, "components/layout/Header.tsx"), "utf8");
     expect(header).not.toMatch(/SkinPicker|setLocale/);
+  });
+
+  it("business UI components avoid decorative gradients", () => {
+    const hits: string[] = [];
+    for (const f of files(SRC)) {
+      if (!f.endsWith(".tsx")) continue;
+      const rel = f.slice(SRC.length + 1);
+      if (GRADIENT_ALLOW.has(rel)) continue;
+      readFileSync(f, "utf8").split("\n").forEach((line, i) => {
+        const t = line.trim();
+        if (t.startsWith("//") || t.startsWith("*") || t.startsWith("/*")) return;
+        if (/linear-gradient|bg-gradient-to-/.test(line)) {
+          hits.push(`${rel}:${i + 1}: ${t.slice(0, 90)}`);
+        }
+      });
+    }
+    expect(hits, hits.join("\n")).toEqual([]);
   });
 });

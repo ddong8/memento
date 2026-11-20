@@ -1292,7 +1292,7 @@ export default function MemoryPage() {
             {/* ── TAB 3: 梦境夜间提炼 (Dreaming Panel) ── */}
             {activeTab === "dreaming" && (
               <div className="space-y-3 animate-in fade-in">
-                <div className="p-3 rounded-2xl bg-gradient-to-r from-[rgba(168,85,247,0.12)] via-[var(--aurora-surface-solid)] to-transparent border border-[var(--aurora-border)] flex items-center justify-between">
+                <div className="p-3 rounded-2xl bg-[var(--aurora-accent-soft)] border border-[var(--aurora-border)] flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Icon name="moon" size={15} />
                     <div>

@@ -146,12 +146,12 @@ export function LifeRhythmView() {
                 width: 44,
                 height: 44,
                 borderRadius: 14,
-                background: "linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%)",
+                background: "var(--aurora-accent, #4F46E5)",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
                 color: "#fff",
-                boxShadow: "0 4px 16px -2px rgba(99,102,241,0.4)",
+                boxShadow: "0 4px 12px -2px color-mix(in srgb, var(--aurora-accent, #4F46E5) 35%, transparent)",
                 flexShrink: 0,
               }}
             >
@@ -333,14 +333,14 @@ export function LifeRhythmView() {
                   <div
                     style={{
                       width: `${(currentDay.productive_minutes / currentDay.total_screen_minutes) * 100}%`,
-                      background: "linear-gradient(90deg, #3B82F6, #6366F1)",
+                      background: "#3B82F6",
                     }}
                     title="工作专注时长"
                   />
                   <div
                     style={{
                       width: `${(currentDay.distraction_minutes / currentDay.total_screen_minutes) * 100}%`,
-                      background: "linear-gradient(90deg, #F59E0B, #EF4444)",
+                      background: "#D97706",
                     }}
                     title="娱乐与分心时长"
                   />
@@ -444,7 +444,7 @@ export function LifeRhythmView() {
                   • <b className="text-[var(--aurora-fg2)]">连续会话滑动窗口切片</b>：根据真实的交互活跃频次（20分钟滑动切片）计算纯专注工时，客观呈现精力在各工具与项目上的真实分配。
                 </div>
                 <div className="leading-relaxed">
-                  • <b className="text-[var(--aurora-fg2)]">移动端数据补充</b>：支持点击顶部「📸 手机截图解析」上传系统屏幕使用时间截图，或在手机端通过 Apple 健康补充离线睡眠与移动端应用时长。
+                  • <b className="text-[var(--aurora-fg2)]">移动端数据补充</b>：支持点击顶部「手机截图解析」上传系统屏幕使用时间截图，或在手机端通过 Apple 健康补充离线睡眠与移动端应用时长。
                 </div>
               </div>
             </Glass>
@@ -452,7 +452,11 @@ export function LifeRhythmView() {
         </div>
       ) : (
         <div className="py-16 text-center text-sm text-[var(--aurora-fg4)] border border-dashed border-[var(--aurora-border)] rounded-2xl space-y-4">
-          <div className="text-3xl">⚡ 💻 🌙</div>
+          <div className="flex items-center justify-center gap-3 text-[var(--aurora-accent)]">
+            <span className="w-10 h-10 rounded-xl bg-[var(--aurora-accent-soft)] flex items-center justify-center"><Icon name="zap" size={18} /></span>
+            <span className="w-10 h-10 rounded-xl bg-[var(--aurora-chip)] text-[var(--aurora-fg2)] flex items-center justify-center"><Icon name="devices" size={18} /></span>
+            <span className="w-10 h-10 rounded-xl bg-[var(--aurora-chip)] text-[var(--aurora-fg2)] flex items-center justify-center"><Icon name="moon" size={18} /></span>
+          </div>
           <p className="max-w-md mx-auto text-xs text-[var(--aurora-fg3)] leading-relaxed">
             暂无作息数据。如果您已在使用 Claude Code、Cursor、VS Code 或已接入采集器，点击下方按钮即可一键根据历史事件流自动推算作息与专注分布！
           </p>

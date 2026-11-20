@@ -35,10 +35,10 @@ export function SmoothToggle({
         height: h,
         borderRadius: 9999,
         background: checked
-          ? "linear-gradient(135deg, #7C3AED 0%, #6366F1 100%)"
+          ? "var(--aurora-accent, #6D28D9)"
           : "var(--aurora-chip, rgba(0, 0, 0, 0.08))",
         boxShadow: checked
-          ? "0 3px 10px -2px rgba(124, 58, 237, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.3)"
+          ? "0 2px 8px -2px rgba(109, 40, 217, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.2)"
           : "inset 0 1px 2px rgba(0, 0, 0, 0.08)",
         border: checked ? "1px solid rgba(255, 255, 255, 0.2)" : "1px solid var(--aurora-border, rgba(0,0,0,0.08))",
         cursor: disabled ? "not-allowed" : "pointer",

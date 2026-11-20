@@ -5,6 +5,7 @@ import remarkGfm from "remark-gfm";
 import "highlight.js/styles/github-dark.min.css";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { MermaidBlock } from "./MermaidBlock";
+import { Icon } from "@/components/aurora/Icon";
 import {
   detectMediaType,
   VideoPlayer,
@@ -129,7 +130,8 @@ function PreBlock({ children, ...props }: any) {
               className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 border border-emerald-500/20 transition-colors cursor-pointer"
               title="复制 git apply 命令，可直接在终端粘贴执行应用改动"
             >
-              {copiedApply ? "✓ 已复制命令" : "⚡ 复制 git apply"}
+              <Icon name={copiedApply ? "check" : "zap"} size={11} />
+              <span>{copiedApply ? "已复制命令" : "复制 git apply"}</span>
             </button>
           )}
           <button
@@ -355,9 +357,8 @@ const MarkdownViewer = memo(function MarkdownViewer({
   baseDir = null,
 }: MarkdownViewerProps) {
   const inspector = useMediaInspector();
-  const renderedVideos = useRef<Set<string>>(new Set<string>());
-  // Clear rendered video tracker for this render pass
-  renderedVideos.current.clear();
+  // Per-render deduplication tracker for inline videos
+  const renderedVideos = new Set<string>();
 
   // 流式渲染节流：在 SSE 高频传输时将 DOM 重构频率约束在 50ms 一次，大幅降低主线程 CPU 开销
   const [throttledContent, setThrottledContent] = useState<string>(content);
@@ -371,7 +372,6 @@ const MarkdownViewer = memo(function MarkdownViewer({
         clearTimeout(throttleTimerRef.current);
         throttleTimerRef.current = null;
       }
-      setThrottledContent(content);
       return;
     }
 
@@ -416,8 +416,8 @@ const MarkdownViewer = memo(function MarkdownViewer({
             const type = detectMediaType(src);
             if (type === "video") {
               const cleanHref = safeDecodePath(src);
-              const isDuplicate = renderedVideos.current.has(cleanHref);
-              renderedVideos.current.add(cleanHref);
+              const isDuplicate = renderedVideos.has(cleanHref);
+              renderedVideos.add(cleanHref);
               const isCurrentlyInspected = Boolean(
                 inspector?.isOpen &&
                 inspector?.activeMedia &&
@@ -428,7 +428,7 @@ const MarkdownViewer = memo(function MarkdownViewer({
                 const label = alt || getFilenameFromUrl(src);
                 return (
                   <div className="not-prose my-2 inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-[var(--aurora-border)] bg-[var(--aurora-chip)] text-xs text-[var(--aurora-fg1)] transition-colors hover:border-[var(--aurora-accent)]">
-                    <span className="text-[var(--aurora-accent)] font-semibold">🎬</span>
+                    <Icon name="film" size={14} className="text-[var(--aurora-accent)] shrink-0" />
                     <span className="font-medium truncate max-w-[240px]" title={label}>{label}</span>
                     {isCurrentlyInspected && (
                       <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 font-medium">
@@ -467,8 +467,8 @@ const MarkdownViewer = memo(function MarkdownViewer({
             if (type === "video") {
               const label = typeof children === "string" ? children : getFilenameFromUrl(href);
               const cleanHref = safeDecodePath(href);
-              const isDuplicate = renderedVideos.current.has(cleanHref);
-              renderedVideos.current.add(cleanHref);
+              const isDuplicate = renderedVideos.has(cleanHref);
+              renderedVideos.add(cleanHref);
               const isCurrentlyInspected = Boolean(
                 inspector?.isOpen &&
                 inspector?.activeMedia &&
@@ -482,7 +482,7 @@ const MarkdownViewer = memo(function MarkdownViewer({
               if ((isDesktopDocked && inspector) || compactMedia || isDuplicate) {
                 return (
                   <div className="not-prose my-2 inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-[var(--aurora-border)] bg-[var(--aurora-chip)] text-xs text-[var(--aurora-fg1)] transition-colors hover:border-[var(--aurora-accent)]">
-                    <span className="text-[var(--aurora-accent)] font-semibold">🎬</span>
+                    <Icon name="film" size={14} className="text-[var(--aurora-accent)] shrink-0" />
                     <span className="font-medium truncate max-w-[240px]" title={label}>{label}</span>
                     {isCurrentlyInspected && (
                       <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 font-medium">
@@ -532,14 +532,14 @@ const MarkdownViewer = memo(function MarkdownViewer({
                 (safeDecodePath(inspector.activeMedia.url) === cleanHref ||
                  inspector.activeMedia.title === label)
               );
-              const iconEmoji =
+              const docIconName =
                 type === "presentation"
-                  ? "📽️"
+                  ? "layers"
                   : type === "spreadsheet"
-                  ? "📊"
+                  ? "grid"
                   : type === "pdf"
-                  ? "📕"
-                  : "📝";
+                  ? "book"
+                  : "file_text";
               const typeDesc =
                 type === "presentation"
                   ? "演示文稿"
@@ -558,10 +558,11 @@ const MarkdownViewer = memo(function MarkdownViewer({
                     target={isLocal ? undefined : "_blank"}
                     download={isLocal ? getFilenameFromUrl(href) || true : undefined}
                     rel="noopener noreferrer"
-                    className="text-[var(--aurora-accent)] hover:underline underline-offset-2 break-all font-medium transition-colors"
+                    className="inline-flex items-center gap-1 text-[var(--aurora-accent)] hover:underline underline-offset-2 break-all font-medium transition-colors"
                     {...props}
                   >
-                    {iconEmoji} {label} ↗
+                    <Icon name={docIconName} size={13} className="shrink-0" />
+                    <span>{label} ↗</span>
                   </a>
                 );
               }
@@ -577,7 +578,7 @@ const MarkdownViewer = memo(function MarkdownViewer({
                   className="not-prose my-2 inline-flex items-center gap-2.5 px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl border border-[var(--aurora-border)] bg-[var(--aurora-chip)] text-xs text-[var(--aurora-fg1)] transition-all hover:border-[var(--aurora-accent)] hover:shadow-md active:scale-[0.98] cursor-pointer select-none group/doc max-w-full text-left"
                   title={`点击在工作台独立视窗中查看${typeDesc}`}
                 >
-                  <span className="text-base shrink-0">{iconEmoji}</span>
+                  <Icon name={docIconName} size={15} className="text-[var(--aurora-accent)] shrink-0" />
                   <span className="font-semibold truncate max-w-[200px] sm:max-w-[280px] text-[var(--aurora-fg1)] group-hover/doc:text-[var(--aurora-accent)] transition-colors" title={label}>
                     {label}
                   </span>
@@ -622,10 +623,11 @@ const MarkdownViewer = memo(function MarkdownViewer({
                     href={href}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-[var(--aurora-accent)] hover:underline underline-offset-2 break-all font-medium transition-colors"
+                    className="inline-flex items-center gap-1 text-[var(--aurora-accent)] hover:underline underline-offset-2 break-all font-medium transition-colors"
                     {...props}
                   >
-                    📄 {label} ↗
+                    <Icon name="file_text" size={13} className="shrink-0" />
+                    <span>{label} ↗</span>
                   </a>
                 );
               }
@@ -641,7 +643,7 @@ const MarkdownViewer = memo(function MarkdownViewer({
                   className="not-prose my-2 inline-flex items-center gap-2.5 px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl border border-[var(--aurora-border)] bg-[var(--aurora-chip)] text-xs text-[var(--aurora-fg1)] transition-all hover:border-[var(--aurora-accent)] hover:shadow-md active:scale-[0.98] cursor-pointer select-none group/doc max-w-full text-left"
                   title="点击在工作台独立视窗中打开预览"
                 >
-                  <span className="text-amber-400 font-semibold text-sm shrink-0">📄</span>
+                  <Icon name="file_text" size={14} className="text-amber-500 shrink-0" />
                   <span className="font-semibold truncate max-w-[200px] sm:max-w-[280px] text-[var(--aurora-fg1)] group-hover/doc:text-[var(--aurora-accent)] transition-colors" title={label}>
                     {label}
                   </span>
@@ -717,18 +719,18 @@ const MarkdownViewer = memo(function MarkdownViewer({
                 (safeDecodePath(inspector.activeMedia.url) === cleanHref ||
                  inspector.activeMedia.title === label)
               );
-              const iconEmoji =
+              const codeIconName =
                 mediaType === "presentation"
-                  ? "📽️"
+                  ? "layers"
                   : mediaType === "spreadsheet"
-                  ? "📊"
+                  ? "grid"
                   : mediaType === "pdf"
-                  ? "📕"
+                  ? "book"
                   : mediaType === "video"
-                  ? "🎬"
+                  ? "film"
                   : mediaType === "audio"
-                  ? "🎵"
-                  : "📝";
+                  ? "music"
+                  : "file_text";
               const typeDesc =
                 mediaType === "presentation"
                   ? "PPT 演示文稿"
@@ -753,7 +755,7 @@ const MarkdownViewer = memo(function MarkdownViewer({
                   className="not-prose my-1.5 inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border border-[var(--aurora-border)] bg-[var(--aurora-chip)] hover:border-[var(--aurora-accent)] hover:shadow-md active:scale-[0.98] transition-all cursor-pointer select-none group/code max-w-full text-left"
                   title={`点击在 Memento 应用内打开${typeDesc}视窗：${label}`}
                 >
-                  <span className="text-sm shrink-0">{iconEmoji}</span>
+                  <Icon name={codeIconName} size={14} className="text-[var(--aurora-accent)] shrink-0" />
                   <span className="font-semibold text-xs truncate max-w-[200px] sm:max-w-[280px] text-[var(--aurora-fg1)] group-hover/code:text-[var(--aurora-accent)] transition-colors" title={label}>
                     {label}
                   </span>

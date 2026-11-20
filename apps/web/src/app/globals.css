@@ -134,11 +134,11 @@ code, kbd, samp, pre, .font-mono {
   --aurora-thinking-bg: rgba(15, 15, 30, 0.024);
   --aurora-thinking-header: rgba(15, 15, 30, 0.032);
   --aurora-code-surface: rgba(15, 15, 30, 0.035);
-  --aurora-user-bubble: linear-gradient(135deg, rgba(124, 58, 237, 0.09) 0%, rgba(236, 72, 153, 0.06) 100%);
-  --aurora-user-bubble-border: rgba(124, 58, 237, 0.18);
-  --aurora-primary-grad: linear-gradient(135deg, #7C3AED 0%, #DB2777 100%);
-  --aurora-primary-grad-hover: linear-gradient(135deg, #6D28D9 0%, #EC4899 100%);
-  --aurora-brand-grad: linear-gradient(135deg, #7C3AED 0%, #EC4899 55%, #06B6D4 100%);
+  --aurora-user-bubble: rgba(109, 40, 217, 0.08);
+  --aurora-user-bubble-border: rgba(109, 40, 217, 0.18);
+  --aurora-primary-grad: #6D28D9;
+  --aurora-primary-grad-hover: #5B21B6;
+  --aurora-brand-grad: #6D28D9;
   --aurora-card-shadow:
     0 1px 0 0 rgba(255, 255, 255, 0.95) inset,
     0 0 0 1px rgba(255, 255, 255, 0.5) inset,
@@ -185,11 +185,11 @@ code, kbd, samp, pre, .font-mono {
   --aurora-thinking-bg: rgba(0, 0, 0, 0.22);
   --aurora-thinking-header: rgba(255, 255, 255, 0.025);
   --aurora-code-surface: rgba(0, 0, 0, 0.28);
-  --aurora-user-bubble: linear-gradient(135deg, rgba(167, 139, 250, 0.17) 0%, rgba(244, 114, 182, 0.11) 100%);
+  --aurora-user-bubble: rgba(167, 139, 250, 0.14);
   --aurora-user-bubble-border: rgba(167, 139, 250, 0.25);
-  --aurora-primary-grad: linear-gradient(135deg, #8B5CF6 0%, #EC4899 100%);
-  --aurora-primary-grad-hover: linear-gradient(135deg, #A78BFA 0%, #F472B6 100%);
-  --aurora-brand-grad: linear-gradient(135deg, #7C3AED 0%, #EC4899 55%, #06B6D4 100%);
+  --aurora-primary-grad: #7C3AED;
+  --aurora-primary-grad-hover: #8B5CF6;
+  --aurora-brand-grad: #7C3AED;
   /* Dual Inner Bevel: top micro-highlight (0 1px) + subtle rim (0 0 0 1px) + ambient drop shadow */
   --aurora-card-shadow:
     0 1px 0 0 rgba(255, 255, 255, 0.10) inset,
@@ -519,8 +519,8 @@ body {
 .aurora-btn-sm { padding: 6px 12px; font-size: 12px; }
 .aurora-btn-lg { padding: 14px 22px; font-size: 14px; }
 .aurora-btn-danger {
-  background: linear-gradient(135deg, #EF4444, #EC4899);
-  box-shadow: 0 4px 14px -4px rgba(239, 68, 68, 0.4);
+  background: #DC2626;
+  box-shadow: 0 3px 10px -3px rgba(220, 38, 38, 0.35);
 }
 html[data-skin="arc"] .aurora-btn-danger,
 html[data-skin="baseline"] .aurora-btn-danger {
@@ -528,8 +528,8 @@ html[data-skin="baseline"] .aurora-btn-danger {
   box-shadow: none;
 }
 .aurora-btn-danger:hover {
-  background: linear-gradient(135deg, #F87171, #F472B6);
-  box-shadow: 0 8px 24px -8px rgba(239, 68, 68, 0.5);
+  background: #B91C1C;
+  box-shadow: 0 6px 16px -6px rgba(185, 28, 28, 0.45);
 }
 html[data-skin="arc"] .aurora-btn-danger:hover,
 html[data-skin="baseline"] .aurora-btn-danger:hover {
@@ -946,9 +946,7 @@ aside input,
 }
 
 .aurora-gradient-text {
-  background: var(--aurora-brand-grad);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
+  color: var(--aurora-accent);
 }
 
 @keyframes breathingGlow {

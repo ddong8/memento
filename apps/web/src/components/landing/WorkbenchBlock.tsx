@@ -231,7 +231,7 @@ export function WorkbenchBlock() {
                   borderRadius: 14,
                   aspectRatio: "16 / 9",
                   maxHeight: 320,
-                  background: "radial-gradient(circle at 50% 40%, rgba(124,58,237,0.18), transparent 70%), var(--aurora-surface-solid)",
+                  background: "var(--aurora-surface-solid)",
                   border: "1px solid var(--aurora-border)",
                   display: "flex",
                   flexDirection: "column",
@@ -242,7 +242,7 @@ export function WorkbenchBlock() {
               >
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                    <span style={{ fontSize: 18 }}>📊</span>
+                    <Icon name="layers" size={16} style={{ color: "var(--aurora-accent)" }} />
                     <span style={{ fontSize: 13, fontWeight: 600, color: "var(--aurora-fg1)" }}>幻灯片放映视窗 (Slide 1 / 24)</span>
                   </div>
                   <div style={{ display: "flex", gap: 8 }}>
@@ -350,7 +350,7 @@ export function WorkbenchBlock() {
                     width: 130,
                     height: 80,
                     borderRadius: 10,
-                    background: "linear-gradient(135deg, #10B981, #047857)",
+                    background: "#059669",
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
@@ -376,7 +376,8 @@ export function WorkbenchBlock() {
 
                 <div style={{ display: "flex", gap: 8 }}>
                   <span style={{ padding: "6px 12px", borderRadius: 8, background: "#07C160", color: "#fff", fontSize: 12, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4 }}>
-                    ✓ 已落库草稿箱
+                    <Icon name="check" size={13} />
+                    <span>已落库草稿箱</span>
                   </span>
                 </div>
               </div>

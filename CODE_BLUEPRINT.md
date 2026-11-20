@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `edf2d53e` · Updated: `2026-11-20`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `af11af15` · Updated: `2026-11-20`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,8 +16,8 @@
 - 规模 (Scale): 9 个子系统 · 40 组 API 路由 / 300 个接口 · 39 个前端页面 · 41 个数据模型 · 35 个服务模块 · 248 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `edf2d53e` (2026-11-20): fix(studio): 为集群 filmkit Pod 配置出口代理确保稳定访问 Gemini 与外部视频网关
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 72（✅ 72 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-PUBLIC-REPO-CLEAN`, `R-ENT-DEVICE-POLICY`, `R-THINKING-FULL`, `R-MEDIA-VIEW`, `R-WS-EXEC-REMIND`, `R-DOCS-WRITE-LIGHT`, `R-NO-CONFIGMAP-HOTFIX`, `R-MENU-KEEPALIVE`
+- 最近改动 (Latest): `7a8bd174` (2026-11-20): feat(plugins): 新增插件市场并将演播台与公众号一键分发改为按需安装配置启用
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 72（✅ 72 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-ENT-SECRETS`, `R-DOCS-WRITE-LIGHT`, `R-PUBLIC-REPO-CLEAN`, `R-MENU-KEEPALIVE`, `R-MEDIA-VIEW`, `R-WECHAT-DRAFT`, `R-STUDIO-INLINE-PLAY`, `R-PLUGIN-MARKETPLACE`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -659,12 +659,12 @@ erDiagram
 - [`apps/web/src/components/persona/DigitalTwinAvatar3D.tsx`](apps/web/src/components/persona/DigitalTwinAvatar3D.tsx) (7 commits)
 - [`apps/web/src/app/memory/page.tsx`](apps/web/src/app/memory/page.tsx) (6 commits)
 - [`apps/web/src/components/agent/ActiveRunsMonitor.tsx`](apps/web/src/components/agent/ActiveRunsMonitor.tsx) (6 commits)
+- [`apps/web/src/components/layout/Sidebar.tsx`](apps/web/src/components/layout/Sidebar.tsx) (6 commits)
 - [`packages/daemon/test/source-exec.test.ts`](packages/daemon/test/source-exec.test.ts) (6 commits)
+- [`server/server/main.py`](server/server/main.py) (6 commits)
 - [`server/server/services/workspace_relay.py`](server/server/services/workspace_relay.py) (6 commits)
 - [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (5 commits)
-- [`apps/web/src/components/layout/Sidebar.tsx`](apps/web/src/components/layout/Sidebar.tsx) (5 commits)
 - [`apps/web/src/components/layout/TopProgressBar.tsx`](apps/web/src/components/layout/TopProgressBar.tsx) (5 commits)
-- [`packages/daemon/src/ws-client.ts`](packages/daemon/src/ws-client.ts) (5 commits)
 
 ## 8. Development & Verification Commands
 
@@ -687,12 +687,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `7a8bd174` (2026-11-20): feat(plugins): 新增插件市场并将演播台与公众号一键分发改为按需安装配置启用
 - `edf2d53e` (2026-11-20): fix(studio): 为集群 filmkit Pod 配置出口代理确保稳定访问 Gemini 与外部视频网关
 - `b62f9fc5` (2026-11-20): fix(desktop,web): 同源应用路由链接在桌面端窗口内直接跳转不再跳出外部浏览器
 - `36dd3400` (2026-11-20): feat(studio): 演播台升级 AI 短剧量产版（写实预设、正反打景别机位、批量生图/I2V、首尾帧衔接与单镜对口型）
 - `740348b1` (2026-11-20): chore(k8s): 更新 filmkit 演播台镜像至 774beb3f981c 并声明 ghcr-pull 拉取凭证
 - `c314dc62` (2026-11-20): feat(studio): 新增演播台工作区、HTTP 206 视频流播与成片一键发往对话内联播放
-- `a509a8b0` (2026-11-20): fix(mobile): 修复手机端后台智能体任务面板展开后向左溢出屏幕问题
 
 ## 10. Key Environment Variables & Configuration
 
@@ -715,9 +715,9 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ### 最近提交碰到的业务条目（改动后复查它们还成不成立）
 
+- `7a8bd174` feat(plugins): 新增插件市场并将演播台与公众号一键分发改为按需安装配置启用 → `R-ENT-SECRETS`, `R-DOCS-WRITE-LIGHT`, `R-PUBLIC-REPO-CLEAN`, `R-MENU-KEEPALIVE`, `R-MEDIA-VIEW`, `R-WECHAT-DRAFT`, `R-STUDIO-INLINE-PLAY`, `R-PLUGIN-MARKETPLACE`
 - `edf2d53e` fix(studio): 为集群 filmkit Pod 配置出口代理确保稳定访问 Gemini 与外部视频网关 → `R-PUBLIC-REPO-CLEAN`
 - `b62f9fc5` fix(desktop,web): 同源应用路由链接在桌面端窗口内直接跳转不再跳出外部浏览器 → `R-ENT-DEVICE-POLICY`, `R-THINKING-FULL`, `R-MEDIA-VIEW`
-- `c314dc62` feat(studio): 新增演播台工作区、HTTP 206 视频流播与成片一键发往对话内联播放 → `R-WS-EXEC-REMIND`, `R-DOCS-WRITE-LIGHT`, `R-PUBLIC-REPO-CLEAN`, `R-NO-CONFIGMAP-HOTFIX`, `R-MENU-KEEPALIVE`, `R-STUDIO-INLINE-PLAY`
 
 ---
 _Auto-maintained by `scripts/project_blueprint.mjs` (v20261126) & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._

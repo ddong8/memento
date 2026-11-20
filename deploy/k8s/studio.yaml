@@ -30,23 +30,23 @@ spec:
         - name: ghcr-pull
       containers:
         - name: filmkit
-          image: ghcr.io/ddong8/filmkit:bb73d0815ba3
+          image: ghcr.io/ddong8/filmkit:16b75796a843
           imagePullPolicy: IfNotPresent
           env:
             - name: FILMKIT_ROOT
               value: /data/filmkit
-            - name: HTTP_PROXY
-              value: http://fleet-proxy.cattle-fleet-system.svc.cluster.local:10809
-            - name: HTTPS_PROXY
-              value: http://fleet-proxy.cattle-fleet-system.svc.cluster.local:10809
-            - name: NO_PROXY
-              value: localhost,127.0.0.1,.svc,.cluster.local
-            - name: http_proxy
-              value: http://fleet-proxy.cattle-fleet-system.svc.cluster.local:10809
-            - name: https_proxy
-              value: http://fleet-proxy.cattle-fleet-system.svc.cluster.local:10809
-            - name: no_proxy
-              value: localhost,127.0.0.1,.svc,.cluster.local
+            - name: GEMINI_API_BASE
+              valueFrom:
+                secretKeyRef:
+                  name: memento-studio
+                  key: gemini_api_base
+                  optional: true
+            - name: GEMINI_PROXY_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: memento-studio
+                  key: gemini_proxy_secret
+                  optional: true
             - name: GEMINI_API_KEY
               valueFrom:
                 secretKeyRef:

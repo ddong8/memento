@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `edd7812a` · Updated: `2026-11-20`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `e05c1628` · Updated: `2026-11-20`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,8 +16,8 @@
 - 规模 (Scale): 9 个子系统 · 39 组 API 路由 / 289 个接口 · 38 个前端页面 · 41 个数据模型 · 35 个服务模块 · 246 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `a509a8b0` (2026-11-20): fix(mobile): 修复手机端后台智能体任务面板展开后向左溢出屏幕问题
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 71（✅ 71 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `F-ASK`, `R-ISLAND-CLEANUP`, `S-RUN-STATE`, `R-ENT-SSO`, `R-UI-COMMERCIAL`, `R-LLM-IN-PROFILE`, `R-THINKING-FULL`, `R-MEDIA-VIEW`
+- 最近改动 (Latest): `c314dc62` (2026-11-20): feat(studio): 新增演播台工作区、HTTP 206 视频流播与成片一键发往对话内联播放
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 71（✅ 71 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-WS-EXEC-REMIND`, `R-DOCS-WRITE-LIGHT`, `R-PUBLIC-REPO-CLEAN`, `R-NO-CONFIGMAP-HOTFIX`, `R-MENU-KEEPALIVE`, `R-STUDIO-INLINE-PLAY`, `F-ASK`, `R-ISLAND-CLEANUP`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -651,10 +651,10 @@ erDiagram
 - [`apps/web/src/app/memory/page.tsx`](apps/web/src/app/memory/page.tsx) (7 commits)
 - [`apps/web/src/components/agent/ActiveRunsMonitor.tsx`](apps/web/src/components/agent/ActiveRunsMonitor.tsx) (7 commits)
 - [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (6 commits)
-- [`apps/web/src/app/globals.css`](apps/web/src/app/globals.css) (6 commits)
 - [`apps/web/src/components/ExecutionCard.tsx`](apps/web/src/components/ExecutionCard.tsx) (6 commits)
 - [`packages/daemon/test/source-exec.test.ts`](packages/daemon/test/source-exec.test.ts) (6 commits)
 - [`server/server/services/workspace_relay.py`](server/server/services/workspace_relay.py) (6 commits)
+- [`apps/web/src/app/globals.css`](apps/web/src/app/globals.css) (5 commits)
 - [`apps/web/src/app/memory/persona/page.tsx`](apps/web/src/app/memory/persona/page.tsx) (5 commits)
 
 ## 8. Development & Verification Commands
@@ -678,12 +678,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `c314dc62` (2026-11-20): feat(studio): 新增演播台工作区、HTTP 206 视频流播与成片一键发往对话内联播放
 - `a509a8b0` (2026-11-20): fix(mobile): 修复手机端后台智能体任务面板展开后向左溢出屏幕问题
 - `4e526788` (2026-11-20): style(ask): 收敛 PC 端对话区与底部输入框之间的多余留白
 - `53d7fc47` (2026-11-20): style(ui): 恢复原版极光渐变配色与视觉质感，保留图标、布局与 Hook 修复
 - `aab609df` (2026-11-20): style(ui): 重构默认主题为曜石黑与宝石蓝配色、修复工作台窄栏裁切与 GitHub Alert 原样渲染
 - `68b04cd9` (2026-11-20): style(ui): 清除业务界面渐变色与表情符号、收敛侧边栏冗余悬停提示并清零 React 19 严格 Hook 告警
-- `a2a04adc` (2026-11-20): fix(dreaming): 补齐 dreaming_voice 拆离后的全部兼容符号重导出
 
 ## 10. Key Environment Variables & Configuration
 
@@ -706,9 +706,9 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ### 最近提交碰到的业务条目（改动后复查它们还成不成立）
 
+- `c314dc62` feat(studio): 新增演播台工作区、HTTP 206 视频流播与成片一键发往对话内联播放 → `R-WS-EXEC-REMIND`, `R-DOCS-WRITE-LIGHT`, `R-PUBLIC-REPO-CLEAN`, `R-NO-CONFIGMAP-HOTFIX`, `R-MENU-KEEPALIVE`, `R-STUDIO-INLINE-PLAY`
 - `a509a8b0` fix(mobile): 修复手机端后台智能体任务面板展开后向左溢出屏幕问题 → `F-ASK`, `R-ISLAND-CLEANUP`, `S-RUN-STATE`
 - `53d7fc47` style(ui): 恢复原版极光渐变配色与视觉质感，保留图标、布局与 Hook 修复 → `R-ENT-SSO`, `R-UI-COMMERCIAL`, `R-LLM-IN-PROFILE`
-- `aab609df` style(ui): 重构默认主题为曜石黑与宝石蓝配色、修复工作台窄栏裁切与 GitHub Alert 原样渲染 → `R-ENT-SSO`, `R-UI-COMMERCIAL`, `R-THINKING-FULL`, `R-MEDIA-VIEW`, `R-LLM-IN-PROFILE`, `R-WECHAT-DRAFT`
 
 ---
 _Auto-maintained by `scripts/project_blueprint.mjs` (v20261126) & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._

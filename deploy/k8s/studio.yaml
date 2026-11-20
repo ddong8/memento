@@ -26,9 +26,11 @@ spec:
         app: filmkit
     spec:
       terminationGracePeriodSeconds: 60
+      imagePullSecrets:
+        - name: ghcr-pull
       containers:
         - name: filmkit
-          image: ghcr.io/ddong8/filmkit:02418b9060bc
+          image: ghcr.io/ddong8/filmkit:774beb3f981c
           imagePullPolicy: IfNotPresent
           env:
             - name: FILMKIT_ROOT

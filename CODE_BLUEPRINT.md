@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `8091ce90` · Updated: `2026-11-20`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `c781806f` · Updated: `2026-11-20`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,8 +16,8 @@
 - 规模 (Scale): 9 个子系统 · 39 组 API 路由 / 295 个接口 · 38 个前端页面 · 41 个数据模型 · 35 个服务模块 · 246 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `36dd3400` (2026-11-20): feat(studio): 演播台升级 AI 短剧量产版（写实预设、正反打景别机位、批量生图/I2V、首尾帧衔接与单镜对口型）
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 71（✅ 71 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-WS-EXEC-REMIND`, `R-DOCS-WRITE-LIGHT`, `R-PUBLIC-REPO-CLEAN`, `R-NO-CONFIGMAP-HOTFIX`, `R-MENU-KEEPALIVE`, `R-STUDIO-INLINE-PLAY`, `F-ASK`, `R-ISLAND-CLEANUP`
+- 最近改动 (Latest): `b62f9fc5` (2026-11-20): fix(desktop,web): 同源应用路由链接在桌面端窗口内直接跳转不再跳出外部浏览器
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 71（✅ 70 · ⚠️ 0 · ❌ 1）· 流程 9 · 术语 11 · 状态 9 · ❌ 1 条失效/违规 · 最近提交碰到 `R-ENT-DEVICE-POLICY`, `R-THINKING-FULL`, `R-MEDIA-VIEW`, `R-WS-EXEC-REMIND`, `R-DOCS-WRITE-LIGHT`, `R-PUBLIC-REPO-CLEAN`, `R-NO-CONFIGMAP-HOTFIX`, `R-MENU-KEEPALIVE`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -31,7 +31,7 @@
 | 8. Development & Verification Commands | L660-L677 |
 | 9. Recent Architectural Evolutions | L679-L686 |
 | 10. Key Environment Variables & Configuration | L688-L700 |
-| 11. 业务蓝图核对 (Business Blueprint Check) | L702-L710 |
+| 11. 业务蓝图核对 (Business Blueprint Check) | L702-L714 |
 
 ## 1. Project Overview & Tech Stack
 
@@ -678,12 +678,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `b62f9fc5` (2026-11-20): fix(desktop,web): 同源应用路由链接在桌面端窗口内直接跳转不再跳出外部浏览器
 - `36dd3400` (2026-11-20): feat(studio): 演播台升级 AI 短剧量产版（写实预设、正反打景别机位、批量生图/I2V、首尾帧衔接与单镜对口型）
 - `740348b1` (2026-11-20): chore(k8s): 更新 filmkit 演播台镜像至 774beb3f981c 并声明 ghcr-pull 拉取凭证
 - `c314dc62` (2026-11-20): feat(studio): 新增演播台工作区、HTTP 206 视频流播与成片一键发往对话内联播放
 - `a509a8b0` (2026-11-20): fix(mobile): 修复手机端后台智能体任务面板展开后向左溢出屏幕问题
 - `4e526788` (2026-11-20): style(ask): 收敛 PC 端对话区与底部输入框之间的多余留白
-- `53d7fc47` (2026-11-20): style(ui): 恢复原版极光渐变配色与视觉质感，保留图标、布局与 Hook 修复
 
 ## 10. Key Environment Variables & Configuration
 
@@ -701,13 +701,17 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 11. 业务蓝图核对 (Business Blueprint Check)
 
-- 业务蓝图：[BUSINESS_BLUEPRINT.md](BUSINESS_BLUEPRINT.md) · 规则 71（✅ 71 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
-- 结论：✅ 没有失效或违规
+- 业务蓝图：[BUSINESS_BLUEPRINT.md](BUSINESS_BLUEPRINT.md) · 规则 71（✅ 70 · ⚠️ 0 · ❌ 1）· 流程 9 · 术语 11 · 状态 9
+- 结论：❌ 1 条位置失效或违反规则
+
+### 需要处理
+
+- ❌ `R-PUBLIC-REPO-CLEAN` 公开仓库里没有内网地址和密钥（L428）：出现了禁止的写法 `/\b192\.168\.\d{1,3}\.\d{1,3}\b/`：deploy/k8s/studio.yaml:43, deploy/k8s/studio.yaml:49；出现了禁止的写法 `/\b10\.42\.\d{1,3}\.\d{1,3}\b/`：deploy/k8s/studio.yaml:43, deploy/k8s/studio.yaml:49
 
 ### 最近提交碰到的业务条目（改动后复查它们还成不成立）
 
+- `b62f9fc5` fix(desktop,web): 同源应用路由链接在桌面端窗口内直接跳转不再跳出外部浏览器 → `R-ENT-DEVICE-POLICY`, `R-THINKING-FULL`, `R-MEDIA-VIEW`
 - `c314dc62` feat(studio): 新增演播台工作区、HTTP 206 视频流播与成片一键发往对话内联播放 → `R-WS-EXEC-REMIND`, `R-DOCS-WRITE-LIGHT`, `R-PUBLIC-REPO-CLEAN`, `R-NO-CONFIGMAP-HOTFIX`, `R-MENU-KEEPALIVE`, `R-STUDIO-INLINE-PLAY`
-- `a509a8b0` fix(mobile): 修复手机端后台智能体任务面板展开后向左溢出屏幕问题 → `F-ASK`, `R-ISLAND-CLEANUP`, `S-RUN-STATE`
 
 ---
 _Auto-maintained by `scripts/project_blueprint.mjs` (v20261126) & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._

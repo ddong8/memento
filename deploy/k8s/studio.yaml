@@ -35,6 +35,18 @@ spec:
           env:
             - name: FILMKIT_ROOT
               value: /data/filmkit
+            - name: HTTP_PROXY
+              value: http://fleet-proxy.cattle-fleet-system.svc.cluster.local:10809
+            - name: HTTPS_PROXY
+              value: http://fleet-proxy.cattle-fleet-system.svc.cluster.local:10809
+            - name: NO_PROXY
+              value: localhost,127.0.0.1,10.42.0.0/16,10.43.0.0/16,192.168.0.0/16,172.16.0.0/12,.svc,.cluster.local
+            - name: http_proxy
+              value: http://fleet-proxy.cattle-fleet-system.svc.cluster.local:10809
+            - name: https_proxy
+              value: http://fleet-proxy.cattle-fleet-system.svc.cluster.local:10809
+            - name: no_proxy
+              value: localhost,127.0.0.1,10.42.0.0/16,10.43.0.0/16,192.168.0.0/16,172.16.0.0/12,.svc,.cluster.local
             - name: GEMINI_API_KEY
               valueFrom:
                 secretKeyRef:

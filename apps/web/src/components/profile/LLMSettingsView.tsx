@@ -180,14 +180,14 @@ export function LLMSettingsView() {
                 height: 48,
                 borderRadius: 16,
                 background: enabled
-                  ? "var(--aurora-accent, #6D28D9)"
+                  ? "var(--aurora-accent, #2563EB)"
                   : "var(--aurora-chip)",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
                 color: "#fff",
                 boxShadow: enabled
-                  ? "0 4px 12px -2px color-mix(in srgb, var(--aurora-accent, #6D28D9) 35%, transparent)"
+                  ? "0 4px 12px -2px color-mix(in srgb, var(--aurora-accent, #2563EB) 35%, transparent)"
                   : "none",
                 flexShrink: 0,
               }}
@@ -288,7 +288,7 @@ export function LLMSettingsView() {
                     ? "1px solid var(--aurora-accent)"
                     : "1px solid var(--aurora-border)",
                   boxShadow: isSelected
-                    ? "0 4px 12px -2px rgba(124,58,237,0.15)"
+                    ? "0 4px 12px -2px color-mix(in srgb, var(--aurora-accent) 18%, transparent)"
                     : "0 1px 3px rgba(0,0,0,0.02)",
                 }}
               >

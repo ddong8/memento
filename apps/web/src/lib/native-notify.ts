@@ -102,25 +102,40 @@ export function showInAppToast(title: string, body: string, url?: string): void 
     toast.style.cursor = "pointer";
   }
 
-  const actionLink = url
-    ? `<div style="font-size:11px;color:#34d399;font-weight:600;margin-top:6px;display:flex;align-items:center;gap:4px;">
-        <span>点击查看详情</span>
-        <span style="font-size:12px;">→</span>
-       </div>`
-    : "";
+  const row = document.createElement("div");
+  row.style.cssText = "display:flex;align-items:flex-start;gap:10px;";
 
-  toast.innerHTML = `
-    <div style="display:flex;align-items:flex-start;gap:10px;">
-      <div style="width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,#7C3AED,#3B82F6);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:14px;">
-        🔔
-      </div>
-      <div style="flex:1;">
-        <div style="font-size:13px;font-weight:600;margin-bottom:3px;color:#fff;">${title}</div>
-        <div style="font-size:12px;color:rgba(255,255,255,0.75);line-height:1.4;">${body}</div>
-        ${actionLink}
-      </div>
-    </div>
-  `;
+  const badge = document.createElement("div");
+  badge.style.cssText =
+    "width:28px;height:28px;border-radius:8px;background:#2563EB;color:#fff;display:flex;align-items:center;justify-content:center;flex-shrink:0;";
+  badge.innerHTML =
+    '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>';
+
+  const content = document.createElement("div");
+  content.style.cssText = "flex:1;min-width:0;";
+
+  const titleEl = document.createElement("div");
+  titleEl.style.cssText = "font-size:13px;font-weight:600;margin-bottom:3px;color:#fff;";
+  titleEl.textContent = title;
+
+  const bodyEl = document.createElement("div");
+  bodyEl.style.cssText = "font-size:12px;color:rgba(255,255,255,0.75);line-height:1.4;";
+  bodyEl.textContent = body;
+
+  content.appendChild(titleEl);
+  content.appendChild(bodyEl);
+
+  if (url) {
+    const linkEl = document.createElement("div");
+    linkEl.style.cssText =
+      "font-size:11px;color:#34d399;font-weight:600;margin-top:6px;display:flex;align-items:center;gap:4px;";
+    linkEl.textContent = "点击查看详情 →";
+    content.appendChild(linkEl);
+  }
+
+  row.appendChild(badge);
+  row.appendChild(content);
+  toast.appendChild(row);
 
   if (url) {
     toast.onclick = (e) => {

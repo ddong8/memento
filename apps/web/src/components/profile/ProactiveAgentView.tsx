@@ -236,7 +236,7 @@ export function ProactiveAgentView() {
         style={{
           borderRadius: 22,
           boxShadow: settings.enabled
-            ? "0 10px 30px -10px rgba(124, 58, 237, 0.16), 0 2px 8px -2px rgba(15, 15, 40, 0.04)"
+            ? "0 8px 24px -10px rgba(15, 23, 42, 0.14), 0 2px 8px -2px rgba(15, 23, 42, 0.04)"
             : "0 4px 18px -4px rgba(0, 0, 0, 0.04)",
           border: settings.enabled
             ? "1px solid color-mix(in srgb, var(--aurora-accent) 25%, var(--aurora-border))"
@@ -253,14 +253,14 @@ export function ProactiveAgentView() {
                   height: 48,
                   borderRadius: 16,
                   background: settings.enabled
-                    ? "var(--aurora-accent, #6D28D9)"
+                    ? "var(--aurora-accent, #2563EB)"
                     : "var(--aurora-chip)",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
                   color: "#fff",
                   boxShadow: settings.enabled
-                    ? "0 4px 14px -3px color-mix(in srgb, var(--aurora-accent, #6D28D9) 40%, transparent)"
+                    ? "0 4px 14px -3px color-mix(in srgb, var(--aurora-accent, #2563EB) 38%, transparent)"
                     : "none",
                   flexShrink: 0,
                   transition: "all 0.3s ease",
@@ -622,8 +622,8 @@ export function ProactiveAgentView() {
             disabled={saving}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold text-white transition-all duration-200 cursor-pointer shadow-sm disabled:opacity-50"
             style={{
-              background: "var(--aurora-accent, #6D28D9)",
-              boxShadow: "0 3px 10px -2px color-mix(in srgb, var(--aurora-accent, #6D28D9) 35%, transparent)",
+              background: "var(--aurora-primary-grad, #18181B)",
+              boxShadow: "var(--aurora-btn-shadow)",
             }}
           >
             <Icon name={saving ? "refresh" : "check"} size={13} className={saving ? "animate-spin" : ""} />

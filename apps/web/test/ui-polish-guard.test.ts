@@ -13,7 +13,7 @@ const EMOJI_ALONE = /(>\s*[\u{1F300}-\u{1FAFF}☀-➿⭐✅❌]️?\s*<)|(\?\s*"
 const SKIP = /\\s|\\\[|RegExp|\.test\(|\.match\(|\.replace\(|startsWith|includes\(/;
 // Files that render agent output / markdown, where emoji come from the content itself; the video
 // player's on-screen volume / brightness / lock flashes (a media HUD, like a TV's)
-const ALLOW = new Set(["components/viewers/MarkdownViewer.tsx", "lib/ask/cache.ts", "lib/native-notify.ts", "components/viewers/MediaPreview.tsx"]);
+const ALLOW = new Set(["components/viewers/MarkdownViewer.tsx", "lib/ask/cache.ts", "components/viewers/MediaPreview.tsx"]);
 
 // Functional gradients that remain intentional (legibility scrims, fade masks, slider fill, guarded chip)
 const GRADIENT_ALLOW = new Set([

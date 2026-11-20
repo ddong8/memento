@@ -410,8 +410,8 @@ export function LifeRhythmView() {
                   <div
                     className="text-xs leading-relaxed text-[var(--aurora-fg2)] p-4 rounded-xl font-sans"
                     style={{
-                      background: "rgba(124,58,237,0.04)",
-                      border: "1px solid rgba(124,58,237,0.2)",
+                      background: "var(--aurora-accent-soft)",
+                      border: "1px solid color-mix(in srgb, var(--aurora-accent) 22%, transparent)",
                     }}
                   >
                     <MarkdownViewer content={currentDay.ai_advice} compactText={true} />

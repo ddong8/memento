@@ -106,7 +106,7 @@ function DownloadCard({ os, ext }: { os: string; ext: string }) {
               height: 38,
               borderRadius: 12,
               background: "var(--aurora-brand-grad)",
-              boxShadow: "0 8px 24px -8px rgba(124,58,237,0.5)",
+              boxShadow: "0 8px 20px -8px rgba(15, 23, 42, 0.35)",
               flexShrink: 0,
             }}
           >

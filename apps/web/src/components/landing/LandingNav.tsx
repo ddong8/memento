@@ -59,7 +59,7 @@ export function LandingNav() {
               width: 30, height: 30, borderRadius: 9,
               background: "var(--aurora-brand-grad)",
               display: "flex", alignItems: "center", justifyContent: "center",
-              boxShadow: "0 4px 14px -4px rgba(124,58,237,0.4)",
+              boxShadow: "0 4px 12px -4px rgba(15, 23, 42, 0.32)",
               flexShrink: 0,
             }}
           >

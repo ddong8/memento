@@ -190,7 +190,7 @@ export function DevicesView({ hideTopBar = false }: { hideTopBar?: boolean }) {
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              boxShadow: "0 12px 40px -10px rgba(124,58,237,0.5)",
+              boxShadow: "0 10px 28px -10px rgba(15, 23, 42, 0.35)",
             }}
           >
             <Icon name="devices" size={26} style={{ color: "#fff" }} strokeWidth={2} />
@@ -496,8 +496,8 @@ node packages/daemon/dist/cli.js install-service`}
                   style={{
                     padding: 16,
                     borderRadius: 14,
-                    background: "rgba(124, 58, 237, 0.08)",
-                    border: "1px solid rgba(124, 58, 237, 0.28)",
+                    background: "var(--aurora-accent-soft)",
+                    border: "1px solid color-mix(in srgb, var(--aurora-accent) 28%, transparent)",
                     display: "flex",
                     flexDirection: "column",
                     gap: 8,

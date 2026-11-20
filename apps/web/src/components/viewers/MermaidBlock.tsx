@@ -64,21 +64,21 @@ export function MermaidBlock({ code, className }: MermaidBlockProps) {
           theme: isDark ? "dark" : "default",
           themeVariables: isDark
             ? {
-                primaryColor: "#7C3AED",
-                primaryTextColor: "#F1F1F5",
-                primaryBorderColor: "#A78BFA",
-                lineColor: "#9CA3AF",
-                secondaryColor: "#1E1E2E",
-                tertiaryColor: "#181825",
+                primaryColor: "#2563EB",
+                primaryTextColor: "#F1F5F9",
+                primaryBorderColor: "#60A5FA",
+                lineColor: "#94A3B8",
+                secondaryColor: "#1E293B",
+                tertiaryColor: "#0F172A",
                 fontFamily: "var(--font-sans)",
               }
             : {
-                primaryColor: "#8B5CF6",
-                primaryTextColor: "#111827",
-                primaryBorderColor: "#7C3AED",
-                lineColor: "#4B5563",
-                secondaryColor: "#F3F4F6",
-                tertiaryColor: "#E5E7EB",
+                primaryColor: "#EFF6FF",
+                primaryTextColor: "#0F172A",
+                primaryBorderColor: "#2563EB",
+                lineColor: "#475569",
+                secondaryColor: "#F8FAFC",
+                tertiaryColor: "#F1F5F9",
                 fontFamily: "var(--font-sans)",
               },
         });

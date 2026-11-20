@@ -263,7 +263,7 @@ export function ThemeToggle() {
 export function SkinPicker() {
   const { skin, setSkin } = useTheme();
   const items: { id: "aurora" | "arc" | "baseline"; label: string; hint: string }[] = [
-    { id: "aurora", label: "Aurora", hint: "Violet · glass" },
+    { id: "aurora", label: "Aurora", hint: "Obsidian · slate" },
     { id: "arc", label: "Arc", hint: "Paper · blue" },
     { id: "baseline", label: "Baseline", hint: "Classic" },
   ];

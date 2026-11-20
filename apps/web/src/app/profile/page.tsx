@@ -310,7 +310,7 @@ function AccountTab() {
               fontSize: 28,
               fontWeight: 600,
               flexShrink: 0,
-              boxShadow: "0 4px 16px -4px rgba(124, 58, 237, 0.4)",
+              boxShadow: "0 4px 12px -4px rgba(15, 23, 42, 0.3)",
               border: "2px solid var(--aurora-border)",
             }}
           >
@@ -679,7 +679,7 @@ function AdminPanelTab() {
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          boxShadow: "0 12px 40px -10px rgba(124,58,237,0.5)",
+          boxShadow: "0 10px 28px -10px rgba(15, 23, 42, 0.35)",
         }}
       >
         <Icon name="lock" size={26} style={{ color: "#fff" }} strokeWidth={2} />

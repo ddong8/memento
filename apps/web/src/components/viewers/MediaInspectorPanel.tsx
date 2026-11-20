@@ -1040,8 +1040,8 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
     <div className="flex flex-col gap-2.5 text-left">
       {/* 工作台精细化导航与操作栏 */}
       <div className="flex flex-col gap-2 p-2.5 rounded-xl bg-[var(--aurora-thinking-header)] border border-[var(--aurora-border)] text-xs select-none">
-        {/* Row 1: 核心视窗模式切换 与 动作按钮 */}
-        <div className="flex items-center justify-between gap-2">
+        {/* Row 1: 核心视窗模式切换 与 动作按钮（支持自动换行，避免分栏较窄时右侧按钮裁切） */}
+        <div className="flex flex-wrap items-center justify-between gap-2">
           {/* 模式选择器 (Segmented Control) */}
           <div className="inline-flex p-0.5 rounded-lg bg-[var(--aurora-chip)] border border-[var(--aurora-border)] text-xs shrink-0">
             <button
@@ -1086,7 +1086,7 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
           </div>
 
           {/* 动作区 */}
-          <div className="flex items-center gap-1.5 shrink-0">
+          <div className="flex flex-wrap items-center gap-1.5 min-w-0">
             <button
               type="button"
               onClick={() => {
@@ -1094,7 +1094,7 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
                 showInAppToast("已刷新", "已从磁盘重新加载最新文件");
               }}
               title="重新读取磁盘文件"
-              className="p-1.5 rounded-lg border border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/80 text-[var(--aurora-fg2)] hover:text-[var(--aurora-fg1)] hover:bg-white/5 transition-colors cursor-pointer"
+              className="p-1.5 rounded-lg border border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/80 text-[var(--aurora-fg2)] hover:text-[var(--aurora-fg1)] hover:bg-white/5 transition-colors cursor-pointer shrink-0"
             >
               <FiRefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin text-[var(--aurora-accent)]" : ""}`} />
             </button>
@@ -1103,10 +1103,10 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
               type="button"
               onClick={handleCopyContent}
               title="复制 Markdown 全文源码"
-              className="hidden sm:inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/80 text-[var(--aurora-fg2)] hover:text-[var(--aurora-fg1)] hover:bg-white/5 transition-colors cursor-pointer text-xs font-medium"
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/80 text-[var(--aurora-fg2)] hover:text-[var(--aurora-fg1)] hover:bg-white/5 transition-colors cursor-pointer text-[11.5px] font-medium whitespace-nowrap"
             >
-              {copied ? <FiCheck className="w-3.5 h-3.5 text-emerald-400" /> : <FiFileText className="w-3.5 h-3.5" />}
-              <span>{copied ? "已复制" : "复制源码"}</span>
+              {copied ? <FiCheck className="w-3.5 h-3.5 text-emerald-500" /> : <FiFileText className="w-3.5 h-3.5" />}
+              <span>{copied ? "已复制" : "源码"}</span>
             </button>
 
             <button
@@ -1114,20 +1114,20 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
               onClick={handleCopyRichText}
               disabled={copyingRich}
               title="复制微信富文本"
-              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 transition-colors cursor-pointer text-xs font-medium disabled:opacity-50"
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-emerald-600/30 bg-emerald-600/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-600/15 transition-colors cursor-pointer text-[11.5px] font-medium disabled:opacity-50 whitespace-nowrap"
             >
               <FiCopy className={`w-3.5 h-3.5 ${copyingRich ? "animate-spin" : ""}`} />
-              <span className="hidden sm:inline">{copyingRich ? "编译中" : "复制富文本"}</span>
+              <span>{copyingRich ? "编译中" : "富文本"}</span>
             </button>
 
             <button
               type="button"
               onClick={() => setShowWechatModal(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs shadow-md transition-all active:scale-95 cursor-pointer whitespace-nowrap"
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-[11.5px] shadow-xs transition-all active:scale-95 cursor-pointer whitespace-nowrap"
               title="多平台分发中心：推送到微信公众号草稿箱，或导出知乎、微博、小红书排版"
             >
               <FiShare2 className="w-3.5 h-3.5" />
-              <span>多平台分发</span>
+              <span>分发</span>
             </button>
           </div>
         </div>

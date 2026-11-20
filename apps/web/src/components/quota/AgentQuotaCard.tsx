@@ -179,7 +179,7 @@ export function AgentQuotaCard({ deviceId, activeTool, recentTools }: AgentQuota
                 width: `${Math.min(100, Math.max(0, agy.remaining_percent))}%`,
                 borderRadius: 999,
                 background: agy.remaining_percent > 30
-                  ? "var(--aurora-accent, #6D28D9)"
+                  ? "var(--aurora-accent, #2563EB)"
                   : "#D97706",
                 transition: "width 0.4s ease",
               }}

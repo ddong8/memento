@@ -20,4 +20,15 @@ describe("MarkdownViewer loads rehype-raw and highlighting after first paint", (
     expect(html).toMatch(/<kbd[^>]*>Ctrl<\/kbd>/);
     expect(html).toContain("hljs-built_in");
   });
+
+  it("renders GitHub [!NOTE] alerts as structured callouts instead of raw markers", () => {
+    const html = renderToString(
+      createElement(MarkdownViewer, {
+        content: "> [!NOTE] Living Blueprint Auto-Generated · Branch: `main`",
+      }),
+    );
+    expect(html).not.toContain("[!NOTE]");
+    expect(html).toContain("说明");
+    expect(html).toContain("Living Blueprint Auto-Generated");
+  });
 });

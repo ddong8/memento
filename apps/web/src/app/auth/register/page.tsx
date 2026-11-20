@@ -135,7 +135,7 @@ export default function RegisterPage() {
           background: "var(--aurora-brand-grad)",
           display: "flex", alignItems: "center", justifyContent: "center",
           margin: "0 auto 16px",
-          boxShadow: "0 12px 40px -10px rgba(124,58,237,0.5)",
+          boxShadow: "0 10px 28px -10px rgba(15, 23, 42, 0.35)",
         }}
       >
         <Icon name="sparkles" size={26} style={{ color: "#fff" }} strokeWidth={2} />

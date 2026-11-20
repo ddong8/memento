@@ -3,7 +3,7 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import "highlight.js/styles/github-dark.min.css";
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { Children, cloneElement, isValidElement, memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { MermaidBlock } from "./MermaidBlock";
 import { Icon } from "@/components/aurora/Icon";
 import {
@@ -678,9 +678,101 @@ const MarkdownViewer = memo(function MarkdownViewer({
           },
           blockquote: ({ node, children, ...props }: any) => {
             const text = extractPlainText(children).trim();
-            // 如果引用块内部实际上是执行状态或进度提示，直接展开子元素，不再嵌套大块紫色引用框
+            // 如果引用块内部实际上是执行状态或进度提示，直接展开子元素，不再嵌套大块引用框
             if (/^(?:⚡|⏳|✅|⏹️|❌)/.test(text)) {
               return <div className="my-1">{children}</div>;
+            }
+            const alertMatch = text.match(/^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\](?:\s|$)/i);
+            if (alertMatch) {
+              const kind = alertMatch[1].toUpperCase() as "NOTE" | "TIP" | "IMPORTANT" | "WARNING" | "CAUTION";
+              const alertStyles: Record<
+                typeof kind,
+                { label: string; icon: "file_text" | "sparkles" | "zap" | "alert"; accent: string; bg: string; border: string }
+              > = {
+                NOTE: {
+                  label: "说明",
+                  icon: "file_text",
+                  accent: "var(--aurora-info, #2563EB)",
+                  bg: "var(--aurora-info-soft, rgba(37, 99, 235, 0.08))",
+                  border: "color-mix(in srgb, var(--aurora-info, #2563EB) 30%, transparent)",
+                },
+                TIP: {
+                  label: "提示",
+                  icon: "sparkles",
+                  accent: "var(--aurora-success, #059669)",
+                  bg: "var(--aurora-success-soft, rgba(5, 150, 105, 0.08))",
+                  border: "color-mix(in srgb, var(--aurora-success, #059669) 30%, transparent)",
+                },
+                IMPORTANT: {
+                  label: "重要",
+                  icon: "zap",
+                  accent: "var(--aurora-accent, #2563EB)",
+                  bg: "var(--aurora-accent-soft, rgba(37, 99, 235, 0.08))",
+                  border: "color-mix(in srgb, var(--aurora-accent, #2563EB) 30%, transparent)",
+                },
+                WARNING: {
+                  label: "注意",
+                  icon: "alert",
+                  accent: "var(--aurora-warn, #B45309)",
+                  bg: "var(--aurora-warn-soft, rgba(217, 119, 6, 0.10))",
+                  border: "color-mix(in srgb, var(--aurora-warn, #B45309) 32%, transparent)",
+                },
+                CAUTION: {
+                  label: "警告",
+                  icon: "alert",
+                  accent: "var(--aurora-danger, #DC2626)",
+                  bg: "var(--aurora-danger-soft, rgba(220, 38, 38, 0.08))",
+                  border: "color-mix(in srgb, var(--aurora-danger, #DC2626) 32%, transparent)",
+                },
+              };
+              const cfg = alertStyles[kind];
+              const markerRe = /^\s*\[!(?:NOTE|TIP|IMPORTANT|WARNING|CAUTION)\][ \t]*\n?/i;
+              let stripped = false;
+              const stripFirstMarker = (nodes: ReactNode): ReactNode =>
+                Children.map(nodes, (child) => {
+                  if (stripped || child == null) return child;
+                  if (typeof child === "string") {
+                    if (markerRe.test(child)) {
+                      stripped = true;
+                      return child.replace(markerRe, "");
+                    }
+                    return child;
+                  }
+                  if (isValidElement<{ children?: ReactNode }>(child) && child.props?.children != null) {
+                    const nextChildren = stripFirstMarker(child.props.children);
+                    if (stripped) {
+                      const remaining = extractPlainText(nextChildren).trim();
+                      if (!remaining && Children.count(nextChildren) <= 1) {
+                        return null;
+                      }
+                      return cloneElement(child, undefined, nextChildren);
+                    }
+                  }
+                  return child;
+                });
+              const cleanedChildren = stripFirstMarker(children);
+              return (
+                <div
+                  role="note"
+                  className="not-prose w-full box-border my-3 rounded-xl px-3.5 py-2.5 text-[var(--aurora-fg2)] text-[13.5px] leading-relaxed"
+                  style={{
+                    background: cfg.bg,
+                    border: `1px solid ${cfg.border}`,
+                    borderLeft: `3.5px solid ${cfg.accent}`,
+                  }}
+                >
+                  <div
+                    className="flex items-center gap-1.5 font-semibold text-xs mb-1"
+                    style={{ color: cfg.accent }}
+                  >
+                    <Icon name={cfg.icon} size={13} />
+                    <span>{cfg.label}</span>
+                  </div>
+                  <div className="[&>p]:my-0.5 [&>p:first-child]:mt-0 [&>p:last-child]:mb-0">
+                    {cleanedChildren}
+                  </div>
+                </div>
+              );
             }
             return (
               <blockquote

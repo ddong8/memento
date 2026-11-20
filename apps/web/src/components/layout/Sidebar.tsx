@@ -315,7 +315,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                boxShadow: "0 2px 10px -2px rgba(124,58,237,0.45), inset 0 1px 0 rgba(255,255,255,0.28)",
+                boxShadow: "0 2px 8px -2px rgba(15, 23, 42, 0.28), inset 0 1px 0 rgba(255,255,255,0.22)",
                 flexShrink: 0,
               }}
             >
@@ -631,8 +631,8 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
                     padding: "1px 5px",
                     borderRadius: 9999,
                     fontSize: 9,
-                    background: "rgba(124, 58, 237, 0.15)",
-                    color: "var(--aurora-accent, #7C3AED)",
+                    background: "var(--aurora-accent-soft)",
+                    color: "var(--aurora-accent, #2563EB)",
                     border: "none",
                     cursor: "pointer",
                   }}
@@ -642,7 +642,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
                       width: 5,
                       height: 5,
                       borderRadius: "50%",
-                      backgroundColor: "var(--aurora-accent, #7C3AED)",
+                      backgroundColor: "var(--aurora-accent, #2563EB)",
                     }}
                   />
                   <span>↑</span>
@@ -781,7 +781,7 @@ const NavRow = memo(function NavRow({
               height: 14,
               padding: "0 3px",
               borderRadius: 9999,
-              background: "var(--aurora-accent, #5B21B6)",
+              background: "var(--aurora-accent, #2563EB)",
               color: "#fff",
               fontSize: 9,
               fontWeight: 700,

@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `17f66525` · Updated: `2026-11-20`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `2b726316` · Updated: `2026-11-20`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,8 +16,8 @@
 - 规模 (Scale): 9 个子系统 · 38 组 API 路由 / 252 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 244 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `a2a04adc` (2026-11-20): fix(dreaming): 补齐 dreaming_voice 拆离后的全部兼容符号重导出
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 70（✅ 70 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-SELF-EVOLVE`, `F-BLUEPRINT`, `R-NO-CONFIGMAP-HOTFIX`, `R-UI-COMMERCIAL`, `R-MEDIA-VIEW`, `R-LLM-IN-PROFILE`, `R-WECHAT-DRAFT`
+- 最近改动 (Latest): `68b04cd9` (2026-11-20): style(ui): 清除业务界面渐变色与表情符号、收敛侧边栏冗余悬停提示并清零 React 19 严格 Hook 告警
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 70（✅ 70 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-THINKING-FULL`, `R-MEDIA-VIEW`, `R-LLM-IN-PROFILE`, `R-PERSONA-ONBOARD`, `R-WECHAT-DRAFT`, `R-SELF-EVOLVE`, `F-BLUEPRINT`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -634,16 +634,16 @@ erDiagram
 
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
+- [`apps/web/src/components/persona/DigitalTwinAvatar3D.tsx`](apps/web/src/components/persona/DigitalTwinAvatar3D.tsx) (8 commits)
 - [`packages/daemon/src/source-exec.ts`](packages/daemon/src/source-exec.ts) (8 commits)
-- [`apps/web/src/components/persona/DigitalTwinAvatar3D.tsx`](apps/web/src/components/persona/DigitalTwinAvatar3D.tsx) (7 commits)
+- [`apps/web/src/app/globals.css`](apps/web/src/app/globals.css) (6 commits)
+- [`apps/web/src/app/memory/page.tsx`](apps/web/src/app/memory/page.tsx) (6 commits)
 - [`apps/web/src/components/agent/ActiveRunsMonitor.tsx`](apps/web/src/components/agent/ActiveRunsMonitor.tsx) (6 commits)
+- [`apps/web/src/components/viewers/MediaInspectorPanel.tsx`](apps/web/src/components/viewers/MediaInspectorPanel.tsx) (6 commits)
 - [`packages/daemon/test/source-exec.test.ts`](packages/daemon/test/source-exec.test.ts) (6 commits)
 - [`server/server/services/workspace_relay.py`](server/server/services/workspace_relay.py) (6 commits)
 - [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (5 commits)
-- [`apps/web/src/app/globals.css`](apps/web/src/app/globals.css) (5 commits)
-- [`apps/web/src/app/memory/page.tsx`](apps/web/src/app/memory/page.tsx) (5 commits)
-- [`apps/web/src/components/viewers/MediaInspectorPanel.tsx`](apps/web/src/components/viewers/MediaInspectorPanel.tsx) (5 commits)
-- [`packages/daemon/src/ws-client.ts`](packages/daemon/src/ws-client.ts) (5 commits)
+- [`apps/web/src/app/memory/persona/page.tsx`](apps/web/src/app/memory/persona/page.tsx) (5 commits)
 
 ## 8. Development & Verification Commands
 
@@ -666,12 +666,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `68b04cd9` (2026-11-20): style(ui): 清除业务界面渐变色与表情符号、收敛侧边栏冗余悬停提示并清零 React 19 严格 Hook 告警
 - `a2a04adc` (2026-11-20): fix(dreaming): 补齐 dreaming_voice 拆离后的全部兼容符号重导出
 - `6797c5ef` (2026-11-20): ci(lint): 升级 CI 的 ruff 至 0.17.6 以支持 ASYNC240 异步阻塞门禁
 - `9ad8cdff` (2026-11-20): refactor(性能与防线): 清零后端异步阻塞 IO 并锁入 CI、补齐认证频控与头像魔数校验、清零前端 set-state-in-effect 告警、K8s 迁移 initContainer 化并拆解 MediaPreview 与 dreaming_service
 - `a43b15c3` (2026-11-20): fix(测试): 对齐 project_maintenance 抽离后的冷却时间与项目名 mock 路径
 - `1de43772` (2026-11-20): feat(架构与安全): 全维度安全隔离加固、并发稳定性收敛、CI 防线升级与核心模块拆解；升级客户端版本至 v1.0.146
-- `cf0d0531` (2026-11-20): fix(直传): ICE 在设置对端描述时瞬间失败，设备应答自动换新连接重试一次，修复 CI 上 WebRTC 测试偶发失败
 
 ## 10. Key Environment Variables & Configuration
 
@@ -694,10 +694,10 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ### 最近提交碰到的业务条目（改动后复查它们还成不成立）
 
+- `68b04cd9` style(ui): 清除业务界面渐变色与表情符号、收敛侧边栏冗余悬停提示并清零 React 19 严格 Hook 告警 → `R-THINKING-FULL`, `R-MEDIA-VIEW`, `R-LLM-IN-PROFILE`, `R-PERSONA-ONBOARD`, `R-WECHAT-DRAFT`
 - `a2a04adc` fix(dreaming): 补齐 dreaming_voice 拆离后的全部兼容符号重导出 → `R-SELF-EVOLVE`
 - `6797c5ef` ci(lint): 升级 CI 的 ruff 至 0.17.6 以支持 ASYNC240 异步阻塞门禁 → `F-BLUEPRINT`
 - `9ad8cdff` refactor(性能与防线): 清零后端异步阻塞 IO 并锁入 CI、补齐认证频控与头像魔数校验、清零前端 set-state-in-effect 告警、K8 → `F-BLUEPRINT`, `R-NO-CONFIGMAP-HOTFIX`, `R-SELF-EVOLVE`, `R-UI-COMMERCIAL`, `R-MEDIA-VIEW`, `R-LLM-IN-PROFILE`, `R-WECHAT-DRAFT`
-- `1de43772` feat(架构与安全): 全维度安全隔离加固、并发稳定性收敛、CI 防线升级与核心模块拆解；升级客户端版本至 v1.0.146 → `T-FOLLOWUP`, `T-RUN`, `F-ASK`, `F-FOLLOWUP`, `F-STOP`, `F-BLUEPRINT`, `R-STOP-ALL-AGENTS`, `R-ISLAND-CLEANUP`, `R-ENT-DEVICE-POLICY`, `R-RUN-OUTLIVES-PAGE`, `R-CONFIG-LOCK`, `R-CLAUDE-TUI-SYNC`, `R-APP-NAME`, `R-DOCS-WRITE-LIGHT`, `R-ALL-TYPESCRIPT`, `R-LOGIN-PERSIST`, `S-RUN-STATE`, `S-CLIENT-VERSION`
 
 ---
 _Auto-maintained by `scripts/project_blueprint.mjs` (v20261126) & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._

@@ -44,9 +44,9 @@ class TestRound10Optimizations(unittest.IsolatedAsyncioTestCase):
             tool_id="claude_code",
         )
 
-        with patch("server.api.projects._last_reconcile_time", {}) as mock_times:
+        with patch("server.services.project_maintenance._last_reconcile_time", {}) as mock_times:
             # First run: executes reconciliation
-            with patch("server.api.projects._prettify_project_name", return_value="invalid"):
+            with patch("server.services.project_maintenance._prettify_project_name", return_value="invalid"):
                 # Prettify invalid name immediately returns 0 after setting timestamp
                 res1 = await _reconcile_project_documents(mock_db, proj)
                 self.assertEqual(res1, 0)

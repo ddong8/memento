@@ -61,10 +61,11 @@ jobs:
           uv lock --check
           uv export --frozen --no-dev --no-emit-project --no-header --format requirements-txt | diff - requirements.lock
 
-      # pyflakes + bugbear + comparison/bare-except rules
+      # pyflakes + bugbear + comparison/bare-except + async blocking I/O rules
       - name: Lint
         run: |
           ruff check --isolated --select F,B,E711,E712,E722 --ignore B008,B904,B905,B007,B005 server/server server/tests scripts embedding
+          ruff check --isolated --select ASYNC230,ASYNC240,ASYNC251 server/server
 
       - name: pytest
         working-directory: ${{ matrix.package }}

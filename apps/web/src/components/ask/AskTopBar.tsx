@@ -10,7 +10,7 @@ import { resolveConversationAgent } from "@/components/ask/HistoryDrawer";
 import { useI18n } from "@/lib/i18n";
 import { useTheme } from "@/lib/theme-context";
 import { useSidebar } from "@/lib/sidebar-context";
-import { desktop } from "@/lib/desktop";
+import { useIsDesktopApp } from "@/hooks/useClientEnv";
 import { hasNativeMenu, popupNativeMenu, type NativeMenuItem } from "@/lib/native-menu";
 import type { ExecutionMode } from "@/lib/ask/turns";
 import type { ModelQuota } from "@/lib/ask/model-limits";
@@ -63,13 +63,9 @@ export function AskTopBar({
   const inspector = useMediaInspector();
   const { theme, toggleTheme } = useTheme();
   const { collapsed, toggleCollapsed } = useSidebar();
-  const [isDesktopApp, setIsDesktopApp] = useState(false);
+  const isDesktopApp = useIsDesktopApp();
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const moreRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (desktop()) setIsDesktopApp(true);
-  }, []);
 
   // The desktop app shows this menu as the system's own menu; a browser and the mobile app get the page's
   const openMoreMenu = async () => {

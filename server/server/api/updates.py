@@ -7,6 +7,7 @@ while dynamically synchronizing with GitHub Releases when available.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -195,13 +196,29 @@ async def _fetch_latest_github_release(force_refresh: bool = False) -> dict[str,
     return _RELEASE_CACHE["data"]
 
 
+def _read_json_file(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _read_text_file(path: Path) -> str:
+    return path.read_text(encoding="utf-8")
+
+
 async def _local_yaml_is_current(path: Path) -> bool:
     """Whether a channel file baked into the image (data/updates/latest*.yml) still describes the
     latest release. The release workflow commits the new ones with [skip ci], so the image keeps the
     previous release's until the next server deploy; served first, they would hide the new release
     from every client. Serve one only while no newer release is out, or GitHub can't be reached."""
     try:
-        m = re.search(r"^version:\s*['\"]?[vV]?([0-9][^\s'\"]*)", path.read_text(encoding="utf-8"), re.MULTILINE)
+        text = await asyncio.to_thread(_read_text_file, path)
+        m = re.search(r"^version:\s*['\"]?[vV]?([0-9][^\s'\"]*)", text, re.MULTILINE)
     except OSError:
         return False
     if not m:
@@ -230,14 +247,8 @@ async def check_update(
     updates_dir = _UPDATES_DIR
     version_file = updates_dir / "version.json"
 
-    # 1. Read local static metadata if present
-    local_meta: dict[str, Any] = {}
-    if version_file.exists():
-        try:
-            with open(version_file, "r", encoding="utf-8") as f:
-                local_meta = json.load(f)
-        except Exception:
-            local_meta = {}
+    # 1. Read local static metadata if present (offloaded to thread to keep event loop non-blocking)
+    local_meta: dict[str, Any] = await asyncio.to_thread(_read_json_file, version_file)
 
     local_ver = str(local_meta.get("version", "")).strip().lstrip("vV")
     local_platform_asset = _find_platform_asset(updates_dir, platform)
@@ -474,14 +485,8 @@ async def download_update(
     gh_release = await _fetch_latest_github_release()
     if not tag:
         version_file = _UPDATES_DIR / "version.json"
-        local_ver = ""
-        if version_file.exists():
-            try:
-                with open(version_file, "r", encoding="utf-8") as f:
-                    meta = json.load(f)
-                    local_ver = str(meta.get("version", "")).strip().lstrip("vV")
-            except Exception:
-                pass
+        meta = await asyncio.to_thread(_read_json_file, version_file)
+        local_ver = str(meta.get("version", "")).strip().lstrip("vV")
 
         gh_ver = ""
         if gh_release and "tag_name" in gh_release:

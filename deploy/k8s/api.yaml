@@ -12,6 +12,18 @@ spec:
       # 10s preStop + uvicorn 最多 25s 优雅退出(见 server/Dockerfile)
       # + 最多 600s 等进行中的回答跑完(MEMENTO_SHUTDOWN_DRAIN_SECONDS,客户端期间改连新 pod 继续看),留 25s 余量
       terminationGracePeriodSeconds: 660
+      initContainers:
+        # 滚动更新前以独立进程先跑版本化幂等迁移(带 pg_advisory_xact_lock),主 API 进程跳过 DDL 快速就绪
+        - name: db-migrate
+          image: ghcr.io/ddong8/memento-server:latest
+          imagePullPolicy: IfNotPresent
+          command: ["python", "-m", "server.db.migrations"]
+          envFrom:
+            - configMapRef: { name: memento-config }
+            - secretRef: { name: memento-secret }
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { cpu: "1", memory: 1Gi }
       containers:
         - name: api
           image: ghcr.io/ddong8/memento-server:latest
@@ -20,6 +32,8 @@ spec:
             - configMapRef: { name: memento-config }
             - secretRef: { name: memento-secret }
           env:
+            - name: MEMENTO_SKIP_DDL_MIGRATIONS
+              value: "1"
             - name: MEMENTO_S3_ACCESS_KEY
               valueFrom: { secretKeyRef: { name: memento-secret, key: MINIO_ROOT_USER } }
             - name: MEMENTO_S3_SECRET_KEY

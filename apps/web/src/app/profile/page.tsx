@@ -8,6 +8,7 @@ import { useAuth } from "@/lib/auth-context";
 import { useI18n } from "@/lib/i18n";
 import { api, getApiBase, openServerSwitchModal } from "@/lib/api-client";
 import { desktop } from "@/lib/desktop";
+import { useIsDesktopApp } from "@/hooks/useClientEnv";
 import { Btn, Chip, Glass, TopBar, SectionLabel, GhostInput } from "@/components/aurora/primitives";
 import { Icon } from "@/components/aurora/Icon";
 import NotifySettings from "@/components/notify/NotifySettings";
@@ -46,36 +47,27 @@ function ProfileContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
 
-  const [activeTab, setActiveTab] = useState<TabKey>(() => {
+  const VALID_TABS: readonly TabKey[] = ["proactive", "llm", "life", "account", "devices", "collector", "health", "admin"];
+  const paramTabRaw = searchParams.get("tab") as TabKey | null;
+  const paramTab = paramTabRaw && VALID_TABS.includes(paramTabRaw) ? paramTabRaw : null;
+
+  const [selectedTab, setActiveTab] = useState<TabKey>(() => {
     if (typeof window !== "undefined") {
       const saved = localStorage.getItem("memento_profile_tab") as TabKey | null;
-      if (saved && ["proactive", "llm", "life", "account", "devices", "collector", "health", "admin"].includes(saved)) {
+      if (saved && VALID_TABS.includes(saved)) {
         return saved;
       }
     }
     return "account";
   });
-  const [isDesktopEnv, setIsDesktopEnv] = useState(false);
+  const activeTab: TabKey = paramTab ?? selectedTab;
+  const isDesktopEnv = useIsDesktopApp();
 
   useEffect(() => {
-    const d = desktop();
-    if (d) setIsDesktopEnv(true);
-  }, []);
-
-  useEffect(() => {
-    const paramTab = searchParams.get("tab") as TabKey | null;
-    if (paramTab && ["proactive", "llm", "life", "account", "devices", "collector", "health", "admin"].includes(paramTab)) {
-      setActiveTab(paramTab);
-      if (typeof window !== "undefined") {
-        localStorage.setItem("memento_profile_tab", paramTab);
-      }
-    } else if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("memento_profile_tab") as TabKey | null;
-      if (saved && ["proactive", "llm", "life", "account", "devices", "collector", "health", "admin"].includes(saved)) {
-        setActiveTab(saved);
-      }
+    if (paramTab && typeof window !== "undefined") {
+      localStorage.setItem("memento_profile_tab", paramTab);
     }
-  }, [searchParams]);
+  }, [paramTab]);
 
   const switchTab = (tab: TabKey) => {
     setActiveTab(tab);

@@ -1,6 +1,7 @@
 "use client";
 
 import { Icon } from "@/components/aurora/Icon";
+import { useIsWindowsDesktop } from "@/hooks/useClientEnv";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -100,12 +101,8 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
   const [isExpandedFull, setIsExpandedFull] = useState<boolean>(false);
   // Windows client: its minimize/maximize/close sit over this bar's right end, so the row keeps fewer icons
   // and the rest go under "⋯" (all of them didn't fit: they spilled under the system buttons, 11-16)
-  const [compactBar, setCompactBar] = useState<boolean>(false);
+  const compactBar = useIsWindowsDesktop();
   const [moreOpen, setMoreOpen] = useState<boolean>(false);
-  useEffect(() => {
-    const d = document.documentElement.dataset;
-    setCompactBar(d.client === "desktop" && d.os === "windows");
-  }, []);
   const [isLandscape, setIsLandscape] = useState<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
   const isDraggingRef = useRef<boolean>(false);

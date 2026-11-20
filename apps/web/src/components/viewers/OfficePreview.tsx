@@ -57,15 +57,16 @@ export function canPreviewOffice(ext: string): boolean {
 
 export function OfficePreview({ url, ext, fullscreen = false }: { url: string; ext: string; fullscreen?: boolean }) {
   const kind = officeKind(ext);
-  const [files, setFiles] = useState<OfficeFiles | null>(null);
-  const [model, setModel] = useState<Model | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState<{
+    url: string;
+    kind: string | null;
+    files: OfficeFiles | null;
+    model: Model | null;
+    error: string | null;
+  } | null>(null);
 
   useEffect(() => {
     let active = true;
-    setFiles(null);
-    setModel(null);
-    setError(null);
     (async () => {
       try {
         const bytes = await fetchBytes(url);
@@ -73,17 +74,21 @@ export function OfficePreview({ url, ext, fullscreen = false }: { url: string; e
         const m: Model =
           kind === "docx" ? { kind, doc: parseDocx(f) } : kind === "pptx" ? { kind, deck: parsePptx(f) } : { kind: "xlsx", book: parseXlsx(f) };
         if (active) {
-          setFiles(f);
-          setModel(m);
+          setLoaded({ url, kind, files: f, model: m, error: null });
         }
       } catch (e) {
-        if (active) setError(e instanceof Error ? e.message : String(e));
+        if (active) setLoaded({ url, kind, files: null, model: null, error: e instanceof Error ? e.message : String(e) });
       }
     })();
     return () => {
       active = false;
     };
   }, [url, kind]);
+
+  const current = loaded && loaded.url === url && loaded.kind === kind ? loaded : null;
+  const files = current?.files ?? null;
+  const model = current?.model ?? null;
+  const error = current?.error ?? null;
 
   // Pictures in the package as object URLs, made once per file
   const images = useMemo(() => {
@@ -332,9 +337,10 @@ const PAGE = 300;
 
 function XlsxView({ book, className }: { book: XlsxModel; className: string }) {
   const [sheet, setSheet] = useState(0);
-  const [shown, setShown] = useState(PAGE);
   const [query, setQuery] = useState("");
-  useEffect(() => setShown(PAGE), [sheet, query]);
+  const pageKey = `${sheet}:${query}`;
+  const [shownState, setShownState] = useState<{ key: string; count: number }>({ key: pageKey, count: PAGE });
+  const shown = shownState.key === pageKey ? shownState.count : PAGE;
   const s = book.sheets[sheet];
   const rows = useMemo(() => {
     if (!s) return [] as Array<{ n: number; cells: string[] }>;
@@ -384,7 +390,11 @@ function XlsxView({ book, className }: { book: XlsxModel; className: string }) {
           </tbody>
         </table>
         {rows.length > shown && (
-          <button type="button" onClick={() => setShown((n) => n + PAGE)} className="w-full py-2 text-[11px] text-[var(--aurora-accent)] hover:bg-[var(--aurora-chip)]/40 cursor-pointer">
+          <button
+            type="button"
+            onClick={() => setShownState({ key: pageKey, count: shown + PAGE })}
+            className="w-full py-2 text-[11px] text-[var(--aurora-accent)] hover:bg-[var(--aurora-chip)]/40 cursor-pointer"
+          >
             再显示 {Math.min(PAGE, rows.length - shown)} 行（还有 {rows.length - shown} 行）
           </button>
         )}

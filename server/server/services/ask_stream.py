@@ -90,6 +90,7 @@ async def _coalesced_device_stream(db: AsyncSession, user: User, run_args: dict,
                     queue.put_nowait(exc)
                 except Exception:
                     pass
+                return
             raise
         finally:
             try:
@@ -358,11 +359,15 @@ async def _prepare_agent_args(
                 try:
                     _header, b64data = img.split(",", 1)
                     raw = base64.b64decode(b64data)
-                    import tempfile
-                    base_img_root = Path("/data2/memento/images") if Path("/data2").exists() else Path(tempfile.gettempdir()) / "memento_images"
-                    img_dir = base_img_root / str(conv_id)
-                    img_dir.mkdir(parents=True, exist_ok=True)
-                    (img_dir / names[idx]).write_bytes(raw)
+
+                    def _save_temp_image(cid: str, fname: str, payload: bytes) -> None:
+                        import tempfile
+                        root = Path("/data2/memento/images") if Path("/data2").exists() else Path(tempfile.gettempdir()) / "memento_images"
+                        target_dir = root / cid
+                        target_dir.mkdir(parents=True, exist_ok=True)
+                        (target_dir / fname).write_bytes(payload)
+
+                    await asyncio.to_thread(_save_temp_image, str(conv_id), names[idx], raw)
                     # A copy every replica can serve and a deploy keeps: the workbench opens these paths
                     await chat_images.keep(user.id, conv_id, names[idx], raw)
                     # The device writes it to /tmp/memento_images/{conv_id}/<name> (or a /data2 folder behind

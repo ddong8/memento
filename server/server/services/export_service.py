@@ -402,7 +402,8 @@ async def build_export(
             }
             zf.writestr("manifest.json", json.dumps(manifest, indent=2))
 
-        size = os.path.getsize(tmp_path)
+        import asyncio
+        size = await asyncio.to_thread(os.path.getsize, tmp_path)
         date_part = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
         # Email could include characters disallowed in filenames; keep
         # only the local-part letters/digits/dash/underscore.

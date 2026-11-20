@@ -46,6 +46,8 @@ class _Harness:
         stack.enter_context(patch("server.services.orchestrator._tool_run_on_device", self.fake_run))
         stack.enter_context(patch("server.services.orchestrator.stop_orphaned_agent_tasks", self.stop_orphans))
         stack.enter_context(patch("server.services.user_filter.user_machine_ids", AsyncMock(return_value=["m1"])))
+        stack.enter_context(patch("server.services.chat_images.device_names_images", AsyncMock(return_value=False)))
+        stack.enter_context(patch("server.services.chat_images.keep", AsyncMock(return_value=True)))
         stack.enter_context(patch.object(ask_stream, "append_conversation_turns", self.saved))
         return stack
 

@@ -45,7 +45,7 @@ export default function AuthDesktopPage() {
     // Someone landed here without a live desktop flow (or with junk params):
     // fail loudly rather than spin forever.
     if (!validPort(port) || !validNonce(nonce)) {
-      setFailed(true);
+      queueMicrotask(() => setFailed(true));
       return;
     }
 
@@ -57,7 +57,7 @@ export default function AuthDesktopPage() {
       /* storage blocked — treated as missing below */
     }
     if (!jwt) {
-      setFailed(true);
+      queueMicrotask(() => setFailed(true));
       return;
     }
 

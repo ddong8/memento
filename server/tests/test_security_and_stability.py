@@ -261,6 +261,35 @@ class TestSecurityAndStability(unittest.IsolatedAsyncioTestCase):
         await bg_tasks.cancel_all(timeout=1.0)
         self.assertTrue(t3.cancelled())
 
+    async def test_upload_avatar_validates_magic_bytes_and_bounded_read(self):
+        from server.api.auth import _detect_avatar_mime, upload_avatar
+
+        self.assertEqual(_detect_avatar_mime(b"\x89PNG\r\n\x1a\nxxxx"), "image/png")
+        self.assertEqual(_detect_avatar_mime(b"\xff\xd8\xff\xe0xxxx"), "image/jpeg")
+        self.assertEqual(_detect_avatar_mime(b"GIF89axxxx"), "image/gif")
+        self.assertEqual(_detect_avatar_mime(b"RIFF1234WEBPxxxx"), "image/webp")
+        self.assertIsNone(_detect_avatar_mime(b"<svg onload=alert(1)/>"))
+
+        fake_file = MagicMock(content_type="image/png", read=AsyncMock(return_value=b"<svg onload=alert(1)/>"))
+        user = MagicMock(status="active")
+        db = MagicMock(flush=AsyncMock())
+        with self.assertRaises(HTTPException) as ctx:
+            await upload_avatar(file=fake_file, user=user, db=db)
+        self.assertEqual(ctx.exception.status_code, 400)
+        # Ensure bounded read argument was passed
+        fake_file.read.assert_awaited_once_with(2 * 1024 * 1024 + 1)
+
+    async def test_token_exchange_enforces_ip_rate_limit(self):
+        from server.api.auth import token_exchange
+
+        req = MagicMock()
+        db = MagicMock()
+        with patch("server.api.auth.rate_limit.client_ip", return_value="1.2.3.4"), \
+                patch("server.api.auth.rate_limit.check", AsyncMock(side_effect=HTTPException(status_code=429, detail="rate limited"))):
+            with self.assertRaises(HTTPException) as ctx:
+                await token_exchange(request=req, db=db, x_collector_token="bad")
+            self.assertEqual(ctx.exception.status_code, 429)
+
 
 if __name__ == "__main__":
     unittest.main()

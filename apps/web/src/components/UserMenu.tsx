@@ -8,7 +8,7 @@ import { useAuth } from "@/lib/auth-context";
 import { useI18n, locales, type Locale } from "@/lib/i18n";
 import { useTheme, type Skin } from "@/lib/theme-context";
 import { Icon } from "@/components/aurora/Icon";
-import { desktop } from "@/lib/desktop";
+import { useIsDesktopApp } from "@/hooks/useClientEnv";
 import { openServerSwitchModal } from "@/lib/api-client";
 
 type IconName = Parameters<typeof Icon>[0]["name"];
@@ -30,15 +30,11 @@ export function UserMenu({ variant = "sidebar", collapsed = false, onNavClick }:
   const { skin, setSkin } = useTheme();
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
-  const [isDesktop, setIsDesktop] = useState(false);
+  const isDesktop = useIsDesktopApp();
   const [hovered, setHovered] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const [anchor, setAnchor] = useState<Element | null>(null);
-
-  useEffect(() => {
-    if (desktop()) setIsDesktop(true);
-  }, []);
 
   useEffect(() => {
     if (!open) return;

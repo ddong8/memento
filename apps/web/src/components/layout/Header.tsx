@@ -7,8 +7,7 @@ import { useI18n } from "@/lib/i18n";
 import { Icon } from "@/components/aurora/Icon";
 import { ThemeToggle } from "@/components/aurora/primitives";
 
-import { useEffect, useState } from "react";
-import { desktop } from "@/lib/desktop";
+import { useIsDesktopApp } from "@/hooks/useClientEnv";
 import { useSidebar } from "@/lib/sidebar-context";
 
 export default function Header({ onMenuToggle, className = "" }: { onMenuToggle: () => void; className?: string }) {
@@ -18,11 +17,7 @@ export default function Header({ onMenuToggle, className = "" }: { onMenuToggle:
   const pathname = usePathname();
   // The top bar is the desktop window's title bar: it drags the window (on Windows the system's
   // minimize / maximize / close buttons sit over its right end, see globals.css)
-  const [isDesktopApp, setIsDesktopApp] = useState(false);
-
-  useEffect(() => {
-    if (desktop()) setIsDesktopApp(true);
-  }, []);
+  const isDesktopApp = useIsDesktopApp();
 
   const pageMeta = (() => {
     if (!pathname) return { title: t.app.title, icon: "sparkles" as const };

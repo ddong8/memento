@@ -37,13 +37,13 @@ export default function HandoffPage() {
       : (savedLastRoute && savedLastRoute.startsWith("/") && !/^\/[/\\]/.test(savedLastRoute) ? savedLastRoute : "/ask");
 
     if (!token) {
-      setFailed(true);
+      queueMicrotask(() => setFailed(true));
       return;
     }
     try {
       localStorage.setItem("dr_token", token);
     } catch {
-      setFailed(true);
+      queueMicrotask(() => setFailed(true));
       return;
     }
     window.location.replace(dest);

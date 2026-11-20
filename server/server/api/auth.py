@@ -191,13 +191,35 @@ async def register(
     )
 
 
+TOKEN_EXCHANGE_MAX_PER_IP = 30
+TOKEN_EXCHANGE_WINDOW = 600
+
+
+def _detect_avatar_mime(data: bytes) -> str | None:
+    """Detect real image type by magic bytes rather than trusting client-supplied Content-Type."""
+    if data.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if data.startswith((b"GIF87a", b"GIF89a")):
+        return "image/gif"
+    if len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    return None
+
+
 @router.post("/token-exchange", response_model=TokenResponse)
 async def token_exchange(
+    request: Request,
     db: AsyncSession = Depends(get_db),
     x_collector_token: str = Header(None),
 ) -> TokenResponse:
     """Exchange a collector_token for a JWT. Used by MCP server setup."""
+    ip_key = f"token_exchange:ip:{rate_limit.client_ip(request) or 'unknown'}"
+    await rate_limit.check(ip_key, TOKEN_EXCHANGE_MAX_PER_IP)
+
     if not x_collector_token:
+        await rate_limit.hit(ip_key, TOKEN_EXCHANGE_WINDOW)
         raise HTTPException(status_code=401, detail="X-Collector-Token header required")
 
     # Try per-user token first
@@ -214,6 +236,7 @@ async def token_exchange(
             user = result.scalar_one_or_none()
 
     if not user or user.status != "active":
+        await rate_limit.hit(ip_key, TOKEN_EXCHANGE_WINDOW)
         raise HTTPException(status_code=401, detail="Invalid collector token")
     token = create_access_token(str(user.id), user.role)
     return TokenResponse(access_token=token, user_id=str(user.id), role=user.role)
@@ -531,14 +554,20 @@ async def upload_avatar(
     if content_type not in allowed_types:
         raise HTTPException(status_code=400, detail="Unsupported image format. Please upload JPG, PNG, WebP or GIF.")
 
-    content = await file.read()
+    max_avatar_bytes = 2 * 1024 * 1024
+    # Bounded read prevents large malicious uploads from exhausting worker memory before size check
+    content = await file.read(max_avatar_bytes + 1)
     if len(content) == 0:
         raise HTTPException(status_code=400, detail="Uploaded file is empty")
-    if len(content) > 2 * 1024 * 1024:
+    if len(content) > max_avatar_bytes:
         raise HTTPException(status_code=400, detail="Avatar file size exceeds 2MB limit")
 
+    real_mime = _detect_avatar_mime(content)
+    if real_mime is None:
+        raise HTTPException(status_code=400, detail="Invalid image signature. Please upload a valid JPG, PNG, WebP or GIF.")
+
     b64_data = base64.b64encode(content).decode("ascii")
-    user.avatar_url = f"data:{content_type};base64,{b64_data}"
+    user.avatar_url = f"data:{real_mime};base64,{b64_data}"
     await db.flush()
 
     return UserResponse(

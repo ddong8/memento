@@ -51,9 +51,12 @@ export default function TopProgressBar() {
     showTimer.current = creepTimer.current = null;
     if (!shown.current) return;
     shown.current = false;
-    setProgress(100);
+    const finish = setTimeout(() => setProgress(100), 0);
     const hide = setTimeout(() => setProgress(0), 280);
-    return () => clearTimeout(hide);
+    return () => {
+      clearTimeout(finish);
+      clearTimeout(hide);
+    };
   }, [pathname]);
 
   if (progress === 0) return null;

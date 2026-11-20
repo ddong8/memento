@@ -9,6 +9,7 @@ import { getApiBase, authFetch, api } from "@/lib/api-client";
 import { Icon } from "@/components/aurora/Icon";
 import { UserMenu } from "@/components/UserMenu";
 import { desktop } from "@/lib/desktop";
+import { useIsDesktopApp, useIsMacDesktop } from "@/hooks/useClientEnv";
 import { useSidebar } from "@/lib/sidebar-context";
 import pkg from "../../../package.json";
 
@@ -25,20 +26,14 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
   const [onlineCount, setOnlineCount] = useState<number>(0);
   const [totalDevices, setTotalDevices] = useState<number>(0);
   const [todoCount, setTodoCount] = useState<number>(0);
-  const [isMacDesktop, setIsMacDesktop] = useState(false);
-  const [isDesktopApp, setIsDesktopApp] = useState(false);
+  const isMacDesktop = useIsMacDesktop();
+  const isDesktopApp = useIsDesktopApp();
   const [appVersion, setAppVersion] = useState(WEB_VERSION);
   const [updateAvailable, setUpdateAvailable] = useState<string | null>(null);
 
   useEffect(() => {
     const d = desktop();
     if (d) {
-      setIsDesktopApp(true);
-      const isMac =
-        typeof navigator !== "undefined" &&
-        (/Mac/i.test(navigator.userAgent) || /Mac/i.test((navigator as { platform?: string }).platform || ""));
-      if (isMac) setIsMacDesktop(true);
-
       d.info()
         .then((info) => {
           if (info?.version) {
@@ -147,13 +142,9 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
     void check();
   }, []);
 
-  const [optimisticPath, setOptimisticPath] = useState<string | null>(null);
+  const [optimisticNav, setOptimisticNav] = useState<{ from: string; to: string } | null>(null);
 
-  useEffect(() => {
-    setOptimisticPath(null);
-  }, [pathname]);
-
-  const effectivePath = optimisticPath ?? pathname;
+  const effectivePath = optimisticNav && optimisticNav.from === pathname ? optimisticNav.to : pathname;
 
   // Pre-warm primary top routes during browser idle time (zero delay on first visit)
   useEffect(() => {
@@ -208,7 +199,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
       return;
     }
 
-    setOptimisticPath(targetHref);
+    setOptimisticNav({ from: pathname, to: targetHref });
     if (typeof window !== "undefined") {
       window.dispatchEvent(new CustomEvent("memento:route-start", { detail: { href: targetHref } }));
       try {

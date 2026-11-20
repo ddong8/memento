@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `5353003a` · Updated: `2026-11-20`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `a60b5e61` · Updated: `2026-11-20`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,8 +16,8 @@
 - 规模 (Scale): 9 个子系统 · 38 组 API 路由 / 252 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 244 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `cf0d0531` (2026-11-20): fix(直传): ICE 在设置对端描述时瞬间失败，设备应答自动换新连接重试一次，修复 CI 上 WebRTC 测试偶发失败
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 70（✅ 70 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `F-RESUME`, `R-CONFIG-LOCK`, `R-NEWCHAT-WORKS`, `R-QUOTA-AGY-GROUPS`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `S-CLIENT-VERSION`
+- 最近改动 (Latest): `a43b15c3` (2026-11-20): fix(测试): 对齐 project_maintenance 抽离后的冷却时间与项目名 mock 路径
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 70（✅ 70 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `T-FOLLOWUP`, `T-RUN`, `F-ASK`, `F-FOLLOWUP`, `F-STOP`, `F-BLUEPRINT`, `R-STOP-ALL-AGENTS`, `R-ISLAND-CLEANUP`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -519,12 +519,12 @@ erDiagram
 | `device_reports` | [`server/server/services/device_reports.py`](server/server/services/device_reports.py) | What connected devices report about themselves: agent capabilities (tools, |
 | `device_service` | [`server/server/services/device_service.py`](server/server/services/device_service.py) | Device service — registers and updates collector devices. |
 | `dreaming_service` | [`server/server/services/dreaming_service.py`](server/server/services/dreaming_service.py) | Dreaming Consolidation Service — Autonomous Memory Tiering & Sleep Replay. |
+| `dreaming_voice` | [`server/server/services/dreaming_voice.py`](server/server/services/dreaming_voice.py) | User voice sanitization, batching, and signal extraction helpers for the Dreaming pipeline. |
 | `embedding_service` | [`server/server/services/embedding_service.py`](server/server/services/embedding_service.py) | Embeddings for documents: chunk the text, embed only the chunks that changed. |
 | `enterprise_policy` | [`server/server/services/enterprise_policy.py`](server/server/services/enterprise_policy.py) | Deployment-wide policy for enterprise installs (settings in config.py, see docs/enterprise.md). |
 | `entity_canon` | [`server/server/services/entity_canon.py`](server/server/services/entity_canon.py) | One knowledge-graph entity per thing. |
 | `eval_service` | [`server/server/services/eval_service.py`](server/server/services/eval_service.py) | Retrieval evaluation: does Memento still find the right document? |
 | `export_service` | [`server/server/services/export_service.py`](server/server/services/export_service.py) | Account-level data export — builds a portable ZIP of the caller's own data. |
-| `fulltext` | [`server/server/services/fulltext.py`](server/server/services/fulltext.py) | Keyword matching over document_search: through its GIN index, with query terms weighted by rarity. |
 
 ## 6.5. AST Call Graph, DTO Schemas & CLI Entrypoints
 
@@ -634,16 +634,16 @@ erDiagram
 
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
-- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (8 commits)
 - [`packages/daemon/src/source-exec.ts`](packages/daemon/src/source-exec.ts) (8 commits)
+- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (7 commits)
 - [`apps/web/src/components/agent/ActiveRunsMonitor.tsx`](apps/web/src/components/agent/ActiveRunsMonitor.tsx) (7 commits)
 - [`apps/web/src/components/persona/DigitalTwinAvatar3D.tsx`](apps/web/src/components/persona/DigitalTwinAvatar3D.tsx) (7 commits)
-- [`apps/web/src/components/viewers/MediaInspectorPanel.tsx`](apps/web/src/components/viewers/MediaInspectorPanel.tsx) (6 commits)
 - [`packages/daemon/test/source-exec.test.ts`](packages/daemon/test/source-exec.test.ts) (6 commits)
 - [`server/server/services/workspace_relay.py`](server/server/services/workspace_relay.py) (6 commits)
 - [`apps/web/src/app/globals.css`](apps/web/src/app/globals.css) (5 commits)
 - [`apps/web/src/app/memory/page.tsx`](apps/web/src/app/memory/page.tsx) (5 commits)
-- [`apps/web/src/components/ExecutionCard.tsx`](apps/web/src/components/ExecutionCard.tsx) (5 commits)
+- [`apps/web/src/components/memory/MemoryGalaxy3D.tsx`](apps/web/src/components/memory/MemoryGalaxy3D.tsx) (5 commits)
+- [`apps/web/src/components/viewers/MediaInspectorPanel.tsx`](apps/web/src/components/viewers/MediaInspectorPanel.tsx) (5 commits)
 
 ## 8. Development & Verification Commands
 
@@ -666,12 +666,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `a43b15c3` (2026-11-20): fix(测试): 对齐 project_maintenance 抽离后的冷却时间与项目名 mock 路径
+- `1de43772` (2026-11-20): feat(架构与安全): 全维度安全隔离加固、并发稳定性收敛、CI 防线升级与核心模块拆解；升级客户端版本至 v1.0.146
 - `cf0d0531` (2026-11-20): fix(直传): ICE 在设置对端描述时瞬间失败，设备应答自动换新连接重试一次，修复 CI 上 WebRTC 测试偶发失败
 - `1392ce7d` (2026-11-20): feat(对话): 对话开始后固定智能体、设备、项目和会话，要换请新建对话，避免上下文错乱
 - `b7977b7b` (2026-11-19): feat(额度): Antigravity 每个模型都显示额度，并显示 Gemini、Claude 和 GPT、Gemini 4 Argon 各组的周额度和 5 小时额度；升级客户端版本至 v1.0.145
 - `58a2a3db` (2026-11-19): fix(Antigravity): 服务器上用 agy 命令行跑的任务，后台命令跑完了不再显示还有后台任务没跑完；升级客户端版本至 v1.0.144
-- `f212a39c` (2026-11-19): feat(远程任务): 代码所在设备上的命令默认不再拦截，有风险的照常执行并推送提醒
-- `6bedacfa` (2026-11-19): fix(远程任务): 命令期间代码所在设备重连过、Memento 重启过或断网时，执行机不再空等 30 分钟；升级客户端版本至 v1.0.143
 
 ## 10. Key Environment Variables & Configuration
 
@@ -694,8 +694,8 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ### 最近提交碰到的业务条目（改动后复查它们还成不成立）
 
+- `1de43772` feat(架构与安全): 全维度安全隔离加固、并发稳定性收敛、CI 防线升级与核心模块拆解；升级客户端版本至 v1.0.146 → `T-FOLLOWUP`, `T-RUN`, `F-ASK`, `F-FOLLOWUP`, `F-STOP`, `F-BLUEPRINT`, `R-STOP-ALL-AGENTS`, `R-ISLAND-CLEANUP`, `R-ENT-DEVICE-POLICY`, `R-RUN-OUTLIVES-PAGE`, `R-CONFIG-LOCK`, `R-CLAUDE-TUI-SYNC`, `R-APP-NAME`, `R-DOCS-WRITE-LIGHT`, `R-ALL-TYPESCRIPT`, `R-LOGIN-PERSIST`, `S-RUN-STATE`, `S-CLIENT-VERSION`
 - `1392ce7d` feat(对话): 对话开始后固定智能体、设备、项目和会话，要换请新建对话，避免上下文错乱 → `F-RESUME`, `R-CONFIG-LOCK`, `R-NEWCHAT-WORKS`
-- `b7977b7b` feat(额度): Antigravity 每个模型都显示额度，并显示 Gemini、Claude 和 GPT、Gemini 4 Argon 各组的周额度和 5 → `R-QUOTA-AGY-GROUPS`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `S-CLIENT-VERSION`
 
 ---
 _Auto-maintained by `scripts/project_blueprint.mjs` (v20261126) & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._

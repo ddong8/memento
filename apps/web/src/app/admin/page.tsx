@@ -636,12 +636,13 @@ function AuditTab({ headers }: { headers: Headers }) {
       .then((d: { items: AuditEntry[] }) => {
         const rows = d.items || [];
         setItems((prev) => append ? [...prev, ...rows] : rows);
+        setOffset(off);
         setHasMore(rows.length === LIMIT);
       })
       .catch(() => {});
   }, [headers, filterUser, filterAction, auditOnly]);
 
-  useEffect(() => { setOffset(0); load(false, 0); }, [load]);
+  useEffect(() => { load(false, 0); }, [load]);
 
   return (
     <>

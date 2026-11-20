@@ -252,9 +252,12 @@ export function StatusView({ hideTopBar = false }: { hideTopBar?: boolean }) {
   }, [h]);
 
   useEffect(() => {
-    load();
-    void checkServerLatency();
+    const id = setTimeout(() => {
+      void load();
+      void checkServerLatency();
+    }, 0);
     return () => {
+      clearTimeout(id);
       if (poll.current) clearInterval(poll.current);
     };
   }, [load, checkServerLatency]);

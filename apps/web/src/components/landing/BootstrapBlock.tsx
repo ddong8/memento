@@ -67,7 +67,7 @@ export function BootstrapBlock() {
           step={1}
           title={t.landing.bootstrap_path_live_title}
           subtitle={t.landing.bootstrap_path_live_subtitle}
-          accent="color-mix(in srgb, var(--aurora-accent) 40%, transparent)"
+          accent="rgba(124,58,237,0.4)"
           bullets={[
             t.landing.bootstrap_path_live_b1,
             t.landing.bootstrap_path_live_b2,

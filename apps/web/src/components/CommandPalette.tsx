@@ -674,7 +674,7 @@ export default function CommandPalette() {
                       gap: 12,
                       padding: "11px 18px",
                       cursor: "pointer",
-                      background: isSelected ? "color-mix(in srgb, var(--aurora-accent) 14%, transparent)" : "var(--aurora-accent-soft)",
+                      background: isSelected ? "rgba(124, 58, 237, 0.16)" : "rgba(124, 58, 237, 0.08)",
                       borderTop: "1px solid var(--aurora-border)",
                       borderBottom: "1px solid var(--aurora-border)",
                       transition: "background .12s",
@@ -690,7 +690,7 @@ export default function CommandPalette() {
                         alignItems: "center",
                         justifyContent: "center",
                         flexShrink: 0,
-                        boxShadow: "0 2px 8px -2px rgba(15, 23, 42, 0.28)",
+                        boxShadow: "0 2px 8px -1px rgba(124,58,237,0.4)",
                       }}
                     >
                       <Icon name="sparkles" size={14} style={{ color: "#fff" }} />

@@ -108,105 +108,103 @@ code, kbd, samp, pre, .font-mono {
   --aurora-info-soft: rgba(96, 165, 250, 0.14);
 }
 
-/* Default light (aurora — refined obsidian ink & sapphire blue) */
+/* Default light (aurora) */
 :root,
 :root[data-skin="aurora"][data-theme="light"] {
-  --aurora-bg: #F8FAFC;
-  --aurora-bg2: #F1F5F9;
-  --aurora-glow1: transparent;
-  --aurora-glow2: transparent;
-  --aurora-glow3: transparent;
-  --aurora-glow4: transparent;
-  --aurora-surface: rgba(255, 255, 255, 0.90);
+  --aurora-bg: #FAFAFC;
+  --aurora-bg2: #F5F4F8;
+  --aurora-glow1: #A78BFA;
+  --aurora-glow2: #FBA5C9;
+  --aurora-glow3: #7DD3FC;
+  --aurora-glow4: #FDE68A;
+  --aurora-surface: rgba(255, 255, 255, 0.76);
   --aurora-surface-solid: #FFFFFF;
-  --aurora-surface-mute: #F4F6FA;
-  --aurora-sidebar: #F8FAFC;
-  --aurora-border: rgba(15, 23, 42, 0.08);
-  --aurora-border-strong: rgba(15, 23, 42, 0.14);
-  --aurora-fg1: #0F172A;
-  --aurora-fg2: #334155;
-  --aurora-fg3: #64748B;
-  --aurora-fg4: #94A3B8;
-  --aurora-fg5: #CBD5E1;
-  --aurora-accent: #2563EB;
-  --aurora-accent-soft: rgba(37, 99, 235, 0.08);
-  --aurora-chip: rgba(15, 23, 42, 0.045);
-  --aurora-thinking-bg: rgba(15, 23, 42, 0.025);
-  --aurora-thinking-header: rgba(15, 23, 42, 0.035);
-  --aurora-code-surface: rgba(15, 23, 42, 0.038);
-  --aurora-user-bubble: rgba(37, 99, 235, 0.065);
-  --aurora-user-bubble-border: rgba(37, 99, 235, 0.16);
-  --aurora-primary-grad: #18181B;
-  --aurora-primary-grad-hover: #27272A;
-  --aurora-brand-grad: #18181B;
+  --aurora-surface-mute: rgba(246, 245, 250, 0.72);
+  --aurora-sidebar: rgba(255, 255, 255, 0.68);
+  --aurora-border: rgba(15, 15, 30, 0.065);
+  --aurora-border-strong: rgba(15, 15, 30, 0.11);
+  --aurora-fg1: #0B0B14;
+  --aurora-fg2: #3A3A48;
+  --aurora-fg3: #6E6E80;
+  --aurora-fg4: #9D9DAE;
+  --aurora-fg5: #C9C9D4;
+  --aurora-accent: #6D28D9;
+  --aurora-accent-soft: rgba(109, 40, 217, 0.09);
+  --aurora-chip: rgba(15, 15, 30, 0.045);
+  --aurora-thinking-bg: rgba(15, 15, 30, 0.024);
+  --aurora-thinking-header: rgba(15, 15, 30, 0.032);
+  --aurora-code-surface: rgba(15, 15, 30, 0.035);
+  --aurora-user-bubble: linear-gradient(135deg, rgba(124, 58, 237, 0.09) 0%, rgba(236, 72, 153, 0.06) 100%);
+  --aurora-user-bubble-border: rgba(124, 58, 237, 0.18);
+  --aurora-primary-grad: linear-gradient(135deg, #7C3AED 0%, #DB2777 100%);
+  --aurora-primary-grad-hover: linear-gradient(135deg, #6D28D9 0%, #EC4899 100%);
+  --aurora-brand-grad: linear-gradient(135deg, #7C3AED 0%, #EC4899 55%, #06B6D4 100%);
   --aurora-card-shadow:
     0 1px 0 0 rgba(255, 255, 255, 0.95) inset,
-    0 0 0 1px rgba(15, 23, 42, 0.03) inset,
-    0 10px 28px -18px rgba(15, 23, 42, 0.10),
-    0 2px 6px -2px rgba(15, 23, 42, 0.04);
+    0 0 0 1px rgba(255, 255, 255, 0.5) inset,
+    0 14px 34px -20px rgba(15, 15, 40, 0.11),
+    0 2px 6px -2px rgba(15, 15, 40, 0.04);
   --aurora-card-shadow-hover:
     0 1px 0 0 rgba(255, 255, 255, 0.98) inset,
-    0 18px 40px -20px rgba(15, 23, 42, 0.14),
-    0 4px 12px -3px rgba(15, 23, 42, 0.06);
-  --aurora-blur: blur(18px) saturate(160%);
-  --aurora-blur-heavy: blur(22px) saturate(160%);
+    0 22px 48px -22px rgba(124, 58, 237, 0.18),
+    0 4px 12px -3px rgba(15, 15, 40, 0.06);
+  --aurora-blur: blur(20px) saturate(180%);
+  --aurora-blur-heavy: blur(24px) saturate(180%);
   --aurora-ease-spring: cubic-bezier(0.16, 1, 0.3, 1);
   --aurora-bubble-bevel:
-    0 1px 0 0 rgba(255, 255, 255, 0.85) inset,
-    0 0 0 1px rgba(15, 23, 42, 0.04) inset,
-    0 2px 8px rgba(15, 23, 42, 0.04);
+    0 1px 0 0 rgba(255, 255, 255, 0.8) inset,
+    0 0 0 1px rgba(15, 15, 30, 0.04) inset,
+    0 2px 8px rgba(15, 15, 40, 0.04);
   --aurora-radius-card: 16px;
   --aurora-radius-btn: 10px;
-  --aurora-btn-shadow: 0 2px 8px -2px rgba(15, 23, 42, 0.28), 0 1px 0 0 rgba(255, 255, 255, 0.12) inset;
-  --aurora-btn-shadow-hover: 0 6px 16px -4px rgba(15, 23, 42, 0.36), 0 1px 0 0 rgba(255, 255, 255, 0.16) inset;
+  --aurora-btn-shadow: 0 3px 12px -3px rgba(124, 58, 237, 0.36), 0 1px 0 0 rgba(255, 255, 255, 0.2) inset;
+  --aurora-btn-shadow-hover: 0 6px 20px -5px rgba(219, 39, 119, 0.45), 0 1px 0 0 rgba(255, 255, 255, 0.25) inset;
 }
 
 :root[data-skin="aurora"][data-theme="dark"] {
-  --aurora-bg: #0B0F17;
-  --aurora-bg2: #111827;
-  --aurora-glow1: transparent;
-  --aurora-glow2: transparent;
-  --aurora-glow3: transparent;
-  --aurora-glow4: transparent;
-  --aurora-surface: rgba(17, 24, 39, 0.78);
-  --aurora-surface-solid: #131A26;
-  --aurora-surface-mute: rgba(17, 24, 39, 0.52);
-  --aurora-sidebar: rgba(13, 18, 28, 0.88);
-  --aurora-border: rgba(255, 255, 255, 0.075);
-  --aurora-border-strong: rgba(255, 255, 255, 0.14);
-  --aurora-fg1: #F1F5F9;
-  --aurora-fg2: #CBD5E1;
-  --aurora-fg3: #94A3B8;
-  --aurora-fg4: #64748B;
-  --aurora-fg5: #334155;
-  --aurora-accent: #60A5FA;
-  --aurora-accent-soft: rgba(96, 165, 250, 0.14);
-  --aurora-chip: rgba(255, 255, 255, 0.06);
-  --aurora-thinking-bg: rgba(0, 0, 0, 0.24);
-  --aurora-thinking-header: rgba(255, 255, 255, 0.03);
-  --aurora-code-surface: rgba(0, 0, 0, 0.30);
-  --aurora-user-bubble: rgba(59, 130, 246, 0.13);
-  --aurora-user-bubble-border: rgba(96, 165, 250, 0.24);
-  --aurora-primary-grad: #2563EB;
-  --aurora-primary-grad-hover: #3B82F6;
-  --aurora-brand-grad: #2563EB;
+  --aurora-bg: #0A0A12;
+  --aurora-bg2: #14141E;
+  --aurora-glow1: #7C3AED;
+  --aurora-glow2: #DB2777;
+  --aurora-glow3: #0891B2;
+  --aurora-glow4: #F59E0B;
+  --aurora-surface: rgba(22, 22, 34, 0.70);
+  --aurora-surface-solid: #15151F;
+  --aurora-surface-mute: rgba(22, 22, 34, 0.45);
+  --aurora-sidebar: rgba(15, 15, 24, 0.68);
+  --aurora-border: rgba(255, 255, 255, 0.065);
+  --aurora-border-strong: rgba(255, 255, 255, 0.12);
+  --aurora-fg1: #F4F4F8;
+  --aurora-fg2: #C5C5D2;
+  --aurora-fg3: #8E8E9E;
+  --aurora-fg4: #6A6A7A;
+  --aurora-fg5: #3F3F4E;
+  --aurora-accent: #A78BFA;
+  --aurora-accent-soft: rgba(167, 139, 250, 0.14);
+  --aurora-chip: rgba(255, 255, 255, 0.055);
+  --aurora-thinking-bg: rgba(0, 0, 0, 0.22);
+  --aurora-thinking-header: rgba(255, 255, 255, 0.025);
+  --aurora-code-surface: rgba(0, 0, 0, 0.28);
+  --aurora-user-bubble: linear-gradient(135deg, rgba(167, 139, 250, 0.17) 0%, rgba(244, 114, 182, 0.11) 100%);
+  --aurora-user-bubble-border: rgba(167, 139, 250, 0.25);
+  --aurora-primary-grad: linear-gradient(135deg, #8B5CF6 0%, #EC4899 100%);
+  --aurora-primary-grad-hover: linear-gradient(135deg, #A78BFA 0%, #F472B6 100%);
+  --aurora-brand-grad: linear-gradient(135deg, #7C3AED 0%, #EC4899 55%, #06B6D4 100%);
   /* Dual Inner Bevel: top micro-highlight (0 1px) + subtle rim (0 0 0 1px) + ambient drop shadow */
   --aurora-card-shadow:
-    0 1px 0 0 rgba(255, 255, 255, 0.08) inset,
+    0 1px 0 0 rgba(255, 255, 255, 0.10) inset,
     0 0 0 1px rgba(255, 255, 255, 0.04) inset,
     0 20px 48px -24px rgba(0, 0, 0, 0.62),
     0 4px 16px -6px rgba(0, 0, 0, 0.36);
   --aurora-card-shadow-hover:
-    0 1px 0 0 rgba(255, 255, 255, 0.12) inset,
-    0 0 0 1px rgba(255, 255, 255, 0.06) inset,
-    0 24px 56px -24px rgba(0, 0, 0, 0.72),
+    0 1px 0 0 rgba(255, 255, 255, 0.15) inset,
+    0 0 0 1px rgba(255, 255, 255, 0.07) inset,
+    0 26px 64px -24px rgba(147, 92, 255, 0.36),
     0 8px 24px -6px rgba(0, 0, 0, 0.45);
   --aurora-bubble-bevel:
-    0 1px 0 0 rgba(255, 255, 255, 0.09) inset,
+    0 1px 0 0 rgba(255, 255, 255, 0.11) inset,
     0 0 0 1px rgba(255, 255, 255, 0.04) inset,
     0 2px 10px rgba(0, 0, 0, 0.24);
-  --aurora-btn-shadow: 0 2px 10px -2px rgba(37, 99, 235, 0.35), 0 1px 0 0 rgba(255, 255, 255, 0.15) inset;
-  --aurora-btn-shadow-hover: 0 6px 18px -4px rgba(59, 130, 246, 0.45), 0 1px 0 0 rgba(255, 255, 255, 0.2) inset;
 }
 
 /* ---------- ARC (paper minimalist) ---------- */
@@ -521,8 +519,8 @@ body {
 .aurora-btn-sm { padding: 6px 12px; font-size: 12px; }
 .aurora-btn-lg { padding: 14px 22px; font-size: 14px; }
 .aurora-btn-danger {
-  background: #DC2626;
-  box-shadow: 0 3px 10px -3px rgba(220, 38, 38, 0.35);
+  background: linear-gradient(135deg, #EF4444, #EC4899);
+  box-shadow: 0 4px 14px -4px rgba(239, 68, 68, 0.4);
 }
 html[data-skin="arc"] .aurora-btn-danger,
 html[data-skin="baseline"] .aurora-btn-danger {
@@ -530,8 +528,8 @@ html[data-skin="baseline"] .aurora-btn-danger {
   box-shadow: none;
 }
 .aurora-btn-danger:hover {
-  background: #B91C1C;
-  box-shadow: 0 6px 16px -6px rgba(185, 28, 28, 0.45);
+  background: linear-gradient(135deg, #F87171, #F472B6);
+  box-shadow: 0 8px 24px -8px rgba(239, 68, 68, 0.5);
 }
 html[data-skin="arc"] .aurora-btn-danger:hover,
 html[data-skin="baseline"] .aurora-btn-danger:hover {
@@ -948,7 +946,9 @@ aside input,
 }
 
 .aurora-gradient-text {
-  color: var(--aurora-accent);
+  background: var(--aurora-brand-grad);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
 
 @keyframes breathingGlow {

@@ -306,8 +306,8 @@ export default function Dashboard() {
                         width: "100%",
                         height: `${h}%`,
                         borderRadius: "6px 6px 2px 2px",
-                        background: "var(--aurora-accent)",
-                        boxShadow: "0 3px 10px -4px color-mix(in srgb, var(--aurora-accent) 40%, transparent)",
+                        background: "linear-gradient(180deg, color-mix(in srgb, var(--aurora-accent) 60%, white), var(--aurora-accent))",
+                        boxShadow: "0 4px 12px -4px color-mix(in srgb, var(--aurora-accent) 45%, transparent)",
                       }}
                     />
                     </div>

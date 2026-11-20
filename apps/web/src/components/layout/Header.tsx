@@ -87,7 +87,7 @@ export default function Header({ onMenuToggle, className = "" }: { onMenuToggle:
               height: 22,
               borderRadius: 6,
               background: "var(--aurora-brand-grad)",
-              boxShadow: "0 2px 8px -2px rgba(15, 23, 42, 0.28), inset 0 1px 0 rgba(255,255,255,0.22)",
+              boxShadow: "0 2px 8px -2px rgba(124,58,237,0.4), inset 0 1px 0 rgba(255,255,255,0.28)",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",

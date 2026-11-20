@@ -362,7 +362,7 @@ const ConversationItem = memo(function ConversationItem({
           : isActive
           ? "var(--aurora-accent-soft)"
           : isRunning
-          ? "color-mix(in srgb, var(--aurora-accent) 6%, transparent)"
+          ? "rgba(109, 40, 217, 0.05)"
           : "rgba(255, 255, 255, 0.02)",
         border: "1px solid",
         borderColor: isSelected
@@ -370,7 +370,7 @@ const ConversationItem = memo(function ConversationItem({
           : isActive
           ? "var(--aurora-accent)"
           : isRunning
-          ? "color-mix(in srgb, var(--aurora-accent) 35%, transparent)"
+          ? "rgba(109, 40, 217, 0.35)"
           : "var(--aurora-border)",
         boxShadow: isActive ? "0 0 0 1px var(--aurora-accent)" : "none",
         cursor: "pointer",
@@ -384,7 +384,7 @@ const ConversationItem = memo(function ConversationItem({
         onPrefetch?.(c.id);
         if (!isActive && !isSelected) {
           e.currentTarget.style.background = isRunning
-            ? "var(--aurora-accent-soft)"
+            ? "rgba(109, 40, 217, 0.08)"
             : "var(--aurora-chip)";
           e.currentTarget.style.borderColor = isRunning
             ? "var(--aurora-accent)"
@@ -395,10 +395,10 @@ const ConversationItem = memo(function ConversationItem({
         cancelPrefetchConversationTurns(c.id);
         if (!isActive && !isSelected) {
           e.currentTarget.style.background = isRunning
-            ? "color-mix(in srgb, var(--aurora-accent) 6%, transparent)"
+            ? "rgba(109, 40, 217, 0.05)"
             : "rgba(255, 255, 255, 0.02)";
           e.currentTarget.style.borderColor = isRunning
-            ? "color-mix(in srgb, var(--aurora-accent) 35%, transparent)"
+            ? "rgba(109, 40, 217, 0.35)"
             : "var(--aurora-border)";
         }
       }}
@@ -523,7 +523,7 @@ const ConversationItem = memo(function ConversationItem({
                       width: 11,
                       height: 11,
                       borderRadius: "50%",
-                      border: "2px solid color-mix(in srgb, var(--aurora-accent) 22%, transparent)",
+                      border: "2px solid rgba(109, 40, 217, 0.2)",
                       borderTopColor: "var(--aurora-accent)",
                       display: "inline-block",
                       boxSizing: "border-box",
@@ -622,7 +622,7 @@ const ConversationItem = memo(function ConversationItem({
                       width: 7,
                       height: 7,
                       borderRadius: "50%",
-                      border: "1.5px solid color-mix(in srgb, var(--aurora-accent) 22%, transparent)",
+                      border: "1.5px solid rgba(109, 40, 217, 0.2)",
                       borderTopColor: "var(--aurora-accent)",
                       display: "inline-block",
                     }}
@@ -667,8 +667,8 @@ const ConversationItem = memo(function ConversationItem({
                     gap: 3,
                     padding: "1px 5px",
                     borderRadius: 4,
-                    background: "var(--aurora-accent-soft)",
-                    border: "1px solid color-mix(in srgb, var(--aurora-accent) 22%, transparent)",
+                    background: "rgba(109, 40, 217, 0.08)",
+                    border: "1px solid rgba(109, 40, 217, 0.2)",
                     color: "var(--aurora-accent)",
                     fontSize: 10,
                     fontWeight: 500,
@@ -1326,7 +1326,7 @@ export const HistoryDrawer = memo(function HistoryDrawer({
                       width: 9,
                       height: 9,
                       borderRadius: "50%",
-                      border: "1.5px solid color-mix(in srgb, var(--aurora-accent) 25%, transparent)",
+                      border: "1.5px solid rgba(109, 40, 217, 0.25)",
                       borderTopColor: "var(--aurora-accent)",
                       display: "inline-block",
                     }}

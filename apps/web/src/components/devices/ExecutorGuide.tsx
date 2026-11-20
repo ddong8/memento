@@ -97,8 +97,8 @@ export function ExecutorGuide() {
                     borderRadius: 999,
                     fontSize: 12,
                     cursor: "pointer",
-                    border: `1px solid ${on ? "var(--aurora-accent, #2563EB)" : "var(--aurora-border)"}`,
-                    background: on ? "var(--aurora-accent-soft)" : "transparent",
+                    border: `1px solid ${on ? "var(--aurora-accent, #7C3AED)" : "var(--aurora-border)"}`,
+                    background: on ? "rgba(124,58,237,0.12)" : "transparent",
                     color: on ? "var(--aurora-fg1)" : "var(--aurora-fg4)",
                   }}
                 >

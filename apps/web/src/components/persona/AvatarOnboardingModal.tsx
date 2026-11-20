@@ -251,11 +251,12 @@ export default function AvatarOnboardingModal({
           boxShadow: `0 0 50px ${themeColor}20, 0 20px 40px rgba(0,0,0,0.8)`,
         }}
       >
-        {/* 顶部主题装饰条 */}
+        {/* 顶部绚丽流光条 */}
         <div
-          className="h-1 w-full shrink-0"
+          className="h-1.5 w-full shrink-0"
           style={{
-            background: themeColor,
+            background: `linear-gradient(90deg, ${themeColor}, #3B82F6, #EC4899, ${themeColor})`,
+            backgroundSize: "200% 100%",
           }}
         />
 

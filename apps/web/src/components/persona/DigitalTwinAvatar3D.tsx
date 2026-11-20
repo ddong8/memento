@@ -1500,7 +1500,7 @@ export default function DigitalTwinAvatar3D({
           <div className="hidden sm:flex items-center gap-1.5 sm:gap-2.5 bg-black/65 backdrop-blur-xl px-2.5 sm:px-3.5 py-1 sm:py-1.5 rounded-full border border-white/15 shadow-xl shrink-0">
             <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-[#10B981] animate-ping" />
             <div className="flex items-center gap-1.5 sm:gap-2 text-[11px] sm:text-xs">
-              <span className="font-bold text-[#F59E0B] font-mono tracking-wide">
+              <span className="font-bold text-transparent bg-clip-text bg-gradient-to-r from-[#F59E0B] via-[#EC4899] to-[#8B5CF6] font-mono tracking-wide">
                 <span className="hidden sm:inline">{evolutionStage}</span>
               </span>
             </div>
@@ -1546,7 +1546,7 @@ export default function DigitalTwinAvatar3D({
                 onSparkEvolution();
               }}
               title="激发今日心智进化共鸣"
-              className="px-2 sm:px-2.5 py-1 rounded-xl text-[11px] font-medium transition-all backdrop-blur-md border bg-[#F59E0B]/20 hover:bg-[#F59E0B]/30 text-[#F59E0B] border-[#F59E0B]/40 hover:scale-102 flex items-center gap-1 shadow-md"
+              className="px-2 sm:px-2.5 py-1 rounded-xl text-[11px] font-medium transition-all backdrop-blur-md border bg-gradient-to-r from-[#F59E0B]/20 to-[#EC4899]/20 hover:from-[#F59E0B]/35 hover:to-[#EC4899]/35 text-[#F59E0B] border-[#F59E0B]/40 hover:scale-102 flex items-center gap-1 shadow-md"
             >
               <Icon name="lightning" size={12} />
               <span className="hidden xl:inline">共鸣</span>

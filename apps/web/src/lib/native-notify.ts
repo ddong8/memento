@@ -107,7 +107,7 @@ export function showInAppToast(title: string, body: string, url?: string): void 
 
   const badge = document.createElement("div");
   badge.style.cssText =
-    "width:28px;height:28px;border-radius:8px;background:#2563EB;color:#fff;display:flex;align-items:center;justify-content:center;flex-shrink:0;";
+    "width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,#7C3AED,#3B82F6);color:#fff;display:flex;align-items:center;justify-content:center;flex-shrink:0;";
   badge.innerHTML =
     '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>';
 

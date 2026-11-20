@@ -67,8 +67,9 @@ export default function TopProgressBar() {
         className="h-full"
         style={{
           width: `${progress}%`,
-          background: "var(--aurora-accent, #2563EB)",
-          boxShadow: "0 0 8px color-mix(in srgb, var(--aurora-accent, #2563EB) 55%, transparent)",
+          background: "linear-gradient(90deg, var(--aurora-accent, #7C3AED), #06B6D4, #10B981, var(--aurora-accent, #7C3AED))",
+          backgroundSize: "200% 100%",
+          boxShadow: "0 0 10px rgba(124, 58, 237, 0.7), 0 0 4px rgba(6, 182, 212, 0.5)",
           opacity: progress === 100 ? 0 : 1,
           transition: progress === 100 ? "width 120ms ease-out, opacity 200ms 80ms ease-out" : "width 240ms ease-out",
         }}

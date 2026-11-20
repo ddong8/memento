@@ -40,10 +40,10 @@ export const SpeechHintPill = memo(function SpeechHintPill({
         padding: "5px 12px",
         marginBottom: 6,
         borderRadius: 10,
-        background: "var(--aurora-accent-soft)",
-        border: "1px solid color-mix(in srgb, var(--aurora-accent) 30%, transparent)",
+        background: "rgba(124, 58, 237, 0.12)",
+        border: "1px solid rgba(124, 58, 237, 0.3)",
         fontSize: 12,
-        color: "var(--aurora-accent)",
+        color: "#A78BFA",
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -208,7 +208,7 @@ export const WaitingQuestionBanner = memo(function WaitingQuestionBanner({
         margin: "0 0 8px 0",
         padding: "7px 12px",
         borderRadius: 10,
-        background: "var(--aurora-warn-soft, rgba(217, 119, 6, 0.12))",
+        background: "linear-gradient(90deg, rgba(245,158,11,0.18), rgba(245,158,11,0.08))",
         border: "1px solid rgba(245,158,11,0.4)",
         display: "flex",
         alignItems: "center",

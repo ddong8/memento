@@ -18,7 +18,7 @@ export function AskEmptyState({ onPick }: { onPick: (question: string) => void }
           height: 44,
           borderRadius: 12,
           background: "var(--aurora-brand-grad)",
-          boxShadow: "0 6px 18px -6px rgba(15, 23, 42, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.2)",
+          boxShadow: "0 6px 20px -6px rgba(124, 58, 237, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.3)",
           color: "#fff",
           marginBottom: 12,
         }}

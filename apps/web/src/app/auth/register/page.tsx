@@ -83,10 +83,10 @@ export default function RegisterPage() {
           <div
             style={{
               width: 56, height: 56, borderRadius: 16,
-              background: "#059669",
+              background: "linear-gradient(135deg,#10B981,#34D399)",
               display: "flex", alignItems: "center", justifyContent: "center",
               margin: hasToken ? "0 0 16px" : "0 auto 16px",
-              boxShadow: "0 8px 24px -8px rgba(5,150,105,0.45)",
+              boxShadow: "0 12px 40px -10px rgba(16,185,129,0.5)",
             }}
           >
             <Icon name="check" size={28} style={{ color: "#fff" }} strokeWidth={2.4} />
@@ -135,7 +135,7 @@ export default function RegisterPage() {
           background: "var(--aurora-brand-grad)",
           display: "flex", alignItems: "center", justifyContent: "center",
           margin: "0 auto 16px",
-          boxShadow: "0 10px 28px -10px rgba(15, 23, 42, 0.35)",
+          boxShadow: "0 12px 40px -10px rgba(124,58,237,0.5)",
         }}
       >
         <Icon name="sparkles" size={26} style={{ color: "#fff" }} strokeWidth={2} />

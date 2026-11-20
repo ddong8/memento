@@ -1,7 +1,6 @@
 "use client";
 
 import { Icon } from "@/components/aurora/Icon";
-import { useIsWindowsDesktop } from "@/hooks/useClientEnv";
 import Link from "next/link";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -104,9 +103,6 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
     return 460;
   });
   const [isExpandedFull, setIsExpandedFull] = useState<boolean>(false);
-  // Windows client: its minimize/maximize/close sit over this bar's right end, so the row keeps fewer icons
-  // and the rest go under "⋯" (all of them didn't fit: they spilled under the system buttons, 11-16)
-  const compactBar = useIsWindowsDesktop();
   const [moreOpen, setMoreOpen] = useState<boolean>(false);
   const [isLandscape, setIsLandscape] = useState<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
@@ -370,131 +366,156 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
 
         {/* Header Bar — locked to h-11 sm:h-12 (48px) so its bottom border aligns 1:1 with Sidebar & AskTopBar */}
         {/* data-window-controls: the right end of the window, where Windows draws its minimize/maximize/close (globals.css) */}
-        <div data-window-controls className="h-11 sm:h-12 px-3 sm:px-3.5 border-b border-[var(--aurora-border)] bg-[var(--aurora-surface)]/80 sm:backdrop-blur-md flex items-center justify-between gap-2 shrink-0 app-region-drag">
+        <div data-window-controls className="h-11 sm:h-12 px-3 sm:px-3.5 border-b border-[var(--aurora-border)] bg-[var(--aurora-surface)]/80 sm:backdrop-blur-md flex items-center justify-between gap-2.5 shrink-0 app-region-drag">
           <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
             <span className="flex items-center justify-center w-6 h-6 rounded-md bg-[var(--aurora-accent-soft)] border border-[var(--aurora-border)] text-[var(--aurora-accent)] shrink-0">
               {getItemIcon(activeMedia.type)}
             </span>
-            <span className="text-[13px] font-semibold text-[var(--aurora-fg1)] truncate tracking-tight" title={resolved.localPath ? `${displayTitle}\n${resolved.localPath}` : displayTitle}>
+            <span className="text-[13px] font-semibold text-[var(--aurora-fg1)] truncate tracking-tight">
               {displayTitle}
             </span>
-            <span className="text-[9.5px] font-mono px-1.5 py-0.5 rounded bg-[var(--aurora-chip)] text-[var(--aurora-fg3)] uppercase shrink-0">
+            <span className="hidden sm:inline-flex text-[10px] font-mono px-1.5 py-0.5 rounded bg-[var(--aurora-chip)] text-[var(--aurora-fg3)] uppercase shrink-0">
               {ext}
             </span>
           </div>
 
-          {/* Action Tools */}
-          <div className="flex items-center gap-0.5 shrink-0">
-            {studioReady && (
-              <Link
-                href="/studio"
-                className="inline-flex items-center gap-1 px-2 py-1 mr-1 rounded-lg border border-[var(--aurora-border)] bg-[var(--aurora-accent-soft)] text-[var(--aurora-accent)] hover:opacity-90 transition-opacity text-[11px] font-medium whitespace-nowrap shrink-0"
-                style={{ textDecoration: "none" }}
-              >
-                <FiFilm className="w-3 h-3 shrink-0" />
-                <span className="hidden sm:inline">演播台</span>
-              </Link>
-            )}
+          {/* Action Tools — 仅保留「翻页 / 更多菜单 / 全屏 / 关闭」4 项核心控件，杜绝顶栏拥挤挤压文件名 */}
+          <div className="flex items-center gap-1 shrink-0 app-region-no-drag">
             {mediaList.length > 1 && (
-              <div className="flex items-center gap-0.5 mr-1 bg-[var(--aurora-chip)] rounded-md p-0.5 border border-[var(--aurora-border)] shrink-0">
+              <div className="flex items-center gap-0.5 mr-0.5 bg-[var(--aurora-chip)] rounded-lg p-0.5 border border-[var(--aurora-border)] shrink-0">
                 <button
                   type="button"
                   onClick={prevMedia}
-                  title="上一个媒体"
-                  className="p-0.5 rounded text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-surface-solid)] transition-colors"
+                  aria-label="上一个媒体"
+                  className="p-1 rounded-md text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-surface-solid)] transition-colors cursor-pointer"
                 >
                   <FiChevronLeft className="w-3.5 h-3.5" />
                 </button>
-                <span className="px-1 text-[10px] font-medium text-[var(--aurora-fg2)] tabular-nums">
+                <span className="px-1 text-[11px] font-medium text-[var(--aurora-fg2)] tabular-nums select-none">
                   {currentIndex + 1}/{mediaList.length}
                 </span>
                 <button
                   type="button"
                   onClick={nextMedia}
-                  title="下一个媒体"
-                  className="p-0.5 rounded text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-surface-solid)] transition-colors"
+                  aria-label="下一个媒体"
+                  className="p-1 rounded-md text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-surface-solid)] transition-colors cursor-pointer"
                 >
                   <FiChevronRight className="w-3.5 h-3.5" />
                 </button>
               </div>
             )}
 
-            <button
-              type="button"
-              onClick={() => {
-                inspector.refreshActiveMedia();
-                showInAppToast("已刷新", "正在重新加载最新文件内容");
-              }}
-              title="重新读取磁盘最新内容 (刷新)"
-              className="p-1.5 rounded-lg text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)] transition-colors"
-            >
-              <FiRefreshCw className="w-3.5 h-3.5" />
-            </button>
-
-            {(() => {
-              const secondary = (
-                <>
-            {resolved.localPath && (
+            {/* 统一「更多操作与工作台插件」菜单（带清晰中文标签，不靠悬停提示猜测） */}
+            <div className="relative">
               <button
                 type="button"
-                onClick={handleRevealFolder}
-                title={activeMedia.type === "markdown" ? "在访达/资源管理器中定位" : "在访达中定位原片"}
-                className="p-1.5 rounded-lg text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)] transition-colors"
+                onClick={() => setMoreOpen((o) => !o)}
+                aria-label="更多操作"
+                className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                  moreOpen
+                    ? "text-[var(--aurora-accent)] bg-[var(--aurora-accent-soft)]"
+                    : "text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)]"
+                }`}
               >
-                <FiFolder className="w-3.5 h-3.5" />
+                <FiMoreHorizontal className="w-4 h-4" />
               </button>
-            )}
-
-            <button
-              type="button"
-              onClick={handleCopy}
-              title={copied ? "已复制" : resolved.localPath ? "复制本地路径" : "复制链接"}
-              className="p-1.5 rounded-lg text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)] transition-colors"
-            >
-              {copied ? <FiCheck className="w-3.5 h-3.5 text-emerald-500" /> : <FiCopy className="w-3.5 h-3.5" />}
-            </button>
-
-            <button
-              type="button"
-              onClick={handleShare}
-              title="分享媒体链接"
-              className="hidden sm:inline-flex p-1.5 rounded-lg text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)] transition-colors"
-            >
-              <FiShare2 className="w-3.5 h-3.5" />
-            </button>
-
-            <button
-              type="button"
-              onClick={handleExternalOpen}
-              title={resolved.localPath ? (activeMedia.type === "markdown" ? "在系统编辑器中打开" : "在系统播放器中打开") : "新标签独立打开"}
-              className="p-1.5 rounded-lg text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)] transition-colors"
-            >
-              <FiExternalLink className="w-3.5 h-3.5" />
-            </button>
-                </>
-              );
-              if (!compactBar) return secondary;
-              return (
-                <div className="relative">
-                  <button
-                    type="button"
-                    onClick={() => setMoreOpen((o) => !o)}
-                    title="更多操作"
-                    className="p-1.5 rounded-lg text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)] transition-colors"
-                  >
-                    <FiMoreHorizontal className="w-3.5 h-3.5" />
-                  </button>
-                  {moreOpen && (
-                    <div
-                      onClick={() => setMoreOpen(false)}
-                      className="absolute right-0 top-full mt-1.5 z-50 flex items-center gap-0.5 p-1 rounded-lg border border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)] shadow-lg"
+              {moreOpen && (
+                <>
+                  <div
+                    className="fixed inset-0 z-40"
+                    onClick={() => setMoreOpen(false)}
+                  />
+                  <div className="absolute right-0 top-full mt-1.5 z-50 w-48 py-1.5 rounded-xl border border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)] shadow-xl flex flex-col text-xs text-[var(--aurora-fg1)]">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMoreOpen(false);
+                        inspector.refreshActiveMedia();
+                        showInAppToast("已刷新", "正在重新加载最新文件内容");
+                      }}
+                      className="px-3 py-2 flex items-center gap-2.5 hover:bg-[var(--aurora-chip)] transition-colors text-left cursor-pointer"
                     >
-                      {secondary}
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
+                      <FiRefreshCw className="w-3.5 h-3.5 text-[var(--aurora-fg3)] shrink-0" />
+                      <span>刷新最新内容</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMoreOpen(false);
+                        handleCopy();
+                      }}
+                      className="px-3 py-2 flex items-center gap-2.5 hover:bg-[var(--aurora-chip)] transition-colors text-left cursor-pointer"
+                    >
+                      {copied ? (
+                        <FiCheck className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                      ) : (
+                        <FiCopy className="w-3.5 h-3.5 text-[var(--aurora-fg3)] shrink-0" />
+                      )}
+                      <span>{copied ? "已复制" : resolved.localPath ? "复制本地路径" : "复制访问链接"}</span>
+                    </button>
+
+                    {resolved.localPath && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMoreOpen(false);
+                          handleRevealFolder();
+                        }}
+                        className="px-3 py-2 flex items-center gap-2.5 hover:bg-[var(--aurora-chip)] transition-colors text-left cursor-pointer"
+                      >
+                        <FiFolder className="w-3.5 h-3.5 text-[var(--aurora-fg3)] shrink-0" />
+                        <span>{activeMedia.type === "markdown" ? "在文件夹中定位" : "在文件夹中定位原片"}</span>
+                      </button>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMoreOpen(false);
+                        handleShare();
+                      }}
+                      className="px-3 py-2 flex items-center gap-2.5 hover:bg-[var(--aurora-chip)] transition-colors text-left cursor-pointer"
+                    >
+                      <FiShare2 className="w-3.5 h-3.5 text-[var(--aurora-fg3)] shrink-0" />
+                      <span>分享媒体链接</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMoreOpen(false);
+                        handleExternalOpen();
+                      }}
+                      className="px-3 py-2 flex items-center gap-2.5 hover:bg-[var(--aurora-chip)] transition-colors text-left cursor-pointer"
+                    >
+                      <FiExternalLink className="w-3.5 h-3.5 text-[var(--aurora-fg3)] shrink-0" />
+                      <span>{resolved.localPath ? "在系统应用中打开" : "新标签独立打开"}</span>
+                    </button>
+
+                    {studioReady && (
+                      <>
+                        <div className="my-1 border-t border-[var(--aurora-border)]" />
+                        <div className="px-3 pt-1 pb-0.5 text-[10px] font-medium text-[var(--aurora-fg4)]">
+                          工作台插件
+                        </div>
+                        <Link
+                          href="/studio"
+                          onClick={() => setMoreOpen(false)}
+                          className="px-3 py-2 flex items-center justify-between gap-2 hover:bg-[var(--aurora-chip)] transition-colors text-[var(--aurora-accent)] font-medium"
+                          style={{ textDecoration: "none" }}
+                        >
+                          <span className="flex items-center gap-2.5">
+                            <FiFilm className="w-3.5 h-3.5 shrink-0" />
+                            <span>打开 AI 演播台</span>
+                          </span>
+                        </Link>
+                      </>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
 
             {/* 手机/横屏满屏旋转 */}
             <button
@@ -519,8 +540,8 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
                   return next;
                 });
               }}
-              title={isLandscape ? "还原竖屏" : "横屏全屏旋转"}
-              className={`sm:hidden p-1.5 rounded-lg transition-colors ${
+              aria-label={isLandscape ? "还原竖屏" : "横屏全屏旋转"}
+              className={`sm:hidden p-1.5 rounded-lg transition-colors cursor-pointer ${
                 isLandscape
                   ? "text-[var(--aurora-accent)] bg-[var(--aurora-accent-soft)] font-semibold"
                   : "text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)]"
@@ -540,8 +561,8 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
                   return next;
                 });
               }}
-              title={isExpandedFull ? "还原视窗" : "全屏放映"}
-              className={`p-1.5 rounded-lg transition-colors ${
+              aria-label={isExpandedFull ? "还原视窗" : "全屏放映"}
+              className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
                 isExpandedFull
                   ? "text-[var(--aurora-accent)] bg-[var(--aurora-accent-soft)] font-semibold"
                   : "text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)]"
@@ -553,8 +574,8 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
             <button
               type="button"
               onClick={closeInspector}
-              title="关闭工作台视窗"
-              className="p-1.5 rounded-lg text-[var(--aurora-fg3)] hover:text-red-500 hover:bg-red-500/10 transition-colors shrink-0"
+              aria-label="关闭工作台视窗"
+              className="p-1.5 rounded-lg text-[var(--aurora-fg3)] hover:text-red-500 hover:bg-red-500/10 transition-colors shrink-0 cursor-pointer"
             >
               <FiX className="w-4 h-4" />
             </button>

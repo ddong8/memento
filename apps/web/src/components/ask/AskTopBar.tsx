@@ -213,7 +213,7 @@ export function AskTopBar({
           </div>
         )}
 
-        {/* 工作台插件：AI 演播台（仅在插件市场安装并配置后出现于工作台区，不占左侧主导航） */}
+        {/* 工作台插件：AI 演播台（仅在插件市场安装并配置后出现于工作台区，工作台展开时自动收敛为图标避免挤压标题） */}
         {studioReady && (
           <div className="hidden sm:inline-flex shrink-0">
             <Btn
@@ -221,8 +221,11 @@ export function AskTopBar({
               size="sm"
               icon="film"
               onClick={openStudio}
+              aria-label={isZh ? "AI 演播台" : "AI Studio"}
             >
-              <span className="hidden xl:inline font-medium">{isZh ? "演播台" : "Studio"}</span>
+              <span className={inspector?.isOpen ? "hidden 2xl:inline font-medium" : "hidden xl:inline font-medium"}>
+                {isZh ? "演播台" : "Studio"}
+              </span>
             </Btn>
           </div>
         )}

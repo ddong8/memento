@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `v1.0.144` · Commit: `58a2a3db` · Updated: `2026-11-19`
+> **Living Blueprint Auto-Generated** · Branch: `v1.0.145` · Commit: `b7977b7b` · Updated: `2026-11-19`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -13,11 +13,11 @@
 - 类型 (Type): Monorepo (Workspaces)
 - 技术栈 (Stack): TypeScript/JavaScript, Python, Shell / Bash · React, Electron, Next.js, TailwindCSS, Model Context Protocol (MCP), FastAPI, SQLAlchemy, Celery
 - 基础设施 (Infra): PostgreSQL, pgvector (Vector DB), Redis, MinIO / S3 Object Storage, Celery Task Queue
-- 规模 (Scale): 9 个子系统 · 38 组 API 路由 / 252 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 234 个测试文件
+- 规模 (Scale): 9 个子系统 · 38 组 API 路由 / 252 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 235 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `58a2a3db` (2026-11-19): fix(Antigravity): 服务器上用 agy 命令行跑的任务，后台命令跑完了不再显示还有后台任务没跑完；升级客户端版本至 v1.0.144
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 69（✅ 69 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-TRACK-BACKGROUND`, `R-ENT-DEVICE-POLICY`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `S-CLIENT-VERSION`, `R-WS-EDIT-ONLY`, `R-ENT-DEPLOY`, `R-WS-EXEC-STOP`
+- 最近改动 (Latest): `b7977b7b` (2026-11-19): feat(额度): Antigravity 每个模型都显示额度，并显示 Gemini、Claude 和 GPT、Gemini 4 Argon 各组的周额度和 5 小时额度；升级客户端版本至 v1.0.145
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 70（✅ 70 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-QUOTA-AGY-GROUPS`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `S-CLIENT-VERSION`, `R-TRACK-BACKGROUND`, `R-ENT-DEVICE-POLICY`, `R-WS-EDIT-ONLY`, `R-ENT-DEPLOY`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -31,7 +31,7 @@
 | 8. Development & Verification Commands | L647-L664 |
 | 9. Recent Architectural Evolutions | L666-L673 |
 | 10. Key Environment Variables & Configuration | L675-L687 |
-| 11. 业务蓝图核对 (Business Blueprint Check) | L689-L699 |
+| 11. 业务蓝图核对 (Business Blueprint Check) | L689-L698 |
 
 ## 1. Project Overview & Tech Stack
 
@@ -625,7 +625,7 @@ erDiagram
 | :--- | :--- | :--- | :--- |
 | server/tests (pytest) | [`server/tests`](server/tests) | 122 | `test_agent_ids.py`, `test_agent_limits.py`, `test_agent_login.py`, `test_agent_run_states.py`, `test_ai_provider.py` |
 | packages/daemon/test (vitest / jest) | [`packages/daemon/test`](packages/daemon/test) | 60 | `agent-args.test.ts`, `agent-login.test.ts`, `agent-stream.test.ts`, `agy-background.test.ts`, `agy-models.test.ts` |
-| apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 46 | `active-runs-chip.test.tsx`, `api-client.test.ts`, `ask-reading-and-persona-rules.test.tsx`, `ask-top-bar.test.tsx`, `audit-labels.test.ts` |
+| apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 47 | `active-runs-chip.test.tsx`, `api-client.test.ts`, `ask-reading-and-persona-rules.test.tsx`, `ask-top-bar.test.tsx`, `audit-labels.test.ts` |
 | apps/mobile/test (vitest / jest) | [`apps/mobile/test`](apps/mobile/test) | 2 | `deeplink.test.ts`, `webview-props.test.ts` |
 | packages/core/test (vitest / jest) | [`packages/core/test`](packages/core/test) | 2 | `ask-stream.test.ts`, `task-events.test.ts` |
 | apps/desktop/test (vitest / jest) | [`apps/desktop/test`](apps/desktop/test) | 1 | `helpers.test.ts` |
@@ -665,12 +665,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `b7977b7b` (2026-11-19): feat(额度): Antigravity 每个模型都显示额度，并显示 Gemini、Claude 和 GPT、Gemini 4 Argon 各组的周额度和 5 小时额度；升级客户端版本至 v1.0.145
 - `58a2a3db` (2026-11-19): fix(Antigravity): 服务器上用 agy 命令行跑的任务，后台命令跑完了不再显示还有后台任务没跑完；升级客户端版本至 v1.0.144
 - `f212a39c` (2026-11-19): feat(远程任务): 代码所在设备上的命令默认不再拦截，有风险的照常执行并推送提醒
 - `6bedacfa` (2026-11-19): fix(远程任务): 命令期间代码所在设备重连过、Memento 重启过或断网时，执行机不再空等 30 分钟；升级客户端版本至 v1.0.143
 - `d58c629c` (2026-11-18): feat(enterprise): 员工电脑策略文件、企业部署包与安装包正式签名
 - `e251b518` (2026-11-18): feat(enterprise): 企业部署——管理员可见范围开关、OIDC 单点登录与 SCIM 停用、操作审计、模型密钥加密和模型服务白名单
-- `94139deb` (2026-11-18): fix(web): 后台智能体展开面板也恢复最初设计的深海蓝底，不再是白色卡片
 
 ## 10. Key Environment Variables & Configuration
 
@@ -688,15 +688,14 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 11. 业务蓝图核对 (Business Blueprint Check)
 
-- 业务蓝图：[BUSINESS_BLUEPRINT.md](BUSINESS_BLUEPRINT.md) · 规则 69（✅ 69 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
+- 业务蓝图：[BUSINESS_BLUEPRINT.md](BUSINESS_BLUEPRINT.md) · 规则 70（✅ 70 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
 - 结论：✅ 没有失效或违规
 
 ### 最近提交碰到的业务条目（改动后复查它们还成不成立）
 
+- `b7977b7b` feat(额度): Antigravity 每个模型都显示额度，并显示 Gemini、Claude 和 GPT、Gemini 4 Argon 各组的周额度和 5 → `R-QUOTA-AGY-GROUPS`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `S-CLIENT-VERSION`
 - `58a2a3db` fix(Antigravity): 服务器上用 agy 命令行跑的任务，后台命令跑完了不再显示还有后台任务没跑完；升级客户端版本至 v1.0.144 → `R-TRACK-BACKGROUND`, `R-ENT-DEVICE-POLICY`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `S-CLIENT-VERSION`
 - `f212a39c` feat(远程任务): 代码所在设备上的命令默认不再拦截，有风险的照常执行并推送提醒 → `R-WS-EDIT-ONLY`, `R-ENT-DEPLOY`, `R-WS-EXEC-STOP`, `R-WS-EXEC-REMIND`
-- `6bedacfa` fix(远程任务): 命令期间代码所在设备重连过、Memento 重启过或断网时，执行机不再空等 30 分钟；升级客户端版本至 v1.0.143 → `R-WS-EDIT-ONLY`, `R-ENT-DEVICE-POLICY`, `R-WS-EXEC-STOP`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `S-CLIENT-VERSION`
-- `d58c629c` feat(enterprise): 员工电脑策略文件、企业部署包与安装包正式签名 → `F-CLIENT-UPGRADE`, `R-ENT-DEVICE-POLICY`, `R-ENT-DEPLOY`, `R-WS-EXEC-STOP`, `R-UPGRADE-SAFE`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`
 
 ---
 _Auto-maintained by `scripts/project_blueprint.mjs` (v20261126) & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._

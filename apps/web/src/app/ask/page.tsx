@@ -45,6 +45,7 @@ import {
 } from "@/lib/ask/sessions";
 import { CONVERSATIONS_CACHE_KEY, CachedAskState, FALLBACK_AGENT_MODELS, LocalConvSnapshot, QUOTAS_CACHE_KEY, conversationTurnsCache, getCachedConversations, getCachedProjects, getCachedSessions, getImmediateCapabilities, getLocalCachedQuotas, getLocalConvSnapshot, isUuidOrHash, prefetchConversationTurns, resolveSafeProjectName, saveCachedProjects, saveCachedSessions, saveCapabilitiesCache, saveLocalConvSnapshot, saveToRecentConvTurnsCache, clearLocalConvSnapshot, forgetConversation } from "@/lib/ask/cache";
 import { modelLimitLabel, modelLimitOf, modelQuotaOf } from "@/lib/ask/model-limits";
+import { conversationConfigLocked } from "@/lib/ask/config-lock";
 import { cleanProjectPath, homeDeviceOf, isConcreteDevice, isDeviceOnline, pathWithin, projectPathOn } from "@/lib/ask/devices";
 import { isLiveConnected, onLiveEvent } from "@/lib/live-events";
 import { AGENT_TOOL_ID, type Cascade, cascadeOf, configHas, usableDevice } from "@/lib/ask/cascade";
@@ -186,6 +187,10 @@ function AskPageContent() {
   const [staticTurns, setStaticTurns] = useState<Turn[]>(() => askCache?.turns || initSnap?.turns || []);
   const turns = staticTurns;
   const setTurns = setStaticTurns;
+  // A started conversation keeps its agent, device, project, session and folder (config-lock.ts)
+  const configLocked = conversationConfigLocked(turns);
+  const configLockedRef = useRef(configLocked);
+  configLockedRef.current = configLocked;
   // A session's latest messages, shown while the conversation continuing it has none of its own yet. Kept
   // apart from turns: those go out as the next question's history and read as this conversation's own.
   const [sessionPreview, setSessionPreview] = useState<{ convId: string; sid: string; turns: Turn[] } | null>(null);
@@ -4370,6 +4375,7 @@ function AskPageContent() {
   loadProjectsRef.current = loadProjectsForMode;
 
   const handleDeviceChange = (newDev: string) => {
+    if (configLockedRef.current) return;
     takeOverCascade();
     setSelectedDevice(newDev);
     selectedDeviceRef.current = newDev;
@@ -4405,6 +4411,7 @@ function AskPageContent() {
 
   // The code device decides whose projects and folders are offered: the picked ones belong to the old one
   const handleCodeDeviceChange = (next: string) => {
+    if (configLockedRef.current) return;
     takeOverCascade();
     setCodeDevice(next);
     codeDeviceRef.current = next;
@@ -4422,6 +4429,7 @@ function AskPageContent() {
   };
 
   const handleSelectMode = (mode: ExecutionMode) => {
+    if (configLockedRef.current) return;
     takeOverCascade();
     // A session list still loading belongs to the previous mode
     ++sessionsReqRef.current;
@@ -5658,7 +5666,7 @@ function AskPageContent() {
                       { id: "antigravity" as const, label: t.ask.modeAntigravity || "Antigravity", brandId: "antigravity", color: "#3186FF" },
                       { id: "workbuddy" as const, label: "WorkBuddy", brandId: "workbuddy", color: "#0EC7A8" },
                       { id: "shell" as const, label: t.ask.modeShell || "Shell 终端", icon: "terminal" as const, color: "#38BDF8" },
-                    ].map((m) => {
+                    ].filter((m) => !configLocked || m.id === executionMode).map((m) => {
                       const isSelected = executionMode === m.id;
                       const qSummary = getModeQuotaSummary(m.id);
                       return (
@@ -5666,6 +5674,7 @@ function AskPageContent() {
                           key={m.id}
                           type="button"
                           onClick={() => handleSelectMode(m.id)}
+                          disabled={configLocked}
                           style={{
                             display: "inline-flex",
                             alignItems: "center",
@@ -5678,7 +5687,7 @@ function AskPageContent() {
                             fontSize: 11.5,
                             fontWeight: isSelected ? 600 : 500,
                             color: isSelected ? m.color : "var(--aurora-fg2)",
-                            cursor: "pointer",
+                            cursor: configLocked ? "default" : "pointer",
                             transition: "all 0.15s ease",
                             whiteSpace: "nowrap",
                             flexShrink: 0,
@@ -5736,6 +5745,52 @@ function AskPageContent() {
                   </button>
                 </div>
 
+            {/* A started conversation keeps its agent, device, project and session: say so, and where to go for others */}
+            {configLocked && (
+              <div
+                role="note"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  marginBottom: 8,
+                  padding: "5px 10px",
+                  borderRadius: 10,
+                  background: "var(--aurora-chip)",
+                  border: "1px solid var(--aurora-border)",
+                  fontSize: 11.5,
+                  color: "var(--aurora-fg2)",
+                  minWidth: 0,
+                  boxSizing: "border-box",
+                }}
+              >
+                <Icon name="lock" size={12} style={{ color: "var(--aurora-fg3)", flexShrink: 0 }} />
+                <span style={{ flex: 1, minWidth: 0, lineHeight: 1.45 }}>{t.ask.configLocked}</span>
+                <button
+                  type="button"
+                  onClick={startNewChat}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 4,
+                    padding: "3px 9px",
+                    borderRadius: 8,
+                    border: "1px solid var(--aurora-accent)",
+                    background: "var(--aurora-accent-soft)",
+                    color: "var(--aurora-accent)",
+                    fontSize: 11.5,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    whiteSpace: "nowrap",
+                    flexShrink: 0,
+                  }}
+                >
+                  <Icon name="plus" size={11} />
+                  {t.ask.newChat}
+                </button>
+              </div>
+            )}
+
             {/* Device & environment toolbelt */}
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8, flexWrap: "wrap", width: "100%", maxWidth: "100%", minWidth: 0, boxSizing: "border-box" }}>
               {/* Target device selector */}
@@ -5759,6 +5814,7 @@ function AskPageContent() {
                 <select
                   value={selectedDevice}
                   onChange={(e) => handleDeviceChange(e.target.value)}
+                  disabled={configLocked}
                   style={{
                     background: "transparent",
                     border: "none",
@@ -5766,7 +5822,7 @@ function AskPageContent() {
                     color: "var(--aurora-fg1)",
                     fontSize: 12,
                     fontWeight: 500,
-                    cursor: "pointer",
+                    cursor: configLocked ? "default" : "pointer",
                     maxWidth: "min(220px, 60vw)",
                     flex: "1 1 auto",
                     overflow: "hidden",
@@ -5837,6 +5893,7 @@ function AskPageContent() {
                   <select
                     value={codeDevice}
                     onChange={(e) => handleCodeDeviceChange(e.target.value)}
+                    disabled={configLocked}
                     style={{
                       background: "transparent",
                       border: "none",
@@ -5844,7 +5901,7 @@ function AskPageContent() {
                       color: codeDevice ? "var(--aurora-accent)" : "var(--aurora-fg1)",
                       fontSize: 12,
                       fontWeight: codeDevice ? 600 : 500,
-                      cursor: "pointer",
+                      cursor: configLocked ? "default" : "pointer",
                       maxWidth: "min(180px, 50vw)",
                       flex: "1 1 auto",
                       overflow: "hidden",
@@ -5898,6 +5955,7 @@ function AskPageContent() {
                     <input
                       type="text"
                       value={cwd}
+                      readOnly={configLocked}
                       onChange={(e) => {
                         takeOverCascade();
                         setCwd(e.target.value);
@@ -6266,7 +6324,9 @@ function AskPageContent() {
                   <Icon name="code" size={13} style={{ color: "var(--aurora-fg3)", flexShrink: 0 }} />
                   <select
                     value={selectedProjectId}
+                    disabled={configLocked}
                     onChange={(e) => {
+                      if (configLockedRef.current) return;
                       takeOverCascade();
                       handleSelectProject(e.target.value);
                     }}
@@ -6277,7 +6337,7 @@ function AskPageContent() {
                       color: "var(--aurora-fg1)",
                       fontSize: 12,
                       fontWeight: 500,
-                      cursor: "pointer",
+                      cursor: configLocked ? "default" : "pointer",
                       maxWidth: "min(200px, 50vw)",
                       flex: "1 1 auto",
                       overflow: "hidden",
@@ -6350,8 +6410,10 @@ function AskPageContent() {
                     <Icon name="clock" size={13} style={{ color: selectedSessionId ? "var(--aurora-accent)" : "var(--aurora-fg3)", flexShrink: 0 }} />
                     <select
                       value={selectedSessionId}
-                      onChange={(e) => handleSelectSession(e.target.value)}
-                      disabled={loadingSessions}
+                      onChange={(e) => {
+                        if (!configLockedRef.current) void handleSelectSession(e.target.value);
+                      }}
+                      disabled={loadingSessions || configLocked}
                       style={{
                         background: "transparent",
                         border: "none",
@@ -6359,7 +6421,7 @@ function AskPageContent() {
                         color: selectedSessionId ? "var(--aurora-accent)" : "var(--aurora-fg1)",
                         fontSize: 12,
                         fontWeight: selectedSessionId ? 600 : 500,
-                        cursor: "pointer",
+                        cursor: configLocked ? "default" : "pointer",
                         maxWidth: "min(220px, 55vw)",
                         flex: "1 1 auto",
                         overflow: "hidden",
@@ -6445,7 +6507,7 @@ function AskPageContent() {
                 compactMode={compactMode}
                 showContext={showSessionContext}
                 onToggleContext={() => setShowSessionContext(!showSessionContext)}
-                onExit={() => handleSelectSession("")}
+                onExit={configLocked ? undefined : () => handleSelectSession("")}
                 executionMode={executionMode}
                 inOpenConversation={Boolean(activeConversationId)}
                 picked={sessionPicked}
@@ -6734,7 +6796,7 @@ function AskPageContent() {
             )}
 
             {/* Smart Device Routing Recommendation Pill */}
-            {suggestedDevice && (
+            {suggestedDevice && !configLocked && (
               <div
                 style={{
                   margin: "0 0 8px 0",

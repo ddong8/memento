@@ -299,6 +299,7 @@ const enUS: Translations = {
     empty: "I am your all-in-one AI Butler, ready to dispatch device commands, retrieve long-term memories, and evolve personas.",
     historyTitle: "Chat History",
     newChat: "New Chat",
+    configLocked: "This chat has started: its agent, device, project and session stay fixed (model and effort can still change). Start a new chat to use others.",
     deleteConfirm: "Are you sure you want to delete this conversation?",
     noHistory: "No conversation history",
     turnsCount: "{n} messages",

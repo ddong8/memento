@@ -3,16 +3,16 @@
 <!-- memento:business-index:start (自动生成，勿手改) -->
 > 先读这一段定位；要细节时按下表行号只读对应章节。改了「代码位置」里的文件，先看对应条目还成不成立。
 
-- 汇总：规则 69（✅ 69 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
+- 汇总：规则 70（✅ 70 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
 - 核对：全部通过（详见末尾「自动核对」）
 
 | 章节 | 行号 |
 | :--- | :--- |
 | 1. 业务对象与术语 | L21-L65 |
 | 2. 关键流程 | L67-L124 |
-| 3. 业务规则 | L126-L548 |
-| 4. 状态归属 | L550-L595 |
-| 自动核对 (Auto Check) | L598-L707 |
+| 3. 业务规则 | L126-L555 |
+| 4. 状态归属 | L557-L602 |
+| 自动核对 (Auto Check) | L605-L715 |
 <!-- memento:business-index:end -->
 > 业务蓝图：memento 应该做成什么样，每一条落在哪段代码、由哪个测试或检查保证。和代码蓝图 [CODE_BLUEPRINT.md](CODE_BLUEPRINT.md)（代码长什么样）配合看：代码蓝图回答"在哪里"，这份回答"应该怎样、为什么"。
 > 规则来自用户的原话和纠正（CLAUDE.md、长期记忆、每晚复盘），不是从代码里反推的；代码和这里对不上，先当成代码的问题查。
@@ -307,6 +307,13 @@
 - 代码: `apps/web/src/lib/ask/cascade.ts#cascadeOf`, `apps/web/src/app/ask/page.tsx#applyCachedCascade`, `server/server/services/ask_store.py#infer_conversation_config`, `server/server/services/ask_store.py#append_conversation_turns`
 - 测试: `apps/web/test/cascade.test.ts#takes every field from the conversation, empty ones included`, `apps/web/test/cascade.test.ts#tells a cleared project or session from one never saved`, `server/tests/test_ask_cascade.py#test_cleared_session_is_not_inferred_back_from_earlier_turns`, `server/tests/test_ask_cascade.py#test_an_answer_saved_as_ai_is_not_read_as_the_agent_it_dispatched`, `server/tests/test_conversation_page_recovery.py#test_an_ai_orchestrated_answer_keeps_the_conversation_in_ai_mode`
 
+### R-CONFIG-LOCK 对话开始后不能再换智能体、设备、项目和会话
+- 来源: 用户 2026-11-20「当我新起了一个会话以后，并有对话后是不是配置区域就不应该让用户换agent,项目，会话了，因为这样上下文会乱」
+- 说明: 对话有了回合，它的回合就是这个智能体在这台设备、这个目录里的会话。之后智能体、设备、代码所在设备、项目、会话和工作目录都固定，不能再选；模型和思考强度照常能换（同一个会话可以换模型接着跑）。配置区显示一行说明和「新建对话」按钮，要用别的就新建对话。打开历史对话时按 R-RESTORE-CONFIG 恢复当时的配置，同样固定。
+- 代码: `apps/web/src/lib/ask/config-lock.ts#conversationConfigLocked`, `apps/web/src/app/ask/page.tsx#handleSelectMode`, `apps/web/src/app/ask/page.tsx#handleDeviceChange`, `apps/web/src/components/ask/SessionResumeBanner.tsx#SessionResumeBanner`
+- 测试: `apps/web/test/config-lock.test.ts#is locked once it has a turn, open to any choice before`, `apps/web/test/config-lock.test.ts#the agent, device, code device, project, session and folder can't be switched; model and effort still can`
+- 要求: `conversationConfigLocked(turns)` @ `apps/web/src/app/ask/page.tsx`; `if (configLockedRef.current) return;` @ `apps/web/src/app/ask/page.tsx`
+
 ### R-DEVICE-SESSION-MAP 设备与会话映射正确：会话只在它所在的设备上续
 - 来源: CLAUDE.md（memento）「设备与会话映射正确」
 - 说明: 会话号只认智能体自己报的（执行脚本在 stderr 上的「session id:」一行），不从回答和工具输出里找；不是会话号的值不续接、改开新会话。2026-11-16 Antigravity 读到的源码里有 `session_id: ""`，守护进程把 `\"\"` 当成会话号，之后每一轮都卡 20 秒报「Timed out waiting for Antigravity response log」。
@@ -599,7 +606,7 @@
 
 > 生成器随每次提交核对：代码位置还在不在、测试还在不在、禁止 / 要求的写法满不满足。✅ 通过 · ⚠️ 缺代码位置、测试或来源 · ❌ 位置失效或违反规则（CI 会拦下）。
 
-- 汇总：规则 69（✅ 69 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
+- 汇总：规则 70（✅ 70 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
 
 | 编号 | 名称 | 代码位置 | 测试 | 检查 | 结论 |
 | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -651,6 +658,7 @@
 | `R-PREVIEW-ONLY-EMPTY` | 会话预览只在服务端确认对话没有回合时显示 | 2/2 | 2/2 | 1/1 | ✅ |
 | `R-SESSION-TIMELINE` | 在工具自己的应用里接着聊的，也出现在续接它的对话里 | 7/7 | 7/7 | 3/3 | ✅ |
 | `R-RESTORE-CONFIG` | 选中历史会话恢复当时的工具、项目、会话配置 | 4/4 | 5/5 | — | ✅ |
+| `R-CONFIG-LOCK` | 对话开始后不能再换智能体、设备、项目和会话 | 4/4 | 2/2 | 2/2 | ✅ |
 | `R-DEVICE-SESSION-MAP` | 设备与会话映射正确：会话只在它所在的设备上续 | 6/6 | 9/9 | — | ✅ |
 | `R-DEVICE-ENV-PROFILE` | 新会话拿到的环境信息是它实际所在设备的 | 2/2 | 3/3 | 1/1 | ✅ |
 | `R-TITLE-CONSISTENT` | 会话标题所有设备一致，以用户提问提取的标题为准 | 3/3 | 3/3 | — | ✅ |

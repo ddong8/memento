@@ -40,7 +40,8 @@ export function SessionResumeBanner({
   compactMode: boolean;
   showContext: boolean;
   onToggleContext: () => void;
-  onExit: () => void;
+  /** Leaving the session for a new one; none once the conversation has turns (it keeps its session) */
+  onExit?: () => void;
   executionMode: ExecutionMode;
   /** A conversation is open: the session is its own (picking a session opens its conversation) */
   inOpenConversation: boolean;
@@ -129,27 +130,29 @@ export function SessionResumeBanner({
             <Icon name={showContext ? "chevron_up" : "chevron_down"} size={12} />
             <span>{showContext ? (isZh ? "收起上下文" : "Hide Context") : (isZh ? "预览上下文" : "Preview Context")}</span>
           </button>
-          <button
-            type="button"
-            onClick={onExit}
-            style={{
-              background: "none",
-              border: "none",
-              cursor: "pointer",
-              color: "var(--aurora-fg3)",
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 3,
-              fontSize: 11,
-              padding: "2px 6px",
-              borderRadius: 6,
-              flexShrink: 0,
-            }}
-            title={isZh ? "退出续接，开启新会话" : "Cancel resume, start new"}
-          >
-            <Icon name="close" size={12} />
-            <span>{isZh ? "退出" : "Exit"}</span>
-          </button>
+          {onExit && (
+            <button
+              type="button"
+              onClick={onExit}
+              style={{
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                color: "var(--aurora-fg3)",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 3,
+                fontSize: 11,
+                padding: "2px 6px",
+                borderRadius: 6,
+                flexShrink: 0,
+              }}
+              title={isZh ? "退出续接，开启新会话" : "Cancel resume, start new"}
+            >
+              <Icon name="close" size={12} />
+              <span>{isZh ? "退出" : "Exit"}</span>
+            </button>
+          )}
         </div>
       </div>
   

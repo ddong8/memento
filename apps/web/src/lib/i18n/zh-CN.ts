@@ -307,6 +307,7 @@ const zhCN = {
     empty: "我是你的全能 AI 执事，可随时调度终端设备执行命令、查询长期记忆与画像自进化。",
     historyTitle: "历史对话",
     newChat: "新建对话",
+    configLocked: "对话已开始，智能体、设备、项目和会话已固定，换模型和思考强度不受影响。要换其它的请新建对话",
     deleteConfirm: "确定要删除这条对话记录吗？",
     noHistory: "暂无历史对话记录",
     turnsCount: "{n} 条消息",

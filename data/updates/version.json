@@ -4,22 +4,22 @@
   "release_notes": "1. 全面安全与权限隔离加固：收紧公开分享链接文件访问签名校验、隔离多用户设备文件缓存、消除 Mermaid 与 HTML/SVG 预览 XSS 风险、拦截已停用账号实时流订阅与桌面端非白名单媒体协议\n2. 并发与稳定性优化：消除异步文件流阻塞、规范 HTTP Range 解析、收敛多副本数据库连接池与后台任务托管、独立版本化数据库迁移模块\n3. 架构瘦身与防线升级：拆分 ask/page.tsx、projects.py、task-runner.ts 与 api-client.ts 核心模块，收紧 CI 静态检查与多端测试；手机端版本号与客户端统一为 1.0.146",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.145-win-x64.zip",
-      "size": 158358967,
-      "sha256": "6f70aa1e2f33d90130a4036269211f71117d76bd0466761679f2ffef74959345",
-      "sha512": "CpAEW/PULqW0JCo3btoJZ7fVj0KXW+5S4IEokR6I9GsQwyBtqHFMTQj2LaRtI6X+DMdGeAI+GxfKa24tmygSvg=="
+      "asset_name": "Memento-1.0.146-win-x64.zip",
+      "size": 158360889,
+      "sha256": "657365709769a8f6a99d87d3736f911202ff0f37aee5c282adf4e627ce16d805",
+      "sha512": "QfxwWtK2E69QtvHxPYx07BAcS2ycbz4JXo1SuYj82XuODk28irXSr8JfvC8jCch7ZAmU+nRWNvkNHtE1ESw8jQ=="
     },
     "macos": {
-      "asset_name": "Memento-1.0.145-mac-arm64.zip",
-      "size": 132850262,
-      "sha256": "dad649b435b0f5f486b791ce64073a2a662d3e2ca761b9fce6ed71bb68dcca81",
-      "sha512": "3q6gHRxnQmyxibeCGONCHdMoq8j335U4NvjzSaeaNsra+SXqjXnllShP5l0A5FXrxPm0PcFiD6cfIAJA6Sd1bQ=="
+      "asset_name": "Memento-1.0.146-mac-arm64.zip",
+      "size": 132851985,
+      "sha256": "c9759c8988db2655c49f0c138254204af0295e4808b4df056fe2f2984a6275a6",
+      "sha512": "W+sVUEruzGIkre6+kQgFm+3ZWjTU9s29UH+g/b4dgdhfFITH7dduZVorAiDnKCCpVyd7Aw32/p8Wdr0szT8CJQ=="
     },
     "linux": {
-      "asset_name": "Memento-1.0.145-linux-x64.tar.gz",
-      "size": 132126019,
-      "sha256": "d35c3c0cbe53998137ed2c3742372e179619821ae94cf65efcb017466cf34d6c",
-      "sha512": "MxSqRjJQPvPZLw+eDavLMsLEb+RrGMff+rK3OHYdolC9Ln/pkASLJteJcmIzN1QbFFcxmt9YNWlzGZp9B8t63g=="
+      "asset_name": "Memento-1.0.146-linux-x64.tar.gz",
+      "size": 132126482,
+      "sha256": "7c285a538db9eb54608a56f8d6f6ba01a00320ab7d20c8fe3ba871d1ba6237c0",
+      "sha512": "deZYP5NCMQC7etUSlDCvRNxZJAgGHPlYjiRZ6zqjWi/a6OKvmOHQJJ02teW3jgG0mvRQa0HkZiATckmV7cwz+A=="
     }
   }
 }

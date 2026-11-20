@@ -36,8 +36,18 @@ from .ai_provider import call_plain_chat, get_ai_providers, uses_user_llm
 logger = logging.getLogger("server.dreaming_service")
 
 from .dreaming_voice import (  # noqa: F401 - re-exported for callers & tests
+    _AGENT_REPORT_RE,
     _BASE64_DATA_RE,
+    _CLIENT_INJECTED_BLOCK_RE,
+    _CORRECTION_RE,
+    _EMBEDDED_CONTEXT_RE,
+    _INJECTED_CONTEXT_HEADS,
+    _INJECTED_CONTEXT_RE,
+    _NON_USER_PREFIXES,
     _RAW_BASE64_BLOB_RE,
+    _SCRIPTED_PROMPT_RE,
+    _TRIVIAL_REPLIES,
+    _VOICE_SIGNAL_PROMPT,
     SCRIPTED_PROMPT_MIN_CHARS,
     SUBAGENT_PATH_REGEX,
     USER_VOICE_BATCH_CHARS,

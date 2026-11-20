@@ -1,4 +1,6 @@
 // @vitest-environment happy-dom
+import fs from "node:fs";
+import path from "node:path";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -75,5 +77,17 @@ describe("Plugin Marketplace gating and dynamic WeChat publisher config", () => 
     const draftBody = JSON.parse(String(fetchMock.mock.calls[1][1]?.body || "{}"));
     expect(draftBody.author).toBe("SelfHostAuthor");
     expect(draftBody.thumbMediaId).toBe("SELFHOST_COVER_ID");
+  });
+
+  it("keeps studio plugin inside workbench instead of left sidebar navigation", () => {
+    const srcRoot = path.resolve(__dirname, "../src");
+    const sidebarSrc = fs.readFileSync(path.join(srcRoot, "components/layout/Sidebar.tsx"), "utf-8");
+    const inspectorSrc = fs.readFileSync(path.join(srcRoot, "components/viewers/MediaInspectorPanel.tsx"), "utf-8");
+    const topBarSrc = fs.readFileSync(path.join(srcRoot, "components/ask/AskTopBar.tsx"), "utf-8");
+
+    expect(sidebarSrc).not.toContain('href="/studio"');
+    expect(inspectorSrc).toContain('isPluginReady("studio")');
+    expect(inspectorSrc).toContain('href="/studio"');
+    expect(topBarSrc).toContain('isPluginReady("studio")');
   });
 });

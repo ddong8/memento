@@ -549,17 +549,17 @@
 
 ### R-STUDIO-INLINE-PLAY 演播台成片归档支持 HTTP 206 流播，并可一键发送到对话中直接内联播放
 - 来源: 用户 2026-11-20「将 memento 加入演播台功能，做成的视频直接在对话中展示播放」
-- 说明: 左侧导航提供 `/studio` 演播台入口并接入 `RouteKeepAlive`；后端 `/api/studio` 桥接 `filmkit` 制作管线，发布到对话时将 MP4 持久化归档至对象存储（本地无 S3 时落盘兜底），以 `/api/media/video/...` 写入对话回合，每次读取对话或分享页时自动重签 7~14 天有效期并通过 `HTTP 206 Range` 流播，对话气泡由 `MarkdownViewer` 原位渲染 `<VideoPlayer />` 播放并附带跳回演播台精修链接。
+- 说明: 工作台视窗及插件市场提供 `/studio` 演播台入口并接入 `RouteKeepAlive`（不占用左侧主导航栏）；后端 `/api/studio` 桥接 `filmkit` 制作管线，发布到对话时将 MP4 持久化归档至对象存储（本地无 S3 时落盘兜底），以 `/api/media/video/...` 写入对话回合，每次读取对话或分享页时自动重签 7~14 天有效期并通过 `HTTP 206 Range` 流播，对话气泡由 `MarkdownViewer` 原位渲染 `<VideoPlayer />` 播放并附带跳回演播台精修链接。
 - 代码: `server/server/api/studio.py#publish_episode_to_chat`, `server/server/api/media.py#get_media_video`, `server/server/services/storage_service.py#store_video_bytes`, `server/server/services/storage_service.py#sign_video_links_in_text`, `apps/web/src/app/studio/page.tsx#StudioPage`, `apps/web/src/components/viewers/media-utils.ts#resolveMediaUrl`
 - 测试: `server/tests/test_studio_media.py#test_get_media_video_range_206_and_auth`, `server/tests/test_studio_media.py#test_publish_episode_to_chat_archives_and_embeds_video_markdown`, `apps/web/test/studio-video-media.test.tsx#renders inline VideoPlayer directly inside MarkdownViewer chat bubble`
-- 要求: `sign_video_links_in_text(` @ `server/server/services/ask_store.py`; `href="/studio"` @ `apps/web/src/components/layout/Sidebar.tsx`
+- 要求: `sign_video_links_in_text(` @ `server/server/services/ask_store.py`; `href="/studio"` @ `apps/web/src/components/viewers/MediaInspectorPanel.tsx`
 
 ### R-PLUGIN-MARKETPLACE 演播台与公众号分发做成插件市场按需安装并配置后启用
-- 来源: 用户 2026-11-20「把演播台和一键推送到公众号的两个服务做成插件吧，安装并配置后才能用」「对做成插件市场中安装」
-- 说明: 演播台（`studio`）与公众号一键分发（`wechat_publish`）作为插件市场（`/plugins`）可选扩展，按用户维度持久化安装状态与加密配置（`User.plugin_settings` + `secret_box`）；未安装或未配置时自动隐藏侧边栏演播台与工作台分发按钮，后端 `/api/studio/*` 返回 HTTP 412，避免自部署环境出现不可用入口或泄露硬编码个人服务地址。
+- 来源: 用户 2026-11-20「把演播台和一键推送到公众号的两个服务做成插件吧，安装并配置后才能用」「对做成插件市场中安装」「演播台插件不应该出现在左侧菜单里吧，它和一键推送公众号一样，属于工作台的插件」
+- 说明: 演播台（`studio`）与公众号一键分发（`wechat_publish`）均属于工作台插件，在插件市场（`/plugins`）按用户维度持久化安装状态与加密配置（`User.plugin_settings` + `secret_box`），绝不占用左侧主导航栏；安装并配置完成后仅在 AI 执事工作台区域（`AskTopBar` 工作台区、`MediaInspectorPanel` 工作台视窗）及插件市场卡片中解锁入口，未安装或未配置时自动隐藏且后端 `/api/studio/*` 返回 HTTP 412，避免自部署环境出现不可用入口或泄露硬编码个人服务地址。
 - 代码: `server/server/services/plugin_service.py#resolve_studio_connection`, `server/server/services/plugin_service.py#get_user_plugins_payload`, `server/server/api/plugins.py#install_plugin`, `apps/web/src/lib/plugins-context.tsx#PluginProvider`, `apps/web/src/app/plugins/page.tsx#PluginsPage`
-- 测试: `server/tests/test_plugins.py#test_uninstalled_plugins_are_hidden_and_blocked_for_self_hosted`, `server/tests/test_plugins.py#test_install_configure_seal_secrets_and_uninstall_lifecycle`, `apps/web/test/plugins-marketplace.test.tsx#uses pluginConfig api_base_url and default_cover_media_id instead of hardcoded personal URLs`
-- 要求: `resolve_studio_connection(` @ `server/server/api/studio.py`; `isPluginReady("studio")` @ `apps/web/src/components/layout/Sidebar.tsx`; `isPluginReady("wechat_publish")` @ `apps/web/src/components/viewers/MediaInspectorPanel.tsx`
+- 测试: `server/tests/test_plugins.py#test_uninstalled_plugins_are_hidden_and_blocked_for_self_hosted`, `server/tests/test_plugins.py#test_install_configure_seal_secrets_and_uninstall_lifecycle`, `apps/web/test/plugins-marketplace.test.tsx#uses pluginConfig api_base_url and default_cover_media_id instead of hardcoded personal URLs`, `apps/web/test/plugins-marketplace.test.tsx#keeps studio plugin inside workbench instead of left sidebar navigation`
+- 要求: `resolve_studio_connection(` @ `server/server/api/studio.py`; `isPluginReady("studio")` @ `apps/web/src/components/ask/AskTopBar.tsx`; `isPluginReady("studio")` @ `apps/web/src/components/viewers/MediaInspectorPanel.tsx`; `isPluginReady("wechat_publish")` @ `apps/web/src/components/viewers/MediaInspectorPanel.tsx`
 - 禁止: `https://wx.ihasy.com` @ `apps/web/src/components/viewers/WeChatPublishModal.tsx`; `https://wx.ihasy.com` @ `apps/web/src/components/viewers/MediaInspectorPanel.tsx`
 
 ### R-BUSINESS-CHECKED 业务规则挂到代码和测试上，每次提交自动核对
@@ -715,7 +715,7 @@
 | `R-SESSION-PREVIEW-WHOLE` | 项目对话和时间线先带每个会话的一段，展开全部一条不丢 | 4/4 | 2/2 | 2/2 | ✅ |
 | `R-WECHAT-DRAFT` | 工作台文本可多次润色，确认后推到公众号草稿，文章带官网链接 | 2/2 | — | 2/2 | ✅ |
 | `R-STUDIO-INLINE-PLAY` | 演播台成片归档支持 HTTP 206 流播，并可一键发送到对话中直接内联播放 | 6/6 | 3/3 | 2/2 | ✅ |
-| `R-PLUGIN-MARKETPLACE` | 演播台与公众号分发做成插件市场按需安装并配置后启用 | 5/5 | 3/3 | 5/5 | ✅ |
+| `R-PLUGIN-MARKETPLACE` | 演播台与公众号分发做成插件市场按需安装并配置后启用 | 5/5 | 4/4 | 6/6 | ✅ |
 | `R-BUSINESS-CHECKED` | 业务规则挂到代码和测试上，每次提交自动核对 | 6/6 | 4/4 | 1/1 | ✅ |
 | `S-CONV-LIST` | 对话列表 | 6/6 | — | — | ✅ |
 | `S-RUN-STATE` | 运行状态与灵动岛 | 5/5 | — | — | ✅ |

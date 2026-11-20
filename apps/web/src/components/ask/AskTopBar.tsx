@@ -6,6 +6,7 @@ import { Icon } from "@/components/aurora/Icon";
 import { BrandMark } from "@/components/aurora/BrandMark";
 import { Btn, ThemeToggle } from "@/components/aurora/primitives";
 import { useMediaInspector } from "@/components/viewers/MediaInspectorContext";
+import { usePlugins } from "@/lib/plugins-context";
 import { resolveConversationAgent } from "@/components/ask/HistoryDrawer";
 import { useI18n } from "@/lib/i18n";
 import { useTheme } from "@/lib/theme-context";
@@ -61,6 +62,16 @@ export function AskTopBar({
   const { t, locale } = useI18n();
   const isZh = locale.startsWith("zh");
   const inspector = useMediaInspector();
+  const { isPluginReady } = usePlugins();
+  const studioReady = isPluginReady("studio");
+  const openStudio = () => {
+    const nav = window as unknown as { __memento_navigate?: (u: string) => void };
+    if (typeof nav.__memento_navigate === "function") {
+      nav.__memento_navigate("/studio");
+    } else {
+      window.location.assign("/studio");
+    }
+  };
   const { theme, toggleTheme } = useTheme();
   const { collapsed, toggleCollapsed } = useSidebar();
   const isDesktopApp = useIsDesktopApp();
@@ -79,6 +90,9 @@ export function AskTopBar({
       if (inspector && inspector.mediaList.length > 0) {
         items.push({ id: "workbench", label: inspector.isOpen ? (isZh ? "折叠工作台视窗" : "Close Workbench") : (isZh ? "展开工作台视窗" : "Open Workbench") });
       }
+      if (studioReady) {
+        items.push({ id: "studio", label: isZh ? "AI 演播台（工作台插件）" : "AI Studio" });
+      }
       items.push({ id: "quota", label: isZh ? "AI 额度监控" : "AI Quotas" });
       items.push({ id: "theme", label: isZh ? "外观主题切换" : "Toggle Theme" });
       items.push({ type: "separator" });
@@ -95,6 +109,7 @@ export function AskTopBar({
       return;
     }
     if (id === "workbench") inspector?.toggleInspector();
+    else if (id === "studio") openStudio();
     else if (id === "quota") onOpenQuota();
     else if (id === "theme") toggleTheme();
     else if (id === "select") onToggleSelectTurns();
@@ -194,6 +209,20 @@ export function AskTopBar({
                   {inspector.mediaList.length}
                 </span>
               </span>
+            </Btn>
+          </div>
+        )}
+
+        {/* 工作台插件：AI 演播台（仅在插件市场安装并配置后出现于工作台区，不占左侧主导航） */}
+        {studioReady && (
+          <div className="hidden sm:inline-flex shrink-0">
+            <Btn
+              variant="glass"
+              size="sm"
+              icon="film"
+              onClick={openStudio}
+            >
+              <span className="hidden xl:inline font-medium">{isZh ? "演播台" : "Studio"}</span>
             </Btn>
           </div>
         )}
@@ -370,6 +399,26 @@ export function AskTopBar({
                     </span>
                     <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 font-mono font-bold">
                       {inspector.mediaList.length}
+                    </span>
+                  </button>
+                )}
+
+                {/* 移动端专属：工作台插件 · AI 演播台 */}
+                {studioReady && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMoreMenuOpen(false);
+                      openStudio();
+                    }}
+                    className="px-3 py-2 text-xs flex items-center justify-between hover:bg-[var(--aurora-chip)] transition-colors text-left text-[var(--aurora-fg1)] sm:hidden"
+                  >
+                    <span className="flex items-center gap-2">
+                      <Icon name="film" size={14} className="text-[var(--aurora-accent)]" />
+                      <span>{isZh ? "AI 演播台" : "AI Studio"}</span>
+                    </span>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-[var(--aurora-accent-soft)] text-[var(--aurora-accent)] font-medium">
+                      工作台
                     </span>
                   </button>
                 )}

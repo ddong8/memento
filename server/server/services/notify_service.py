@@ -381,7 +381,7 @@ async def send_apns_live_activity(
         logger.debug("APNs liveactivity HTTP/2 client error: %s", e)
 
     if dead_tokens and user_id:
-        asyncio.create_task(_prune_dead_tokens(user_id, dead_tokens))
+        spawn(_prune_dead_tokens(user_id, dead_tokens))
 
     return delivered > 0
 
@@ -738,7 +738,8 @@ async def forget_task(task_id: str) -> None:
 
 
 def spawn(coro) -> None:
-    """Run a notification in the background, keeping a reference until it's done."""
-    task = asyncio.create_task(coro)
+    """Run a notification in the background, keeping a strong reference and logging failures."""
+    from . import bg_tasks
+    task = bg_tasks.spawn(coro)
     _background.add(task)
     task.add_done_callback(_background.discard)

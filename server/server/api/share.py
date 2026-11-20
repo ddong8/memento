@@ -600,7 +600,7 @@ async def get_public_share_data(
                 # resolve to the matching turn in the conversation tail.
                 effective_indices = turn_indices
                 if turn_indices is not None and len(raw_turns) > 100 and link.title and "提问：" in link.title:
-                    target_prompt = link.title.split("提问：", 1)[1].strip().rstrip("...")[:24]
+                    target_prompt = link.title.split("提问：", 1)[1].strip().removesuffix("...")[:24]
                     if target_prompt:
                         for s_idx in range(len(raw_turns) - 1, max(-1, len(raw_turns) - 150), -1):
                             s_content = (raw_turns[s_idx].get("content") or "")

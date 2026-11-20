@@ -141,7 +141,13 @@ export function getMediaMimeType(filePath: string): string {
 /** The file a memento-media:// URL points at, spelled the way this computer's file system wants it
  * (Git Bash's "/c/Users/..." is C:/Users/... on Windows). */
 export function parseMementoMediaFilePath(rawUrl: string, platform: NodeJS.Platform): string {
-  const parsed = new URL(rawUrl);
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    return "";
+  }
+  if (parsed.protocol !== "memento-media:") return "";
   let filePath: string;
   if (parsed.host === "local" || parsed.host === "") {
     filePath = decodeURIComponent(parsed.pathname);

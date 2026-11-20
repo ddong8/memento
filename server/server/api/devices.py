@@ -547,10 +547,12 @@ async def ack_command(
 
 # Active prefetch tasks and in-memory cache registry for media streaming acceleration
 _active_prefetch_tasks: dict[str, asyncio.Task] = {}
-_known_cache_map: dict[str, tuple[int, str]] = {}  # clean_path -> (total_size, cached_file_path)
+# Scoped by (user_scope, device_scope, clean_path) to prevent cross-tenant or cross-device leakage
+_known_cache_map: dict[tuple[str, str, str], tuple[int, str]] = {}
+_MAX_KNOWN_CACHE_ENTRIES = 2000
 _initial_chunk_cache: dict[str, tuple[bytes, float]] = {}  # cache_key -> (initial_bytes, timestamp)
-_negative_stat_cache: dict[str, float] = {}  # f"{dev_token}:{clean_path}" -> timestamp
-_file_stat_cache: dict[str, tuple[int, str, float]] = {}  # clean_path -> (total_size, real_dev_token, timestamp)
+_negative_stat_cache: dict[str, float] = {}  # f"{user_scope}:{dev_token}:{clean_path}" -> timestamp
+_file_stat_cache: dict[tuple[str, str], tuple[int, str, float]] = {}  # (user_scope, clean_path) -> (total_size, real_dev_token, timestamp)
 _FILE_STAT_CACHE_TTL = 600.0  # 10 minutes cache for file stat and owner device
 _MAX_INITIAL_CHUNKS = 50  # Max 50 chunks (approx 25 MB max in memory)
 _INITIAL_CHUNK_TTL_SECONDS = 300  # 5 minutes TTL
@@ -562,42 +564,77 @@ _MAX_CACHED_FILE_BYTES = _MAX_DISK_CACHE_BYTES // 4
 _MAX_CONCURRENT_PREFETCH = 2
 _prefetch_reserved: dict[str, int] = {}  # cache_key -> bytes reserved for an in-flight download
 
+from ..services.device_files import (
+    SANDBOXED_INLINE_EXTS as _SANDBOXED_INLINE_EXTS,
+    append_part_chunk as _append_part_chunk,
+    clean_device_path as _clean_device_path,
+    disk_cache_key as _disk_cache_key,
+    file_matches_size as _file_matches_size,
+    parse_byte_range as _parse_byte_range,
+    read_local_slice as _read_local_slice,
+    user_cache_scope as _user_cache_scope,
+)
 
-async def _get_cached_stat(path: str) -> tuple[int, str] | None:
-    """Retrieve positive file existence & size metadata from memory or cluster Redis."""
+
+def _remember_known_cache(user_scope: str, dev_scope: str, clean_path: str, total_size: int, cached_path: str) -> None:
+    key = (user_scope, dev_scope, clean_path)
+    _known_cache_map.pop(key, None)
+    _known_cache_map[key] = (total_size, cached_path)
+    while len(_known_cache_map) > _MAX_KNOWN_CACHE_ENTRIES:
+        oldest = next(iter(_known_cache_map))
+        _known_cache_map.pop(oldest, None)
+
+
+def _lookup_known_cache(user_scope: str, dev_scope: str, clean_path: str) -> tuple[int, str] | None:
+    direct = _known_cache_map.get((user_scope, dev_scope, clean_path))
+    if direct is not None:
+        return direct
+    if dev_scope == "auto":
+        for (u_scope, _d_scope, p), val in _known_cache_map.items():
+            if u_scope == user_scope and p == clean_path:
+                return val
+    return None
+
+
+async def _get_cached_stat(path: str, user_scope: str = "global") -> tuple[int, str] | None:
+    """Retrieve positive file existence & size metadata scoped to user_scope."""
     now = time.time()
-    if path in _file_stat_cache:
-        size, token, ts = _file_stat_cache[path]
+    mem_key = (user_scope, path)
+    if mem_key in _file_stat_cache:
+        size, token, ts = _file_stat_cache[mem_key]
         if now - ts < _FILE_STAT_CACHE_TTL:
             return size, token
     r = cluster.redis
     if r is not None:
         try:
-            val = await r.get(f"{PREFIX}fstat:{hashlib.sha256(path.encode()).hexdigest()}")
+            digest = hashlib.sha256(f"{user_scope}:{path}".encode()).hexdigest()
+            val = await r.get(f"{PREFIX}fstat:v2:{digest}")
             if val:
                 d = json.loads(val)
                 size = int(d.get("size") or 0)
                 token = str(d.get("token") or "")
                 if size > 0 and token:
-                    _file_stat_cache[path] = (size, token, now)
+                    _file_stat_cache[mem_key] = (size, token, now)
                     return size, token
         except Exception:
             pass
     return None
 
 
-async def _set_cached_stat(path: str, size: int, token: str) -> None:
-    """Cache positive file existence & size metadata across all API replicas."""
+async def _set_cached_stat(path: str, size: int, token: str, user_scope: str = "global") -> None:
+    """Cache positive file existence & size metadata across API replicas, isolated by user_scope."""
     now = time.time()
-    _file_stat_cache[path] = (size, token, now)
+    mem_key = (user_scope, path)
+    _file_stat_cache[mem_key] = (size, token, now)
     if len(_file_stat_cache) > 2000:
         for k in [k for k, (_, _, ts) in list(_file_stat_cache.items()) if now - ts > _FILE_STAT_CACHE_TTL]:
             _file_stat_cache.pop(k, None)
     r = cluster.redis
     if r is not None and size > 0 and token:
         try:
+            digest = hashlib.sha256(f"{user_scope}:{path}".encode()).hexdigest()
             await r.set(
-                f"{PREFIX}fstat:{hashlib.sha256(path.encode()).hexdigest()}",
+                f"{PREFIX}fstat:v2:{digest}",
                 json.dumps({"size": size, "token": token}),
                 ex=int(_FILE_STAT_CACHE_TTL),
             )
@@ -700,45 +737,48 @@ async def _background_prefetch_media(
     total_size: int,
     cached_path: str,
     cache_key: str,
+    user_scope: str = "global",
 ) -> None:
-    """Asynchronously prefetch remote media file in 2MB chunks to local disk cache."""
+    """Asynchronously prefetch remote media file in 2MB chunks to local disk cache without blocking the event loop."""
     part_path = f"{cached_path}.part"
     try:
         # Delay background prefetch by 3.5s to let the user's initial video Range stream start smoothly without contention
         await asyncio.sleep(3.5)
-        if os.path.exists(cached_path) and os.path.getsize(cached_path) == total_size:
+        if await asyncio.to_thread(_file_matches_size, cached_path, total_size):
+            _remember_known_cache(user_scope, dev_token, clean_path, total_size, cached_path)
             return
 
         chunk_size = 2 * 1024 * 1024  # 2 MB chunks for high-throughput background sync
         curr = 0
-        if os.path.exists(part_path):
-            curr = os.path.getsize(part_path)
+        if await asyncio.to_thread(os.path.exists, part_path):
+            curr = await asyncio.to_thread(os.path.getsize, part_path)
             if curr > total_size:
                 curr = 0
                 try:
-                    os.remove(part_path)
-                except Exception:
+                    await asyncio.to_thread(os.remove, part_path)
+                except OSError:
                     pass
 
-        with open(part_path, "ab" if curr > 0 else "wb") as f:
-            while curr < total_size:
-                read_len = min(chunk_size, total_size - curr)
-                chunk = await ws_manager.request_file_chunk(dev_token, clean_path, curr, read_len)
-                if not chunk and device_id != dev_token:
-                    chunk = await ws_manager.request_file_chunk(device_id, clean_path, curr, read_len)
-                if not chunk and target_machine_name:
-                    chunk = await ws_manager.request_file_chunk(target_machine_name, clean_path, curr, read_len)
-                if not chunk:
-                    logger.warning("Background prefetch interrupted at %d/%d for %s", curr, total_size, clean_path)
-                    return
-                f.write(chunk)
-                curr += len(chunk)
-                await asyncio.sleep(0.005)
+        first_write = curr == 0
+        while curr < total_size:
+            read_len = min(chunk_size, total_size - curr)
+            chunk = await ws_manager.request_file_chunk(dev_token, clean_path, curr, read_len)
+            if not chunk and device_id != dev_token:
+                chunk = await ws_manager.request_file_chunk(device_id, clean_path, curr, read_len)
+            if not chunk and target_machine_name:
+                chunk = await ws_manager.request_file_chunk(target_machine_name, clean_path, curr, read_len)
+            if not chunk:
+                logger.warning("Background prefetch interrupted at %d/%d for %s", curr, total_size, clean_path)
+                return
+            await asyncio.to_thread(_append_part_chunk, part_path, chunk, "wb" if first_write else "ab")
+            first_write = False
+            curr += len(chunk)
+            await asyncio.sleep(0.005)
 
-        if os.path.exists(part_path) and os.path.getsize(part_path) == total_size:
-            os.replace(part_path, cached_path)
+        if await asyncio.to_thread(_file_matches_size, part_path, total_size):
+            await asyncio.to_thread(os.replace, part_path, cached_path)
             logger.info("Successfully cached media file %s (%d bytes) at %s", clean_path, total_size, cached_path)
-            _known_cache_map[clean_path] = (total_size, cached_path)
+            _remember_known_cache(user_scope, dev_token, clean_path, total_size, cached_path)
     except Exception as e:
         logger.warning("Failed background prefetch for %s: %s", clean_path, e)
     finally:
@@ -748,6 +788,7 @@ async def _background_prefetch_media(
 
 async def _stat_on_devices(
     db: AsyncSession, _user: User, mids, device_id: str, target_machine, dev_token: str, clean_path: str,
+    *, allow_sees_all: bool = True,
 ) -> tuple[dict, str]:
     """Stat a file on the device it names, by its other aliases, or (for "auto" / unknown devices) on
     whichever of the user's online devices has it. Returns the stat and the device token that answered."""
@@ -761,14 +802,14 @@ async def _stat_on_devices(
         stat = await ws_manager.request_file_stat(target_machine.name, clean_path)
     if not stat.get("exists") and (device_id == "auto" or not target_machine):
         query = select(Machine)
-        if not sees_all(_user) and mids is not None:
+        if not (allow_sees_all and sees_all(_user)) and mids is not None:
             query = query.where(Machine.id.in_(mids))
         candidates: list[str] = []
         for m in (await db.execute(query)).scalars().all():
             for alias in (m.collector_token_hash, m.name):
                 if alias and alias not in candidates:
                     candidates.append(alias)
-        if sees_all(_user):
+        if allow_sees_all and sees_all(_user):
             candidates += [c for c in ws_manager.connected_ids() if c not in candidates]
         for cand_token in candidates:
             if ws_manager.has_device(cand_token) and cand_token != dev_token:
@@ -801,24 +842,6 @@ def _server_file(clean_path: str) -> str | None:
     return None
 
 
-def _clean_device_path(path: str) -> str:
-    """The absolute path the client meant: unquoted (also when double-encoded), forward slashes, no file://."""
-    clean_path = path.strip()
-    for _ in range(3):
-        unquoted = urllib.parse.unquote(clean_path)
-        if unquoted == clean_path:
-            break
-        clean_path = unquoted
-    clean_path = clean_path.replace("\\", "/")
-    if clean_path.startswith("file://"):
-        clean_path = clean_path.replace("file://", "")
-        if clean_path.startswith("/") and len(clean_path) > 3 and clean_path[2] == ":":
-            clean_path = clean_path[1:]
-    if any(p == ".." for p in clean_path.split("/")):
-        raise HTTPException(status_code=400, detail="Path traversal forbidden")
-    return clean_path
-
-
 async def _authorized_machine(db: AsyncSession, device_id: str, _user: User):
     from ..services.user_filter import find_machine_by_id_or_hash
     target_machine = await find_machine_by_id_or_hash(db, device_id, _user)
@@ -848,9 +871,11 @@ async def locate_device_file(
     server has it itself (on its disk or in its media cache)."""
     target_machine, mids = await _authorized_machine(db, device_id, _user)
     clean_path = _clean_device_path(path)
-    if _server_file(clean_path) or clean_path in _known_cache_map or chat_images.storage_key(_user.id, clean_path) and await chat_images.load(_user.id, clean_path):
+    user_scope = _user_cache_scope(_user)
+    dev_scope = target_machine.collector_token_hash if target_machine and target_machine.collector_token_hash else device_id
+    if _server_file(clean_path) or _lookup_known_cache(user_scope, dev_scope, clean_path) is not None or chat_images.storage_key(_user.id, clean_path) and await chat_images.load(_user.id, clean_path):
         return {"local": True}
-    cached = await _get_cached_stat(clean_path)
+    cached = await _get_cached_stat(clean_path, user_scope)
     if cached and cached[0] > 0 and (device_id == "auto" or not target_machine):
         return {"device": cached[1], "size": cached[0], "ice_servers": _ice_servers()}
     dev_token = target_machine.collector_token_hash if target_machine else device_id
@@ -859,7 +884,7 @@ async def locate_device_file(
         raise HTTPException(status_code=404, detail=f"File not found on any online device: {stat.get('error') or 'offline'}")
     size = int(stat.get("size") or stat.get("total_size") or 0)
     if size > 0:
-        await _set_cached_stat(clean_path, size, dev_token)
+        await _set_cached_stat(clean_path, size, dev_token, user_scope)
     return {"device": dev_token, "size": size, "ice_servers": _ice_servers()}
 
 
@@ -942,15 +967,23 @@ async def stream_device_file(
     path: str = Query(..., description="Absolute path on the device or NAS"),
     filename: str = None,
     share_token: str = Query(None, description="Optional public share token for anonymous visitors"),
+    file_exp: int | None = Query(None, description="Expiry timestamp for a signed share file link"),
+    file_sig: str | None = Query(None, description="HMAC signature scoping a share link to one device and path"),
     request: Request = None,
     db: AsyncSession = Depends(get_db),
     _user: User | None = Depends(get_optional_user),
 ):
     """Stream a media or artifact file directly from target device with HTTP 206 Range, disk cache and pipelining."""
     from ..services.user_filter import find_machine_by_id_or_hash
+    from ..services.storage_service import share_file_signature_ok
     from ..db.models import ShareLink
 
-    # If unauthenticated, check if a valid public ShareLink token was supplied
+    clean_path = _clean_device_path(path)
+    raw_clean_path = clean_path
+    is_share_access = False
+
+    # If unauthenticated, check if a valid public ShareLink token + file-scoped HMAC signature was supplied.
+    # A bare share_token must never grant arbitrary filesystem access on the owner's devices.
     if _user is None:
         effective_token = share_token or (request.query_params.get("token") if request else None)
         if effective_token:
@@ -960,8 +993,16 @@ async def stream_device_file(
                     ShareLink.revoked_at.is_(None),
                 )
             )).scalar_one_or_none()
-            if st_link and (not st_link.expires_at or st_link.expires_at > datetime.now(timezone.utc)):
+            if st_link is not None:
+                expired = bool(st_link.expires_at and st_link.expires_at <= datetime.now(timezone.utc))
+                if expired or st_link.target_user_id is not None:
+                    raise HTTPException(status_code=403, detail="Share link expired or restricted")
+                if device_id == "auto" or not share_file_signature_ok(effective_token, device_id, raw_clean_path, file_exp, file_sig):
+                    raise HTTPException(status_code=403, detail="Share file link expired or not signed")
                 _user = (await db.execute(select(User).where(User.id == st_link.owner_user_id))).scalar_one_or_none()
+                if _user is None or getattr(_user, "status", "active") != "active":
+                    raise HTTPException(status_code=403, detail="Share owner inactive")
+                is_share_access = True
 
     if _user is None:
         _user = await get_current_user_flexible(
@@ -974,12 +1015,13 @@ async def stream_device_file(
     target_machine = await find_machine_by_id_or_hash(db, device_id, _user)
     mids = await user_machine_ids(db, _user)
 
-    if not sees_all(_user):
+    allow_sees_all = (not is_share_access) and sees_all(_user)
+    if not allow_sees_all:
         if target_machine and mids is not None and target_machine.id not in mids:
             raise HTTPException(status_code=403, detail="Device access denied")
+        if is_share_access and (target_machine is None or (mids is not None and target_machine.id not in mids)):
+            raise HTTPException(status_code=403, detail="Device access denied")
 
-    clean_path = _clean_device_path(path)
-    raw_clean_path = clean_path
     ext = os.path.splitext(clean_path)[1].lower()
     mime_type, _ = mimetypes.guess_type(clean_path)
     if not mime_type:
@@ -1045,45 +1087,52 @@ async def stream_device_file(
             headers={"Content-Length": str(len(data)), "Cache-Control": "private, max-age=86400", "Accept-Ranges": "none"},
         )
 
+    user_scope = _user_cache_scope(_user)
+    dev_token = target_machine.collector_token_hash if target_machine else device_id
+    cache_key = ""
+
     total_size = 0
-    server_copy = _server_file(clean_path)
+    server_copy = await asyncio.to_thread(_server_file, clean_path)
     if not server_copy and "_720p" in clean_path:
-        server_copy = _server_file(clean_path.replace("_720p", ""))
+        server_copy = await asyncio.to_thread(_server_file, clean_path.replace("_720p", ""))
     is_local = server_copy is not None
     if server_copy:
         clean_path = server_copy
 
-    cache_dir = _get_media_cache_dir()
+    cache_dir = await asyncio.to_thread(_get_media_cache_dir)
 
-    # Check in-memory fast registry for cached media on local SSD
-    if not is_local and raw_clean_path in _known_cache_map:
-        cached_size, cached_path = _known_cache_map[raw_clean_path]
-        if os.path.exists(cached_path) and os.path.getsize(cached_path) == cached_size:
-            clean_path = cached_path
-            is_local = True
-            total_size = cached_size
+    # Check in-memory fast registry for cached media on local SSD (scoped by user and device)
+    if not is_local:
+        known = _lookup_known_cache(user_scope, dev_token, raw_clean_path)
+        if known is not None:
+            cached_size, cached_path = known
+            if await asyncio.to_thread(_file_matches_size, cached_path, cached_size):
+                clean_path = cached_path
+                is_local = True
+                total_size = cached_size
 
-    dev_token = target_machine.collector_token_hash if target_machine else device_id
     if is_local:
         if total_size <= 0:
-            total_size = os.path.getsize(clean_path)
+            total_size = await asyncio.to_thread(os.path.getsize, clean_path)
     else:
-        # Fast path 1: Check positive stat cache across all replicas (avoids WebSocket RTT & timeouts on follow-up Ranges)
-        cached_stat = await _get_cached_stat(raw_clean_path)
+        # Fast path 1: Check positive stat cache across all replicas (isolated by user_scope)
+        cached_stat = await _get_cached_stat(raw_clean_path, user_scope)
         if cached_stat:
             cached_size, cached_dev_token = cached_stat
             if cached_size > 0:
                 total_size = cached_size
-                if device_id == "auto" or not target_machine:
+                if not is_share_access and (device_id == "auto" or not target_machine):
                     dev_token = cached_dev_token
 
         # Fast path 2: Check 404 negative cache if not already found
         if total_size <= 0:
-            neg_key = f"{dev_token}:{raw_clean_path}"
+            neg_key = f"{user_scope}:{dev_token}:{raw_clean_path}"
             if neg_key in _negative_stat_cache and (time.time() - _negative_stat_cache[neg_key] < 60.0):
                 raise HTTPException(status_code=404, detail=f"File not found on device (cached 404): {raw_clean_path}")
 
-            stat, dev_token = await _stat_on_devices(db, _user, mids, device_id, target_machine, dev_token, clean_path)
+            stat, dev_token = await _stat_on_devices(
+                db, _user, mids, device_id, target_machine, dev_token, clean_path, allow_sees_all=allow_sees_all,
+            )
             err_msg = str(stat.get("error") or "")
             if not stat.get("exists") and ("not found" in err_msg.lower() or "enoent" in err_msg.lower()):
                 # The device affirmatively returned ENOENT: cache the 404 so follow-up Ranges fail fast
@@ -1100,18 +1149,18 @@ async def stream_device_file(
                 raise HTTPException(status_code=404, detail=f"File not found on device ({clean_path}): {err_msg}")
             total_size = stat.get("size") or stat.get("total_size") or 0
             if total_size > 0 and dev_token:
-                await _set_cached_stat(raw_clean_path, total_size, dev_token)
+                await _set_cached_stat(raw_clean_path, total_size, dev_token, user_scope)
 
-        # Check if complete local cache exists for this clean_path and total_size
+        # Check if complete local cache exists for this scoped (user, device, path, size)
         if total_size > 0:
-            cache_key = hashlib.sha256(f"{raw_clean_path}:{total_size}".encode()).hexdigest()
+            cache_key = _disk_cache_key(user_scope, dev_token, raw_clean_path, total_size)
             cached_file_path = os.path.join(cache_dir, f"{cache_key}{ext}")
-            if os.path.exists(cached_file_path) and os.path.getsize(cached_file_path) == total_size:
+            if await asyncio.to_thread(_file_matches_size, cached_file_path, total_size):
                 clean_path = cached_file_path
                 is_local = True
-                _known_cache_map[raw_clean_path] = (total_size, cached_file_path)
+                _remember_known_cache(user_scope, dev_token, raw_clean_path, total_size, cached_file_path)
 
-    etag_key = hashlib.sha256(f"{raw_clean_path}:{total_size}".encode()).hexdigest()[:24]
+    etag_key = hashlib.sha256(f"{user_scope}:{dev_token}:{raw_clean_path}:{total_size}".encode()).hexdigest()[:24]
     etag = f'"{etag_key}"'
 
     range_header = request.headers.get("range") if request else None
@@ -1123,35 +1172,21 @@ async def stream_device_file(
             status_code=304,
             headers={
                 "ETag": etag,
-                "Cache-Control": "public, max-age=604800, stale-while-revalidate=86400",
+                "Cache-Control": "private, max-age=604800, stale-while-revalidate=86400",
                 "Accept-Ranges": "bytes",
-                "Access-Control-Allow-Origin": "*",
+                "X-Content-Type-Options": "nosniff",
             },
         )
 
-    start = 0
-    end = (total_size - 1) if total_size > 0 else 0
-    status_code = 200
-
-    if range_header and range_header.startswith("bytes="):
-        parts = range_header.replace("bytes=", "").split("-")
-        if parts[0]:
-            start = int(parts[0])
-        if len(parts) > 1 and parts[1]:
-            end = int(parts[1])
-        status_code = 206
-
-    if start > end or (total_size > 0 and start >= total_size):
-        return Response(status_code=416, headers={"Content-Range": f"bytes */{total_size}"})
-
+    start, end, status_code = _parse_byte_range(range_header, total_size)
     content_length = (end - start + 1) if total_size > 0 else 0
 
     # Trigger background full prefetch for non-local media unless this is an iOS 0-1 probe
     if not is_local and total_size > 0 and total_size <= 250 * 1024 * 1024:
-        cache_key = hashlib.sha256(f"{raw_clean_path}:{total_size}".encode()).hexdigest()
+        cache_key = _disk_cache_key(user_scope, dev_token, raw_clean_path, total_size)
         cached_file_path = os.path.join(cache_dir, f"{cache_key}{ext}")
         is_probe = (start == 0 and end <= 1)
-        if not is_probe and cache_key not in _active_prefetch_tasks and _make_room_for(cache_dir, total_size):
+        if not is_probe and cache_key not in _active_prefetch_tasks and await asyncio.to_thread(_make_room_for, cache_dir, total_size):
             _prefetch_reserved[cache_key] = total_size
             prefetch_task = asyncio.create_task(
                 _background_prefetch_media(
@@ -1162,6 +1197,7 @@ async def stream_device_file(
                     total_size=total_size,
                     cached_path=cached_file_path,
                     cache_key=cache_key,
+                    user_scope=user_scope,
                 )
             )
             _active_prefetch_tasks[cache_key] = prefetch_task
@@ -1173,11 +1209,14 @@ async def stream_device_file(
         "Content-Length": str(content_length),
         "Content-Disposition": f'inline; filename="{quoted_fname}"; filename*=UTF-8\'\'{quoted_fname}',
         "ETag": etag,
-        "Cache-Control": "public, max-age=604800, stale-while-revalidate=86400",
+        "Cache-Control": "private, max-age=604800, stale-while-revalidate=86400",
+        "X-Content-Type-Options": "nosniff",
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Headers": "Range, Authorization, Content-Type, If-None-Match",
         "Access-Control-Expose-Headers": "Content-Range, Content-Length, Accept-Ranges, Content-Disposition, ETag, Cache-Control",
     }
+    if ext in _SANDBOXED_INLINE_EXTS or mime_type.startswith(("text/html", "image/svg", "application/xhtml")):
+        headers["Content-Security-Policy"] = "sandbox"
     if status_code == 206:
         headers["Content-Range"] = f"bytes {start}-{end}/{total_size}"
 
@@ -1187,20 +1226,18 @@ async def stream_device_file(
     async def chunk_generator():
         curr = start
         if is_local:
-            # 1 MB chunk for local SSD read
+            # 1 MB chunk for local SSD read (offloaded to thread to keep event loop responsive)
             chunk_size = 1024 * 1024
-            with open(clean_path, "rb") as f:
-                f.seek(curr)
-                while curr <= end:
-                    read_len = min(chunk_size, end - curr + 1)
-                    data = f.read(read_len)
-                    if not data:
-                        break
-                    curr += len(data)
-                    try:
-                        yield data
-                    except (asyncio.CancelledError, Exception):
-                        break
+            while curr <= end and total_size > 0:
+                read_len = min(chunk_size, end - curr + 1)
+                data = await asyncio.to_thread(_read_local_slice, clean_path, curr, read_len)
+                if not data:
+                    break
+                curr += len(data)
+                try:
+                    yield data
+                except (asyncio.CancelledError, Exception):
+                    break
         else:
             # Remote streaming with 512KB chunks for smooth playback and zero channel starvation
             chunk_size = 512 * 1024
@@ -1215,10 +1252,11 @@ async def stream_device_file(
                 return c
 
             # iOS AVPlayer probe fast-path (Range: bytes=0-1):
-            if curr == 0 and end <= 1:
+            if curr == 0 and end <= 1 and total_size > 0:
                 probe_chunk = await _fetch(0, min(chunk_size, total_size))
                 if probe_chunk:
-                    _set_initial_chunk(cache_key, probe_chunk)
+                    if cache_key:
+                        _set_initial_chunk(cache_key, probe_chunk)
                     try:
                         yield probe_chunk[:end + 1]
                     except (asyncio.CancelledError, Exception):
@@ -1226,8 +1264,8 @@ async def stream_device_file(
                     return
 
             # Check in-memory initial chunk cache for instant first-frame playback
-            init_chunk = _get_initial_chunk(cache_key)
-            if init_chunk and curr == 0:
+            init_chunk = _get_initial_chunk(cache_key) if cache_key else None
+            if init_chunk and curr == 0 and total_size > 0:
                 avail = min(len(init_chunk), end - curr + 1)
                 if avail > 0:
                     try:
@@ -1240,7 +1278,7 @@ async def stream_device_file(
                     next_read_len = min(chunk_size, end - curr + 1)
                     next_task = asyncio.create_task(_fetch(curr, next_read_len))
 
-            while curr <= end:
+            while curr <= end and total_size > 0:
                 read_len = min(chunk_size, end - curr + 1)
 
                 if next_task is not None:

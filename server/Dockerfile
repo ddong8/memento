@@ -47,5 +47,6 @@ ENV MEMENTO_BUILD_SHA=${GIT_SHA}
 
 EXPOSE 8000
 
-# SSE 长连接不会自己结束:停止时最多等 25s 就关掉,赶在 k8s 强杀(terminationGracePeriodSeconds 40)前干净退出
+# SSE 长连接不会自己结束: 25s 后由 uvicorn 关闭旧连接让前端重连到新副本，随后 lifespan 的 ask_runs.drain
+# 最长等待 600s 收尾进行中的回答（见 deploy/k8s/api.yaml 的 terminationGracePeriodSeconds: 660）
 CMD ["uvicorn", "server.main:app", "--host", "0.0.0.0", "--port", "8000", "--timeout-graceful-shutdown", "25"]

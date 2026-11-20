@@ -730,7 +730,8 @@ class AskRunRegistry:
             run.task.cancel()
         try:
             loop = asyncio.get_running_loop()
-            loop.create_task(self._wake(run))
+            from . import bg_tasks
+            bg_tasks.spawn(self._wake(run), name=f"wake-run-{run.conversation_id}")
             loop.call_later(RETAIN_AFTER_DONE, self._drop, run)
         except RuntimeError:
             pass
@@ -828,7 +829,8 @@ class AskRunRegistry:
             )
         )
         loop = asyncio.get_running_loop()
-        loop.create_task(self._wake(run))
+        from . import bg_tasks
+        bg_tasks.spawn(self._wake(run), name=f"wake-run-{run.conversation_id}")
         loop.call_later(RETAIN_AFTER_DONE, self._drop, run)
 
     @staticmethod

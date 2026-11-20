@@ -19,10 +19,10 @@ def test_round23_model_index_defined():
 
 
 def test_round23_main_migration_includes_index():
-    """Verify server/server/main.py includes idx_conv_msg_doc_dialogue in migration statements."""
+    """Verify database migration includes idx_conv_msg_doc_dialogue in migration statements."""
     import inspect
     from server import main
-    content = inspect.getsource(main)
+    content = inspect.getsource(main._run_migrations)
     assert "idx_conv_msg_doc_dialogue" in content
     assert "WHERE role IN ('user', 'assistant')" in content
 

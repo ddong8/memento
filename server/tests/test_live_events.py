@@ -20,13 +20,15 @@ from server.services import ask_runs, sse_service
 
 class EventStreamAuthTests(unittest.TestCase):
     def test_header_token(self):
-        with patch.object(events, "decode_token", return_value={"sub": "u1"}) as dec:
+        with patch.object(events, "decode_token", return_value={"sub": "u1"}) as dec, \
+             patch.object(events, "_is_user_active", return_value=True):
             res = asyncio.run(events.event_stream(token=None, authorization="Bearer abc"))
         dec.assert_called_once_with("abc")
         self.assertIsInstance(res, StreamingResponse)
 
     def test_query_token_still_works(self):
-        with patch.object(events, "decode_token", return_value={"sub": "u1"}) as dec:
+        with patch.object(events, "decode_token", return_value={"sub": "u1"}) as dec, \
+             patch.object(events, "_is_user_active", return_value=True):
             asyncio.run(events.event_stream(token="q", authorization=None))
         dec.assert_called_once_with("q")
 
@@ -49,6 +51,7 @@ class EventStreamAuthTests(unittest.TestCase):
                 break
 
         with patch.object(events, "decode_token", return_value={"sub": "u1"}), \
+             patch.object(events, "_is_user_active", return_value=True), \
              patch.object(events, "subscribe", fake_subscribe):
             asyncio.run(go())
         self.assertEqual(seen["since"], 1761650000.25)

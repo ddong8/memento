@@ -195,6 +195,8 @@ async def ask(
 
     retried = await ask_runs.by_request(body.request_id, _user.id)
     if retried is not None:
+        # Release the request's DB transaction before returning a long-lived SSE stream
+        await db.commit()
         return StreamingResponse(retried.stream(0), media_type="text/event-stream", headers=SSE_HEADERS)
 
     device_id = (body.device_id or "").strip()
@@ -223,7 +225,8 @@ async def ask(
         config=req_config,
     )
 
-    if question.startswith("__mock_long_run__"):
+    from ..config import settings
+    if settings.debug and question.startswith("__mock_long_run__"):
         async def _mock_stream(run_user: User):
             yield f"data: {json.dumps({'type': 'conversation_id', 'id': str(conv_id), 'title': 'Claude Code Agent Task'}, ensure_ascii=False)}\n\n"
             yield f"data: {json.dumps({'type': 'thinking', 'text': '正在深入推演项目状态...'}, ensure_ascii=False)}\n\n"
@@ -244,7 +247,7 @@ async def ask(
             lambda run_db, run_user: _mock_stream(run_user),
             execution_mode=body.execution_mode or "claude",
             model=body.model or "opus",
-            device_name="haixing-mac",
+            device_name="mock-device",
             title="Claude Code Agent Task",
             request_db=db,
         )

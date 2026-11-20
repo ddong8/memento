@@ -275,16 +275,16 @@ class JoinedTests(unittest.IsolatedAsyncioTestCase):
             for _ in range(600):
                 letters = rnd.choice(["ab\n", "ab", "abcdefgh\n"])
 
-                def text(n: int) -> str:
-                    return "".join(rnd.choice(letters) for _ in range(n))
+                def text(n: int, _letters: str = letters) -> str:
+                    return "".join(rnd.choice(_letters) for _ in range(n))
 
                 content = rnd.choice([None, "", text(rnd.randint(1, 300))])
                 deltas = {i: text(rnd.randint(0, 80)) for i in range(1, rnd.randint(1, 40) + 1)}
                 fetched: list[int] = []
 
-                async def fetch(ids: list[int]) -> list[str]:
-                    fetched.extend(ids)
-                    return [deltas[i] for i in ids]
+                async def fetch(ids: list[int], _fetched: list[int] = fetched, _deltas: dict[int, str] = deltas) -> list[str]:
+                    _fetched.extend(ids)
+                    return [_deltas[i] for i in ids]
 
                 got = await cs._joined(content, [(i, len(t)) for i, t in deltas.items()], fetch)
                 whole = "\n".join([content, *deltas.values()] if content else deltas.values())

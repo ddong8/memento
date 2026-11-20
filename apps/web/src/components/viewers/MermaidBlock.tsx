@@ -10,6 +10,22 @@ interface MermaidBlockProps {
   className?: string;
 }
 
+/** Defense-in-depth sanitizer for rendered Mermaid SVG before injecting into the DOM. */
+export function sanitizeMermaidSvg(rawSvg: string): string {
+  if (!rawSvg) return "";
+  return rawSvg
+    // Strip executable tags completely
+    .replace(/<\s*(script|iframe|object|embed|applet)\b[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, "")
+    .replace(/<\s*(script|iframe|object|embed|applet)\b[^>]*\/?\s*>/gi, "")
+    // Strip inline event handlers (onload=, onclick=, onerror=, etc.)
+    .replace(/\s+on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+    // Neutralize javascript: / vbscript: / data:text/html URIs in href/xlink:href/src
+    .replace(
+      /(\s(?:xlink:)?(?:href|src)\s*=\s*["'])\s*(?:javascript|vbscript|data\s*:\s*text\/html)\s*:[^"']*(["'])/gi,
+      "$1#$2"
+    );
+}
+
 export function MermaidBlock({ code, className }: MermaidBlockProps) {
   const { theme } = useTheme();
   const rawId = useId().replace(/[^a-zA-Z0-9]/g, "");
@@ -44,7 +60,7 @@ export function MermaidBlock({ code, className }: MermaidBlockProps) {
 
         mermaid.initialize({
           startOnLoad: false,
-          securityLevel: "loose",
+          securityLevel: "strict",
           theme: isDark ? "dark" : "default",
           themeVariables: isDark
             ? {
@@ -73,7 +89,7 @@ export function MermaidBlock({ code, className }: MermaidBlockProps) {
 
         const { svg } = await mermaid.render(diagramId, code.trim());
         if (!isCancelled) {
-          setSvgHtml(svg);
+          setSvgHtml(sanitizeMermaidSvg(svg));
           setLoading(false);
           setError(null);
         }

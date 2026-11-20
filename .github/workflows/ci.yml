@@ -61,10 +61,10 @@ jobs:
           uv lock --check
           uv export --frozen --no-dev --no-emit-project --no-header --format requirements-txt | diff - requirements.lock
 
-      # pyflakes rules: undefined names, unused imports/variables, shadowed definitions
+      # pyflakes + bugbear + comparison/bare-except rules
       - name: Lint
         run: |
-          ruff check --isolated --select F server/server server/tests scripts embedding
+          ruff check --isolated --select F,B,E711,E712,E722 --ignore B008,B904,B905,B007,B005 server/server server/tests scripts embedding
 
       - name: pytest
         working-directory: ${{ matrix.package }}
@@ -72,7 +72,7 @@ jobs:
           MEMENTO_TEST_DATABASE_URL: postgresql+asyncpg://postgres:test@localhost:5432/memento_test
         run: |
           if [ -d tests ] && [ "$(find tests -name 'test_*.py' | wc -l)" -gt 0 ]; then
-            pytest -v
+            pytest -v -W error::RuntimeWarning
           else
             echo "No tests in ${{ matrix.package }}/tests — skipping."
           fi

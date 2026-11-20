@@ -667,4 +667,10 @@ async def device_websocket_endpoint(
     except Exception as e:
         logger.warning("Device WebSocket error on %s: %s", real_device_id, e)
     finally:
+        if machine.id:
+            _last_ws_heartbeat.pop(machine.id, None)
+        if len(_last_ws_heartbeat) > 2000:
+            cutoff = time.monotonic() - 600.0
+            for k in [k for k, ts in list(_last_ws_heartbeat.items()) if ts < cutoff]:
+                _last_ws_heartbeat.pop(k, None)
         await ws_manager.unregister(real_device_id, websocket)

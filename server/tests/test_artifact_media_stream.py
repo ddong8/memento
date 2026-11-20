@@ -129,7 +129,7 @@ class TestArtifactMediaStream(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(head_resp.status_code, 200)
             self.assertEqual(head_resp.headers["Content-Length"], str(len(payload)))
             self.assertIn("ETag", head_resp.headers)
-            self.assertEqual(head_resp.headers["Cache-Control"], "public, max-age=604800, stale-while-revalidate=86400")
+            self.assertEqual(head_resp.headers["Cache-Control"], "private, max-age=604800, stale-while-revalidate=86400")
             etag = head_resp.headers["ETag"]
 
             # 2. Test 304 Not Modified on matching If-None-Match

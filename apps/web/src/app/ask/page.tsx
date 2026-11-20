@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
 import { getApiBase, authFetch, api, forgetRunStatus, DeviceSummary, AskConversationSummary, ProjectSummary, seedApiEtagCache, invalidateApiCache, type AgentQuotasResponse, type AskConversationDetail } from "@/lib/api-client";
@@ -36,6 +36,17 @@ import { SessionResumeBanner } from "@/components/ask/SessionResumeBanner";
 import { OfflineCapsule } from "@/components/ask/StatusCapsules";
 import { AskTopBar } from "@/components/ask/AskTopBar";
 import { AskEmptyState } from "@/components/ask/AskEmptyState";
+import { ActiveStreamingTurnBubble, ActiveStreamingTurnStore } from "@/components/ask/ActiveStreamingTurnBubble";
+import {
+  AttachedImagesPreview,
+  BackgroundTasksBanner,
+  SpeechHintPill,
+  SuggestedDevicePill,
+  WaitingQuestionBanner,
+} from "@/components/ask/AskInputBanners";
+import { MultiSelectShareBar } from "@/components/ask/MultiSelectShareBar";
+import { useMobileKeyboardOffset } from "@/hooks/useMobileKeyboardOffset";
+import { downloadConversationMarkdown } from "@/lib/ask/export-markdown";
 import {
   fetchLatestSessionMessages,
   formatContextTokens,
@@ -87,79 +98,6 @@ function replaceAskUrl(hiddenUrl: { current: string | null }, url: string) {
 
 // Module-level in-memory cache to preserve state when switching menus in-app
 let askCache: CachedAskState | null = null;
-
-class ActiveStreamingTurnStore {
-  private current: Turn | null = null;
-  private listeners = new Set<(turn: Turn | null) => void>();
-
-  get(): Turn | null {
-    return this.current;
-  }
-
-  set(turn: Turn | null) {
-    this.current = turn;
-    for (const l of this.listeners) {
-      l(turn);
-    }
-  }
-
-  subscribe(listener: (turn: Turn | null) => void) {
-    this.listeners.add(listener);
-    return () => {
-      this.listeners.delete(listener);
-    };
-  }
-}
-
-const ActiveStreamingTurnBubble = memo(function ActiveStreamingTurnBubble({
-  store,
-  index,
-  isReconnecting,
-  prevUserCreatedAt,
-  onSourcesClick,
-  onSmartCompactAndRetry,
-  onShareTurn,
-  pendingFollowUps,
-  t,
-}: {
-  store: ActiveStreamingTurnStore;
-  index: number;
-  isReconnecting: boolean;
-  prevUserCreatedAt?: string;
-  onSourcesClick: (sources: Source[]) => void;
-  onSmartCompactAndRetry: (sid?: string) => void;
-  onShareTurn?: (index: number) => void;
-  pendingFollowUps?: readonly string[];
-  t: any;
-}) {
-  const [turn, setTurn] = useState<Turn | null>(() => store.get());
-
-  useEffect(() => {
-    return store.subscribe((newTurn) => {
-      setTurn(newTurn ? { ...newTurn } : null);
-    });
-  }, [store]);
-
-  if (!turn) return null;
-
-  return (
-    <div className="flex-1 min-w-0">
-      <AssistantBubble
-        index={index}
-        turn={turn}
-        isLast={true}
-        streaming={true}
-        isReconnecting={isReconnecting}
-        prevUserCreatedAt={prevUserCreatedAt}
-        onSourcesClick={onSourcesClick}
-        onSmartCompactAndRetry={onSmartCompactAndRetry}
-        onShareTurn={onShareTurn}
-        pendingFollowUps={pendingFollowUps}
-        t={t}
-      />
-    </div>
-  );
-});
 
 function AskPageContent() {
   const router = useRouter();
@@ -283,23 +221,7 @@ function AskPageContent() {
     Array<{ id: string; name: string; dataUrl: string; size: number }>
   >([]);
   const [isDraggingOver, setIsDraggingOver] = useState<boolean>(false);
-  const [viewportBottomOffset, setViewportBottomOffset] = useState<number>(0);
-
-  // Mobile VisualViewport adaptive positioning for iOS/Android virtual keyboards
-  useEffect(() => {
-    if (typeof window === "undefined" || !window.visualViewport) return;
-    const vv = window.visualViewport;
-    const handleViewportChange = () => {
-      const keyboardHeight = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
-      setViewportBottomOffset(keyboardHeight > 40 ? Math.round(keyboardHeight) : 0);
-    };
-    vv.addEventListener("resize", handleViewportChange);
-    vv.addEventListener("scroll", handleViewportChange);
-    return () => {
-      vv.removeEventListener("resize", handleViewportChange);
-      vv.removeEventListener("scroll", handleViewportChange);
-    };
-  }, []);
+  const viewportBottomOffset = useMobileKeyboardOffset();
   const [isInputFocused, setIsInputFocused] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const lastPasteTimeRef = useRef<number>(0);
@@ -1697,76 +1619,9 @@ function AskPageContent() {
 
   const handleExportMarkdown = useCallback(() => {
     if (!turns || turns.length === 0) return;
-
     const activeConv = conversations.find((c) => c.id === activeConversationIdRef.current);
     const title = activeConv?.title || (turns[0]?.content ? turns[0].content.trim().slice(0, 30) : "Memento 执行研报");
-    const dateStr = new Date().toISOString().slice(0, 10);
-    const lines: string[] = [
-      `# ${title}`,
-      `> 导出时间: ${new Date().toLocaleString()} | 模式: ${executionMode} | 设备: ${selectedDevice || "auto"} | 总轮次: ${turns.length}`,
-      "",
-      "---",
-      "",
-    ];
-
-    turns.forEach((t, i) => {
-      if (t.role === "user") {
-        lines.push(`### 用户提问 #${Math.floor(i / 2) + 1}`);
-        lines.push("");
-        lines.push(t.content || "");
-        if (t.images && t.images.length > 0) {
-          lines.push(`\n*(包含 ${t.images.length} 张图片附件)*`);
-        }
-        lines.push("");
-      } else {
-        const modelLabel = t.model ? ` [${t.model}]` : t.execution_mode && t.execution_mode !== "ai" ? ` [${t.execution_mode}]` : "";
-        const durLabel = t.duration_ms ? ` (${(t.duration_ms / 1000).toFixed(1)}s)` : "";
-        lines.push(`### AI 执事回复 #${Math.floor(i / 2) + 1}${modelLabel}${durLabel}`);
-        lines.push("");
-        if (t.thinking && t.thinking.trim()) {
-          lines.push(`<details><summary>思考过程 (${t.thinking.trim().length} 字)</summary>\n`);
-          lines.push(t.thinking.trim());
-          lines.push("\n</details>\n");
-        }
-        if (t.toolCalls && t.toolCalls.length > 0) {
-          lines.push("#### 设备执行记录");
-          t.toolCalls.forEach((call, cidx) => {
-            const cmd = (call.args?.command as string) || (call.args?.prompt as string) || call.name;
-            lines.push(`- **步骤 ${cidx + 1}**: \`${call.name}\` (${call.device_name || "auto"})`);
-            if (cmd) {
-              lines.push("  ```bash");
-              lines.push(`  ${cmd}`);
-              lines.push("  ```");
-            }
-            if (call.result?.stdout) {
-              lines.push("  <details><summary>点击查看终端输出</summary>\n");
-              lines.push("  ```text");
-              lines.push(call.result.stdout.slice(0, 4000));
-              lines.push("  ```\n  </details>");
-            }
-          });
-          lines.push("");
-        }
-        lines.push("#### 总结与分析");
-        lines.push("");
-        lines.push(t.content || "任务执行完成。");
-        lines.push("");
-        lines.push("---");
-        lines.push("");
-      }
-    });
-
-    const mdContent = lines.join("\n");
-    const blob = new Blob([mdContent], { type: "text/markdown;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    const cleanFileName = title.replace(/[\\/:*?"<>|]/g, "_").trim().slice(0, 40) || "memento-export";
-    a.download = `${cleanFileName}-${dateStr}.md`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    downloadConversationMarkdown(turns, { title, executionMode, selectedDevice });
   }, [turns, conversations, executionMode, selectedDevice]);
 
   // Rename conversation
@@ -5158,54 +5013,23 @@ function AskPageContent() {
   </div>
     {/* 多选消息分享操作栏 */}
     {selectTurnsMode && (
-      <div className="shrink-0 px-3 sm:px-6 py-2.5 bg-[var(--aurora-surface-solid)]/95 backdrop-blur-md border-t border-[var(--aurora-accent)]/30 shadow-2xl flex items-center justify-between gap-3 z-30 flex-wrap">
-        <div className="flex items-center gap-3">
-          <span className="text-xs font-semibold text-[var(--aurora-fg1)] flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-[var(--aurora-accent)]" />
-            <span>
-              {isZh
-                ? `已选择 ${selectedTurnIndices.length} 条消息`
-                : `${selectedTurnIndices.length} messages selected`}
-            </span>
-          </span>
-          <button
-            type="button"
-            onClick={() => {
-              if (selectedTurnIndices.length === turns.length) {
-                setSelectedTurnIndices([]);
-              } else {
-                setSelectedTurnIndices(turns.map((_, idx) => idx));
-              }
-            }}
-            className="text-xs text-[var(--aurora-fg3)] hover:text-white underline cursor-pointer"
-          >
-            {selectedTurnIndices.length === turns.length
-              ? (isZh ? "取消全选" : "Deselect all")
-              : (isZh ? "全选" : "Select all")}
-          </button>
-        </div>
-        <div className="flex items-center gap-2">
-          <Btn
-            variant="primary"
-            size="sm"
-            icon="share"
-            disabled={selectedTurnIndices.length === 0}
-            onClick={handleShareSelectedTurns}
-          >
-            {isZh ? "分享所选问答 ↗" : "Share selected ↗"}
-          </Btn>
-          <Btn
-            variant="glass"
-            size="sm"
-            onClick={() => {
-              setSelectTurnsMode(false);
-              setSelectedTurnIndices([]);
-            }}
-          >
-            {isZh ? "退出多选" : "Cancel"}
-          </Btn>
-        </div>
-      </div>
+      <MultiSelectShareBar
+        isZh={isZh}
+        selectedCount={selectedTurnIndices.length}
+        totalCount={turns.length}
+        onToggleSelectAll={() => {
+          if (selectedTurnIndices.length === turns.length) {
+            setSelectedTurnIndices([]);
+          } else {
+            setSelectedTurnIndices(turns.map((_, idx) => idx));
+          }
+        }}
+        onShareSelected={handleShareSelectedTurns}
+        onCancel={() => {
+          setSelectTurnsMode(false);
+          setSelectedTurnIndices([]);
+        }}
+      />
     )}
 
   {/* 中栏底部交互控制台 (作为 flex footer，全面屏安全区适配)。左右内边距和上面消息区一致，卡片和输入区左右对齐 */}
@@ -6556,71 +6380,10 @@ function AskPageContent() {
             )}
 
             {/* Speech Hint Floating Pill */}
-            {speechHint && (
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  padding: "5px 12px",
-                  marginBottom: 6,
-                  borderRadius: 10,
-                  background: "rgba(124, 58, 237, 0.12)",
-                  border: "1px solid rgba(124, 58, 237, 0.3)",
-                  fontSize: 12,
-                  color: "#A78BFA",
-                }}
-              >
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <Icon name="microphone" size={13} />
-                  <span>{speechHint}</span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setSpeechHint(null)}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    color: "inherit",
-                    cursor: "pointer",
-                    fontSize: 13,
-                    opacity: 0.7,
-                    padding: "0 4px",
-                  }}
-                >
-                  ✕
-                </button>
-              </div>
-            )}
+            <SpeechHintPill speechHint={speechHint} onDismiss={() => setSpeechHint(null)} />
 
             {/* What the run still waits on: background tasks keep it going after the reply is written */}
-            {streaming && backgroundTasks.length > 0 && (
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  margin: "0 2px 8px 2px",
-                  padding: "6px 10px",
-                  borderRadius: 10,
-                  border: "1px solid var(--aurora-border)",
-                  background: "var(--aurora-chip)",
-                  fontSize: 12.5,
-                  color: "var(--aurora-fg2)",
-                }}
-                title={backgroundTasks.map((b) => b.description || b.id).join("\n")}
-              >
-                <Icon name="refresh" size={12} className="animate-spin" />
-                <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {isZh
-                    ? `还在等 ${backgroundTasks.length} 个后台任务：${backgroundTasks.map((b) => b.description || b.id).join("、")}`
-                    : `Waiting on ${backgroundTasks.length} background task(s): ${backgroundTasks.map((b) => b.description || b.id).join(", ")}`}
-                </span>
-                <span className="hidden sm:inline" style={{ flexShrink: 0, fontSize: 11, color: "var(--aurora-fg3)" }}>
-                  {isZh ? "结束后本轮才完成，点停止会一起结束" : "The reply ends with them; Stop ends them too"}
-                </span>
-              </div>
-            )}
+            <BackgroundTasksBanner streaming={streaming} backgroundTasks={backgroundTasks} isZh={isZh} />
 
             {/* Follow-ups sent while the reply runs */}
             {/* Delivered ones show in the reply instead (AssistantBubble), not here */}
@@ -6675,168 +6438,18 @@ function AskPageContent() {
             )}
 
             {/* Attached images preview list */}
-            {attachedImages.length > 0 && (
-              <div
-                style={{
-                  display: "flex",
-                  gap: 8,
-                  flexWrap: "wrap",
-                  padding: "4px 2px 10px 2px",
-                  alignItems: "center",
-                }}
-              >
-                {attachedImages.map((img) => (
-                  <div
-                    key={img.id}
-                    style={{
-                      position: "relative",
-                      borderRadius: 10,
-                      overflow: "hidden",
-                      border: "1px solid var(--aurora-border)",
-                      background: "rgba(0,0,0,0.25)",
-                      boxShadow: "0 2px 8px rgba(0,0,0,0.2)",
-                    }}
-                  >
-                    <img
-                      src={img.dataUrl}
-                      alt={img.name}
-                      style={{
-                        width: 48,
-                        height: 48,
-                        objectFit: "cover",
-                        display: "block",
-                      }}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => removeAttachedImage(img.id)}
-                      title={isZh ? "移除图片" : "Remove image"}
-                      style={{
-                        position: "absolute",
-                        top: 2,
-                        right: 2,
-                        width: 16,
-                        height: 16,
-                        borderRadius: 999,
-                        background: "rgba(0,0,0,0.75)",
-                        color: "#fff",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        fontSize: 10,
-                        border: "none",
-                        cursor: "pointer",
-                      }}
-                    >
-                      ✕
-                    </button>
-                  </div>
-                ))}
-                <span style={{ fontSize: 11, color: "var(--aurora-fg3)" }}>
-                  {isZh ? `已附加 ${attachedImages.length} 张图片` : `${attachedImages.length} image(s) attached`}
-                </span>
-              </div>
-            )}
+            <AttachedImagesPreview attachedImages={attachedImages} isZh={isZh} onRemove={removeAttachedImage} />
 
             {/* Active Waiting Question Sticky Banner */}
-            {activeWaitingQuestion && (
-              <div
-                onClick={() => {
-                  const q = activeWaitingQuestion.question as any;
-                  const targetId = `question-prompt-${q?.id || activeWaitingQuestion.taskId || "active"}`;
-                  const el = document.getElementById(targetId);
-                  if (el) {
-                    el.scrollIntoView({ behavior: "smooth", block: "center" });
-                  } else {
-                    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-                  }
-                }}
-                style={{
-                  margin: "0 0 8px 0",
-                  padding: "7px 12px",
-                  borderRadius: 10,
-                  background: "linear-gradient(90deg, rgba(245,158,11,0.18), rgba(245,158,11,0.08))",
-                  border: "1px solid rgba(245,158,11,0.4)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  gap: 8,
-                  cursor: "pointer",
-                  boxShadow: "0 2px 10px rgba(245,158,11,0.12)",
-                }}
-                className="animate-pulse"
-                title={isZh ? "点击定位到提问并进行回复" : "Click to view and answer the question"}
-              >
-                <div style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0, flex: 1 }}>
-                  <span style={{ color: "#D97706", display: "flex", flexShrink: 0 }}>
-                    <Icon name="message" size={14} />
-                  </span>
-                  <span style={{ fontSize: 12.5, fontWeight: 600, color: "#B45309", whiteSpace: "nowrap", flexShrink: 0 }}>
-                    {isZh ? "Agent 等待确认" : "Agent waiting"}
-                  </span>
-                  <span style={{ fontSize: 12, color: "var(--aurora-fg2)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {(activeWaitingQuestion.question as any)?.question || (isZh ? "请回复..." : "Please respond...")}
-                  </span>
-                </div>
-                <span
-                  style={{
-                    fontSize: 11.5,
-                    fontWeight: 600,
-                    color: "var(--aurora-accent)",
-                    background: "var(--aurora-surface-solid)",
-                    padding: "2px 8px",
-                    borderRadius: 6,
-                    border: "1px solid var(--aurora-border-strong)",
-                    flexShrink: 0,
-                  }}
-                >
-                  {isZh ? "立即回复 ↓" : "Respond ↓"}
-                </span>
-              </div>
-            )}
+            <WaitingQuestionBanner activeWaitingQuestion={activeWaitingQuestion} isZh={isZh} bottomRef={bottomRef} />
 
             {/* Smart Device Routing Recommendation Pill */}
-            {suggestedDevice && !configLocked && (
-              <div
-                style={{
-                  margin: "0 0 8px 0",
-                  padding: "6px 12px",
-                  borderRadius: 9,
-                  background: "rgba(49, 134, 255, 0.1)",
-                  border: "1px solid rgba(49, 134, 255, 0.3)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  gap: 8,
-                  fontSize: 12,
-                }}
-              >
-                <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
-                  <Icon name="sparkles" size={13} style={{ color: "var(--aurora-accent)" }} />
-                  <span style={{ color: "var(--aurora-fg2)" }}>
-                    {suggestedDevice.reason}，{isZh ? "建议切换目标设备至：" : "recommended target device:"}
-                  </span>
-                  <strong style={{ color: "var(--aurora-fg1)" }}>{suggestedDevice.device.name}</strong>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => handleDeviceChange(suggestedDevice.device.device_id)}
-                  style={{
-                    padding: "2px 9px",
-                    borderRadius: 6,
-                    fontSize: 11.5,
-                    fontWeight: 600,
-                    border: "1px solid var(--aurora-accent)",
-                    background: "var(--aurora-accent)",
-                    color: "#fff",
-                    cursor: "pointer",
-                    flexShrink: 0,
-                  }}
-                >
-                  {isZh ? "一键切换" : "Switch"}
-                </button>
-              </div>
-            )}
+            <SuggestedDevicePill
+              suggestedDevice={suggestedDevice}
+              configLocked={configLocked}
+              isZh={isZh}
+              onSwitch={handleDeviceChange}
+            />
 
 
             {/* Input box and action button */}

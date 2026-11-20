@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from collections.abc import AsyncGenerator
 from typing import Any
@@ -11,6 +12,13 @@ from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
 from ..config import settings
+
+
+def _env_int(name: str, default: int, *, minimum: int = 1) -> int:
+    try:
+        return max(minimum, int(os.environ.get(name, str(default))))
+    except ValueError:
+        return default
 
 # PostgreSQL can't store U+0000 at all: as a json/jsonb escape it fails with "unsupported Unicode
 # escape sequence", as a raw byte in text with "invalid byte sequence". One such character in a
@@ -50,14 +58,12 @@ engine = _guard(create_async_engine(
     settings.database_url,
     echo=settings.debug,
     json_serializer=json_dumps,
-    # docker-compose.yml bumps Postgres max_connections to 200, so we have
-    # ~50 connection budget per service across api / celery-worker /
-    # celery-beat + admin/migration headroom. Pool 30+30=60 gives the
-    # ingest semaphore (24 concurrent) breathing room when each ingest
-    # holds a connection 1-3s while waiting on post-ingest queueing,
-    # without starving the every-10s collector heartbeats + command polls.
-    pool_size=30,
-    max_overflow=30,
+    # Postgres max_connections defaults to 200 in self-hosted deploys; with 2 API replicas +
+    # celery-worker + celery-beat, cap each replica at 20+15=35 (primary) and 8+4=12 (post-ingest)
+    # = 47 max/replica (~94 across 2 API pods), leaving comfortable headroom for workers & admin.
+    # All sizes remain overridable via MEMENTO_DB_POOL_* env vars.
+    pool_size=_env_int("MEMENTO_DB_POOL_SIZE", 20),
+    max_overflow=_env_int("MEMENTO_DB_MAX_OVERFLOW", 15, minimum=0),
     pool_recycle=3600,
     pool_timeout=10,  # fail fast instead of stalling user requests 30s
     pool_pre_ping=True,  # drop connections Postgres or the network closed while pooled
@@ -70,8 +76,8 @@ post_ingest_engine = _guard(create_async_engine(
     settings.database_url,
     echo=False,
     json_serializer=json_dumps,
-    pool_size=12,
-    max_overflow=8,
+    pool_size=_env_int("MEMENTO_DB_POST_INGEST_POOL_SIZE", 8),
+    max_overflow=_env_int("MEMENTO_DB_POST_INGEST_MAX_OVERFLOW", 4, minimum=0),
     pool_recycle=3600,
     pool_timeout=15,
     pool_pre_ping=True,

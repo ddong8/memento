@@ -1,7 +1,7 @@
 {
-  "version": "1.0.145",
-  "title": "Memento v1.0.145",
-  "release_notes": "1. Antigravity 的额度详情里每个模型都有额度了：Gemini 4 Neon、Hydrogen 和 Gemini 3.8 Flash 共用 Gemini 模型的额度，Gemini 4 Argon 单独一个周额度，Claude 和 GPT 共用一组\n2. Antigravity 额度详情新增各组的周额度和 5 小时额度用量与重置时间，没有桌面应用的服务器（agy 命令行）和装了 Antigravity 应用的电脑都支持\n3. 手机端版本号与客户端统一为 1.0.145",
+  "version": "1.0.146",
+  "title": "Memento v1.0.146",
+  "release_notes": "1. 全面安全与权限隔离加固：收紧公开分享链接文件访问签名校验、隔离多用户设备文件缓存、消除 Mermaid 与 HTML/SVG 预览 XSS 风险、拦截已停用账号实时流订阅与桌面端非白名单媒体协议\n2. 并发与稳定性优化：消除异步文件流阻塞、规范 HTTP Range 解析、收敛多副本数据库连接池与后台任务托管、独立版本化数据库迁移模块\n3. 架构瘦身与防线升级：拆分 ask/page.tsx、projects.py、task-runner.ts 与 api-client.ts 核心模块，收紧 CI 静态检查与多端测试；手机端版本号与客户端统一为 1.0.146",
   "platforms": {
     "windows": {
       "asset_name": "Memento-1.0.145-win-x64.zip",

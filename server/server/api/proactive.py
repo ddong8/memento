@@ -50,7 +50,6 @@ async def update_settings(
     return {"status": "ok", "settings": merged}
 
 
-import asyncio
 import logging
 import traceback
 from ..db.session import async_session_factory
@@ -80,7 +79,8 @@ async def test_morning_brief(
             except Exception as e:
                 logger.warning("Background morning brief failed for %s: %s", user_id, e)
 
-        asyncio.create_task(_async_brief())
+        from ..services import bg_tasks
+        bg_tasks.spawn(_async_brief(), name=f"morning-brief-{user_id}")
         return {"status": "ok", "message": "Morning brief triggered"}
     except Exception as e:
         tb = traceback.format_exc()

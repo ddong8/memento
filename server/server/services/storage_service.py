@@ -33,11 +33,46 @@ def media_url_epoch(now: float | None = None) -> int:
 
 def media_key(path_key: str) -> str:
     clean = path_key.lstrip("/")
-    return clean if clean.startswith("images/") else f"images/{clean}"
+    parts = [p for p in clean.split("/") if p]
+    if not parts or any(p in (".", "..") or "\x00" in p or "\\" in p for p in parts):
+        raise ValueError("Invalid media key")
+    normalized = "/".join(parts)
+    return normalized if normalized.startswith("images/") else f"images/{normalized}"
 
 
 def _media_sig(key: str, exp: int) -> str:
     return hmac.new(settings.secret_key.encode(), f"media:{key}:{exp}".encode(), hashlib.sha256).hexdigest()[:32]
+
+
+def _share_file_sig(share_token: str, device_id: str, clean_path: str, exp: int) -> str:
+    payload = f"share-file:{share_token}:{device_id}:{clean_path}:{exp}".encode("utf-8")
+    return hmac.new(settings.secret_key.encode(), payload, hashlib.sha256).hexdigest()[:32]
+
+
+def sign_share_file_params(
+    share_token: str,
+    device_id: str,
+    clean_path: str,
+    *,
+    ttl_seconds: int = MEDIA_URL_PERIOD,
+    now: float | None = None,
+) -> tuple[int, str]:
+    """Mint (file_exp, file_sig) scoped to one (share_token, device_id, path)."""
+    exp = int((time.time() if now is None else now) + max(60, ttl_seconds))
+    return exp, _share_file_sig(share_token, device_id, clean_path, exp)
+
+
+def share_file_signature_ok(
+    share_token: str | None,
+    device_id: str,
+    clean_path: str,
+    exp: int | None,
+    sig: str | None,
+    now: float | None = None,
+) -> bool:
+    if not share_token or not exp or not sig or exp < (time.time() if now is None else now):
+        return False
+    return hmac.compare_digest(_share_file_sig(share_token, device_id, clean_path, exp), sig)
 
 
 def sign_media_url(url: Any, now: float | None = None) -> Any:
@@ -52,7 +87,11 @@ def sign_media_url(url: Any, now: float | None = None) -> Any:
 def media_signature_ok(key: str, exp: int | None, sig: str | None, now: float | None = None) -> bool:
     if not exp or not sig or exp < (time.time() if now is None else now):
         return False
-    return hmac.compare_digest(_media_sig(media_key(key), exp), sig)
+    try:
+        normalized = media_key(key)
+    except ValueError:
+        return False
+    return hmac.compare_digest(_media_sig(normalized, exp), sig)
 
 
 def get_s3_client() -> Any:

@@ -1764,7 +1764,15 @@ async def run_agent_loop(
         event_queue: asyncio.Queue = asyncio.Queue()
         tool_results_by_id: dict[str, dict] = {}
 
-        async def _run_single_tool(c_call, c_id, c_name, c_args):
+        async def _run_single_tool(
+            c_call,
+            c_id,
+            c_name,
+            c_args,
+            *,
+            _event_queue=event_queue,
+            _tool_results_by_id=tool_results_by_id,
+        ):
             sig = None
             if c_name == "run_on_device":
                 action = c_args.get("action") or ""
@@ -1781,8 +1789,8 @@ async def run_agent_loop(
                             "请换用更高效的方式（例如使用 Spotlight 索引 `mdfind`、读取具体配置文件、限定具体浅层子目录），或直接向用户说明情况。"
                         ),
                     }
-                    tool_results_by_id[c_id] = breaker_msg
-                    await event_queue.put({
+                    _tool_results_by_id[c_id] = breaker_msg
+                    await _event_queue.put({
                         "type": "tool_result",
                         "tool_call_id": c_id,
                         "name": c_name,
@@ -1797,18 +1805,18 @@ async def run_agent_loop(
                         evt["tool_call_id"] = c_id
                         if evt.get("type") == "tool_result":
                             res_obj = evt.get("result")
-                        await event_queue.put(evt)
+                        await _event_queue.put(evt)
                 except Exception as e:
                     logger.exception("Concurrent tool %s failed: %s", c_name, e)
                     res_obj = {"error": f"Tool execution failed: {e}"}
-                    await event_queue.put({
+                    await _event_queue.put({
                         "type": "tool_result",
                         "tool_call_id": c_id,
                         "name": c_name,
                         "result": res_obj,
                     })
 
-                tool_results_by_id[c_id] = res_obj or {}
+                _tool_results_by_id[c_id] = res_obj or {}
                 if sig and isinstance(res_obj, dict):
                     executed_commands[sig] = res_obj.get("status") or ""
 

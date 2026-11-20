@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `1392ce7d` · Updated: `2026-11-20`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `5353003a` · Updated: `2026-11-20`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -13,11 +13,11 @@
 - 类型 (Type): Monorepo (Workspaces)
 - 技术栈 (Stack): TypeScript/JavaScript, Python, Shell / Bash · React, Electron, Next.js, TailwindCSS, Model Context Protocol (MCP), FastAPI, SQLAlchemy, Celery
 - 基础设施 (Infra): PostgreSQL, pgvector (Vector DB), Redis, MinIO / S3 Object Storage, Celery Task Queue
-- 规模 (Scale): 9 个子系统 · 38 组 API 路由 / 252 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 235 个测试文件
+- 规模 (Scale): 9 个子系统 · 38 组 API 路由 / 252 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 244 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `1392ce7d` (2026-11-20): feat(对话): 对话开始后固定智能体、设备、项目和会话，要换请新建对话，避免上下文错乱
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 70（✅ 70 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `F-RESUME`, `R-CONFIG-LOCK`, `R-NEWCHAT-WORKS`, `R-QUOTA-AGY-GROUPS`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `S-CLIENT-VERSION`, `R-TRACK-BACKGROUND`
+- 最近改动 (Latest): `cf0d0531` (2026-11-20): fix(直传): ICE 在设置对端描述时瞬间失败，设备应答自动换新连接重试一次，修复 CI 上 WebRTC 测试偶发失败
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 70（✅ 70 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `F-RESUME`, `R-CONFIG-LOCK`, `R-NEWCHAT-WORKS`, `R-QUOTA-AGY-GROUPS`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `S-CLIENT-VERSION`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -27,11 +27,11 @@
 | 4. Key Entry Points & API Endpoints | L95-L485 |
 | 5. Core Domain Services & Background Schedules | L487-L527 |
 | 6.5. AST Call Graph, DTO Schemas & CLI Entrypoints | L529-L601 |
-| 7. CI/CD Pipelines, Code Hotspots & Test Suites | L603-L645 |
-| 8. Development & Verification Commands | L647-L664 |
-| 9. Recent Architectural Evolutions | L666-L673 |
-| 10. Key Environment Variables & Configuration | L675-L687 |
-| 11. 业务蓝图核对 (Business Blueprint Check) | L689-L698 |
+| 7. CI/CD Pipelines, Code Hotspots & Test Suites | L603-L646 |
+| 8. Development & Verification Commands | L648-L665 |
+| 9. Recent Architectural Evolutions | L667-L674 |
+| 10. Key Environment Variables & Configuration | L676-L688 |
+| 11. 业务蓝图核对 (Business Blueprint Check) | L690-L698 |
 
 ## 1. Project Overview & Tech Stack
 
@@ -502,6 +502,7 @@ erDiagram
 | `ask_store` | [`server/server/services/ask_store.py`](server/server/services/ask_store.py) | Persistence for /api/ask conversations: finding or creating them, appending |
 | `ask_stream` | [`server/server/services/ask_stream.py`](server/server/services/ask_stream.py) | Streaming for /api/ask: the direct-agent SSE stream and the response that |
 | `audit_service` | [`server/server/services/audit_service.py`](server/server/services/audit_service.py) | Audit trail of who did what: sign-ins, account and permission changes, remote commands, settings. |
+| `bg_tasks` | [`server/server/services/bg_tasks.py`](server/server/services/bg_tasks.py) | Tracked background asyncio tasks with strong references and graceful shutdown. |
 | `blueprint_pick` | [`server/server/services/blueprint_pick.py`](server/server/services/blueprint_pick.py) | Which of several devices' copies of a project's code blueprint describes the newest code. |
 | `business_blueprint` | [`server/server/services/business_blueprint.py`](server/server/services/business_blueprint.py) | BUSINESS_BLUEPRINT.md on the server: the copy to show, what its check says, and which of the user's own |
 | `cache` | [`server/server/services/cache.py`](server/server/services/cache.py) | Tiered L1 (in-process memory) and L2 (Redis-backed) JSON cache for hot read endpoints. |
@@ -513,6 +514,7 @@ erDiagram
 | `correction_service` | [`server/server/services/correction_service.py`](server/server/services/correction_service.py) | Learn from corrections as they happen, and measure whether the learning sticks. |
 | `device_commands` | [`server/server/services/device_commands.py`](server/server/services/device_commands.py) | Commands for a collector, picked up on its next poll (GET /api/devices/commands). |
 | `device_dispatch` | [`server/server/services/device_dispatch.py`](server/server/services/device_dispatch.py) | Handing a device_tasks row to its device. |
+| `device_files` | [`server/server/services/device_files.py`](server/server/services/device_files.py) | Device file path normalization, RFC 9110 byte-range parsing, and scoped cache helpers. |
 | `device_merge` | [`server/server/services/device_merge.py`](server/server/services/device_merge.py) | One computer, one device record. |
 | `device_reports` | [`server/server/services/device_reports.py`](server/server/services/device_reports.py) | What connected devices report about themselves: agent capabilities (tools, |
 | `device_service` | [`server/server/services/device_service.py`](server/server/services/device_service.py) | Device service — registers and updates collector devices. |
@@ -523,8 +525,6 @@ erDiagram
 | `eval_service` | [`server/server/services/eval_service.py`](server/server/services/eval_service.py) | Retrieval evaluation: does Memento still find the right document? |
 | `export_service` | [`server/server/services/export_service.py`](server/server/services/export_service.py) | Account-level data export — builds a portable ZIP of the caller's own data. |
 | `fulltext` | [`server/server/services/fulltext.py`](server/server/services/fulltext.py) | Keyword matching over document_search: through its GIN index, with query terms weighted by rarity. |
-| `geoip` | [`server/server/services/geoip.py`](server/server/services/geoip.py) | Offline GeoIP lookup — reads a MaxMind/DB-IP .mmdb file from disk. |
-| `graph_service` | [`server/server/services/graph_service.py`](server/server/services/graph_service.py) | Knowledge graph auto-extraction — extracts entities and relations from conversations using LLM. |
 
 ## 6.5. AST Call Graph, DTO Schemas & CLI Entrypoints
 
@@ -617,19 +617,20 @@ erDiagram
 | K8s / GitOps | `fleet-watchdog.yaml` | [`deploy/k8s/fleet-watchdog.yaml`](deploy/k8s/fleet-watchdog.yaml) | Resources: ServiceAccount, ClusterRole, ClusterRoleBinding, CronJob |
 | K8s / GitOps | `ingress.yaml` | [`deploy/k8s/ingress.yaml`](deploy/k8s/ingress.yaml) | Resources: Ingress |
 | K8s / GitOps | `kustomization.yaml` | [`deploy/k8s/kustomization.yaml`](deploy/k8s/kustomization.yaml) | Resources: Kustomization |
+| K8s / GitOps | `migrate-job.yaml` | [`deploy/k8s/migrate-job.yaml`](deploy/k8s/migrate-job.yaml) | Resources: Job |
 | K8s / GitOps | `web.yaml` | [`deploy/k8s/web.yaml`](deploy/k8s/web.yaml) | Resources: Deployment, Service |
 
 ### Automated Test Suite Matrix
 
 | Suite | Directory | Files | Sample Tests |
 | :--- | :--- | :--- | :--- |
-| server/tests (pytest) | [`server/tests`](server/tests) | 122 | `test_agent_ids.py`, `test_agent_limits.py`, `test_agent_login.py`, `test_agent_run_states.py`, `test_ai_provider.py` |
-| packages/daemon/test (vitest / jest) | [`packages/daemon/test`](packages/daemon/test) | 60 | `agent-args.test.ts`, `agent-login.test.ts`, `agent-stream.test.ts`, `agy-background.test.ts`, `agy-models.test.ts` |
-| apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 47 | `active-runs-chip.test.tsx`, `api-client.test.ts`, `ask-reading-and-persona-rules.test.tsx`, `ask-top-bar.test.tsx`, `audit-labels.test.ts` |
+| server/tests (pytest) | [`server/tests`](server/tests) | 125 | `test_agent_ids.py`, `test_agent_limits.py`, `test_agent_login.py`, `test_agent_run_states.py`, `test_ai_provider.py` |
+| packages/daemon/test (vitest / jest) | [`packages/daemon/test`](packages/daemon/test) | 61 | `agent-args.test.ts`, `agent-login.test.ts`, `agent-stream.test.ts`, `agy-background.test.ts`, `agy-models.test.ts` |
+| apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 50 | `active-runs-chip.test.tsx`, `api-client.test.ts`, `ask-reading-and-persona-rules.test.tsx`, `ask-top-bar.test.tsx`, `audit-labels.test.ts` |
+| apps/desktop/test (vitest / jest) | [`apps/desktop/test`](apps/desktop/test) | 2 | `helpers.test.ts`, `updater-and-daemon.test.ts` |
 | apps/mobile/test (vitest / jest) | [`apps/mobile/test`](apps/mobile/test) | 2 | `deeplink.test.ts`, `webview-props.test.ts` |
 | packages/core/test (vitest / jest) | [`packages/core/test`](packages/core/test) | 2 | `ask-stream.test.ts`, `task-events.test.ts` |
-| apps/desktop/test (vitest / jest) | [`apps/desktop/test`](apps/desktop/test) | 1 | `helpers.test.ts` |
-| packages/mcp/test (vitest / jest) | [`packages/mcp/test`](packages/mcp/test) | 1 | `server.test.ts` |
+| packages/mcp/test (vitest / jest) | [`packages/mcp/test`](packages/mcp/test) | 2 | `remote-and-tools.test.ts`, `server.test.ts` |
 
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
@@ -637,10 +638,10 @@ erDiagram
 - [`packages/daemon/src/source-exec.ts`](packages/daemon/src/source-exec.ts) (8 commits)
 - [`apps/web/src/components/agent/ActiveRunsMonitor.tsx`](apps/web/src/components/agent/ActiveRunsMonitor.tsx) (7 commits)
 - [`apps/web/src/components/persona/DigitalTwinAvatar3D.tsx`](apps/web/src/components/persona/DigitalTwinAvatar3D.tsx) (7 commits)
-- [`apps/web/src/app/globals.css`](apps/web/src/app/globals.css) (6 commits)
 - [`apps/web/src/components/viewers/MediaInspectorPanel.tsx`](apps/web/src/components/viewers/MediaInspectorPanel.tsx) (6 commits)
 - [`packages/daemon/test/source-exec.test.ts`](packages/daemon/test/source-exec.test.ts) (6 commits)
 - [`server/server/services/workspace_relay.py`](server/server/services/workspace_relay.py) (6 commits)
+- [`apps/web/src/app/globals.css`](apps/web/src/app/globals.css) (5 commits)
 - [`apps/web/src/app/memory/page.tsx`](apps/web/src/app/memory/page.tsx) (5 commits)
 - [`apps/web/src/components/ExecutionCard.tsx`](apps/web/src/components/ExecutionCard.tsx) (5 commits)
 
@@ -665,12 +666,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `cf0d0531` (2026-11-20): fix(直传): ICE 在设置对端描述时瞬间失败，设备应答自动换新连接重试一次，修复 CI 上 WebRTC 测试偶发失败
 - `1392ce7d` (2026-11-20): feat(对话): 对话开始后固定智能体、设备、项目和会话，要换请新建对话，避免上下文错乱
 - `b7977b7b` (2026-11-19): feat(额度): Antigravity 每个模型都显示额度，并显示 Gemini、Claude 和 GPT、Gemini 4 Argon 各组的周额度和 5 小时额度；升级客户端版本至 v1.0.145
 - `58a2a3db` (2026-11-19): fix(Antigravity): 服务器上用 agy 命令行跑的任务，后台命令跑完了不再显示还有后台任务没跑完；升级客户端版本至 v1.0.144
 - `f212a39c` (2026-11-19): feat(远程任务): 代码所在设备上的命令默认不再拦截，有风险的照常执行并推送提醒
 - `6bedacfa` (2026-11-19): fix(远程任务): 命令期间代码所在设备重连过、Memento 重启过或断网时，执行机不再空等 30 分钟；升级客户端版本至 v1.0.143
-- `d58c629c` (2026-11-18): feat(enterprise): 员工电脑策略文件、企业部署包与安装包正式签名
 
 ## 10. Key Environment Variables & Configuration
 
@@ -695,7 +696,6 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 - `1392ce7d` feat(对话): 对话开始后固定智能体、设备、项目和会话，要换请新建对话，避免上下文错乱 → `F-RESUME`, `R-CONFIG-LOCK`, `R-NEWCHAT-WORKS`
 - `b7977b7b` feat(额度): Antigravity 每个模型都显示额度，并显示 Gemini、Claude 和 GPT、Gemini 4 Argon 各组的周额度和 5 → `R-QUOTA-AGY-GROUPS`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `S-CLIENT-VERSION`
-- `58a2a3db` fix(Antigravity): 服务器上用 agy 命令行跑的任务，后台命令跑完了不再显示还有后台任务没跑完；升级客户端版本至 v1.0.144 → `R-TRACK-BACKGROUND`, `R-ENT-DEVICE-POLICY`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `S-CLIENT-VERSION`
 
 ---
 _Auto-maintained by `scripts/project_blueprint.mjs` (v20261126) & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._

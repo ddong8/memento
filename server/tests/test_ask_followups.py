@@ -75,7 +75,7 @@ class QueueTests(unittest.TestCase):
         """The same behaviour with Redis (replicas) and without (one process)."""
         for redis in (None, FakeRedis()):
             af._local.clear()
-            with patch.object(type(af.cluster), "redis", new_callable=lambda: property(lambda self: redis)):
+            with patch.object(type(af.cluster), "redis", new_callable=lambda r=redis: property(lambda self: r)):
                 asyncio.run(fn())
 
     def test_add_pop_in_order_once(self):

@@ -1022,15 +1022,135 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
   // Timers among them, with when each is due (ms since epoch)
   const timerDue = new Map<string, number>();
   const logSizes = new Map<string, number>();
+  type SubagentState = {
+    id: string;
+    name: string;
+    role?: string;
+    agentType: "subagent" | "swarm" | "workflow";
+    detail?: string;
+    reader?: TranscriptReader;
+    pendingTools: (string | null)[];
+    stepSeq: number;
+  };
+  const activeSubagents = new Map<string, SubagentState>();
+  const pendingSubagentCalls: Array<{
+    name: string;
+    role?: string;
+    agentType: "subagent" | "swarm" | "workflow";
+    detail?: string;
+  }> = [];
   let lsDeadChecks = 0;
   const tasksDir = join(agyHome(), "brain", cid, ".system_generated", "tasks");
   const short = (t: string) => t.split("/").pop()!;
-  const backgroundNames = () => [...background].map(short).join(", ");
+  const hasPendingAsync = () => background.size > 0 || activeSubagents.size > 0;
+  const backgroundNames = () =>
+    [...[...background].map(short), ...[...activeSubagents.values()].map((s) => s.name || short(s.id))].join(", ");
+  const emitBackgroundSnapshot = () => {
+    emit({
+      kind: "background",
+      tasks: [
+        ...[...background].map((id) => ({ id: short(id), description: `后台任务 ${short(id)}` })),
+        ...[...activeSubagents.values()].map((s) => ({
+          id: s.id,
+          description: `${s.agentType === "swarm" ? "Swarm" : "子智能体"} · ${s.name}`,
+        })),
+      ],
+    });
+  };
+  const closeSubagent = (id: string, status: "done" | "failed", output?: string) => {
+    const sub = activeSubagents.get(id);
+    if (!sub) return;
+    try {
+      sub.reader?.close();
+    } catch {
+      // ignore
+    }
+    for (const tid of sub.pendingTools) {
+      if (tid) emit({ kind: "tool", id: tid, status: status === "failed" ? "failed" : "done", subagent_id: sub.id, subagent_name: sub.name });
+    }
+    sub.pendingTools.length = 0;
+    activeSubagents.delete(id);
+    emit({
+      kind: "subagent",
+      id: sub.id,
+      status,
+      ...(output ? { output: agyToolOutput(output) } : {}),
+    });
+    emitBackgroundSnapshot();
+  };
+  const pollSubagents = (): boolean => {
+    let anyActivity = false;
+    for (const sub of activeSubagents.values()) {
+      if (sub.agentType !== "subagent" || !/^[\w-]+$/.test(sub.id)) continue;
+      if (!sub.reader) {
+        const [subFull, subPlain] = transcriptPaths(sub.id);
+        const target = existsSync(subPlain) ? subPlain : existsSync(subFull) ? subFull : null;
+        if (!target) continue;
+        sub.reader = new TranscriptReader(target, 0);
+      }
+      for (let reads = 0; reads < 30; reads++) {
+        const subLine = sub.reader.next();
+        if (subLine === undefined) break;
+        const trimmed = subLine.trim();
+        if (!trimmed) continue;
+        anyActivity = true;
+        let subParsed: unknown;
+        try {
+          subParsed = JSON.parse(trimmed);
+        } catch {
+          continue;
+        }
+        if (!isObj(subParsed)) continue;
+        const stype = subParsed.type;
+        const scontent = str(subParsed.content);
+        if (stype === "GENERIC" && sub.pendingTools.length) {
+          const tid = sub.pendingTools.shift();
+          if (tid) {
+            emit({
+              kind: "tool",
+              id: tid,
+              status: subParsed.status === "ERROR" || subParsed.status === "INVALID" ? "failed" : "done",
+              output: agyToolOutput(scontent),
+              subagent_id: sub.id,
+              subagent_name: sub.name,
+            });
+          }
+          continue;
+        }
+        if (subParsed.source === "MODEL" && stype === "PLANNER_RESPONSE") {
+          const calls = list(subParsed.tool_calls).map(obj);
+          for (const tc of calls) {
+            const name = str(tc.name) || "tool";
+            let tcArgs: Obj = obj(tc.args);
+            if (typeof tc.args === "string") {
+              try {
+                tcArgs = obj(JSON.parse(tc.args));
+              } catch {
+                tcArgs = {};
+              }
+            }
+            const tid = `agy_sub_${sub.id.slice(0, 8)}_${++sub.stepSeq}`;
+            sub.pendingTools.push(tid);
+            emit({
+              kind: "tool",
+              id: tid,
+              name,
+              detail: agyToolDetail(name, tcArgs),
+              status: "running",
+              subagent_id: sub.id,
+              subagent_name: sub.name,
+            });
+          }
+        }
+      }
+    }
+    return anyActivity;
+  };
 
   try {
     for (;;) {
       if (args.timeout > 0 && Date.now() - startTime > args.timeout * 1000) {
-        if (background.size) {
+        if (hasPendingAsync()) {
           err(`\n[STATUS_STILL_RUNNING: tasks=${backgroundNames()}]\n`);
           err(`\n⏳ [任务在后台持续执行中（${backgroundNames()}），达到单次等待上限（${args.timeout}s），保持后台运行]\n`);
           completed = true;
@@ -1044,6 +1164,11 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
       if (next === undefined) {
         await sleep(200);
         idle++;
+
+        // Poll active child subagent transcripts for live nested tool steps and activity
+        if (activeSubagents.size && pollSubagents()) {
+          idle = 0;
+        }
 
         // A question not shown yet, or quiet for 10 s (possibly an approval Antigravity waits on)
         if ((state.waiting && !openQuestions.length && idle % 5 === 0) || (idle >= 50 && idle % 50 === 0)) await pollInteractions();
@@ -1064,6 +1189,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
               if (size > 0 && timerEnded(logPath, size)) {
                 background.delete(t);
                 backgroundEnded(t, "done");
+                emitBackgroundSnapshot();
                 err(`\n✅ [后台任务 ${tc} 执行完毕/已结束]\n\n`);
                 idle = 0;
               }
@@ -1081,11 +1207,11 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
           else if (state.inFlight.length) {
             const elapsed = state.toolStart ? Math.trunc((Date.now() - state.toolStart) / 1000) : Math.trunc(idle * 0.2);
             err(`\n\n⏳ [工具 ${state.inFlight.join(", ")} 持续执行中（已运行 ${elapsed}s），请稍候...]\n\n`);
-          } else if (background.size) {
+          } else if (hasPendingAsync()) {
             const nextDue = Math.min(...[...timerDue].filter(([t]) => background.has(t)).map(([, due]) => due));
             if (Number.isFinite(nextDue) && nextDue > Date.now())
               err(`\n\n⏳ [等 Antigravity 的定时复查到点（还有 ${Math.ceil((nextDue - Date.now()) / 1000)}s），到点后它会接着做...]\n\n`);
-            else err(`\n\n⏳ [后台任务 ${backgroundNames()} 执行中，请稍候...]\n\n`);
+            else err(`\n\n⏳ [后台任务/子智能体 ${backgroundNames()} 执行中，请稍候...]\n\n`);
           }
           else err(`\n\n${thinkingHeartbeat(Math.trunc(idle * 0.2), await lsRunningCommands())}\n\n`);
         }
@@ -1127,15 +1253,15 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
           continue;
         }
 
-        // 3. Background tasks: a timer not yet due (plus the time to wake on it) keeps the run; otherwise
+        // 3. Background tasks / subagents: a timer not yet due keeps the run; otherwise
         //    after 180 s quiet, hand them over to background monitoring
-        if (background.size) {
+        if (hasPendingAsync()) {
           for (const t of timerDue.keys()) if (!background.has(t)) timerDue.delete(t);
           const timerPending = [...timerDue.values()].some((due) => Date.now() < due + TIMER_WAKE_GRACE_MS);
           if (timerPending) continue;
           if (idle * 200 > backgroundQuietMs()) {
             err(`\n[STATUS_STILL_RUNNING: tasks=${backgroundNames()}]\n`);
-            err(`\n⏳ [后台任务（${backgroundNames()}）持续运行中，达到单次轮询等待上限（180s），已安全转入后台监控]\n`);
+            err(`\n⏳ [后台任务/子智能体（${backgroundNames()}）持续运行中，达到单次轮询等待上限（180s），已安全转入后台监控]\n`);
             completed = true;
             break;
           }
@@ -1179,6 +1305,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
           const tid = m[1]!.trim();
           startedTask = tid;
           background.add(tid);
+          emitBackgroundSnapshot();
           const secs = timerSeconds(content);
           if (secs !== undefined) {
             const at = Date.parse(str(data.created_at));
@@ -1187,6 +1314,55 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
           } else {
             err(`\n⏳ [后台任务启动: ${short(tid)}，持续追踪执行进度...]\n\n`);
           }
+          idle = 0;
+        }
+      }
+
+      // Subagent launch response: capture child conversationId from invoke_subagent tool output
+      if (stepType === "GENERIC" && (pendingSubagentCalls.length > 0 || /Subagent\s+[0-9a-fA-F-]{8,}\s+is running/i.test(content))) {
+        const subMatch =
+          /["']?conversationId["']?\s*[:=]\s*["']?([0-9a-fA-F-]{8,64})/i.exec(content) ??
+          /Subagent\s+([0-9a-fA-F-]{8,64})\s+is running/i.exec(content) ??
+          /Conversation ID:\s*([0-9a-fA-F-]{8,64})/i.exec(content);
+        if (subMatch?.[1]) {
+          const subCid = subMatch[1].trim();
+          const meta = pendingSubagentCalls.shift();
+          if (!activeSubagents.has(subCid)) {
+            const sub: SubagentState = {
+              id: subCid,
+              name: meta?.name || `子智能体 ${subCid.slice(0, 8)}`,
+              role: meta?.role,
+              agentType: meta?.agentType || "subagent",
+              detail: meta?.detail,
+              pendingTools: [],
+              stepSeq: 0,
+            };
+            activeSubagents.set(subCid, sub);
+            emit({
+              kind: "subagent",
+              id: subCid,
+              name: sub.name,
+              ...(sub.role ? { role: sub.role } : {}),
+              agent_type: sub.agentType,
+              ...(sub.detail ? { detail: sub.detail } : {}),
+              status: "running",
+            });
+            emitBackgroundSnapshot();
+            err(`\n⏳ [子智能体启动: ${sub.name}（${subCid.slice(0, 8)}），持续追踪执行进度...]\n\n`);
+            idle = 0;
+          }
+        }
+      }
+
+      // Did a subagent finish / reply via SYSTEM_MESSAGE?
+      if (stepType === "SYSTEM_MESSAGE" && activeSubagents.size > 0) {
+        const senderMatch = /\bsender=([^\s\]]+)/.exec(content);
+        const senderId = senderMatch?.[1]?.trim();
+        if (senderId && activeSubagents.has(senderId)) {
+          const sub = activeSubagents.get(senderId)!;
+          const isFailed = /Status:\s*(?:ERROR|FAILED|CANCELLED|CANCELED)|failed with|terminated|killed/i.test(content);
+          closeSubagent(senderId, isFailed ? "failed" : "done", content);
+          err(`\n${isFailed ? "⏹️" : "✅"} [子智能体 ${sub.name} ${isFailed ? "已终止/失败" : "执行完毕，已回传结果"}]\n\n`);
           idle = 0;
         }
       }
@@ -1212,6 +1388,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
         if (finished || cancelled) {
           background.delete(tid);
           backgroundEnded(tid, cancelled ? "failed" : "done");
+          emitBackgroundSnapshot();
           err(`\n${cancelled ? "⏹️" : "✅"} [后台任务 ${tc} ${cancelled ? "已取消/终止" : "执行完毕，已接收运行结果"}]\n\n`);
           idle = 0;
         } else if (existsSync(tasksDir)) {
@@ -1221,6 +1398,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
             if (size > 0 && timerEnded(logPath, size)) {
               background.delete(tid);
               backgroundEnded(tid, "done");
+              emitBackgroundSnapshot();
               err(`\n✅ [后台任务 ${tc} 执行完毕/已结束]\n\n`);
               idle = 0;
             }
@@ -1309,9 +1487,67 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
                 if (target && (tid.includes(target) || target.includes(tid) || short(target) === short(tid))) {
                   background.delete(tid);
                   backgroundEnded(tid, "done");
+                  emitBackgroundSnapshot();
                   err(`\n⏹️ [后台任务 ${short(tid)} 已由 Agent 主动终止]\n\n`);
                   idle = 0;
                 }
+              }
+            }
+
+            if (tcName === "invoke_subagent") {
+              pendingSubagentCalls.push({
+                name: str(tcArgs.Role) || str(tcArgs.TypeName) || "Subagent",
+                role: str(tcArgs.TypeName) || undefined,
+                agentType: "subagent",
+                detail: agyToolDetail(tcName, tcArgs),
+              });
+            } else if (tcName === "manage_subagents") {
+              const act = str(tcArgs.Action);
+              if (act === "kill_all") {
+                for (const [sid, sub] of [...activeSubagents]) {
+                  if (sub.agentType === "subagent") closeSubagent(sid, "done");
+                }
+              } else if (act === "kill" && Array.isArray(tcArgs.ConversationIds)) {
+                for (const rawId of tcArgs.ConversationIds) {
+                  const sid = str(rawId);
+                  if (sid && activeSubagents.has(sid)) closeSubagent(sid, "done");
+                }
+              }
+            } else if (tcName === "swarm") {
+              const act = str(tcArgs.action);
+              const baseName = str(tcArgs.name) || "worker";
+              if (act === "add") {
+                const tasksList = Array.isArray(tcArgs.tasks) ? tcArgs.tasks : [];
+                const count = tasksList.length > 0 ? tasksList.length : Number(tcArgs.n) > 1 ? Number(tcArgs.n) : 1;
+                const workerNames = count > 1 ? Array.from({ length: count }, (_, idx) => `${baseName}-${idx + 1}`) : [baseName];
+                const brief = str(tcArgs.brief);
+                for (const wName of workerNames) {
+                  const wid = `swarm:${wName}`;
+                  if (!activeSubagents.has(wid)) {
+                    activeSubagents.set(wid, {
+                      id: wid,
+                      name: wName,
+                      role: "swarm",
+                      agentType: "swarm",
+                      detail: brief,
+                      pendingTools: [],
+                      stepSeq: 0,
+                    });
+                    emit({
+                      kind: "subagent",
+                      id: wid,
+                      name: wName,
+                      role: "swarm",
+                      agent_type: "swarm",
+                      ...(brief ? { detail: brief.slice(0, 200) } : {}),
+                      status: "running",
+                    });
+                  }
+                }
+                emitBackgroundSnapshot();
+              } else if (act === "kill") {
+                const wid = `swarm:${baseName}`;
+                if (activeSubagents.has(wid)) closeSubagent(wid, "done");
               }
             }
 
@@ -1343,13 +1579,13 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
         if (content.trim()) {
           out(`${content.trim()}\n\n`);
           if (!toolCalls.length) {
-            if (!background.size && !state.waiting) {
+            if (!hasPendingAsync() && !state.waiting) {
               // The final reply with nothing left running: the turn is done
               completed = true;
               break;
-            } else if (background.size) {
-              // Background tasks still running: keep showing what the model says meanwhile, don't end early
-              err(`\n⏳ [后台任务 ${backgroundNames()} 持续执行中，持续追踪进度...]\n\n`);
+            } else if (hasPendingAsync()) {
+              // Background tasks or subagents still running: keep showing what the model says meanwhile, don't end early
+              err(`\n⏳ [后台任务/子智能体 ${backgroundNames()} 持续执行中，持续追踪进度...]\n\n`);
               idle = 0;
             }
           }
@@ -1358,6 +1594,13 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     }
   } finally {
     reader.close();
+    for (const sub of activeSubagents.values()) {
+      try {
+        sub.reader?.close();
+      } catch {
+        // ignore
+      }
+    }
     // Every row ends with the run, except the background ones it leaves running
     closePending();
   }

@@ -63,6 +63,17 @@ let threadId = "";
 let turnId = "";
 let finished = false;
 let usage = null;
+const subagentUsage = new Map();
+
+function totalUsage() {
+  let inputTokens = usage?.inputTokens ?? 0;
+  let outputTokens = usage?.outputTokens ?? 0;
+  for (const u of subagentUsage.values()) {
+    inputTokens += u?.inputTokens ?? 0;
+    outputTokens += u?.outputTokens ?? 0;
+  }
+  return { input_tokens: inputTokens, output_tokens: outputTokens };
+}
 
 /** Items as `codex exec --json` names them, which is what the daemon's parser reads. */
 function execItem(it) {
@@ -89,6 +100,18 @@ function execItem(it) {
     }
     case "webSearch":
       return { id: it.id, type: "web_search", query: it.query ?? "" };
+    case "collabAgentToolCall":
+    case "collab_agent_tool_call":
+      return {
+        id: it.id,
+        type: "collab_agent_tool_call",
+        tool: it.tool ?? "",
+        sender_thread_id: it.senderThreadId ?? it.sender_thread_id ?? "",
+        receiver_thread_ids: it.receiverThreadIds ?? it.receiver_thread_ids ?? [],
+        prompt: it.prompt ?? "",
+        agents_states: it.agentsStates ?? it.agents_states ?? {},
+        status: it.status === "failed" ? "failed" : it.status === "completed" ? "completed" : "in_progress",
+      };
     default:
       return null;
   }
@@ -183,27 +206,64 @@ function onServerRequest(msg) {
 function onNotification(msg) {
   const p = msg.params ?? {};
   switch (msg.method) {
+    case "thread/started": {
+      const child = p.thread;
+      if (child?.id && threadId && child.id !== threadId) {
+        out({
+          type: "memento_event",
+          event: {
+            kind: "subagent",
+            id: child.id,
+            name: child.agentNickname || child.name || child.agentRole || "Codex 子智能体",
+            ...(child.agentRole ? { role: child.agentRole } : {}),
+            agent_type: "subagent",
+            status: "running",
+          },
+        });
+      }
+      return;
+    }
     case "item/started":
     case "item/completed": {
-      if (p.threadId && p.threadId !== threadId) return; // sub-agents
+      const isSubagent = Boolean(p.threadId && threadId && p.threadId !== threadId);
       const item = execItem(p.item);
-      if (item) out({ type: msg.method === "item/started" ? "item.started" : "item.completed", item });
+      if (item) {
+        out({
+          type: msg.method === "item/started" ? "item.started" : "item.completed",
+          item,
+          ...(isSubagent ? { subagent_thread_id: p.threadId } : {}),
+        });
+      }
       return;
     }
     case "thread/tokenUsage/updated":
       if (p.threadId === threadId) usage = p.tokenUsage?.total ?? usage;
+      else if (p.threadId) subagentUsage.set(p.threadId, p.tokenUsage?.total ?? subagentUsage.get(p.threadId));
       return;
     case "error":
       if (!p.willRetry && (!p.threadId || p.threadId === threadId)) out({ type: "error", message: p.error?.message ?? "error" });
       return;
     case "turn/completed": {
+      if (p.threadId && threadId && p.threadId !== threadId) {
+        const failed = p.turn?.status === "failed" || Boolean(p.turn?.error);
+        out({
+          type: "memento_event",
+          event: {
+            kind: "subagent",
+            id: p.threadId,
+            status: failed ? "failed" : "done",
+            ...(failed && p.turn?.error?.message ? { output: String(p.turn.error.message) } : {}),
+          },
+        });
+        return;
+      }
       if (p.threadId !== threadId || (turnId && p.turn?.id !== turnId)) return;
       finished = true;
       if (p.turn?.status === "failed" || p.turn?.error) {
         out({ type: "turn.failed", error: { message: p.turn?.error?.message ?? "turn failed" } });
         shutdown(1);
       } else {
-        out({ type: "turn.completed", usage: { input_tokens: usage?.inputTokens ?? 0, output_tokens: usage?.outputTokens ?? 0 } });
+        out({ type: "turn.completed", usage: totalUsage() });
         shutdown(p.turn?.status === "interrupted" ? 130 : 0);
       }
       return;

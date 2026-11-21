@@ -831,18 +831,41 @@ async def get_project_conversations(
     subagent_map: dict[str, list] = {}  # parent_doc_id → [subagent docs]
     parent_path_to_id: dict[str, str] = {}
 
-    # Map session IDs / UUIDs to documents for parent linking
+    # Map session IDs / UUIDs to documents for parent linking (supports Claude/WorkBuddy,
+    # Codex parent_thread_id, and Antigravity brain/<uuid>/transcript.jsonl including nested subagents)
+    _uuid_re = re.compile(r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})")
     sid_to_rp: dict[str, str] = {}
+    subagent_parent_sid: dict[str, str] = {}
     for d in all_convs:
         rp = d.relative_path or ""
-        if "/subagents/" not in rp and not (d.metadata_ or {}).get("is_subagent"):
-            sid = (d.metadata_ or {}).get("session_id")
-            if sid:
-                sid_to_rp[sid] = rp
-            stem = rp.split("/")[-1].replace(".jsonl", "")
-            m = re.search(r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})", stem)
-            if m:
-                sid_to_rp[m.group(1)] = rp
+        md = d.metadata_ or {}
+        doc_sid = md.get("session_id")
+        stem = rp.split("/")[-1].replace(".jsonl", "")
+        uuid_match = _uuid_re.search(stem) or _uuid_re.search(rp)
+        doc_uuid = uuid_match.group(1) if uuid_match else None
+        is_sub = "/subagents/" in rp or bool(md.get("is_subagent"))
+        if not is_sub:
+            if doc_sid:
+                sid_to_rp[doc_sid] = rp
+            if doc_uuid:
+                sid_to_rp[doc_uuid] = rp
+        else:
+            p_sid = md.get("parent_session_id")
+            if p_sid:
+                if doc_sid:
+                    subagent_parent_sid[doc_sid] = p_sid
+                if doc_uuid:
+                    subagent_parent_sid[doc_uuid] = p_sid
+
+    def _resolve_root_parent_rp(start_parent_sid: str) -> str | None:
+        cur = start_parent_sid
+        seen: set[str] = set()
+        while cur and cur not in seen:
+            seen.add(cur)
+            if cur in sid_to_rp:
+                return sid_to_rp[cur]
+            cur = subagent_parent_sid.get(cur, "")
+        return None
 
     for d in all_convs:
         rp = d.relative_path or ""
@@ -850,13 +873,13 @@ async def get_project_conversations(
         if ".meta.json" in rp or ".metadata.json" in rp or ".resolved" in rp:
             continue
         parent_sid = (d.metadata_ or {}).get("parent_session_id")
+        resolved_parent_rp = _resolve_root_parent_rp(parent_sid) if parent_sid else None
         if "/subagents/" in rp:
             # Extract parent path: everything before /subagents/
             parent_base = rp.split("/subagents/")[0] + ".jsonl"
             subagent_map.setdefault(parent_base, []).append(d)
-        elif parent_sid and parent_sid in sid_to_rp:
-            parent_base = sid_to_rp[parent_sid]
-            subagent_map.setdefault(parent_base, []).append(d)
+        elif resolved_parent_rp:
+            subagent_map.setdefault(resolved_parent_rp, []).append(d)
         else:
             main_convs.append(d)
             parent_path_to_id[rp] = str(d.id)
@@ -1086,7 +1109,11 @@ async def get_project_conversations(
         child_docs = subagent_map.get(d.relative_path or "", [])
         for child in child_docs:
             child_msgs = _parse_doc_messages(child)
-            child_name = child.title or (child.relative_path or "").split("/")[-1].replace(".jsonl", "")
+            child_name = (
+                (child.metadata_ or {}).get("subagent_name")
+                or child.title
+                or (child.relative_path or "").split("/")[-1].replace(".jsonl", "")
+            )
             for m in child_msgs:
                 m["subagent_name"] = child_name
             messages.extend(child_msgs)

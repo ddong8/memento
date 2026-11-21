@@ -12,6 +12,9 @@ export interface AntigravitySessionInfo {
   title?: string;
   workspacePath?: string;
   projectName?: string;
+  parentConversationId?: string;
+  agentName?: string;
+  nestingDepth?: number;
 }
 
 let summariesCache: { map: Map<string, AntigravitySessionInfo>; at: number } | undefined;
@@ -27,12 +30,22 @@ function loadSummariesMap(home = homeDir()): Map<string, AntigravitySessionInfo>
   }
 
   try {
-    const rows = sqliteRows(dbPath, "SELECT conversation_id, title, workspace_uris FROM conversation_summaries WHERE status != 'deleted'");
+    let rows = sqliteRows(
+      dbPath,
+      "SELECT conversation_id, title, workspace_uris, parent_conversation_id, agent_name, nesting_depth FROM conversation_summaries WHERE status != 'deleted'",
+    );
+    if (!rows) {
+      rows = sqliteRows(dbPath, "SELECT conversation_id, title, workspace_uris FROM conversation_summaries WHERE status != 'deleted'");
+    }
     if (!rows) throw new Error("conversation_summaries.db unreadable");
     for (const row of rows) {
       const cid = String(row[0] ?? "").trim();
       const title = String(row[1] ?? "").replace(/\n/g, " ").trim();
       const wsUrisRaw = String(row[2] ?? "").trim();
+      const parentConversationId = String(row[3] ?? "").trim() || undefined;
+      const agentName = String(row[4] ?? "").trim() || undefined;
+      const depthNum = row[5] != null && row[5] !== "" ? Number(row[5]) : undefined;
+      const nestingDepth = typeof depthNum === "number" && Number.isFinite(depthNum) && depthNum > 0 ? depthNum : undefined;
       if (!cid) continue;
 
       let wsPath: string | undefined;
@@ -60,6 +73,9 @@ function loadSummariesMap(home = homeDir()): Map<string, AntigravitySessionInfo>
         title: title || undefined,
         workspacePath: wsPath,
         projectName: pName,
+        ...(parentConversationId ? { parentConversationId } : {}),
+        ...(agentName ? { agentName } : {}),
+        ...(nestingDepth ? { nestingDepth } : {}),
       });
     }
     summariesCache = { map, at: now };
@@ -322,16 +338,19 @@ export async function healAllAntigravitySessions(home = homeDir()): Promise<numb
 }
 
 const BACKGROUND_STARTED = /(?:Tool is running as a background task with task id|Command running in background with ID|Task running in background with ID):\s*((?:[0-9a-fA-F-]+\/)?task-\d+)/i;
+const SUBAGENT_STARTED = /(?:["']?conversationId["']?\s*[:=]\s*["']?([0-9a-fA-F-]{8,64})|Subagent\s+([0-9a-fA-F-]{8,64})\s+is running)/i;
 const BACKGROUND_ENDED = ["finished with result", "The command exited with code", "Command exited with code", "Timer fired", "Timer cancelled", "Status: DONE", "was canceled", "was cancelled", "Status: CANCELLED", "Status: CANCELED", "Status: ERROR", "Status: FAILED", "failed with result"];
 
 /**
- * The background tasks an Antigravity conversation started at or after `since` (ms) and hasn't seen end,
- * from its transcript (transcript_full.jsonl lines). A task ends with the system message it sends
+ * The background tasks and subagents an Antigravity conversation started at or after `since` (ms) and hasn't
+ * seen end, from its transcript (transcript_full.jsonl lines). A task ends with the system message it sends
  * ("[Message] … sender=<id> … Task id "<id>" finished with result"), a step reporting its end, or the
- * agent stopping it (manage_task). Steps that only show a file never count: they may quote any id.
+ * agent stopping it (manage_task / manage_subagents). Steps that only show a file never count: they may quote any id.
  */
 export function openBackgroundTasks(transcript: string, since: number): string[] {
   const open = new Map<string, string>(); // full id -> short id
+  const openSubagents = new Set<string>();
+  let pendingSubagent = 0;
   const short = (t: string) => t.split("/").pop()!;
   for (const line of transcript.split("\n")) {
     if (!line.trim()) continue;
@@ -343,11 +362,21 @@ export function openBackgroundTasks(transcript: string, since: number): string[]
     }
     if (!step || typeof step !== "object") continue;
     const content = typeof step.content === "string" ? step.content : "";
+    const at = Date.parse(String(step.created_at ?? ""));
     if (step.type === "GENERIC" && step.status === "RUNNING" && content.startsWith("Created At:")) {
       const m = BACKGROUND_STARTED.exec(content);
-      const at = Date.parse(String(step.created_at ?? ""));
       // A second's slack: the transcript's times are whole seconds
       if (m && !(at < since - 1000)) open.set(m[1]!.trim(), short(m[1]!.trim()));
+      continue;
+    }
+    if (step.type === "GENERIC" && (pendingSubagent > 0 || /Subagent\s+[0-9a-fA-F-]{8,}\s+is running/i.test(content))) {
+      const sm = SUBAGENT_STARTED.exec(content);
+      const subId = (sm?.[1] ?? sm?.[2])?.trim();
+      if (subId && !(at < since - 1000)) {
+        open.set(subId, subId);
+        openSubagents.add(subId);
+        if (pendingSubagent > 0) pendingSubagent--;
+      }
       continue;
     }
     for (const call of Array.isArray(step.tool_calls) ? step.tool_calls : []) {
@@ -358,6 +387,26 @@ export function openBackgroundTasks(transcript: string, since: number): string[]
       } catch {
         // not JSON
       }
+      if (c.name === "invoke_subagent") {
+        if (!(at < since - 1000)) pendingSubagent++;
+        continue;
+      }
+      if (c.name === "manage_subagents") {
+        const act = String(a.Action ?? "");
+        if (act === "kill_all") {
+          for (const sid of [...openSubagents]) {
+            open.delete(sid);
+            openSubagents.delete(sid);
+          }
+        } else if (act === "kill" && Array.isArray(a.ConversationIds)) {
+          for (const rawId of a.ConversationIds) {
+            const sid = String(rawId);
+            open.delete(sid);
+            openSubagents.delete(sid);
+          }
+        }
+        continue;
+      }
       if (c.name !== "manage_task" || !["kill", "stop", "cancel"].includes(String(a.Action ?? ""))) continue;
       const target = String(a.TaskId ?? "");
       for (const [tid, tc] of open) if (target && (tid.includes(target) || target.includes(tid) || short(target) === tc)) open.delete(tid);
@@ -366,7 +415,10 @@ export function openBackgroundTasks(transcript: string, since: number): string[]
     for (const [tid, tc] of open) {
       const sender = step.type === "SYSTEM_MESSAGE" && (content.includes(`sender=${tid}`) || content.includes(`sender=${tc}`));
       const mentioned = new RegExp(`(?:^|[^\\w-])${tc}(?!\\d)`).test(content);
-      if (sender || (mentioned && BACKGROUND_ENDED.some((kw) => content.includes(kw)))) open.delete(tid);
+      if (sender || (mentioned && BACKGROUND_ENDED.some((kw) => content.includes(kw)))) {
+        open.delete(tid);
+        openSubagents.delete(tid);
+      }
     }
   }
   return [...open.keys()];

@@ -2,7 +2,29 @@
 export type TaskToolStatus = "running" | "done" | "failed";
 
 export type TaskEvent = { at?: string } & (
-  | { kind: "tool"; id?: string; name?: string; detail?: string; status?: TaskToolStatus; output?: string }
+  | {
+      kind: "tool";
+      id?: string;
+      name?: string;
+      detail?: string;
+      status?: TaskToolStatus;
+      output?: string;
+      /** Subagent / child-thread / swarm worker that executed this tool call, when nested. */
+      subagent_id?: string;
+      subagent_name?: string;
+    }
+  | {
+      /** A subagent, swarm worker, workflow node, or Codex child thread spawned by the main agent. */
+      kind: "subagent";
+      id: string;
+      name?: string;
+      role?: string;
+      agent_type?: "subagent" | "swarm" | "workflow" | "team" | string;
+      detail?: string;
+      status?: TaskToolStatus;
+      output?: string;
+      parent_id?: string;
+    }
   | { kind: "text"; text: string }
   | { kind: "thinking"; text: string }
   | { kind: "session"; session_id: string; model?: string }

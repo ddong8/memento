@@ -59,4 +59,55 @@ describe("background tasks left running by an Antigravity run", () => {
     expect(agyCliOpenBackgroundTasks("5b41bd4a-db6f-4654-8ee9-1b6696186d57", since, dir)).toBeUndefined();
     expect(agyCliOpenBackgroundTasks("../x", since, dir)).toBeUndefined();
   });
+
+  it("tracks invoke_subagent conversation ids until SYSTEM_MESSAGE reply or manage_subagents kill", () => {
+    const sub1 = "11111111-2222-3333-4444-555555555551";
+    const sub2 = "11111111-2222-3333-4444-555555555552";
+    const invoke1 = {
+      step_index: 500,
+      type: "PLANNER_RESPONSE",
+      status: "DONE",
+      created_at: "2026-11-19T04:31:00Z",
+      tool_calls: [{ name: "invoke_subagent", args: JSON.stringify({ TypeName: "research", Role: "Code Auditor" }) }],
+    };
+    const invokeRes1 = {
+      step_index: 501,
+      type: "GENERIC",
+      status: "DONE",
+      created_at: "2026-11-19T04:31:01Z",
+      content: `Subagent started with conversationId: "${sub1}"`,
+    };
+    const invoke2 = {
+      step_index: 502,
+      type: "PLANNER_RESPONSE",
+      status: "DONE",
+      created_at: "2026-11-19T04:31:02Z",
+      tool_calls: [{ name: "invoke_subagent", args: JSON.stringify({ TypeName: "browser", Role: "UI Verifier" }) }],
+    };
+    const invokeRes2 = {
+      step_index: 503,
+      type: "GENERIC",
+      status: "DONE",
+      created_at: "2026-11-19T04:31:03Z",
+      content: `Launched subagent conversationId: "${sub2}"`,
+    };
+    const sub1Reply = {
+      step_index: 504,
+      type: "SYSTEM_MESSAGE",
+      status: "DONE",
+      created_at: "2026-11-19T04:32:00Z",
+      content: `<SYSTEM_MESSAGE>\n[Message] timestamp=2026-11-19T04:32:00Z sender=${sub1} content=Audit finished\n</SYSTEM_MESSAGE>`,
+    };
+    const killSub2 = {
+      step_index: 505,
+      type: "PLANNER_RESPONSE",
+      status: "DONE",
+      created_at: "2026-11-19T04:32:10Z",
+      tool_calls: [{ name: "manage_subagents", args: JSON.stringify({ Action: "kill", ConversationIds: [sub2] }) }],
+    };
+
+    expect(openBackgroundTasks(jsonl(invoke1, invokeRes1, invoke2, invokeRes2), since)).toEqual([sub1, sub2]);
+    expect(openBackgroundTasks(jsonl(invoke1, invokeRes1, invoke2, invokeRes2, sub1Reply), since)).toEqual([sub2]);
+    expect(openBackgroundTasks(jsonl(invoke1, invokeRes1, invoke2, invokeRes2, sub1Reply, killSub2), since)).toEqual([]);
+  });
 });

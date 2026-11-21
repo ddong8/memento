@@ -5,7 +5,7 @@ import type { TaskEvent } from "./events.js";
  * tool id, updated in place. Other events are appended.
  */
 export function mergeTaskEvent(events: readonly TaskEvent[], event: TaskEvent): TaskEvent[] {
-  if ((event.kind === "tool" || event.kind === "question") && event.id) {
+  if ((event.kind === "tool" || event.kind === "question" || event.kind === "subagent") && event.id) {
     const i = events.findIndex((e) => e.kind === event.kind && e.id === event.id);
     if (i >= 0) {
       const merged = { ...events[i], ...event } as TaskEvent;
@@ -33,8 +33,10 @@ export function formatTokenCount(n: number): string {
  */
 export function taskRunSummary(events: readonly TaskEvent[]): string {
   const steps = events.filter((e) => e.kind === "tool").length;
+  const subagents = events.filter((e) => e.kind === "subagent").length;
   const usage = [...events].reverse().find((e) => e.kind === "usage");
   const parts = [`${steps} 步`];
+  if (subagents > 0) parts.push(`${subagents} 个子智能体`);
   if (usage?.kind === "usage") {
     const read = usage.input_tokens;
     if (typeof read === "number" && read > 0) {
@@ -65,7 +67,10 @@ const TOOL_KINDS: Record<string, TaskToolKind> = {
   LS: "list", list_dir: "list",
   Grep: "search", Glob: "search", grep_search: "search", find_by_name: "search", codebase_search: "search", ToolSearch: "search",
   WebSearch: "web", WebFetch: "web", search_web: "web", read_url_content: "web", view_content_chunk: "web",
-  Task: "agent", Agent: "agent", invoke_subagent: "agent", manage_subagents: "agent", send_message: "agent",
+  Task: "agent", Agent: "agent", invoke_subagent: "agent", manage_subagents: "agent", define_subagent: "agent", send_message: "agent",
+  swarm: "agent", run_workflow: "agent",
+  spawn_agent: "agent", send_input: "agent", wait_agent: "agent", close_agent: "agent", collab_agent_tool_call: "agent",
+  TeamCreate: "agent", TeamDelete: "agent", SendMessage: "agent",
   TodoWrite: "todo",
   TaskOutput: "task", TaskStop: "task", KillShell: "task", manage_task: "task", schedule: "task", Monitor: "task",
   AskUserQuestion: "question", ask_question: "question",
@@ -90,7 +95,10 @@ const TOOL_LABELS: Record<string, string> = {
   LS: "查看目录", list_dir: "查看目录",
   Grep: "查找", Glob: "查找", grep_search: "查找", find_by_name: "查找", codebase_search: "查找",
   WebSearch: "搜索网页", search_web: "搜索网页", WebFetch: "打开网页", read_url_content: "打开网页", view_content_chunk: "打开网页",
-  Task: "派子任务", Agent: "派子任务", invoke_subagent: "派子任务", manage_subagents: "管理子任务", send_message: "发消息",
+  Task: "派子任务", Agent: "派子任务", invoke_subagent: "派子任务", manage_subagents: "管理子任务", define_subagent: "定义子智能体", send_message: "发消息",
+  swarm: "多智能体协同", run_workflow: "编排工作流",
+  spawn_agent: "派子智能体", send_input: "向子智能体发消息", wait_agent: "等待子智能体", close_agent: "关闭子智能体", collab_agent_tool_call: "多智能体协同",
+  TeamCreate: "创建协作团队", TeamDelete: "解散团队", SendMessage: "团队消息",
   TaskOutput: "任务输出", TaskStop: "停止后台任务", KillShell: "停止后台任务", manage_task: "管理后台任务", schedule: "定时",
   Monitor: "监视", TodoWrite: "更新待办", ToolSearch: "加载工具", Skill: "使用技能",
   AskUserQuestion: "提问", ask_question: "提问",

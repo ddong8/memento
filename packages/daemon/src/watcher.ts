@@ -105,7 +105,6 @@ function isWatchedFile(filePath: string, toolId: string): boolean {
       if (!name.endsWith(".jsonl") && !name.endsWith(".meta.json") && !name.endsWith(".md")) return false;
       return !name.includes("lease") && !name.includes("storage") && !name.includes("prefs");
     case "workbuddy":
-      if (normalized.includes("/subagents/")) return false;
       return name.endsWith(".jsonl") && !name.includes("lease") && !name.includes("storage") && !name.includes("prefs");
     case "codex":
     case "cursor":
@@ -331,6 +330,8 @@ function sessionMetadata(
   let title: string | undefined;
   let cwd: string | undefined;
   let project: string | undefined;
+  let parentSessionId: string | undefined;
+  let subagentName: string | undefined;
   const setProject = (candidate: string) => {
     if (!candidate || /["\r\n]/.test(candidate) || isAgentInternalPath(candidate)) return false;
     const name = basename(candidate);
@@ -353,6 +354,10 @@ function sessionMetadata(
         title = summary.title;
       }
       if (summary.workspacePath) setProject(cleanPath(summary.workspacePath));
+      if (summary.parentConversationId && summary.parentConversationId !== sessionId) {
+        parentSessionId = summary.parentConversationId;
+      }
+      if (summary.agentName) subagentName = summary.agentName;
     }
 
     // 2. Legacy fallbacks
@@ -445,16 +450,45 @@ function sessionMetadata(
   }
 
   if (head.length) {
-    // Codex puts the working directory in its session_meta line.
+    // Codex puts the working directory and subagent lineage in its session_meta line.
     try {
-      const first = JSON.parse(head[0]!) as { payload?: { cwd?: unknown } };
-      if (first?.payload?.cwd != null) {
-        const c = cleanPath(String(first.payload.cwd));
+      const first = JSON.parse(head[0]!) as {
+        type?: unknown;
+        payload?: {
+          id?: unknown;
+          cwd?: unknown;
+          parent_thread_id?: unknown;
+          agent_nickname?: unknown;
+          agent_role?: unknown;
+          source?: { subagent?: { thread_spawn?: { parent_thread_id?: unknown; agent_nickname?: unknown; agent_role?: unknown } } };
+        };
+      };
+      const payload = first?.payload;
+      if (payload?.cwd != null) {
+        const c = cleanPath(String(payload.cwd));
         if (c) {
           cwd = c;
           const name = basename(c);
           if (!isInvalidProjectName(name)) project = name;
         }
+      }
+      if (toolId === "codex" && first?.type === "session_meta" && payload) {
+        const ownId = typeof payload.id === "string" ? payload.id.trim() : "";
+        const spawn = payload.source && typeof payload.source === "object" ? payload.source.subagent?.thread_spawn : undefined;
+        const parentCand =
+          (typeof payload.parent_thread_id === "string" && payload.parent_thread_id.trim()) ||
+          (typeof spawn?.parent_thread_id === "string" && spawn.parent_thread_id.trim()) ||
+          "";
+        if (parentCand && parentCand !== ownId) {
+          parentSessionId = parentCand;
+        }
+        const nick =
+          (typeof payload.agent_nickname === "string" && payload.agent_nickname.trim()) ||
+          (typeof spawn?.agent_nickname === "string" && spawn.agent_nickname.trim()) ||
+          (typeof payload.agent_role === "string" && payload.agent_role.trim()) ||
+          (typeof spawn?.agent_role === "string" && spawn.agent_role.trim()) ||
+          "";
+        if (nick) subagentName = nick;
       }
     } catch {
       // not JSON
@@ -482,6 +516,8 @@ function sessionMetadata(
     ...(title ? { title } : {}),
     ...(cwd !== undefined ? { project_path: cwd } : {}),
     ...(project !== undefined ? { project_hash: project } : {}),
+    ...(parentSessionId ? { parent_session_id: parentSessionId, is_subagent: true } : {}),
+    ...(subagentName ? { subagent_name: subagentName } : {}),
   };
 }
 

@@ -171,6 +171,8 @@ export class ClaudeStreamParser extends AgentStreamParser {
 
   private readonly endedTasks = new Set<string>();
   private readonly taskDescriptions = new Map<string, string>();
+  private readonly subagents = new Map<string, { name: string; role?: string }>();
+  private readonly taskToSubagent = new Map<string, string>();
 
   /** What's still running in the background, for the page to say what the run waits on. */
   private backgroundEvent(): AgentEvent {
@@ -240,15 +242,56 @@ export class ClaudeStreamParser extends AgentStreamParser {
         } else if (d.subtype === "task_started" && d.task_id != null) {
           // Background shells, subagents and the like; each one's end comes as task_notification
           // (or task_updated). A task still open when the agent exits is left running.
-          const started = this.startTask(String(d.task_id), str(d.description));
+          const tid = String(d.task_id);
+          const desc = str(d.description);
+          const toolUseId = str(d.tool_use_id);
+          if (toolUseId && this.subagents.has(toolUseId)) {
+            this.taskToSubagent.set(tid, toolUseId);
+          } else if (d.task_type === "local_agent" || d.task_type === "subagent" || d.task_type === "in_process_teammate") {
+            const subId = toolUseId || tid;
+            const subName = clip(desc || str(d.agent_name) || "Subagent", 80);
+            this.subagents.set(subId, { name: subName, role: str(d.task_type) });
+            this.taskToSubagent.set(tid, subId);
+            events.push({
+              kind: "subagent",
+              id: subId,
+              name: subName,
+              agent_type: d.task_type === "in_process_teammate" ? "team" : "subagent",
+              ...(desc ? { detail: clip(desc, 200) } : {}),
+              status: "running",
+            });
+          }
+          const started = this.startTask(tid, desc);
           if (started) events.push(started);
         } else if (d.subtype === "task_notification" && d.task_id != null) {
-          const ended = this.endTask(String(d.task_id));
+          const tid = String(d.task_id);
+          const subId = this.taskToSubagent.get(tid);
+          if (subId) {
+            const st = String(d.status ?? "");
+            const summary = str(d.summary) || str(d.output);
+            events.push({
+              kind: "subagent",
+              id: subId,
+              status: st === "failed" || st === "error" ? "failed" : "done",
+              ...(summary ? { output: clipOutput(summary) } : {}),
+            });
+          }
+          const ended = this.endTask(tid);
           if (ended) events.push(ended);
         } else if (d.subtype === "task_updated" && d.task_id != null) {
+          const tid = String(d.task_id);
           const patch = isObject(d.patch) ? d.patch : {};
           if (TASK_ENDED.has(String(patch.status ?? "")) || patch.end_time != null) {
-            const ended = this.endTask(String(d.task_id));
+            const subId = this.taskToSubagent.get(tid);
+            if (subId) {
+              const st = String(patch.status ?? "");
+              events.push({
+                kind: "subagent",
+                id: subId,
+                status: st === "failed" || st === "error" ? "failed" : "done",
+              });
+            }
+            const ended = this.endTask(tid);
             if (ended) events.push(ended);
           }
         } else if (d.subtype === "compact_boundary") {
@@ -262,9 +305,10 @@ export class ClaudeStreamParser extends AgentStreamParser {
         }
         break;
       case "assistant": {
+        const parentToolUseId = str(d.parent_tool_use_id);
         const content = isObject(d.message) ? d.message.content : undefined;
         const msgUsage = isObject(d.message) && isObject(d.message.usage) ? d.message.usage : undefined;
-        if (msgUsage && (!isObject(d.message) || d.message.model !== "<synthetic>")) {
+        if (msgUsage && (!isObject(d.message) || d.message.model !== "<synthetic>") && !parentToolUseId) {
           const ctx = (num(msgUsage.input_tokens) ?? 0) + (num(msgUsage.cache_read_input_tokens) ?? 0) + (num(msgUsage.cache_creation_input_tokens) ?? 0);
           if (ctx > 0) this.contextTokens = ctx + (num(msgUsage.output_tokens) ?? 0);
         }
@@ -272,28 +316,51 @@ export class ClaudeStreamParser extends AgentStreamParser {
           for (const block of content.filter(isObject)) {
             if (block.type === "text" && String(block.text ?? "").trim()) {
               const text = String(block.text);
-              this.texts.push(text);
-              events.push({ kind: "text", text });
+              if (!parentToolUseId) {
+                this.texts.push(text);
+                events.push({ kind: "text", text });
+              }
             } else if (block.type === "thinking" && String(block.thinking ?? "").trim()) {
-              const thinking = String(block.thinking);
-              events.push({ kind: "thinking", text: thinking });
+              if (!parentToolUseId) {
+                const thinking = String(block.thinking);
+                events.push({ kind: "thinking", text: thinking });
+              }
             } else if (block.type === "tool_use") {
               const name = str(block.name) ?? "tool";
               const input = isObject(block.input) ? block.input : {};
               const blockId = str(block.id);
-              events.push({
-                kind: "tool",
-                id: blockId,
-                name,
-                detail: claudeToolDetail(name, input),
-                status: "running",
-              });
+              const detail = claudeToolDetail(name, input);
+              if (!parentToolUseId && (name === "Agent" || name === "Task") && blockId) {
+                const subName = clip(str(input.name) || str(input.subagent_type) || str(input.description) || "Subagent", 80);
+                const subRole = str(input.subagent_type) || str(input.team_name);
+                this.subagents.set(blockId, { name: subName, role: subRole });
+                events.push({
+                  kind: "subagent",
+                  id: blockId,
+                  name: subName,
+                  ...(subRole ? { role: clip(subRole, 60) } : {}),
+                  agent_type: input.team_name ? "team" : "subagent",
+                  detail,
+                  status: "running",
+                });
+              } else {
+                const parentSub = parentToolUseId ? this.subagents.get(parentToolUseId) : undefined;
+                events.push({
+                  kind: "tool",
+                  id: blockId,
+                  name,
+                  detail,
+                  status: "running",
+                  ...(parentToolUseId ? { subagent_id: parentToolUseId, ...(parentSub?.name ? { subagent_name: parentSub.name } : {}) } : {}),
+                });
+              }
             }
           }
         }
         break;
       }
       case "user": {
+        const parentToolUseId = str(d.parent_tool_use_id);
         const content = isObject(d.message) ? d.message.content : undefined;
         if (Array.isArray(content)) {
           for (const block of content.filter(isObject)) {
@@ -307,12 +374,23 @@ export class ClaudeStreamParser extends AgentStreamParser {
             // CLIs without task events; with them it's the same id, already counted
             const bgStarted = bgMatch?.[1] ? this.startTask(bgMatch[1], undefined) : null;
             if (bgStarted) events.push(bgStarted);
-            events.push({
-              kind: "tool",
-              id: toolUseId,
-              status: block.is_error === true ? "failed" : "done",
-              output: clipOutput(resText),
-            });
+            if (toolUseId && this.subagents.has(toolUseId)) {
+              const isBgAsync = Boolean(bgMatch?.[1]) || /running in the background|async_launched/i.test(resText);
+              events.push({
+                kind: "subagent",
+                id: toolUseId,
+                status: block.is_error === true ? "failed" : isBgAsync ? "running" : "done",
+                output: clipOutput(resText),
+              });
+            } else {
+              events.push({
+                kind: "tool",
+                id: toolUseId,
+                status: block.is_error === true ? "failed" : "done",
+                output: clipOutput(resText),
+                ...(parentToolUseId ? { subagent_id: parentToolUseId } : {}),
+              });
+            }
           }
         }
         break;
@@ -443,6 +521,13 @@ export function claudeToolDetail(name: string, input: Json): string {
     case "Agent":
       detail = pick(["description", "prompt"]);
       break;
+    case "TeamCreate":
+    case "TeamDelete":
+      detail = pick(["team_name", "description"]);
+      break;
+    case "SendMessage":
+      detail = [pick(["to", "recipient"]), pick(["summary", "message"])].filter((x): x is string => !!x).join("：");
+      break;
     case "TodoWrite":
       detail = Array.isArray(input.todos) ? `${input.todos.length} 项待办` : undefined;
       break;
@@ -491,6 +576,7 @@ export function codexErrorText(message: string): string {
 export class CodexStreamParser extends AgentStreamParser {
   private lastError = "";
   private messages: string[] = [];
+  private readonly subagents = new Map<string, { name: string }>();
 
   get finalText(): string | undefined {
     return this.messages.join("\n\n").trim() || undefined;
@@ -499,7 +585,16 @@ export class CodexStreamParser extends AgentStreamParser {
   feed(line: string): AgentEvent[] | null {
     const d = decode(line);
     if (!d) return null;
-    if (d.type === "memento_event" && isObject(d.event)) return [d.event as AgentEvent];
+    if (d.type === "memento_event" && isObject(d.event)) {
+      const ev = d.event as AgentEvent;
+      if (ev.kind === "subagent" && ev.id != null) {
+        const sid = String(ev.id);
+        const existing = this.subagents.get(sid);
+        const name = str(ev.name) || existing?.name || "Codex 子智能体";
+        this.subagents.set(sid, { name });
+      }
+      return [ev];
+    }
     const events: AgentEvent[] = [];
     const item = isObject(d.item) ? d.item : undefined;
     switch (d.type) {
@@ -514,17 +609,35 @@ export class CodexStreamParser extends AgentStreamParser {
         if (!item) break;
         const done = d.type === "item.completed";
         const running = (failed: boolean) => (!done ? "running" : failed ? "failed" : "done");
+        const subThreadId = str(d.subagent_thread_id) ?? str(item.subagent_thread_id);
+        if (subThreadId && !this.subagents.has(subThreadId)) {
+          this.subagents.set(subThreadId, { name: "Codex 子智能体" });
+          events.push({
+            kind: "subagent",
+            id: subThreadId,
+            name: "Codex 子智能体",
+            agent_type: "subagent",
+            status: "running",
+          });
+        }
+        const subTag = subThreadId
+          ? { subagent_id: subThreadId, ...(this.subagents.get(subThreadId)?.name ? { subagent_name: this.subagents.get(subThreadId)!.name } : {}) }
+          : {};
         switch (item.type) {
           case "agent_message":
             if (done && String(item.text ?? "").trim()) {
               const msg = String(item.text).trim();
-              this.messages.push(msg);
-              events.push({ kind: "text", text: msg });
+              if (subThreadId) {
+                events.push({ kind: "subagent", id: subThreadId, output: clipOutput(msg) });
+              } else {
+                this.messages.push(msg);
+                events.push({ kind: "text", text: msg });
+              }
             }
             break;
           case "reasoning": {
             const rText = str(item.text) || str(item.summary) || (Array.isArray(item.rawContent) ? item.rawContent.map((c) => isObject(c) ? str(c.text) : "").join("") : "");
-            if (rText && rText.trim()) {
+            if (rText && rText.trim() && !subThreadId) {
               events.push({ kind: "thinking", text: rText.trim() });
             }
             break;
@@ -533,17 +646,18 @@ export class CodexStreamParser extends AgentStreamParser {
             const exit = num(item.exit_code);
             const cmd = str(item.command) ?? "";
             const outText = str(item.aggregated_output) ?? "";
-            if (/\b(?:nohup|screen|tmux|daemon)\b|&\s*$/i.test(cmd) || /(?:started in background|running in background)/i.test(outText)) {
+            if (!subThreadId && (/\b(?:nohup|screen|tmux|daemon)\b|&\s*$/i.test(cmd) || /(?:started in background|running in background)/i.test(outText))) {
               this.isStillRunning = true;
             }
             const toolId = str(item.id);
             events.push({
               kind: "tool",
-              id: toolId,
+              id: subThreadId && toolId ? `${subThreadId}:${toolId}` : toolId,
               name: "Shell",
               detail: clip(firstLine(codexCommand(cmd)), 200),
               status: running(exit !== undefined && exit !== 0),
               ...(done ? { output: clipOutput(outText) } : {}),
+              ...subTag,
             });
 
             // Interactive confirmation prompt detection in shell output
@@ -570,9 +684,10 @@ export class CodexStreamParser extends AgentStreamParser {
           }
           case "file_change": {
             const changes = Array.isArray(item.changes) ? item.changes.filter(isObject) : [];
+            const rawId = str(item.id);
             events.push({
               kind: "tool",
-              id: str(item.id),
+              id: subThreadId && rawId ? `${subThreadId}:${rawId}` : rawId,
               name: "Edit",
               detail: clip(
                 changes
@@ -582,6 +697,7 @@ export class CodexStreamParser extends AgentStreamParser {
                 200,
               ),
               status: running(item.status === "failed"),
+              ...subTag,
             });
             break;
           }
@@ -597,16 +713,19 @@ export class CodexStreamParser extends AgentStreamParser {
               ? decode(item.arguments) ?? {}
               : {};
             const isQuestion =
-              /^(?:ask_question|AskFollowupQuestion|request_user_input|confirm|prompt)$/i.test(toolName) ||
-              /question|confirm/i.test(toolName);
+              !subThreadId &&
+              (/^(?:ask_question|AskFollowupQuestion|request_user_input|confirm|prompt)$/i.test(toolName) ||
+                /question|confirm/i.test(toolName));
+            const rawId = str(item.id);
 
             events.push({
               kind: "tool",
-              id: str(item.id),
+              id: subThreadId && rawId ? `${subThreadId}:${rawId}` : rawId,
               name: fullName || "tool",
               detail: isQuestion ? clip(str(args.question) || str(args.prompt) || "", 200) : toolArgsDetail(args),
               status: running(item.status === "failed"),
               ...(done && item.result != null ? { output: clipOutput(mcpResultText(item.result)) } : {}),
+              ...subTag,
             });
 
             if (isQuestion) {
@@ -634,15 +753,85 @@ export class CodexStreamParser extends AgentStreamParser {
             }
             break;
           }
-          case "web_search":
+          case "web_search": {
+            const rawId = str(item.id);
             events.push({
               kind: "tool",
-              id: str(item.id),
+              id: subThreadId && rawId ? `${subThreadId}:${rawId}` : rawId,
               name: "WebSearch",
               detail: clip(str(item.query) ?? "", 200),
               status: done ? "done" : "running",
+              ...subTag,
             });
             break;
+          }
+          case "collab_agent_tool_call": {
+            const collabTool = str(item.tool) ?? "collab_agent_tool_call";
+            const promptText = str(item.prompt) ?? "";
+            const receivers = Array.isArray(item.receiver_thread_ids)
+              ? item.receiver_thread_ids.map((x) => str(x)).filter((x): x is string => Boolean(x))
+              : [];
+            const states = isObject(item.agents_states) ? item.agents_states : {};
+            const failed = item.status === "failed";
+            if (/^spawn/i.test(collabTool)) {
+              const ids = receivers.length ? receivers : [str(item.id) ?? `codex_sub_${Date.now()}`];
+              for (const rid of ids) {
+                const stObj = isObject(states[rid]) ? states[rid] : {};
+                const agentStatus = str(stObj.status);
+                const subName = this.subagents.get(rid)?.name || `Codex 子智能体 ${rid.slice(0, 8)}`;
+                this.subagents.set(rid, { name: subName });
+                const resolvedStatus =
+                  failed || agentStatus === "errored"
+                    ? "failed"
+                    : agentStatus === "completed" || agentStatus === "shutdown"
+                    ? "done"
+                    : "running";
+                const msg = str(stObj.message);
+                events.push({
+                  kind: "subagent",
+                  id: rid,
+                  name: subName,
+                  agent_type: "subagent",
+                  ...(promptText ? { detail: clip(firstLine(promptText), 200) } : {}),
+                  status: resolvedStatus,
+                  ...(msg ? { output: clipOutput(msg) } : {}),
+                });
+              }
+            } else {
+              const normalizedName =
+                /^wait/i.test(collabTool)
+                  ? "wait_agent"
+                  : /^send/i.test(collabTool)
+                  ? "send_input"
+                  : /^close/i.test(collabTool)
+                  ? "close_agent"
+                  : collabTool;
+              const targetSummary = receivers.map((rid) => this.subagents.get(rid)?.name || rid.slice(0, 8)).join("、");
+              events.push({
+                kind: "tool",
+                id: str(item.id),
+                name: normalizedName,
+                detail: clip([targetSummary, firstLine(promptText)].filter(Boolean).join("："), 200),
+                status: running(failed),
+                ...subTag,
+              });
+              for (const [rid, rawState] of Object.entries(states)) {
+                if (!isObject(rawState)) continue;
+                const st = str(rawState.status);
+                if (!st) continue;
+                if (st === "completed" || st === "shutdown" || st === "errored") {
+                  const msg = str(rawState.message);
+                  events.push({
+                    kind: "subagent",
+                    id: rid,
+                    status: st === "errored" ? "failed" : "done",
+                    ...(msg ? { output: clipOutput(msg) } : {}),
+                  });
+                }
+              }
+            }
+            break;
+          }
           case "error":
             if (done) {
               const message = str(item.message) ?? "error";
@@ -736,7 +925,7 @@ export class UniversalStreamParser extends AgentStreamParser {
             }
             return [ev];
           }
-          if (d.kind === "question" || d.kind === "tool" || d.kind === "steer" || d.kind === "text" || d.kind === "thinking") {
+          if (d.kind === "question" || d.kind === "tool" || d.kind === "subagent" || d.kind === "steer" || d.kind === "text" || d.kind === "thinking") {
             const ev = d as AgentEvent;
             if (ev.kind === "text" && typeof ev.text === "string") {
               this.lastText += (this.lastText ? "\n\n" : "") + ev.text;
@@ -886,6 +1075,15 @@ export function agyToolDetail(name: string, a: Json): string {
     case "invoke_subagent":
       d = join2(first("Role", "TypeName"), first("Prompt"), "：");
       break;
+    case "define_subagent":
+      d = join2(first("Name"), first("Description"), "：");
+      break;
+    case "swarm":
+      d = join2([first("action"), first("name")].filter(Boolean).join(" "), first("brief", "title"), "：");
+      break;
+    case "run_workflow":
+      d = first("Description", "ScriptPath");
+      break;
     case "send_message":
       d = join2(first("Recipient"), first("Message"), "：");
       break;
@@ -970,11 +1168,23 @@ export class AgyCliStreamParser extends AgentStreamParser {
           ...(done && output ? { output: agyToolOutput(output) } : {}),
         });
       } else if (isObject(u.subagent_info)) {
-        const roles = (Array.isArray(u.subagent_info.subagents) ? u.subagent_info.subagents : [])
-          .filter(isObject)
-          .map((a) => str(a.role) || str(a.type_name) || "")
-          .filter(Boolean);
+        const subs = (Array.isArray(u.subagent_info.subagents) ? u.subagent_info.subagents : []).filter(isObject);
+        const roles = subs.map((a) => str(a.role) || str(a.type_name) || "").filter(Boolean);
         events.push({ kind: "tool", id: `agy_step_${index}`, name: "invoke_subagent", detail: clip(roles.join("、"), 200), status: done ? "done" : "running" });
+        subs.forEach((a, subIdx) => {
+          const cid = str(a.conversation_id) || str(a.id) || `agy_sub_${index}_${subIdx}`;
+          const role = str(a.role) || str(a.type_name) || "Subagent";
+          const st = str(a.status)?.toUpperCase();
+          const status = st === "ERROR" || st === "FAILED" ? "failed" : done || st === "DONE" || st === "COMPLETED" ? "done" : "running";
+          events.push({
+            kind: "subagent",
+            id: cid,
+            name: clip(role, 80),
+            role: clip(str(a.type_name) || role, 60),
+            agent_type: "subagent",
+            status,
+          });
+        });
       }
       return events;
     }
@@ -1042,6 +1252,7 @@ export class AgentEventLog {
   private rows: AgentEvent[] = [];
   private readonly toolIndex = new Map<string, number>();
   private readonly questionIndex = new Map<string, number>();
+  private readonly subagentIndex = new Map<string, number>();
   private outputChars = 0;
   /** Rows let go to make room. */
   dropped = 0;
@@ -1059,11 +1270,14 @@ export class AgentEventLog {
   add(event: AgentEvent): AgentEvent {
     const isTool = event.kind === "tool" && event.id != null;
     const isQuestion = event.kind === "question" && event.id != null;
-    const id = isTool || isQuestion ? String(event.id) : undefined;
+    const isSubagent = event.kind === "subagent" && event.id != null;
+    const id = isTool || isQuestion || isSubagent ? String(event.id) : undefined;
     const at = isTool
       ? this.toolIndex.get(id!)
       : isQuestion
       ? this.questionIndex.get(id!)
+      : isSubagent
+      ? this.subagentIndex.get(id!)
       : undefined;
 
     if (at !== undefined) {
@@ -1078,6 +1292,7 @@ export class AgentEventLog {
     if (this.rows.length >= this.limit && !this.makeRoom()) return row;
     if (isTool) this.toolIndex.set(id!, this.rows.length);
     if (isQuestion) this.questionIndex.set(id!, this.rows.length);
+    if (isSubagent) this.subagentIndex.set(id!, this.rows.length);
     this.rows.push(row);
     this.outputChars += outputLength(row);
     this.trimOutputs();
@@ -1098,10 +1313,12 @@ export class AgentEventLog {
     this.dropped += drop.size;
     this.toolIndex.clear();
     this.questionIndex.clear();
+    this.subagentIndex.clear();
     this.rows.forEach((r, i) => {
       if (r.id == null) return;
       if (r.kind === "tool") this.toolIndex.set(String(r.id), i);
       else if (r.kind === "question") this.questionIndex.set(String(r.id), i);
+      else if (r.kind === "subagent") this.subagentIndex.set(String(r.id), i);
     });
     return true;
   }

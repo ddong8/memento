@@ -89,6 +89,67 @@ describe("TaskTimeline", () => {
     // Without the workbench around, file names aren't links.
     expect(container.querySelectorAll('[role="link"]').length).toBe(0);
   });
+
+  it("renders nested collapsible subagent and swarm cards and groups child tool steps inside them", () => {
+    const events: TaskEvent[] = [
+      {
+        kind: "subagent",
+        id: "sub_1",
+        name: "CodeReviewer",
+        role: "researcher",
+        agent_type: "subagent",
+        detail: "审查后端接口",
+        status: "running",
+      },
+      {
+        kind: "tool",
+        id: "child_read",
+        name: "Read",
+        detail: "/Users/me/dev/app/src/api.ts",
+        status: "done",
+        subagent_id: "sub_1",
+        subagent_name: "CodeReviewer",
+      },
+      {
+        kind: "subagent",
+        id: "swarm_1",
+        name: "worker-1",
+        agent_type: "swarm",
+        detail: "构建 Web",
+        status: "done",
+        output: "构建完成，0 错误",
+      },
+    ];
+
+    act(() => {
+      root.render(<TaskTimeline events={events} running taskId="task-sub" />);
+    });
+
+    const text = container.textContent || "";
+    expect(text).toContain("子智能体");
+    expect(text).toContain("CodeReviewer");
+    expect(text).toContain("1 步");
+    // Running subagent is auto-expanded, showing its nested tool step
+    expect(text).toContain("api.ts");
+    // Completed swarm card is collapsed by default, hiding its output until clicked
+    expect(text).toContain("Swarm");
+    expect(text).toContain("worker-1");
+    expect(text).not.toContain("构建完成，0 错误");
+    // Summary includes subagent count
+    expect(text).toContain("2 个子智能体");
+
+    // Click the completed swarm header to expand its output
+    const swarmBtn = Array.from(container.querySelectorAll("button")).find((b) => b.textContent?.includes("worker-1"));
+    expect(swarmBtn).toBeTruthy();
+    act(() => swarmBtn!.click());
+    expect(container.textContent || "").toContain("构建完成，0 错误");
+
+    // Click the running subagent header to collapse its nested tools
+    const subBtn = Array.from(container.querySelectorAll("button")).find((b) => b.textContent?.includes("CodeReviewer"));
+    expect(subBtn).toBeTruthy();
+    act(() => subBtn!.click());
+    expect(container.textContent || "").not.toContain("api.ts");
+  });
 });
 
 describe("TaskTimeline in the workbench", () => {

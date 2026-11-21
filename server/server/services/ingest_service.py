@@ -234,20 +234,48 @@ def _infer_category(tool_id: str, category: str, content_type: str, relative_pat
 
 
 def _parent_session_id_from_content(content: str | None) -> str | None:
-    """For a Claude Code sidechain (subagent) or Codex guardian transcript,
-    return the parent session's UUID.
+    """For a Claude Code / WorkBuddy sidechain, Codex subagent/guardian, or Antigravity
+    subagent transcript, return the parent session's UUID.
     """
     if not content:
         return None
-    # Claude Code sidechain
+    # Claude Code / WorkBuddy sidechain
     if '"isSidechain"' in content and re.search(r'"isSidechain"\s*:\s*true', content):
         m = re.search(r'"sessionId"\s*:\s*"([0-9a-fA-F-]{32,36})"', content)
         if m:
             return m.group(1)
+    # Codex spawned subagent: parent_thread_id lives in the first JSONL line (session_meta)
+    first_nl = content.find("\n")
+    first_line = content if first_nl == -1 else content[:first_nl]
+    if '"session_meta"' in first_line and ("parent_thread_id" in first_line or "thread_spawn" in first_line):
+        try:
+            meta = json.loads(first_line)
+            if isinstance(meta, dict) and meta.get("type") == "session_meta":
+                payload = meta.get("payload")
+                if isinstance(payload, dict):
+                    own_id = str(payload.get("id") or "").strip()
+                    parent_tid = str(payload.get("parent_thread_id") or "").strip()
+                    if not parent_tid:
+                        source = payload.get("source")
+                        if isinstance(source, dict):
+                            subagent = source.get("subagent")
+                            if isinstance(subagent, dict):
+                                spawn = subagent.get("thread_spawn")
+                                if isinstance(spawn, dict):
+                                    parent_tid = str(spawn.get("parent_thread_id") or "").strip()
+                    if parent_tid and parent_tid != own_id:
+                        return parent_tid
+        except Exception:
+            pass
     # Codex guardian / review subagent
     m = re.search(r"Reviewed Codex session id:\s*([0-9a-fA-F-]{36})", content)
     if m:
         return m.group(1)
+    # Antigravity subagent transcript header if parent_conversation_id is embedded
+    if '"parent_conversation_id"' in first_line:
+        m = re.search(r'"parent_conversation_id"\s*:\s*"([0-9a-fA-F-]{32,36})"', first_line)
+        if m:
+            return m.group(1)
     return None
 
 
@@ -822,8 +850,8 @@ async def ingest_file(
                 # re-resolve once the parent's title lands. Reassign (not
                 # in-place mutate) so SQLAlchemy tracks the JSONB change.
                 md = existing_doc.metadata_ if isinstance(existing_doc.metadata_, dict) else {}
-                if md.get("parent_session_id") != parent_sid:
-                    existing_doc.metadata_ = {**md, "parent_session_id": parent_sid}
+                if md.get("parent_session_id") != parent_sid or not md.get("is_subagent"):
+                    existing_doc.metadata_ = {**md, "parent_session_id": parent_sid, "is_subagent": True}
                     await db.flush()
                 parent_title = (await db.execute(
                     select(Document.title)
@@ -1022,20 +1050,25 @@ async def ingest_file(
         metadata.update(session_activity(content))
     is_title_junk = _is_junk_or_uuid_title(title, sid)
 
+    # Always record subagent parent lineage for conversations, even when the
+    # subagent already has a non-junk title (e.g. Codex/Antigravity subagents).
+    detected_parent_sid: str | None = None
+    if category == "conversation":
+        detected_parent_sid = _parent_session_id_from_content(content) if content else None
+        if not detected_parent_sid and isinstance(metadata, dict):
+            raw_parent = metadata.get("parent_session_id")
+            if isinstance(raw_parent, str) and raw_parent.strip():
+                detected_parent_sid = raw_parent.strip()
+        if detected_parent_sid and isinstance(metadata, dict):
+            metadata["parent_session_id"] = detected_parent_sid
+            if "is_subagent" not in metadata:
+                metadata["is_subagent"] = True
+
     if is_title_junk and content and category == "conversation":
-        # 0. Claude Code subagent (sidechain): it has no aiTitle of its own —
-        # the title Claude Code shows is the parent conversation's. Inherit it
-        # by resolving the parent sessionId embedded in the transcript. Also
-        # record the link in metadata so the periodic backfill can re-resolve
-        # if the parent's title lands later.
-        parent_sid = _parent_session_id_from_content(content)
-        if not parent_sid and isinstance(metadata, dict):
-            parent_sid = metadata.get("parent_session_id")
+        # 0. Subagent (Claude Code / WorkBuddy sidechain, Codex subagent/guardian, Antigravity subagent):
+        # inherit the parent conversation's title if the subagent has no title of its own.
+        parent_sid = detected_parent_sid
         if parent_sid:
-            if isinstance(metadata, dict):
-                metadata["parent_session_id"] = parent_sid
-                if "is_subagent" not in metadata:
-                    metadata["is_subagent"] = True
             parent_title = (await db.execute(
                 select(Document.title)
                 .where(

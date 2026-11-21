@@ -451,3 +451,170 @@ describe("Codex errors", () => {
     expect(parser.errors.trim()).toBe("The 'gpt-6-astra' model is not supported when using Codex with a ChatGPT account.");
   });
 });
+
+describe("Multi-agent & subagent streams", () => {
+  it("ClaudeStreamParser groups Agent/Task calls, parent_tool_use_id child tools, and background task notifications", () => {
+    const parser = new ClaudeStreamParser();
+    const log = new AgentEventLog();
+    const push = (obj: unknown) => {
+      const evs = parser.feed(JSON.stringify(obj)) ?? [];
+      for (const e of evs) if (e.kind !== "text") log.add(e);
+      return evs;
+    };
+
+    // Main agent invokes a background subagent
+    const started = push({
+      type: "assistant",
+      message: {
+        content: [
+          {
+            type: "tool_use",
+            id: "toolu_agent_1",
+            name: "Agent",
+            input: { name: "CodeReviewer", subagent_type: "researcher", description: "审查路由变更", run_in_background: true },
+          },
+        ],
+      },
+    });
+    expect(started).toContainEqual(
+      expect.objectContaining({
+        kind: "subagent",
+        id: "toolu_agent_1",
+        name: "CodeReviewer",
+        role: "researcher",
+        detail: "审查路由变更",
+        status: "running",
+      }),
+    );
+
+    // Child tool call with parent_tool_use_id is nested under the subagent
+    const childTool = push({
+      type: "assistant",
+      parent_tool_use_id: "toolu_agent_1",
+      message: {
+        content: [
+          { type: "text", text: "child internal commentary should not leak to main finalText" },
+          { type: "tool_use", id: "toolu_child_read", name: "Read", input: { file_path: "src/app.ts" } },
+        ],
+      },
+    });
+    expect(childTool).toContainEqual(
+      expect.objectContaining({
+        kind: "tool",
+        id: "toolu_child_read",
+        name: "Read",
+        detail: "src/app.ts",
+        subagent_id: "toolu_agent_1",
+        subagent_name: "CodeReviewer",
+        status: "running",
+      }),
+    );
+    expect(childTool.some((e) => e.kind === "text")).toBe(false);
+
+    // Child tool result completes the nested tool
+    push({
+      type: "user",
+      parent_tool_use_id: "toolu_agent_1",
+      message: {
+        content: [{ type: "tool_result", tool_use_id: "toolu_child_read", content: "ok", is_error: false }],
+      },
+    });
+
+    // Background task_started links task_id -> tool_use_id, and task_notification completes it
+    push({ type: "system", subtype: "task_started", task_id: "bg_task_9", tool_use_id: "toolu_agent_1", description: "审查路由变更" });
+    push({ type: "system", subtype: "task_notification", task_id: "bg_task_9", tool_use_id: "toolu_agent_1", status: "completed", summary: "未发现高危问题" });
+
+    // Main final answer
+    push({ type: "assistant", message: { content: [{ type: "text", text: "全部检查通过" }] } });
+
+    expect(parser.finalText).toBe("全部检查通过");
+    const subEv = log.events.find((e) => e.kind === "subagent" && e.id === "toolu_agent_1");
+    expect(subEv).toMatchObject({ kind: "subagent", id: "toolu_agent_1", status: "done", output: "未发现高危问题" });
+    const nestedTool = log.events.find((e) => e.kind === "tool" && e.id === "toolu_child_read");
+    expect(nestedTool).toMatchObject({ kind: "tool", subagent_id: "toolu_agent_1", status: "done" });
+  });
+
+  it("CodexStreamParser tracks collab_agent_tool_call and subagent_thread_id child steps without polluting finalText", () => {
+    const parser = new CodexStreamParser();
+    const log = new AgentEventLog();
+    const push = (obj: unknown) => {
+      const evs = parser.feed(JSON.stringify(obj)) ?? [];
+      for (const e of evs) if (e.kind !== "text") log.add(e);
+      return evs;
+    };
+
+    // Main thread spawns a child agent via collab_agent_tool_call
+    push({
+      type: "item.completed",
+      item: {
+        id: "collab_1",
+        type: "collab_agent_tool_call",
+        tool: "spawn_agent",
+        status: "completed",
+        prompt: "检查数据库迁移",
+        receiver_thread_ids: ["thread-child-1"],
+        agents_states: { "thread-child-1": { status: "running", message: "检查数据库迁移" } },
+      },
+    });
+
+    // Child thread executes a command and produces a child message
+    push({
+      type: "item.started",
+      subagent_thread_id: "thread-child-1",
+      item: { id: "cmd_1", type: "command_execution", command: "pytest server/tests", status: "in_progress" },
+    });
+    push({
+      type: "item.completed",
+      subagent_thread_id: "thread-child-1",
+      item: { id: "cmd_1", type: "command_execution", command: "pytest server/tests", status: "completed", exit_code: 0, aggregated_output: "10 passed" },
+    });
+    push({
+      type: "item.completed",
+      subagent_thread_id: "thread-child-1",
+      item: { id: "msg_child", type: "agent_message", text: "迁移无冲突" },
+    });
+
+    // Main thread completes wait + main final message
+    push({
+      type: "item.completed",
+      item: {
+        id: "collab_2",
+        type: "collab_agent_tool_call",
+        tool: "wait",
+        status: "completed",
+        receiver_thread_ids: ["thread-child-1"],
+        agents_states: { "thread-child-1": { status: "completed", message: "迁移无冲突" } },
+      },
+    });
+    push({
+      type: "item.completed",
+      item: { id: "msg_main", type: "agent_message", text: "主代理汇总：一切正常" },
+    });
+
+    expect(parser.finalText).toBe("主代理汇总：一切正常");
+    const subEv = log.events.find((e) => e.kind === "subagent" && e.id === "thread-child-1");
+    expect(subEv).toMatchObject({ kind: "subagent", id: "thread-child-1", status: "done", output: "迁移无冲突" });
+    const childTool = log.events.find((e) => e.kind === "tool" && e.subagent_id === "thread-child-1");
+    expect(childTool).toMatchObject({ kind: "tool", name: "Shell", detail: "pytest server/tests", status: "done", subagent_id: "thread-child-1" });
+  });
+
+  it("AgyCliStreamParser emits subagent rows alongside invoke_subagent tool and UniversalStreamParser accepts subagent events", () => {
+    const agy = new AgyCliStreamParser();
+    const agyEvents = agy.feed(JSON.stringify({
+      event: "step_update",
+      step_update: {
+        step_index: 9,
+        state: "ACTIVE",
+        step_type: "subagent",
+        subagent_info: { subagents: [{ role: "前端专家", type_name: "research" }] },
+      },
+    })) ?? [];
+    expect(agyEvents).toContainEqual(
+      expect.objectContaining({ kind: "subagent", name: "前端专家", role: "research", status: "running" }),
+    );
+
+    const univ = new UniversalStreamParser();
+    const res = univ.feed(JSON.stringify({ kind: "subagent", id: "swarm:worker-1", name: "worker-1", agent_type: "swarm", detail: "构建模块 A", status: "running" }));
+    expect(res).toEqual([{ kind: "subagent", id: "swarm:worker-1", name: "worker-1", agent_type: "swarm", detail: "构建模块 A", status: "running" }]);
+  });
+});

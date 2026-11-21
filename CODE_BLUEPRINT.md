@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `55d83dbb` · Updated: `2026-11-20`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `e67c8d83` · Updated: `2026-11-20`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -13,11 +13,11 @@
 - 类型 (Type): Monorepo (Workspaces)
 - 技术栈 (Stack): TypeScript/JavaScript, Python, Shell / Bash · React, Electron, Next.js, TailwindCSS, Model Context Protocol (MCP), FastAPI, SQLAlchemy, Celery
 - 基础设施 (Infra): PostgreSQL, pgvector (Vector DB), Redis, MinIO / S3 Object Storage, Celery Task Queue
-- 规模 (Scale): 9 个子系统 · 40 组 API 路由 / 300 个接口 · 39 个前端页面 · 41 个数据模型 · 35 个服务模块 · 248 个测试文件
+- 规模 (Scale): 9 个子系统 · 40 组 API 路由 / 300 个接口 · 39 个前端页面 · 41 个数据模型 · 35 个服务模块 · 249 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `e204f5b8` (2026-11-21): refactor(plugins): 将演播台入口移出左侧导航并归位至工作台插件区
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 72（✅ 72 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-MEDIA-VIEW`, `R-WECHAT-DRAFT`, `R-STUDIO-INLINE-PLAY`, `R-PLUGIN-MARKETPLACE`, `R-ENT-SECRETS`, `R-DOCS-WRITE-LIGHT`, `R-PUBLIC-REPO-CLEAN`, `R-MENU-KEEPALIVE`
+- 最近改动 (Latest): `35f904aa` (2026-11-21): style(workbench): 精简工作台视窗顶栏按钮组并收纳至更多操作菜单
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 72（✅ 72 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-MEDIA-VIEW`, `R-WECHAT-DRAFT`, `R-STUDIO-INLINE-PLAY`, `R-PLUGIN-MARKETPLACE`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -31,7 +31,7 @@
 | 8. Development & Verification Commands | L669-L686 |
 | 9. Recent Architectural Evolutions | L688-L695 |
 | 10. Key Environment Variables & Configuration | L697-L709 |
-| 11. 业务蓝图核对 (Business Blueprint Check) | L711-L720 |
+| 11. 业务蓝图核对 (Business Blueprint Check) | L711-L719 |
 
 ## 1. Project Overview & Tech Stack
 
@@ -645,7 +645,7 @@ erDiagram
 
 | Suite | Directory | Files | Sample Tests |
 | :--- | :--- | :--- | :--- |
-| server/tests (pytest) | [`server/tests`](server/tests) | 127 | `test_agent_ids.py`, `test_agent_limits.py`, `test_agent_login.py`, `test_agent_run_states.py`, `test_ai_provider.py` |
+| server/tests (pytest) | [`server/tests`](server/tests) | 128 | `test_agent_ids.py`, `test_agent_limits.py`, `test_agent_login.py`, `test_agent_run_states.py`, `test_ai_provider.py` |
 | packages/daemon/test (vitest / jest) | [`packages/daemon/test`](packages/daemon/test) | 61 | `agent-args.test.ts`, `agent-login.test.ts`, `agent-stream.test.ts`, `agy-background.test.ts`, `agy-models.test.ts` |
 | apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 52 | `active-runs-chip.test.tsx`, `api-client.test.ts`, `ask-reading-and-persona-rules.test.tsx`, `ask-top-bar.test.tsx`, `audit-labels.test.ts` |
 | apps/desktop/test (vitest / jest) | [`apps/desktop/test`](apps/desktop/test) | 2 | `helpers.test.ts`, `updater-and-daemon.test.ts` |
@@ -658,13 +658,13 @@ erDiagram
 - [`deploy/k8s/studio.yaml`](deploy/k8s/studio.yaml) (8 commits)
 - [`packages/daemon/src/source-exec.ts`](packages/daemon/src/source-exec.ts) (8 commits)
 - [`apps/web/src/components/layout/Sidebar.tsx`](apps/web/src/components/layout/Sidebar.tsx) (7 commits)
-- [`apps/web/src/components/persona/DigitalTwinAvatar3D.tsx`](apps/web/src/components/persona/DigitalTwinAvatar3D.tsx) (6 commits)
 - [`apps/web/src/components/viewers/MediaInspectorPanel.tsx`](apps/web/src/components/viewers/MediaInspectorPanel.tsx) (6 commits)
 - [`packages/daemon/test/source-exec.test.ts`](packages/daemon/test/source-exec.test.ts) (6 commits)
 - [`server/server/main.py`](server/server/main.py) (6 commits)
 - [`server/server/services/workspace_relay.py`](server/server/services/workspace_relay.py) (6 commits)
 - [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (5 commits)
 - [`apps/web/src/app/memory/page.tsx`](apps/web/src/app/memory/page.tsx) (5 commits)
+- [`apps/web/src/components/agent/ActiveRunsMonitor.tsx`](apps/web/src/components/agent/ActiveRunsMonitor.tsx) (5 commits)
 
 ## 8. Development & Verification Commands
 
@@ -687,12 +687,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `35f904aa` (2026-11-21): style(workbench): 精简工作台视窗顶栏按钮组并收纳至更多操作菜单
 - `e204f5b8` (2026-11-21): refactor(plugins): 将演播台入口移出左侧导航并归位至工作台插件区
 - `c18a980a` (2026-11-21): chore(studio): 升级 filmkit 镜像至 c43583b03335 固化 Colab Drive 缓存与多人说话人隔离
 - `0bb662a1` (2026-11-20): chore(studio): 升级 filmkit 镜像至 08b65eaa2ca2 修复 Gemini 网关请求头与 os 导入
 - `ec7a1592` (2026-11-20): chore(studio): 演播台改走 Cloudflare Workers 反代网关并移除直连 fleet-proxy
 - `7a8bd174` (2026-11-20): feat(plugins): 新增插件市场并将演播台与公众号一键分发改为按需安装配置启用
-- `edf2d53e` (2026-11-20): fix(studio): 为集群 filmkit Pod 配置出口代理确保稳定访问 Gemini 与外部视频网关
 
 ## 10. Key Environment Variables & Configuration
 
@@ -715,9 +715,8 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ### 最近提交碰到的业务条目（改动后复查它们还成不成立）
 
+- `35f904aa` style(workbench): 精简工作台视窗顶栏按钮组并收纳至更多操作菜单 → `R-MEDIA-VIEW`, `R-WECHAT-DRAFT`, `R-STUDIO-INLINE-PLAY`
 - `e204f5b8` refactor(plugins): 将演播台入口移出左侧导航并归位至工作台插件区 → `R-MEDIA-VIEW`, `R-WECHAT-DRAFT`, `R-STUDIO-INLINE-PLAY`, `R-PLUGIN-MARKETPLACE`
-- `7a8bd174` feat(plugins): 新增插件市场并将演播台与公众号一键分发改为按需安装配置启用 → `R-ENT-SECRETS`, `R-DOCS-WRITE-LIGHT`, `R-PUBLIC-REPO-CLEAN`, `R-MENU-KEEPALIVE`, `R-MEDIA-VIEW`, `R-WECHAT-DRAFT`, `R-STUDIO-INLINE-PLAY`, `R-PLUGIN-MARKETPLACE`
-- `edf2d53e` fix(studio): 为集群 filmkit Pod 配置出口代理确保稳定访问 Gemini 与外部视频网关 → `R-PUBLIC-REPO-CLEAN`
 
 ---
 _Auto-maintained by `scripts/project_blueprint.mjs` (v20261126) & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._

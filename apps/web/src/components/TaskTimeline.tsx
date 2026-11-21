@@ -85,21 +85,55 @@ export default function TaskTimeline({
   const inspector = useMediaInspector();
   const [showAll, setShowAll] = useState(false);
   const [openTool, setOpenTool] = useState<string | null>(null);
+  const [expandedSubagents, setExpandedSubagents] = useState<Record<string, boolean>>({});
   const [copied, setCopied] = useState(false);
 
-  const rows = events.filter((e) => e.kind !== "usage" && e.kind !== "session");
+  const { rows, subagentChildren } = useMemo(() => {
+    const knownSubagents = new Set<string>();
+    for (const e of events) {
+      if (e.kind === "subagent" && e.id) knownSubagents.add(e.id);
+    }
+    const childrenMap = new Map<string, TaskEvent[]>();
+    const synthesized = new Set<string>();
+    const topRows: TaskEvent[] = [];
+
+    for (const e of events) {
+      if (e.kind === "usage" || e.kind === "session") continue;
+      if (e.kind === "tool" && e.subagent_id) {
+        const sid = e.subagent_id;
+        const list = childrenMap.get(sid) ?? [];
+        list.push(e);
+        childrenMap.set(sid, list);
+        if (!knownSubagents.has(sid) && !synthesized.has(sid)) {
+          synthesized.add(sid);
+          topRows.push({
+            kind: "subagent",
+            id: sid,
+            name: e.subagent_name || sid,
+            agent_type: "subagent",
+            status: e.status === "failed" ? "failed" : e.status === "running" ? "running" : "done",
+          });
+        }
+        continue;
+      }
+      topRows.push(e);
+    }
+    return { rows: topRows, subagentChildren: childrenMap };
+  }, [events]);
+
   const kept = [...events].reverse().find((e) => e.kind === "worktree" && e.status === "kept") as (TaskEvent & Record<string, unknown>) | undefined;
 
-  const isWaitingQuestion = (e: TaskEvent) =>
-    e.kind === "question" && ((e as any).status === "waiting" || !(e as any).status);
+  const isPinnedRow = (e: TaskEvent) =>
+    (e.kind === "question" && ((e as any).status === "waiting" || !(e as any).status)) ||
+    (e.kind === "subagent" && ((e as any).status === "running" || !(e as any).status));
 
-  // Guaranteed unhide protection: any active question waiting for response is never hidden
+  // Guaranteed unhide protection: any active question or running subagent is never hidden
   const visible = useMemo(() => {
     if (showAll || rows.length <= COLLAPSED) return rows;
     const recent = rows.slice(-COLLAPSED);
-    const olderWaiting = rows.slice(0, rows.length - COLLAPSED).filter(isWaitingQuestion);
-    if (olderWaiting.length === 0) return recent;
-    return [...olderWaiting, ...recent];
+    const olderPinned = rows.slice(0, rows.length - COLLAPSED).filter(isPinnedRow);
+    if (olderPinned.length === 0) return recent;
+    return [...olderPinned, ...recent];
   }, [showAll, rows]);
 
   const hidden = rows.length - visible.length;
@@ -224,125 +258,289 @@ export default function TaskTimeline({
     }
   };
 
+  const renderToolRow = (ev: TaskEvent & Record<string, unknown>, fallbackKey: string) => {
+    const id = str(ev.id) || fallbackKey;
+    const output = str(ev.output);
+    const open = openTool === id && !!output;
+    const status = str(ev.status);
+    const rawName = str(ev.name);
+    const rawDetail = str(ev.detail);
+
+    // Parse tool name and detail if rawName or rawDetail contains "ToolName: detail"
+    let toolName = rawName;
+    let detail = rawDetail;
+    if (rawName && rawName.includes(":") && (!rawDetail || rawDetail === rawName)) {
+      const colonIdx = rawName.indexOf(":");
+      if (colonIdx > 0 && colonIdx < 30) {
+        toolName = rawName.slice(0, colonIdx).trim();
+        detail = rawName.slice(colonIdx + 1).trim();
+      }
+    } else if (rawDetail && rawName && rawDetail.startsWith(`${rawName}:`)) {
+      detail = rawDetail.slice(rawName.length + 1).trim();
+    }
+
+    const label = taskToolLabel(toolName || undefined);
+    const showDetail = Boolean(detail && detail !== label && detail !== toolName);
+    const kind = taskToolKind(toolName || rawName || undefined);
+    const files = showDetail && (kind === "read" || kind === "edit" || kind === "write") ? stepFiles(detail) : [];
+
+    return (
+      <div key={id} style={{ minWidth: 0, maxWidth: "100%", overflow: "hidden" }}>
+        <button
+          type="button"
+          // Not `disabled`: a disabled button swallows clicks on the file names inside it.
+          aria-disabled={!output || undefined}
+          onClick={() => output && setOpenTool(open ? null : id)}
+          style={{
+            display: "flex",
+            width: "100%",
+            maxWidth: "100%",
+            minWidth: 0,
+            alignItems: "center",
+            gap: 8,
+            padding: "4px 0",
+            background: "none",
+            border: 0,
+            cursor: output ? "pointer" : "default",
+            textAlign: "left",
+            overflow: "hidden",
+          }}
+        >
+          <Icon name={KIND_ICON[kind]} size={13} style={{ color: "var(--aurora-fg3)", flexShrink: 0 }} />
+          <span
+            style={{
+              fontSize: 12.5,
+              color: "var(--aurora-fg2)",
+              flexShrink: 0,
+              maxWidth: showDetail ? "36%" : "calc(100% - 46px)",
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+          >
+            {label}
+          </span>
+          {files.length > 0 && (
+            <span title={files.map((f) => f.path).join("\n")} style={{ ...mono, flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+              {files.map((f, n) => {
+                const openable = !!inspector && isLocalFilePath(f.path) && detectMediaType(f.path) !== "unknown";
+                const openFile = () => inspector?.openMediaByUrl(f.path, f.name, null, device);
+                return (
+                  <span key={`${f.path}:${n}`}>
+                    {n > 0 && <span style={{ color: "var(--aurora-fg4)" }}>{", "}</span>}
+                    <span
+                      role={openable ? "link" : undefined}
+                      tabIndex={openable ? 0 : undefined}
+                      onClick={
+                        openable
+                          ? (clickEv) => {
+                              clickEv.stopPropagation();
+                              openFile();
+                            }
+                          : undefined
+                      }
+                      onKeyDown={
+                        openable
+                          ? (keyEv) => {
+                              if (keyEv.key !== "Enter" && keyEv.key !== " ") return;
+                              keyEv.preventDefault();
+                              keyEv.stopPropagation();
+                              openFile();
+                            }
+                          : undefined
+                      }
+                      style={{
+                        color: openable ? "var(--aurora-accent)" : "var(--aurora-fg1)",
+                        fontWeight: 600,
+                        cursor: openable ? "pointer" : undefined,
+                        textDecoration: openable ? "underline" : undefined,
+                        textDecorationColor: openable ? "color-mix(in srgb, var(--aurora-accent) 40%, transparent)" : undefined,
+                        textUnderlineOffset: 2,
+                      }}
+                    >
+                      {f.name}
+                    </span>
+                    {f.range && <span style={{ color: "var(--aurora-fg3)" }}>{`:${f.range}`}</span>}
+                    {f.dir && files.length === 1 && <span style={{ color: "var(--aurora-fg4)" }}>{`  ${f.dir}`}</span>}
+                  </span>
+                );
+              })}
+            </span>
+          )}
+          {showDetail && files.length === 0 && (
+            <span
+              style={{
+                ...mono,
+                flex: 1,
+                minWidth: 0,
+                color: "var(--aurora-fg1)",
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}
+            >
+              {detail}
+            </span>
+          )}
+          <span style={{ flexShrink: 0, display: "inline-flex", alignItems: "center", marginLeft: "auto", paddingLeft: 4 }}>
+            {status === "failed" ? (
+              <Icon name="close" size={13} style={{ color: "#DC2626" }} />
+            ) : status === "running" ? (
+              <span className={running ? "animate-pulse" : undefined} style={{ fontSize: 12, color: running ? "var(--aurora-accent)" : "var(--aurora-fg4)" }}>
+                •••
+              </span>
+            ) : (
+              <Icon name="check" size={13} style={{ color: "#10B981" }} />
+            )}
+          </span>
+        </button>
+        {open && (
+          <pre
+            style={{
+              ...mono,
+              fontSize: 11.5,
+              margin: "4px 0 4px 21px",
+              padding: 8,
+              borderRadius: 6,
+              background: "var(--aurora-surface-solid)",
+              color: "var(--aurora-fg2)",
+              whiteSpace: "pre-wrap",
+              overflowWrap: "anywhere",
+              maxWidth: "calc(100% - 21px)",
+              overflowX: "auto",
+            }}
+          >
+            {output}
+          </pre>
+        )}
+      </div>
+    );
+  };
+
   const row = (e: TaskEvent, i: number) => {
     const ev = e as TaskEvent & Record<string, unknown>;
     switch (e.kind) {
-      case "tool": {
-        const id = str(ev.id) || String(i);
+      case "tool":
+        return renderToolRow(ev, String(i));
+      case "subagent": {
+        const subId = str(ev.id) || `sub_${i}`;
+        const children = subagentChildren.get(subId) ?? [];
+        const status = str(ev.status) || "running";
         const output = str(ev.output);
-        const open = openTool === id && !!output;
-        const status = str(ev.status);
-        const rawName = str(ev.name);
-        const rawDetail = str(ev.detail);
-
-        // Parse tool name and detail if rawName or rawDetail contains "ToolName: detail"
-        let toolName = rawName;
-        let detail = rawDetail;
-        if (rawName && rawName.includes(":") && (!rawDetail || rawDetail === rawName)) {
-          const colonIdx = rawName.indexOf(":");
-          if (colonIdx > 0 && colonIdx < 30) {
-            toolName = rawName.slice(0, colonIdx).trim();
-            detail = rawName.slice(colonIdx + 1).trim();
-          }
-        } else if (rawDetail && rawName && rawDetail.startsWith(`${rawName}:`)) {
-          detail = rawDetail.slice(rawName.length + 1).trim();
-        }
-
-        const label = taskToolLabel(toolName || undefined);
-        const showDetail = Boolean(detail && detail !== label && detail !== toolName);
-        const kind = taskToolKind(toolName || rawName || undefined);
-        const files = showDetail && (kind === "read" || kind === "edit" || kind === "write") ? stepFiles(detail) : [];
+        const agentType = str(ev.agent_type) || "subagent";
+        const typeLabel =
+          agentType === "swarm"
+            ? "Swarm"
+            : agentType === "team"
+              ? "团队"
+              : agentType === "workflow"
+                ? "工作流"
+                : "子智能体";
+        const titleText = str(ev.name) || str(ev.role) || subId.slice(0, 12);
+        const roleText = str(ev.role);
+        const detail = str(ev.detail);
+        const hasBody = children.length > 0 || Boolean(output);
+        const isExpanded = expandedSubagents[subId] ?? (status === "running" && hasBody);
+        const toggle = () => {
+          if (!hasBody) return;
+          setExpandedSubagents((prev) => ({ ...prev, [subId]: !isExpanded }));
+        };
 
         return (
-          <div key={id} style={{ minWidth: 0, maxWidth: "100%", overflow: "hidden" }}>
+          <div
+            key={`subagent:${subId}`}
+            style={{
+              margin: "5px 0",
+              padding: "6px 8px",
+              borderRadius: 8,
+              border: `1px solid ${status === "running" ? "color-mix(in srgb, var(--aurora-accent) 36%, var(--aurora-border))" : "var(--aurora-border)"}`,
+              background: "color-mix(in srgb, var(--aurora-surface-solid) 65%, transparent)",
+              minWidth: 0,
+              maxWidth: "100%",
+              overflow: "hidden",
+            }}
+          >
             <button
               type="button"
-              // Not `disabled`: a disabled button swallows clicks on the file names inside it.
-              aria-disabled={!output || undefined}
-              onClick={() => output && setOpenTool(open ? null : id)}
+              aria-expanded={hasBody ? isExpanded : undefined}
+              aria-disabled={!hasBody || undefined}
+              onClick={toggle}
               style={{
                 display: "flex",
                 width: "100%",
                 maxWidth: "100%",
                 minWidth: 0,
                 alignItems: "center",
-                gap: 8,
-                padding: "4px 0",
+                gap: 6,
+                padding: 0,
                 background: "none",
                 border: 0,
-                cursor: output ? "pointer" : "default",
+                cursor: hasBody ? "pointer" : "default",
                 textAlign: "left",
                 overflow: "hidden",
               }}
             >
-              <Icon name={KIND_ICON[kind]} size={13} style={{ color: "var(--aurora-fg3)", flexShrink: 0 }} />
+              {hasBody ? (
+                <Icon
+                  name={isExpanded ? "chevron_down" : "chevron_right"}
+                  size={12}
+                  style={{ color: "var(--aurora-fg3)", flexShrink: 0 }}
+                />
+              ) : (
+                <Icon name="layers" size={12} style={{ color: "var(--aurora-accent)", flexShrink: 0 }} />
+              )}
+              <span
+                style={{
+                  fontSize: 10.5,
+                  fontWeight: 600,
+                  padding: "1px 5px",
+                  borderRadius: 4,
+                  background: "var(--aurora-accent-soft)",
+                  color: "var(--aurora-accent)",
+                  flexShrink: 0,
+                  lineHeight: 1.4,
+                }}
+              >
+                {typeLabel}
+              </span>
               <span
                 style={{
                   fontSize: 12.5,
-                  color: "var(--aurora-fg2)",
+                  fontWeight: 600,
+                  color: "var(--aurora-fg1)",
                   flexShrink: 0,
-                  maxWidth: showDetail ? "36%" : "calc(100% - 46px)",
+                  maxWidth: detail ? "38%" : "calc(100% - 120px)",
                   whiteSpace: "nowrap",
                   overflow: "hidden",
                   textOverflow: "ellipsis",
                 }}
               >
-                {label}
+                {titleText}
               </span>
-              {files.length > 0 && (
-                <span title={files.map((f) => f.path).join("\n")} style={{ ...mono, flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                  {files.map((f, n) => {
-                    const openable = !!inspector && isLocalFilePath(f.path) && detectMediaType(f.path) !== "unknown";
-                    const open = () => inspector?.openMediaByUrl(f.path, f.name, null, device);
-                    return (
-                      <span key={`${f.path}:${n}`}>
-                        {n > 0 && <span style={{ color: "var(--aurora-fg4)" }}>{", "}</span>}
-                        <span
-                          role={openable ? "link" : undefined}
-                          tabIndex={openable ? 0 : undefined}
-                          onClick={
-                            openable
-                              ? (ev) => {
-                                  ev.stopPropagation();
-                                  open();
-                                }
-                              : undefined
-                          }
-                          onKeyDown={
-                            openable
-                              ? (ev) => {
-                                  if (ev.key !== "Enter" && ev.key !== " ") return;
-                                  ev.preventDefault();
-                                  ev.stopPropagation();
-                                  open();
-                                }
-                              : undefined
-                          }
-                          style={{
-                            color: openable ? "var(--aurora-accent)" : "var(--aurora-fg1)",
-                            fontWeight: 600,
-                            cursor: openable ? "pointer" : undefined,
-                            textDecoration: openable ? "underline" : undefined,
-                            textDecorationColor: openable ? "color-mix(in srgb, var(--aurora-accent) 40%, transparent)" : undefined,
-                            textUnderlineOffset: 2,
-                          }}
-                        >
-                          {f.name}
-                        </span>
-                        {f.range && <span style={{ color: "var(--aurora-fg3)" }}>{`:${f.range}`}</span>}
-                        {f.dir && files.length === 1 && <span style={{ color: "var(--aurora-fg4)" }}>{`  ${f.dir}`}</span>}
-                      </span>
-                    );
-                  })}
-                </span>
-              )}
-              {showDetail && files.length === 0 && (
+              {roleText && roleText !== titleText && !detail && (
                 <span
                   style={{
-                    ...mono,
+                    fontSize: 11.5,
+                    color: "var(--aurora-fg3)",
                     flex: 1,
                     minWidth: 0,
-                    color: "var(--aurora-fg1)",
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
+                >
+                  {roleText}
+                </span>
+              )}
+              {detail && (
+                <span
+                  title={detail}
+                  style={{
+                    ...mono,
+                    fontSize: 11.5,
+                    flex: 1,
+                    minWidth: 0,
+                    color: "var(--aurora-fg3)",
                     whiteSpace: "nowrap",
                     overflow: "hidden",
                     textOverflow: "ellipsis",
@@ -351,7 +549,28 @@ export default function TaskTimeline({
                   {detail}
                 </span>
               )}
-              <span style={{ flexShrink: 0, display: "inline-flex", alignItems: "center", marginLeft: "auto", paddingLeft: 4 }}>
+              {children.length > 0 && (
+                <span
+                  style={{
+                    fontSize: 11,
+                    color: "var(--aurora-fg3)",
+                    flexShrink: 0,
+                    marginLeft: detail ? 4 : "auto",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {`${children.length} 步`}
+                </span>
+              )}
+              <span
+                style={{
+                  flexShrink: 0,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  marginLeft: children.length > 0 ? 4 : "auto",
+                  paddingLeft: 2,
+                }}
+              >
                 {status === "failed" ? (
                   <Icon name="close" size={13} style={{ color: "#DC2626" }} />
                 ) : status === "running" ? (
@@ -363,24 +582,41 @@ export default function TaskTimeline({
                 )}
               </span>
             </button>
-            {open && (
-              <pre
+            {isExpanded && hasBody && (
+              <div
                 style={{
-                  ...mono,
-                  fontSize: 11.5,
-                  margin: "4px 0 4px 21px",
-                  padding: 8,
-                  borderRadius: 6,
-                  background: "var(--aurora-surface-solid)",
-                  color: "var(--aurora-fg2)",
-                  whiteSpace: "pre-wrap",
-                  overflowWrap: "anywhere",
-                  maxWidth: "calc(100% - 21px)",
-                  overflowX: "auto",
+                  marginTop: 6,
+                  marginLeft: 6,
+                  paddingLeft: 10,
+                  borderLeft: "2px solid color-mix(in srgb, var(--aurora-accent) 30%, transparent)",
+                  minWidth: 0,
+                  maxWidth: "calc(100% - 6px)",
+                  overflow: "hidden",
                 }}
               >
-                {output}
-              </pre>
+                {children.map((child, ci) =>
+                  renderToolRow(child as TaskEvent & Record<string, unknown>, `${subId}_${ci}`),
+                )}
+                {output && (
+                  <pre
+                    style={{
+                      ...mono,
+                      fontSize: 11.5,
+                      margin: children.length > 0 ? "6px 0 2px" : "2px 0",
+                      padding: 8,
+                      borderRadius: 6,
+                      background: "var(--aurora-surface-mute)",
+                      color: "var(--aurora-fg2)",
+                      whiteSpace: "pre-wrap",
+                      overflowWrap: "anywhere",
+                      maxWidth: "100%",
+                      overflowX: "auto",
+                    }}
+                  >
+                    {output}
+                  </pre>
+                )}
+              </div>
             )}
           </div>
         );

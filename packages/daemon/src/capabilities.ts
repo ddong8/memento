@@ -3,9 +3,10 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { join } from "node:path";
 
-import { antigravityExecutable, findAntigravityLanguageServer, type AntigravityLanguageServer } from "./antigravity.js";
+import { listAgyModels, type AgyModel } from "./agy-models.js";
+import { antigravityExecutable, findAntigravityLanguageServer, officialAgyCli, type AntigravityLanguageServer } from "./antigravity.js";
 import { homeDir } from "./config.js";
-import { findExecutable, findPython } from "./exec-env.js";
+import { executionEnvironment, findExecutable, findPython } from "./exec-env.js";
 import { ensureWorkbuddyCliInstalled, isWorkbuddyInstalled } from "./workbuddy.js";
 import { workbuddyProductModels } from "./workbuddy-models.js";
 
@@ -428,6 +429,7 @@ export async function antigravityCapabilities(
   agyPath: string,
   home: string,
   locate: typeof findAntigravityLanguageServer = findAntigravityLanguageServer,
+  fetchCliModels?: () => Promise<AgyModel[]>,
 ): Promise<Record<string, unknown>> {
   const cacheDir = join(home, ".gemini", "antigravity");
   const cachePath = join(cacheDir, "memento_models_cache.json");
@@ -435,14 +437,69 @@ export async function antigravityCapabilities(
   let defaultModelId = "";
   let defaultModelLabel = "";
   let discoveredOptions: ModelOption[] = [];
+  let lsWithoutCsrf = false;
+
+  const saveModelCache = async () => {
+    if (discoveredOptions.length === 0) return;
+    try {
+      await mkdir(cacheDir, { recursive: true });
+      await writeFile(
+        cachePath,
+        JSON.stringify(
+          {
+            updated_at: new Date().toISOString(),
+            default_model_id: defaultModelId,
+            default_model_label: defaultModelLabel,
+            models: discoveredOptions,
+          },
+          null,
+          2,
+        ),
+        "utf8",
+      );
+    } catch {
+      // 忽略缓存写入异常
+    }
+  };
+
+  const loadFromOfficialCli = async () => {
+    try {
+      let cliModels: AgyModel[] = [];
+      if (fetchCliModels) {
+        cliModels = await fetchCliModels();
+      } else {
+        const bin = await officialAgyCli(home);
+        if (bin) cliModels = await listAgyModels(bin, await executionEnvironment());
+      }
+      if (cliModels.length > 0) {
+        defaultModelId = cliModels[0]!.id;
+        defaultModelLabel = cliModels[0]!.label;
+        const seenIds = new Set<string>();
+        for (const m of cliModels) {
+          if (!m.id || seenIds.has(m.id)) continue;
+          seenIds.add(m.id);
+          discoveredOptions.push({
+            id: m.id,
+            name: m.id === defaultModelId ? `${m.label} (当前 CLI 默认)` : m.label,
+            desc: "官方 agy CLI 实时同步",
+          });
+        }
+        await saveModelCache();
+      }
+    } catch {
+      // 忽略 CLI 探测异常
+    }
+  };
 
   // 1. 优先通过运行中的 Antigravity Language Server Connect RPC 动态拉取实时模型列表与当前选中模型
   try {
     let ls = await locate();
-    let us = ls ? await fetchAntigravityLiveUserStatus(ls) : undefined;
-    if (!us && ls) {
+    lsWithoutCsrf = Boolean(ls && !ls.csrf);
+    let us = ls?.csrf ? await fetchAntigravityLiveUserStatus(ls) : undefined;
+    if (!us && ls?.csrf) {
       ls = await locate({ forceRefresh: true });
-      us = ls ? await fetchAntigravityLiveUserStatus(ls) : undefined;
+      lsWithoutCsrf = Boolean(ls && !ls.csrf);
+      us = ls?.csrf ? await fetchAntigravityLiveUserStatus(ls) : undefined;
     }
     const rawModels: any[] = us?.cascadeModelConfigData?.clientModelConfigs || [];
     if (rawModels.length > 0) {
@@ -475,36 +532,24 @@ export async function antigravityCapabilities(
         });
       }
 
-      if (discoveredOptions.length > 0) {
-        try {
-          await mkdir(cacheDir, { recursive: true });
-          await writeFile(
-            cachePath,
-            JSON.stringify(
-              {
-                updated_at: new Date().toISOString(),
-                default_model_id: defaultModelId,
-                default_model_label: defaultModelLabel,
-                models: discoveredOptions,
-              },
-              null,
-              2,
-            ),
-            "utf8",
-          );
-        } catch {
-          // 忽略缓存写入异常
-        }
-      }
+      await saveModelCache();
     }
   } catch {
-    // 忽略实时 RPC 异常，降级读取本地缓存
+    // 忽略实时 RPC 异常，降级读取官方 CLI 或本地缓存
   }
 
-  // 2. 若 Antigravity 客户端未启动，读取上次同步缓存在本地的真实模型列表
+  // 1.5 测试显式注入 CLI 模型列表时直接同步获取
+  if (discoveredOptions.length === 0 && lsWithoutCsrf && fetchCliModels) {
+    await loadFromOfficialCli();
+  }
+
+  // 2. 读取本地缓存的真实模型列表（0ms 返回，避免启动/上报能力时被外部 CLI 阻塞 3 秒）
+  let cacheAgeMs = Infinity;
   if (discoveredOptions.length === 0) {
     const cached = await readJson(cachePath);
     if (cached && Array.isArray(cached.models) && cached.models.length > 0) {
+      const updatedAt = typeof cached.updated_at === "string" ? Date.parse(cached.updated_at) : NaN;
+      if (Number.isFinite(updatedAt)) cacheAgeMs = Date.now() - updatedAt;
       defaultModelId = String(cached.default_model_id || "").trim();
       defaultModelLabel = String(cached.default_model_label || defaultModelId).trim();
       for (const item of cached.models) {
@@ -516,6 +561,14 @@ export async function antigravityCapabilities(
           });
         }
       }
+    }
+  }
+
+  // 2.5 Antigravity 2.34+ 无 CSRF 或无桌面缓存时，异步后台通过官方 agy CLI 刷新模型列表并落盘缓存
+  if (!fetchCliModels && (lsWithoutCsrf || discoveredOptions.length === 0) && cacheAgeMs > 10 * 60_000) {
+    const hasAgyHome = existsSync(join(home, ".gemini", "antigravity-cli")) || existsSync(join(home, ".gemini", "antigravity"));
+    if (hasAgyHome) {
+      void loadFromOfficialCli();
     }
   }
 

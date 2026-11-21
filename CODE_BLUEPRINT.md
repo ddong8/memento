@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `66f38696` · Updated: `2026-11-21`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `239f3e87` · Updated: `2026-11-21`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,8 +16,8 @@
 - 规模 (Scale): 9 个子系统 · 40 组 API 路由 / 300 个接口 · 39 个前端页面 · 41 个数据模型 · 35 个服务模块 · 252 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `6f51f72d` (2026-11-22): perf(client): 根治 PC 与手机客户端长会话渲染、输入回流与 GPU 磨砂卡顿并升级至 v1.0.148
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 73（✅ 73 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `F-ASK`, `F-FOLLOWUP`, `F-STOP`, `R-CONFIG-LOCK`, `R-REPLY-VISIBLE`, `R-SHOW-TIMES`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`
+- 最近改动 (Latest): `29cefb1c` (2026-11-22): fix(ask,antigravity): 修复会话标题错配、长工具链预览缺失与官方 agy 续接桌面会话失败并升级至 v1.0.149
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 73（✅ 73 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `F-RESUME`, `R-AGY-APP-CSRF`, `R-ENT-DEVICE-POLICY`, `R-SESSION-TIMELINE`, `R-RESTORE-CONFIG`, `R-TITLE-CONSISTENT`, `R-NEWCHAT-WORKS`, `R-APP-NAME`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -31,7 +31,7 @@
 | 8. Development & Verification Commands | L669-L686 |
 | 9. Recent Architectural Evolutions | L688-L695 |
 | 10. Key Environment Variables & Configuration | L697-L709 |
-| 11. 业务蓝图核对 (Business Blueprint Check) | L711-L719 |
+| 11. 业务蓝图核对 (Business Blueprint Check) | L711-L720 |
 
 ## 1. Project Overview & Tech Stack
 
@@ -658,13 +658,13 @@ erDiagram
 - [`apps/web/src/components/layout/Sidebar.tsx`](apps/web/src/components/layout/Sidebar.tsx) (8 commits)
 - [`deploy/k8s/studio.yaml`](deploy/k8s/studio.yaml) (8 commits)
 - [`packages/daemon/src/source-exec.ts`](packages/daemon/src/source-exec.ts) (8 commits)
-- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (6 commits)
+- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (7 commits)
 - [`apps/web/src/components/viewers/MediaInspectorPanel.tsx`](apps/web/src/components/viewers/MediaInspectorPanel.tsx) (6 commits)
+- [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (6 commits)
 - [`packages/daemon/test/source-exec.test.ts`](packages/daemon/test/source-exec.test.ts) (6 commits)
 - [`server/server/main.py`](server/server/main.py) (6 commits)
 - [`server/server/services/workspace_relay.py`](server/server/services/workspace_relay.py) (6 commits)
 - [`apps/web/src/app/memory/page.tsx`](apps/web/src/app/memory/page.tsx) (5 commits)
-- [`apps/web/src/app/studio/page.tsx`](apps/web/src/app/studio/page.tsx) (5 commits)
 
 ## 8. Development & Verification Commands
 
@@ -687,12 +687,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `29cefb1c` (2026-11-22): fix(ask,antigravity): 修复会话标题错配、长工具链预览缺失与官方 agy 续接桌面会话失败并升级至 v1.0.149
 - `6f51f72d` (2026-11-22): perf(client): 根治 PC 与手机客户端长会话渲染、输入回流与 GPU 磨砂卡顿并升级至 v1.0.148
 - `207a5ba0` (2026-11-22): fix(antigravity): 应用 2.34 不再提供 CSRF 令牌时任务自动改走官方 agy 命令行
 - `53608a46` (2026-11-21): feat(studio): 同步国产 S+ 影视预设与批量 SeedVR2 1080P 阶段进度展示
 - `10e05b01` (2026-11-21): fix(video): 实现播放器播放后持久化缓存并修复演播台视频缓存失效问题
 - `206ac505` (2026-11-21): feat(agents): 全链路支持 Claude Code、Codex、Antigravity 与 WorkBuddy 子智能体及多智能体协同
-- `35f904aa` (2026-11-21): style(workbench): 精简工作台视窗顶栏按钮组并收纳至更多操作菜单
 
 ## 10. Key Environment Variables & Configuration
 
@@ -715,6 +715,7 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ### 最近提交碰到的业务条目（改动后复查它们还成不成立）
 
+- `29cefb1c` fix(ask,antigravity): 修复会话标题错配、长工具链预览缺失与官方 agy 续接桌面会话失败并升级至 v1.0.149 → `F-RESUME`, `R-AGY-APP-CSRF`, `R-ENT-DEVICE-POLICY`, `R-SESSION-TIMELINE`, `R-RESTORE-CONFIG`, `R-TITLE-CONSISTENT`, `R-NEWCHAT-WORKS`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `S-CONV-TITLE`
 - `6f51f72d` perf(client): 根治 PC 与手机客户端长会话渲染、输入回流与 GPU 磨砂卡顿并升级至 v1.0.148 → `F-ASK`, `F-FOLLOWUP`, `F-STOP`, `R-CONFIG-LOCK`, `R-REPLY-VISIBLE`, `R-SHOW-TIMES`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `R-THINKING-FULL`, `R-PASTE-IMAGE-ONCE`, `R-PLUGIN-MARKETPLACE`
 - `207a5ba0` fix(antigravity): 应用 2.34 不再提供 CSRF 令牌时任务自动改走官方 agy 命令行 → `F-AGY-NEW`, `F-STOP`, `R-AGY-WORKDIR`, `R-AGY-APP-CSRF`, `R-STOP-ALL-AGENTS`, `R-ISLAND-CLEANUP`, `R-ENT-DEVICE-POLICY`
 

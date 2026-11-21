@@ -529,7 +529,7 @@ export class TaskRunner {
 
   /** A model ran out: the server's model picker learns it now rather than at the next quota report. */
   private reportModelLimits(): void {
-    void probeAllQuotas(undefined, { force: true })
+    void probeAllQuotas(undefined, { force: true, nonBlocking: true })
       .then((quotas) => this.send({ type: "agent_quotas", quotas }))
       .catch(() => {});
   }

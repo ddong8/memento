@@ -245,7 +245,7 @@ export class WsTaskClient {
           void this.reportQuotas();
           break;
         case "get_agent_quotas":
-          void this.reportQuotas();
+          void this.reportQuotas({ force: true, nonBlocking: false });
           break;
         case "task_dispatch": {
           if (!data.task || typeof data.task !== "object") break;
@@ -445,9 +445,18 @@ export class WsTaskClient {
     }
   }
 
-  private async reportQuotas(): Promise<void> {
+  private async reportQuotas(options?: { force?: boolean; nonBlocking?: boolean }): Promise<void> {
     try {
-      const report = await probeAllQuotas();
+      const nonBlocking = options?.nonBlocking ?? true;
+      const report = await probeAllQuotas(undefined, {
+        force: options?.force,
+        nonBlocking,
+        onRefreshed: nonBlocking
+          ? () => {
+              if (this.connected) void this.reportQuotas({ force: true, nonBlocking: true });
+            }
+          : undefined,
+      });
       this.sendJson({ type: "agent_quotas", quotas: report });
       const activeTools = Object.keys(report.tools).filter((k) => (report.tools as any)[k]?.available);
       this.log(`Reported agent quotas for tools: ${activeTools.join(", ")}`);

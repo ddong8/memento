@@ -163,7 +163,7 @@ export function isJunkAntigravityTitle(title?: string | null, sessionId?: string
   // Corrupted / mojibake titles with replacement characters or raw control characters
   if (t.includes("\ufffd") || /[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(t)) return true;
   if (t.startsWith("\\n") || t.startsWith("\n") || t.startsWith("\\r") || t.startsWith("\r")) return true;
-  if (t.startsWith("【前文对话历史】") || t.startsWith("【前序会话核心记忆快照") || t.startsWith("Memento: 【前序会话核心记忆快照")) return true;
+  if (t.startsWith("【前文对话历史") || t.startsWith("【前序会话核心记忆快照") || t.startsWith("Memento: 【前序会话核心记忆快照")) return true;
   if (/(?:\\[0-7]{3}){2,}/.test(t)) return true;
   const lower = t.toLowerCase();
   if (JUNK_TITLE_SET.has(lower)) return true;
@@ -193,10 +193,10 @@ export function extractUserTitleFromText(text: string): string | undefined {
   // Strip multi-turn continuation preambles
   cleaned = cleaned.replace(/^【前序会话核心记忆快照[\s\S]*?【执行规则】[\s\S]*?当前用户指令[：:]\s*/i, "");
   cleaned = cleaned.replace(/^【前序会话核心记忆快照[\s\S]*?当前用户指令[：:]\s*/i, "");
-  cleaned = cleaned.replace(/^【前文对话历史】[\s\S]*?【当前用户指令】\s*/i, "");
-  cleaned = cleaned.replace(/^【前文对话历史】[\s\S]*?\n\s*用户[：:]\s*/i, "");
+  cleaned = cleaned.replace(/^【前文对话历史[^】]*】[\s\S]*?【当前用户指令】\s*/i, "");
+  cleaned = cleaned.replace(/^【前文对话历史[^】]*】[\s\S]*?\n\s*用户[：:]\s*/i, "");
   cleaned = cleaned.replace(/^【前序会话核心记忆快照[\s\S]*?\n\s*用户[：:]\s*/i, "");
-  cleaned = cleaned.replace(/^【前文对话历史】\s*/i, "");
+  cleaned = cleaned.replace(/^【前文对话历史[^】]*】\s*/i, "");
   cleaned = cleaned.replace(/^【前序会话核心记忆快照[\s\S]*?】\s*/i, "");
   cleaned = cleaned.replace(/^用户[：:]\s*/i, "").trim();
   const firstLine = cleaned.split("\n")[0]?.trim();

@@ -10,8 +10,10 @@ import {
   antigravityCliHasConversation,
   antigravityDesktopHasConversation,
   antigravityDesktopTranscriptContext,
+  extractUserTitleFromText,
   getAntigravitySessionInfo,
   isAppAuthRejection,
+  isJunkAntigravityTitle,
   updateAntigravitySessionTitle,
 } from "../src/antigravity.js";
 import { sqliteRun } from "../src/sqlite.js";
@@ -73,6 +75,8 @@ it("detects desktop-only vs CLI Antigravity conversations and extracts clean des
     expect(ctx).toContain("助手: 已完成渲染优化并发布 v1.0.148。");
     expect(ctx).not.toContain("SYSTEM_MESSAGE");
     expect(ctx).not.toContain("ADDITIONAL_METADATA");
+    expect(isJunkAntigravityTitle("【前文对话历史（续接自 Antigravity 桌面会话 4ff9e5c4）】")).toBe(true);
+    expect(extractUserTitleFromText(`${ctx}\n【当前用户指令】\n修好了吗`)).toBe("修好了吗");
   } finally {
     rmSync(home, { recursive: true, force: true });
   }

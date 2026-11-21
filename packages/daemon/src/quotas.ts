@@ -108,29 +108,28 @@ export async function probeAntigravityQuota(
 ): Promise<ToolQuotaInfo> {
   try {
     let ls = await locate();
-    if (!ls) {
-      // No app running (a server without a desktop): Google's agy CLI keeps a login of its own
-      const cli = await viaCli();
-      if (cli) return cli;
-      return {
-        tool: "antigravity",
-        name: "Google Antigravity",
-        available: false,
-        error: "Antigravity 本地服务未运行",
-      };
-    }
-    let us = await antigravityUserStatus(ls);
-    if (!us) {
+    let us = ls?.csrf ? await antigravityUserStatus(ls) : undefined;
+    if (!us && ls?.csrf) {
       // The server moved or rotated its token since the last lookup
       ls = await locate({ forceRefresh: true });
-      us = ls ? await antigravityUserStatus(ls) : undefined;
+      us = ls?.csrf ? await antigravityUserStatus(ls) : undefined;
+    }
+    if (!us) {
+      // Either no app is running (headless server) or Antigravity 2.34+ no longer exposes its
+      // language server CSRF token to external processes: read live quotas via Google's official agy CLI.
+      const cli = await viaCli();
+      if (cli) return cli;
+      // Compatibility fallback if an older language server accepts requests without a CSRF header
+      if (ls && !ls.csrf) {
+        us = await antigravityUserStatus(ls);
+      }
     }
     if (!us) {
       return {
         tool: "antigravity",
         name: "Google Antigravity",
         available: false,
-        error: ls ? "无法连接 Antigravity 语言服务端口" : "Antigravity 本地服务未运行",
+        error: ls ? "无法连接 Antigravity 语言服务端口（请安装并登录官方 agy 命令行）" : "Antigravity 本地服务未运行",
       };
     }
 
@@ -246,27 +245,41 @@ function agyTokenUsable(token: AgyCliToken | undefined, now = Date.now()): token
   return !Number.isFinite(exp) || exp - 60_000 > now;
 }
 
-let agyModelsAt = 0;
-let agyModelsCache: AgyModel[] | undefined;
+let agyModelsCache: { home: string; at: number; models: AgyModel[] } | undefined;
+let agyModelsInFlight: Promise<AgyModel[] | undefined> | undefined;
 
 /**
  * The models the CLI offers, its default first (Gemini 4 and the like are built into it; Google's model API
  * doesn't list them), shared with the task runner's list. `agy models` also signs in with the CLI's stored
  * login, saving a fresh token when the old one expired, so memento never redeems the refresh token itself.
- * Run at most every 10 minutes.
+ * Run at most every 10 minutes (or 5 seconds on explicit force refresh).
  */
-async function agyCliModelList(home: string): Promise<AgyModel[] | undefined> {
-  if (Date.now() - agyModelsAt < 10 * 60_000) return agyModelsCache;
-  agyModelsAt = Date.now();
-  const bin = await officialAgyCli(home);
-  if (!bin) return agyModelsCache;
-  const models = await listAgyModels(bin, await executionEnvironment());
-  if (models.length) agyModelsCache = models;
-  return agyModelsCache;
+async function agyCliModelList(home: string, force = false): Promise<AgyModel[] | undefined> {
+  const now = Date.now();
+  const minTtl = force ? 5_000 : 10 * 60_000;
+  if (agyModelsCache && agyModelsCache.home === home && now - agyModelsCache.at < minTtl) {
+    return agyModelsCache.models;
+  }
+  if (agyModelsInFlight) return agyModelsInFlight;
+  agyModelsInFlight = (async () => {
+    try {
+      const bin = await officialAgyCli(home);
+      if (!bin) return agyModelsCache?.home === home ? agyModelsCache.models : undefined;
+      const models = await listAgyModels(bin, await executionEnvironment());
+      if (models.length) {
+        agyModelsCache = { home, at: Date.now(), models };
+        return models;
+      }
+      return agyModelsCache?.home === home ? agyModelsCache.models : undefined;
+    } finally {
+      agyModelsInFlight = undefined;
+    }
+  })();
+  return agyModelsInFlight;
 }
 
-let agyUsageAt = 0;
-let agyUsageCache: any;
+let agyUsageCache: { home: string; at: number; ok: boolean; summary: any } | undefined;
+let agyUsageInFlight: Promise<any> | undefined;
 
 /**
  * The quota groups `agy -p /usage --output-format json` reports, in retrieveUserQuotaSummary's shape
@@ -291,8 +304,13 @@ export function agyUsageSummary(stdout: string): any {
         displayName: g.name,
         description: typeof g.description === "string" ? g.description : "",
         buckets: g.buckets
-          .filter((b: any) => typeof b?.remaining_fraction === "number")
-          .map((b: any) => ({ window: b.window, displayName: b.name, remainingFraction: b.remaining_fraction, resetTime: b.reset_time })),
+          .filter((b: any) => typeof b?.remaining_fraction === "number" || Boolean(b?.reset_time))
+          .map((b: any) => ({
+            window: b.window,
+            displayName: b.name,
+            remainingFraction: typeof b.remaining_fraction === "number" ? b.remaining_fraction : undefined,
+            resetTime: b.reset_time,
+          })),
       }))
       .filter((g: any) => g.buckets.length);
     return groups.length ? { groups } : undefined;
@@ -300,19 +318,35 @@ export function agyUsageSummary(stdout: string): any {
   return undefined;
 }
 
-/** The CLI's own quota report (agyUsageSummary), at most once a minute; it answers from the API, no conversation, no model. */
-async function agyCliUsage(home: string): Promise<any> {
-  if (Date.now() - agyUsageAt < 60_000) return agyUsageCache;
-  agyUsageAt = Date.now();
-  const bin = await officialAgyCli(home);
-  if (!bin) return agyUsageCache;
-  const env = await executionEnvironment();
-  const stdout = await new Promise<string>((resolve) => {
-    execFile(bin, ["-p", "/usage", "--output-format", "json"], { env, timeout: 30_000, windowsHide: true, maxBuffer: 1 << 20 }, (_e, out) => resolve(String(out ?? "")));
-  });
-  const summary = agyUsageSummary(stdout);
-  if (summary) agyUsageCache = summary;
-  return agyUsageCache;
+/** The CLI's own quota report (agyUsageSummary), at most once a minute (5s on force); it answers from the API, no conversation, no model. */
+async function agyCliUsage(home: string, force = false): Promise<any> {
+  const now = Date.now();
+  const minTtl = force ? 5_000 : agyUsageCache?.ok ? 60_000 : 15_000;
+  if (agyUsageCache && agyUsageCache.home === home && now - agyUsageCache.at < minTtl) {
+    return agyUsageCache.summary;
+  }
+  if (agyUsageInFlight) return agyUsageInFlight;
+  agyUsageInFlight = (async () => {
+    try {
+      const bin = await officialAgyCli(home);
+      if (!bin) return agyUsageCache?.home === home && agyUsageCache.ok ? agyUsageCache.summary : undefined;
+      const env = await executionEnvironment();
+      const stdout = await new Promise<string>((resolve) => {
+        execFile(bin, ["-p", "/usage", "--output-format", "json"], { env, timeout: 30_000, windowsHide: true, maxBuffer: 1 << 20 }, (_e, out) => resolve(String(out ?? "")));
+      });
+      const summary = agyUsageSummary(stdout);
+      if (summary) {
+        agyUsageCache = { home, at: Date.now(), ok: true, summary };
+        return summary;
+      }
+      const prev = agyUsageCache?.home === home && agyUsageCache.ok && Date.now() - agyUsageCache.at < 5 * 60_000 ? agyUsageCache.summary : undefined;
+      agyUsageCache = { home, at: Date.now(), ok: false, summary: prev };
+      return prev;
+    } finally {
+      agyUsageInFlight = undefined;
+    }
+  })();
+  return agyUsageInFlight;
 }
 
 async function agyCliAccessToken(home: string): Promise<{ token: string; email?: string; models?: AgyModel[] } | undefined> {
@@ -467,21 +501,140 @@ export function agyCliQuotaModels(input: {
   };
 }
 
-/** Antigravity quotas through Google's agy CLI login, for a machine without the app; undefined when it isn't signed in. */
-export async function probeAntigravityCliQuota(home = homeDir()): Promise<ToolQuotaInfo | undefined> {
-  const login = await agyCliAccessToken(home);
-  if (!login) return undefined;
-  const [assist, available, quota, summary] = await Promise.all([
-    cloudcode("loadCodeAssist", login.token, { metadata: { ideType: "ANTIGRAVITY" } }),
-    cloudcode("fetchAvailableModels", login.token, {}),
-    cloudcode("retrieveUserQuota", login.token, {}),
-    cloudcode("retrieveUserQuotaSummary", login.token, {}),
-  ]);
-  if (!available && !quota) {
-    return { tool: "antigravity", name: "Google Antigravity", available: false, error: "无法读取 Antigravity 额度（agy 命令行）" };
+export interface AgyCliQuotaDeps {
+  readAccessToken?: (home: string) => Promise<{ token: string; email?: string; models?: AgyModel[] } | undefined>;
+  fetchCloudcode?: typeof cloudcode;
+  readUsage?: (home: string, force?: boolean) => Promise<any>;
+  readModels?: (home: string, force?: boolean) => Promise<AgyModel[] | undefined>;
+}
+
+interface AgyCliDiskCache {
+  updated_at: number;
+  usage: any;
+  models?: AgyModel[];
+}
+
+function agyCliCachePath(home: string): string {
+  return join(home, ".memento", "antigravity-cli-quota.json");
+}
+
+async function readAgyCliDiskCache(home: string): Promise<AgyCliDiskCache | undefined> {
+  try {
+    const raw = JSON.parse(await readFile(agyCliCachePath(home), "utf8")) as Partial<AgyCliDiskCache>;
+    if (!raw || typeof raw.updated_at !== "number" || !raw.usage) return undefined;
+    if (Date.now() - raw.updated_at > 6 * 3600_000) return undefined;
+    return {
+      updated_at: raw.updated_at,
+      usage: raw.usage,
+      models: Array.isArray(raw.models) ? raw.models : undefined,
+    };
+  } catch {
+    return undefined;
   }
-  const usage = await agyCliUsage(home);
-  const { models, defaultId, groups } = agyCliQuotaModels({ list: login.models, available, quota, summary: usage ?? summary });
+}
+
+async function writeAgyCliDiskCache(home: string, usage: any, models?: AgyModel[]): Promise<void> {
+  if (!usage) return;
+  try {
+    const dir = join(home, ".memento");
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      agyCliCachePath(home),
+      JSON.stringify({ updated_at: Date.now(), usage, ...(models?.length ? { models } : {}) }, null, 2),
+      "utf8",
+    );
+  } catch {
+    // ignore cache write failure
+  }
+}
+
+function hasAntigravityHomeData(home: string): boolean {
+  return existsSync(join(home, ".gemini", "antigravity-cli")) || existsSync(join(home, ".gemini", "antigravity"));
+}
+
+/**
+ * Antigravity quotas through Google's official agy CLI:
+ * - On Linux servers with `~/.gemini/antigravity-cli/antigravity-oauth-token`, reads Code Assist APIs plus `agy -p /usage`.
+ * - On macOS / Windows (where credentials live in the OS keychain, no token file on disk) and Antigravity 2.34+ desktops
+ *   (where the app no longer exposes a CSRF token), queries `agy -p /usage --output-format json` and `agy models` directly.
+ * Returns undefined when the CLI isn't installed or isn't signed in.
+ */
+export async function probeAntigravityCliQuota(
+  home = homeDir(),
+  options?: { force?: boolean; nonBlocking?: boolean; onRefreshed?: () => void; deps?: AgyCliQuotaDeps },
+): Promise<ToolQuotaInfo | undefined> {
+  const force = options?.force ?? false;
+  const nonBlocking = options?.nonBlocking ?? false;
+  const readAccessToken = options?.deps?.readAccessToken ?? agyCliAccessToken;
+  const fetchCloudcode = options?.deps?.fetchCloudcode ?? cloudcode;
+  const readUsage = options?.deps?.readUsage ?? agyCliUsage;
+  const readModels = options?.deps?.readModels ?? agyCliModelList;
+
+  const login = await readAccessToken(home);
+  let assist: any;
+  let available: any;
+  let quota: any;
+  let summary: any;
+  let usage: any;
+  let usageCapturedAt = Date.now();
+  let modelList: AgyModel[] | undefined = login?.models;
+
+  if (login) {
+    const reuseMemUsage = nonBlocking && agyUsageCache?.home === home && agyUsageCache.ok;
+    [assist, available, quota, summary, usage] = await Promise.all([
+      fetchCloudcode("loadCodeAssist", login.token, { metadata: { ideType: "ANTIGRAVITY" } }),
+      fetchCloudcode("fetchAvailableModels", login.token, {}),
+      fetchCloudcode("retrieveUserQuota", login.token, {}),
+      fetchCloudcode("retrieveUserQuotaSummary", login.token, {}),
+      reuseMemUsage ? Promise.resolve(agyUsageCache!.summary) : readUsage(home, force),
+    ]);
+    usageCapturedAt = reuseMemUsage ? agyUsageCache!.at : agyUsageCache?.home === home && agyUsageCache.ok ? agyUsageCache.at : Date.now();
+    if (!modelList?.length) modelList = nonBlocking && agyModelsCache?.home === home ? agyModelsCache.models : await readModels(home, force);
+    if (usage) void writeAgyCliDiskCache(home, usage, modelList);
+    if (!available && !quota && !usage) {
+      return { tool: "antigravity", name: "Google Antigravity", available: false, error: "无法读取 Antigravity 额度（agy 命令行）" };
+    }
+  } else {
+    // Only invoke host `agy` CLI when this home actually holds Antigravity data (keeps isolated temp-home tests clean).
+    if (!options?.deps && !hasAntigravityHomeData(home)) return undefined;
+
+    if (nonBlocking) {
+      const memUsage = agyUsageCache?.home === home && agyUsageCache.ok ? agyUsageCache : undefined;
+      const memModels = agyModelsCache?.home === home ? agyModelsCache.models : undefined;
+      const disk = memUsage ? undefined : await readAgyCliDiskCache(home);
+      usage = memUsage?.summary ?? disk?.usage;
+      usageCapturedAt = memUsage?.at ?? disk?.updated_at ?? 0;
+      modelList = memModels ?? disk?.models;
+      const ageMs = memUsage ? Date.now() - memUsage.at : disk ? Date.now() - disk.updated_at : Infinity;
+      if (!usage || ageMs >= 60_000) {
+        void Promise.all([readUsage(home, false), readModels(home, false)])
+          .then(async ([freshUsage, freshModels]) => {
+            if (!freshUsage) return;
+            await writeAgyCliDiskCache(home, freshUsage, freshModels);
+            cachedQuotasReport = null;
+            options?.onRefreshed?.();
+          })
+          .catch(() => {});
+      }
+      if (!usage) return undefined;
+    } else {
+      [usage, modelList] = await Promise.all([readUsage(home, force), readModels(home, force)]);
+      if (usage) {
+        usageCapturedAt = agyUsageCache?.home === home && agyUsageCache.ok ? agyUsageCache.at : Date.now();
+        void writeAgyCliDiskCache(home, usage, modelList);
+      } else {
+        const disk = await readAgyCliDiskCache(home);
+        if (disk?.usage) {
+          usage = disk.usage;
+          usageCapturedAt = disk.updated_at;
+          modelList = modelList?.length ? modelList : disk.models;
+        }
+      }
+      if (!usage) return undefined;
+    }
+  }
+
+  const { models, defaultId, groups } = agyCliQuotaModels({ list: modelList, available, quota, summary: usage ?? summary });
   const held = limitedModels("antigravity");
   for (const m of models) {
     // A model whose quota no API reports, known to be spent because a task ran into its limit
@@ -498,25 +651,27 @@ export async function probeAntigravityCliQuota(home = homeDir()): Promise<ToolQu
   const def = models.find((m) => m.model_id === defaultId);
   let primary = def && typeof def.remaining_percent === "number" ? def : models.find((m) => typeof m.remaining_percent === "number") || models[0];
   if (primary?.remaining_percent === 0) primary = models.find((m) => (m.remaining_percent ?? 0) > 0) || primary;
+  const fallbackBucket = primary?.remaining_percent == null ? groups[0]?.buckets.reduce((a, b) => (b.remaining_percent < a.remaining_percent ? b : a), groups[0]!.buckets[0]!) : undefined;
   const tier = assist?.paidTier || assist?.currentTier || {};
+  const tierId = typeof tier.id === "string" && tier.id ? (/pro/i.test(tier.id) ? "PRO" : /ultra/i.test(tier.id) ? "ULTRA" : tier.id.toUpperCase()) : undefined;
   return {
     tool: "antigravity",
     name: "Google Antigravity",
     available: true,
     logged_in: true,
-    account_name: login.email || "Google 用户",
-    account_email: login.email || "",
+    account_name: login?.email || "Google 账号已登录",
+    account_email: login?.email || "",
     plan_name: tier.name || "Antigravity",
-    tier: /pro/i.test(tier.id || "") ? "PRO" : /ultra/i.test(tier.id || "") ? "ULTRA" : String(tier.id || "FREE").toUpperCase(),
+    ...(tierId ? { tier: tierId } : {}),
     quota_type: "percentage",
     quota_desc: groups.length
       ? `${tier.name || "Antigravity"}：${groups.map((g) => `${g.name}${g.buckets.length > 1 ? "共用周额度和 5 小时额度" : `单独计算${g.buckets[0]?.label || "额度"}`}`).join("；")}`
       : `${tier.name || "Antigravity"} 按模型计费`,
-    probe_source: "agy 命令行登录",
-    remaining_percent: primary?.remaining_percent ?? null,
-    reset_time: primary?.reset_time ?? null,
+    probe_source: login ? "agy 命令行登录" : "官方 agy CLI",
+    remaining_percent: primary?.remaining_percent ?? fallbackBucket?.remaining_percent ?? null,
+    reset_time: primary?.reset_time ?? fallbackBucket?.reset_time ?? null,
     models,
-    details: { default_model_id: defaultId, default_model_label: def?.label || "", via_cli: true, quota_groups: groups },
+    details: { default_model_id: defaultId, default_model_label: def?.label || "", via_cli: true, quota_groups: groups, captured_at: usageCapturedAt },
   };
 }
 
@@ -1330,14 +1485,23 @@ export async function probeWorkbuddyQuota(home = homeDir()): Promise<ToolQuotaIn
 let cachedQuotasReport: { report: DeviceQuotasReport; expiresAt: number; home: string } | null = null;
 
 /** Aggregates quotas for all AI tools on this device with fast-path in-memory caching. */
-export async function probeAllQuotas(home = homeDir(), options?: { force?: boolean }): Promise<DeviceQuotasReport> {
+export async function probeAllQuotas(
+  home = homeDir(),
+  options?: { force?: boolean; nonBlocking?: boolean; onRefreshed?: () => void },
+): Promise<DeviceQuotasReport> {
   const now = Date.now();
   if (!options?.force && cachedQuotasReport && cachedQuotasReport.home === home && cachedQuotasReport.expiresAt > now) {
     return cachedQuotasReport.report;
   }
 
   const [agy, claude, codex, wb] = await Promise.all([
-    probeAntigravityQuota(),
+    probeAntigravityQuota(undefined, () =>
+      probeAntigravityCliQuota(home, {
+        force: options?.force,
+        nonBlocking: options?.nonBlocking,
+        onRefreshed: options?.onRefreshed,
+      }),
+    ),
     probeClaudeCodeQuota(home),
     probeCodexQuota(home),
     probeWorkbuddyQuota(home),
@@ -1345,12 +1509,16 @@ export async function probeAllQuotas(home = homeDir(), options?: { force?: boole
 
   const withLimits = (info: ToolQuotaInfo, agent: LimitAgent): ToolQuotaInfo => {
     // A model this read shows has quota again is no longer held back (reset early, or the plan changed);
-    // one the account doesn't support stays out, no quota read says otherwise
+    // never let a cached reading captured *before* the model ran out clear a newer limit, and never clear unsupported models.
+    const capturedAt = typeof info.details?.captured_at === "number" ? info.details.captured_at : Date.now();
     for (const m of info.models ?? []) {
       if (agent === "claude" || typeof m.remaining_percent !== "number" || m.remaining_percent < 10) continue;
       const fam = modelFamily(agent, m.model_id);
       const held = limitedModels(agent).find((l) => l.family === fam);
-      if (held && !/not supported/i.test(held.message)) clearModelLimit(agent, fam);
+      const heldSince = held?.since ? Date.parse(held.since) : NaN;
+      if (held && !/not supported/i.test(held.message) && (!Number.isFinite(heldSince) || capturedAt > heldSince)) {
+        clearModelLimit(agent, fam);
+      }
     }
     const def = defaultModel(agent);
     return { ...info, limited_models: limitedModels(agent), ...(def ? { default_model: def } : {}) };

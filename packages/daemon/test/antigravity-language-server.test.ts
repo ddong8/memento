@@ -172,6 +172,30 @@ describe("Antigravity quota", () => {
     }));
     expect(quota).toMatchObject({ available: true, remaining_percent: 100, probe_source: "agy 命令行登录" });
   });
+
+  it("falls back to the agy CLI when Antigravity 2.34+ runs without exposing a CSRF token", async () => {
+    const quota = await probeAntigravityQuota(async () => ({ port }), async () => ({
+      tool: "antigravity",
+      name: "Google Antigravity",
+      available: true,
+      logged_in: true,
+      remaining_percent: 85.8,
+      probe_source: "官方 agy CLI",
+    }));
+    expect(quota).toMatchObject({ available: true, logged_in: true, remaining_percent: 85.8, probe_source: "官方 agy CLI" });
+  });
+
+  it("falls back to the agy CLI when the language server rejects GetUserStatus with 401", async () => {
+    const quota = await probeAntigravityQuota(async () => ({ port, csrf: "bad-token" }), async () => ({
+      tool: "antigravity",
+      name: "Google Antigravity",
+      available: true,
+      logged_in: true,
+      remaining_percent: 72,
+      probe_source: "官方 agy CLI",
+    }));
+    expect(quota).toMatchObject({ available: true, remaining_percent: 72, probe_source: "官方 agy CLI" });
+  });
 });
 
 describe("Antigravity MCP reload", () => {

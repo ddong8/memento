@@ -13,6 +13,7 @@ import {
   probeClaudeCodeQuota,
   probeCodexQuota,
   probeAntigravityQuota,
+  probeAntigravityCliQuota,
   usableClaudeAccessToken,
 } from "../src/quotas.js";
 import { agentLoginHint, usageLimitMessage } from "../src/task-runner.js";
@@ -128,7 +129,7 @@ describe("Real Agent Quotas", () => {
       expect(quota.remaining_percent).toBeGreaterThanOrEqual(0);
       expect(quota.models?.length).toBeGreaterThan(0);
     }
-  });
+  }, 20000);
 });
 
 describe("agent credentials stay read-only", () => {
@@ -322,5 +323,65 @@ describe("quota reads that stay readable", () => {
     );
     expect(later[0]!.buckets).toEqual([{ fraction: 0, reset: "2026-11-25T08:57:52Z", label: "周额度" }]);
     expect(later[1]!.buckets[1]).toEqual({ fraction: 1, reset: undefined, label: "5 小时额度" });
+  });
+
+  it("reads Antigravity quotas via official agy CLI /usage even without an on-disk OAuth token file (macOS/Windows keychain)", async () => {
+    const usage = agyUsageSummary(
+      JSON.stringify({
+        conversation_id: "",
+        status: "SUCCESS",
+        command: {
+          name: "usage",
+          data: {
+            groups: [
+              {
+                name: "Gemini Models",
+                description: "Models within this group: Gemini 4 Neon, Gemini 4 Argon, Gemini 3.8 Flash",
+                buckets: [
+                  { id: "gemini-weekly", name: "Weekly Limit Remaining", window: "weekly", remaining_fraction: 0.94, reset_time: "2099-11-28T09:22:08Z" },
+                  { id: "gemini-5h", name: "Five Hour Limit Remaining", window: "5h", remaining_fraction: 0.858, reset_time: "2099-11-21T19:22:08Z" },
+                ],
+              },
+              {
+                name: "Claude and GPT models",
+                description: "Models within this group: Claude Opus 5.5, GPT-OSS 120B",
+                buckets: [
+                  { id: "3p-weekly", name: "Weekly Limit Remaining", window: "weekly", remaining_fraction: 0.5, reset_time: "2099-11-28T15:47:32Z" },
+                  { id: "3p-5h", name: "Five Hour Limit Remaining", window: "5h", remaining_fraction: 0, reset_time: "2099-11-21T20:47:32Z" },
+                ],
+              },
+            ],
+          },
+        },
+      }),
+    );
+    const models = parseAgyModels(
+      "gemini-4-neon-high\tGemini 4 Neon (High)\ngemini-3.8-flash-high\tGemini 3.8 Flash (High)\nclaude-opus-5-5-high\tClaude Opus 5.5 (High)\n",
+    );
+    const quota = await probeAntigravityCliQuota("/tmp/no-oauth-file-home", {
+      deps: {
+        readAccessToken: async () => undefined,
+        readUsage: async () => usage,
+        readModels: async () => models,
+      },
+    });
+    expect(quota).toBeDefined();
+    expect(quota!.available).toBe(true);
+    expect(quota!.logged_in).toBe(true);
+    expect(quota!.probe_source).toBe("官方 agy CLI");
+    expect(quota!.remaining_percent).toBe(85.8);
+    expect(quota!.models?.find((m) => m.model_id === "gemini-4-neon-high")?.remaining_percent).toBe(85.8);
+    expect(quota!.models?.find((m) => m.model_id === "claude-opus-5-5-high")?.remaining_percent).toBe(0);
+    expect((quota!.details?.quota_groups as any[])?.length).toBe(2);
+
+    // Returns undefined when neither token file nor agy /usage is available
+    const missing = await probeAntigravityCliQuota("/tmp/no-oauth-file-home", {
+      deps: {
+        readAccessToken: async () => undefined,
+        readUsage: async () => undefined,
+        readModels: async () => undefined,
+      },
+    });
+    expect(missing).toBeUndefined();
   });
 });

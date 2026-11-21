@@ -118,6 +118,21 @@ describe("Antigravity Failover and Transient Retry Logic", () => {
       expect(offlineCaps.default_model).toBe("gemini-4-argon-medium");
       const offlineModels = offlineCaps.models as Array<{ id: string; name: string }>;
       expect(offlineModels.some((m) => m.id === "gemini-4-argon-medium")).toBe(true);
+
+      // Verify Antigravity 2.34+ (running without CSRF token) refreshes live models via official agy CLI
+      const cliCaps = await antigravityCapabilities(
+        "/usr/local/bin/agy",
+        tempHome,
+        async () => ({ port }),
+        async () => [
+          { id: "gemini-4-neon-high", label: "Gemini 4 Neon (High)" },
+          { id: "claude-opus-5-5-high", label: "Claude Opus 5.5 (High)" },
+        ],
+      );
+      expect(cliCaps.default_model).toBe("gemini-4-neon-high");
+      const cliModels = cliCaps.models as Array<{ id: string; name: string }>;
+      expect(cliModels.some((m) => m.id === "gemini-4-neon-high")).toBe(true);
+      expect(cliModels.some((m) => m.id === "claude-opus-5-5-high")).toBe(true);
     } finally {
       server.close();
       await rm(tempHome, { recursive: true, force: true });

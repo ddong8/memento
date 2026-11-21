@@ -123,14 +123,16 @@ const calls = () =>
     .split("\n")
     .map((l) => JSON.parse(l) as { args: string[]; electron: string | null });
 
+const isTaskCall = (c: { args: string[] }) => c.args[0] !== "models" && !c.args.includes("/usage");
+
 it.skipIf(process.platform === "win32")(
   "no Antigravity app: the task runs Google's agy CLI in print mode, with its steps, reply and conversation",
   async () => {
     const { done, events } = await runTask("feedbeef-0000-4000-8000-0000000000b1", { prompt: "修好测试", effort: "high" });
     expect(done, `${done.error}\n${done.stderr}`).toMatchObject({ status: "succeeded", session_id: CID });
     expect(String(done.stdout)).toContain("改好了，测试已过。");
-    // The first run, not the model listing the quota report on connecting does
-    const { args, electron } = calls().find((c) => c.args[0] !== "models")!;
+    // The first run, not the model listing / usage probe the quota report on connecting does
+    const { args, electron } = calls().find(isTaskCall)!;
     expect(args).toEqual(["--effort", "high", "--print-timeout", "105s", "--dangerously-skip-permissions", "--output-format", "stream-json", "-p", "修好测试"]);
     // The CLI is a program of its own, not a script for this runtime
     expect(electron).toBeNull();
@@ -148,7 +150,7 @@ it.skipIf(process.platform === "win32")(
     const before = calls().length;
     const { done } = await runTask("feedbeef-0000-4000-8000-0000000000b2", { prompt: "继续", model: "pro", session_id: CID });
     expect(done, `${done.error}\n${done.stderr}`).toMatchObject({ status: "succeeded", session_id: CID });
-    const [first, retry] = calls().slice(before);
+    const [first, retry] = calls().slice(before).filter(isTaskCall);
     expect(first!.args).toEqual(expect.arrayContaining(["--conversation", CID, "--model", "pro"]));
     expect(retry!.args).toEqual(expect.arrayContaining(["--conversation", CID]));
     expect(retry!.args).not.toContain("--model");
@@ -164,7 +166,7 @@ it.skipIf(process.platform === "win32")(
     const { done, events } = await runTask("feedbeef-0000-4000-8000-0000000000b3", { prompt: "加个函数", effort: "medium" });
     expect(done, `${done.error}\n${done.stderr}`).toMatchObject({ status: "succeeded", session_id: CID });
     expect(done.error_type ?? null).toBeNull();
-    const runs = calls().slice(before).filter((c) => c.args[0] !== "models");
+    const runs = calls().slice(before).filter(isTaskCall);
     expect(runs).toHaveLength(2);
     expect(runs[0]!.args).not.toContain("--model");
     expect(runs[1]!.args).toEqual(expect.arrayContaining(["--model", "gemini-3.8-flash-medium"]));
@@ -173,7 +175,7 @@ it.skipIf(process.platform === "win32")(
     const next = calls().length;
     const second = await runTask("feedbeef-0000-4000-8000-0000000000b4", { prompt: "再加一个" });
     expect(second.done).toMatchObject({ status: "succeeded" });
-    const runs2 = calls().slice(next).filter((c) => c.args[0] !== "models");
+    const runs2 = calls().slice(next).filter(isTaskCall);
     expect(runs2).toHaveLength(1);
     expect(runs2[0]!.args).toEqual(expect.arrayContaining(["--model", "gemini-3.8-flash-medium"]));
   },
@@ -237,7 +239,7 @@ it.skipIf(process.platform === "win32")(
         title: "排查客户端卡顿",
       });
       expect(done, `${done.error}\n${done.stderr}`).toMatchObject({ status: "succeeded", session_id: CID });
-      const runs = calls().slice(before).filter((c) => c.args[0] !== "models");
+      const runs = calls().slice(before).filter(isTaskCall);
       expect(runs).toHaveLength(1);
       // Must NOT pass desktop-only --conversation ID to official agy CLI
       expect(runs[0]!.args).not.toContain("--conversation");

@@ -12,7 +12,7 @@ from urllib.parse import parse_qs, urlparse
 from fastapi import HTTPException
 
 from server.api.media import get_media_video
-from server.api.studio import PublishToChatReq, publish_episode_to_chat
+from server.api.studio import PublishToChatReq, proxy_episode_latest_video, proxy_task_video, publish_episode_to_chat
 from server.services import storage_service as st
 
 
@@ -178,3 +178,58 @@ class TestStudioVideoAndChatPublish(unittest.IsolatedAsyncioTestCase):
             )
             self.assertEqual(resp.status_code, 206)
             self.assertEqual(await _collect_stream(resp), fake_mp4[:16])
+
+    async def test_studio_video_proxy_sets_cache_control_and_etag(self):
+        fake_mp4 = b"\x00\x00\x00\x18ftypmp42" + (b"B" * 256)
+        ep_detail = {
+            "project": {"id": "p1", "slug": "proj"},
+            "episode": {"id": "ep1", "slug": "ep01", "last_task_id": "task_42"},
+        }
+        fake_user = SimpleNamespace(id=uuid.uuid4(), role="admin")
+
+        class FakeStreamResp:
+            status_code = 200
+            headers = {
+                "content-type": "video/mp4",
+                "content-length": str(len(fake_mp4)),
+                "accept-ranges": "bytes",
+            }
+
+            async def aiter_bytes(self, chunk_size=65536):
+                yield fake_mp4
+
+            async def aclose(self):
+                pass
+
+        class FakeStreamClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def build_request(self, method, url, params=None, headers=None):
+                return (method, url)
+
+            async def send(self, req, stream=False):
+                return FakeStreamResp()
+
+            async def aclose(self):
+                pass
+
+        with patch("server.api.studio._proxy_json", AsyncMock(return_value=ep_detail)), \
+             patch("server.api.studio.httpx.AsyncClient", FakeStreamClient):
+            resp_versioned = await proxy_episode_latest_video(
+                eid="ep1", v="task_42", range_header=None, _user=fake_user
+            )
+            self.assertEqual(resp_versioned.headers["cache-control"], "private, max-age=604800, immutable")
+            self.assertEqual(resp_versioned.headers["etag"], '"studio-ep-ep1-task_42"')
+            self.assertEqual(await _collect_stream(resp_versioned), fake_mp4)
+
+            resp_unversioned = await proxy_episode_latest_video(
+                eid="ep1", v=None, range_header=None, _user=fake_user
+            )
+            self.assertEqual(resp_unversioned.headers["cache-control"], "private, max-age=3600")
+            self.assertEqual(await _collect_stream(resp_unversioned), fake_mp4)
+
+            resp_task = await proxy_task_video(task_id="task_42", range_header=None, _user=fake_user)
+            self.assertEqual(resp_task.headers["cache-control"], "private, max-age=604800, immutable")
+            self.assertEqual(resp_task.headers["etag"], '"studio-task-task_42"')
+            self.assertEqual(await _collect_stream(resp_task), fake_mp4)

@@ -43,6 +43,7 @@ import { desktop } from "@/lib/desktop";
 import { showInAppToast, triggerHapticFeedback } from "@/lib/native-notify";
 import { deviceRelayUrl, fileDevice, foreignPathStyle, onThisDevice } from "@/lib/file-devices";
 import { directMediaUrl, markDirectFailed, viaRelay as isRelayed } from "@/lib/p2p";
+import { cacheVideoInBackground, evictCachedVideo, getCachedVideoUrl, peekCachedVideoUrl } from "@/lib/video-cache";
 import { useMediaInspector } from "./MediaInspectorContext";
 import { ImageViewerModal } from "./ImageViewerModal";
 
@@ -602,22 +603,45 @@ export function VideoPlayer({
 
   const relayMedia = useMemo(() => resolveMediaUrl(activeSrc), [activeSrc]);
   const [resolved, setResolved] = useState<ResolvedMedia>(() => relayMedia);
+  const [cachedBlobUrl, setCachedBlobUrl] = useState<string | null>(() => peekCachedVideoUrl(relayMedia.playUrl));
+  const [isCached, setIsCached] = useState<boolean>(() => Boolean(peekCachedVideoUrl(relayMedia.playUrl)));
   // A file on one of the user's devices plays straight from it over WebRTC when a direct path exists
   // (same LAN, IPv6, punched NAT), else through the server's stream URL. Briefly held back while trying.
   const [direct, setDirect] = useState<"trying" | "on" | "off">(() =>
-    relayMedia.playUrl.includes("/files/stream/") ? "trying" : "off"
+    !peekCachedVideoUrl(relayMedia.playUrl) && relayMedia.playUrl.includes("/files/stream/") ? "trying" : "off"
   );
   const [prevActiveSrc, setPrevActiveSrc] = useState(activeSrc);
   if (prevActiveSrc !== activeSrc) {
+    const memHit = peekCachedVideoUrl(relayMedia.playUrl);
     setPrevActiveSrc(activeSrc);
     setResolved(relayMedia);
+    setCachedBlobUrl(memHit);
+    setIsCached(Boolean(memHit));
     setHasError(false);
     setIsLoading(true);
-    setDirect(relayMedia.playUrl.includes("/files/stream/") ? "trying" : "off");
+    setDirect(!memHit && relayMedia.playUrl.includes("/files/stream/") ? "trying" : "off");
   }
   const resumeAtRef = useRef<number | null>(null);
+  // Check persistent Cache API on mount / src change so replays and page revisits open straight from local disk
   useEffect(() => {
-    if (!relayMedia.playUrl.includes("/files/stream/")) {
+    if (peekCachedVideoUrl(relayMedia.playUrl)) return;
+    let cancelled = false;
+    void getCachedVideoUrl(relayMedia.playUrl).then((blobUrl) => {
+      if (cancelled || !blobUrl) return;
+      setIsCached(true);
+      const v = videoRef.current;
+      if (!v || (v.paused && v.currentTime === 0)) {
+        setCachedBlobUrl(blobUrl);
+        setDirect("off");
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [relayMedia.playUrl]);
+
+  useEffect(() => {
+    if (cachedBlobUrl || !relayMedia.playUrl.includes("/files/stream/")) {
       return;
     }
     let cancelled = false;
@@ -629,7 +653,7 @@ export function VideoPlayer({
     return () => {
       cancelled = true;
     };
-  }, [relayMedia]);
+  }, [relayMedia, cachedBlobUrl]);
 
   // Viewport Intersection Preload Pipeline (instant first frame playback)
   useEffect(() => {
@@ -684,8 +708,9 @@ export function VideoPlayer({
   }, [brightness, filterMode]);
 
   const { playUrl, downloadUrl: resolvedDownload, localPath, filename: resolvedFilename } = resolved;
+  const effectivePlayUrl = cachedBlobUrl || playUrl;
   const displayTitle = (title && title.includes(".") ? title : "") || resolvedFilename || title || "video-file";
-  const finalDownloadUrl = downloadUrl || resolvedDownload || playUrl;
+  const finalDownloadUrl = downloadUrl || cachedBlobUrl || resolvedDownload || playUrl;
 
   let downloadFilename = displayTitle;
   const ext = resolvedFilename.split(".").pop();
@@ -696,8 +721,8 @@ export function VideoPlayer({
   const effectivePoster = poster || autoPoster || undefined;
 
   const videoSrc = React.useMemo(() => {
-    if (!playUrl || direct === "trying") return "";
-    if (playUrl.includes("#")) return playUrl;
+    if (!effectivePlayUrl || (!cachedBlobUrl && direct === "trying")) return "";
+    if (effectivePlayUrl.includes("#") || effectivePlayUrl.startsWith("blob:")) return effectivePlayUrl;
     // 仅在无封面且处于 iOS WebKit 环境下追加 #t=0.001 强制首帧渲染
     // 桌面端及 Android 凭借 preload="metadata" 即可原生秒出首帧，避免引发二次 Range Seek
     const isIOS =
@@ -705,10 +730,10 @@ export function VideoPlayer({
       (/iPad|iPhone|iPod/.test(navigator.userAgent) ||
         (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1));
     if (!effectivePoster && isIOS) {
-      return `${playUrl}#t=0.001`;
+      return `${effectivePlayUrl}#t=0.001`;
     }
-    return playUrl;
-  }, [playUrl, effectivePoster, direct]);
+    return effectivePlayUrl;
+  }, [effectivePlayUrl, cachedBlobUrl, effectivePoster, direct]);
 
   // After switching from the direct path back to the server mid-play, carry on from the same spot
   useEffect(() => {
@@ -775,6 +800,15 @@ export function VideoPlayer({
     const v = videoRef.current;
     const currentPos = v?.currentTime || currentTime;
 
+    if (cachedBlobUrl) {
+      // Cached blob failed or was evicted: drop it and fall back seamlessly to the remote stream
+      void evictCachedVideo(relayMedia.playUrl);
+      resumeAtRef.current = currentPos;
+      setCachedBlobUrl(null);
+      setIsCached(false);
+      return;
+    }
+
     if (direct === "on") {
       // The direct path broke (device left the network, say): continue through the server
       markDirectFailed(resolved.playUrl);
@@ -829,7 +863,7 @@ export function VideoPlayer({
     setIsLoading(false);
     setIsRecovering(false);
     setHasError(true);
-  }, [currentTime, videoSrc, direct, resolved.playUrl, activeSrc]);
+  }, [currentTime, videoSrc, direct, resolved.playUrl, activeSrc, cachedBlobUrl, relayMedia.playUrl, localPath, resolvedFilename]);
 
   const togglePlay = useCallback(() => {
     markPreloadActive();
@@ -1703,6 +1737,15 @@ export function VideoPlayer({
                 <span>直连</span>
               </div>
             )}
+            {isCached && (
+              <div
+                title="视频已缓存在本地，再次播放无需重新下载"
+                className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono bg-sky-500/15 text-sky-300 border border-sky-500/25 select-none"
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-sky-400" />
+                <span>已缓存</span>
+              </div>
+            )}
           </div>
 
           <a
@@ -1759,7 +1802,14 @@ export function VideoPlayer({
           playsInline
           {...({ "webkit-playsinline": "true", "x-webkit-airplay": "allow" } as any)}
           preload={shouldPreload ? "auto" : "metadata"}
-          onPlay={() => setIsPlaying(true)}
+          onPlay={() => {
+            setIsPlaying(true);
+            if (!isCached && relayMedia.playUrl) {
+              void cacheVideoInBackground(relayMedia.playUrl).then((blobUrl) => {
+                if (blobUrl) setIsCached(true);
+              });
+            }
+          }}
           onPause={() => setIsPlaying(false)}
           onEnded={() => {
             setIsPlaying(false);

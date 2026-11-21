@@ -201,14 +201,16 @@ export function studioAssetUrl(relPath: string): string {
   return `${base}/api/studio/assets?${q}`;
 }
 
-export function studioEpisodeVideoUrl(episodeId: string, cacheBust?: string | number): string {
+export function studioEpisodeVideoUrl(episodeId: string, version?: string | number): string {
   const base = getApiBase().replace(/\/+$/, "");
   const params = new URLSearchParams();
   if (typeof window !== "undefined") {
     const tok = localStorage.getItem("dr_token") || "";
     if (tok) params.set("token", tok);
   }
-  if (cacheBust !== undefined) params.set("t", String(cacheBust));
+  if (version !== undefined && String(version).trim() !== "") {
+    params.set("v", String(version).trim());
+  }
   const qs = params.toString();
   return `${base}/api/studio/episodes/${encodeURIComponent(episodeId)}/latest-video${qs ? `?${qs}` : ""}`;
 }

@@ -172,7 +172,7 @@ function StudioInner() {
   const [publishNote, setPublishNote] = useState<string>("");
   const [publishedConvId, setPublishedConvId] = useState<string>("");
   const [publishedVideoUrl, setPublishedVideoUrl] = useState<string>("");
-  const [videoBust, setVideoBust] = useState<number>(() => Date.now());
+  const [renderVersionOverride, setRenderVersionOverride] = useState<string>("");
   const [renderTask, setRenderTask] = useState<StudioTask | null>(null);
 
   const notify = useCallback((ok: boolean, text: string) => {
@@ -186,7 +186,8 @@ function StudioInner() {
       setDetail(epDetail);
       setStoryDraft(epDetail.episode.story_text || "");
       setRenderTask(epDetail.last_task || null);
-      setVideoBust(Date.now());
+      setPublishedVideoUrl("");
+      setRenderVersionOverride("");
     } catch (e) {
       notify(false, `加载剧集失败：${(e as Error).message}`);
     }
@@ -273,7 +274,7 @@ function StudioInner() {
         const res = await studioApi.getTask(renderTask.id);
         setRenderTask(res.task);
         if (res.task.status === "succeeded" || res.task.status === "done") {
-          setVideoBust(Date.now());
+          setRenderVersionOverride(res.task.id || String(Date.now()));
           notify(true, "成片母带已渲染完成，可直接预览或发送到对话播放");
           if (selectedEpisodeId) void loadEpisode(selectedEpisodeId);
         } else if (res.task.status === "failed") {
@@ -543,11 +544,13 @@ function StudioInner() {
     }
   };
 
+  const episodeVideoVersion = renderVersionOverride || detail?.episode.last_task_id || renderTask?.id || "";
+
   const episodePreviewSrc = useMemo(() => {
     if (publishedVideoUrl) return publishedVideoUrl;
     if (!selectedEpisodeId) return "";
-    return studioEpisodeVideoUrl(selectedEpisodeId, videoBust);
-  }, [publishedVideoUrl, selectedEpisodeId, videoBust]);
+    return studioEpisodeVideoUrl(selectedEpisodeId, episodeVideoVersion);
+  }, [publishedVideoUrl, selectedEpisodeId, episodeVideoVersion]);
 
   const computeOnline = compute?.status === "ready";
   const computeBusy = compute && ["connecting", "awaiting_gpu", "booting", "stopping"].includes(compute.status);

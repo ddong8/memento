@@ -487,9 +487,11 @@ async def proxy_task_video(
         raise HTTPException(status_code=resp.status_code, detail="成片视频尚未就绪")
 
     out_headers = {}
-    for hk in ("content-range", "accept-ranges", "content-length"):
+    for hk in ("content-range", "accept-ranges", "content-length", "etag", "last-modified"):
         if hk in resp.headers:
             out_headers[hk] = resp.headers[hk]
+    out_headers.setdefault("etag", f'"studio-task-{tid}"')
+    out_headers["cache-control"] = "private, max-age=604800, immutable"
 
     async def _gen():
         try:
@@ -510,6 +512,7 @@ async def proxy_task_video(
 @router.get("/episodes/{eid}/latest-video")
 async def proxy_episode_latest_video(
     eid: str,
+    v: str | None = Query(None),
     range_header: str | None = Header(None, alias="Range"),
     _user: User = Depends(_require_media_user),
 ):
@@ -535,9 +538,15 @@ async def proxy_episode_latest_video(
             if resp.status_code in (200, 206):
                 out_headers = {
                     hk: resp.headers[hk]
-                    for hk in ("content-range", "accept-ranges", "content-length")
+                    for hk in ("content-range", "accept-ranges", "content-length", "etag", "last-modified")
                     if hk in resp.headers
                 }
+                version_tag = tid or slug_name or eid
+                out_headers.setdefault("etag", f'"studio-ep-{eid}-{version_tag}"')
+                if v and tid and v.strip() == tid:
+                    out_headers["cache-control"] = "private, max-age=604800, immutable"
+                else:
+                    out_headers["cache-control"] = "private, max-age=3600"
 
                 async def _gen(_resp=resp, _client=client):
                     try:

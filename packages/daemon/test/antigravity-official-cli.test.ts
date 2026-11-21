@@ -20,6 +20,7 @@ vi.mock("../src/antigravity.js", async (importOriginal) => {
     antigravityExecutable: async () => join(dir, "agy_cli.mjs"),
     discoverAntigravityEnv: async () => null,
     officialAgyCli: async () => fakeAgy,
+    ensureOfficialAgyCli: async () => fakeAgy,
   };
 });
 

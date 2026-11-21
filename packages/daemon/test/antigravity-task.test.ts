@@ -21,7 +21,7 @@ const env = vi.hoisted(() => ({ value: {} as Record<string, string> }));
 
 vi.mock("../src/antigravity.js", async (importOriginal) => {
   const real = await importOriginal<typeof import("../src/antigravity.js")>();
-  return { ...real, antigravityExecutable: async () => bundle, discoverAntigravityEnv: async () => env.value };
+  return { ...real, antigravityExecutable: async () => bundle, discoverAntigravityEnv: async () => env.value, ensureOfficialAgyCli: async () => undefined };
 });
 
 const { WsTaskClient } = await import("../src/ws-client.js");

@@ -3,16 +3,16 @@
 <!-- memento:business-index:start (自动生成，勿手改) -->
 > 先读这一段定位；要细节时按下表行号只读对应章节。改了「代码位置」里的文件，先看对应条目还成不成立。
 
-- 汇总：规则 72（✅ 72 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
+- 汇总：规则 73（✅ 73 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
 - 核对：全部通过（详见末尾「自动核对」）
 
 | 章节 | 行号 |
 | :--- | :--- |
 | 1. 业务对象与术语 | L21-L65 |
 | 2. 关键流程 | L67-L124 |
-| 3. 业务规则 | L126-L570 |
-| 4. 状态归属 | L572-L617 |
-| 自动核对 (Auto Check) | L620-L732 |
+| 3. 业务规则 | L126-L577 |
+| 4. 状态归属 | L579-L624 |
+| 自动核对 (Auto Check) | L627-L740 |
 <!-- memento:business-index:end -->
 > 业务蓝图：memento 应该做成什么样，每一条落在哪段代码、由哪个测试或检查保证。和代码蓝图 [CODE_BLUEPRINT.md](CODE_BLUEPRINT.md)（代码长什么样）配合看：代码蓝图回答"在哪里"，这份回答"应该怎样、为什么"。
 > 规则来自用户的原话和纠正（CLAUDE.md、长期记忆、每晚复盘），不是从代码里反推的；代码和这里对不上，先当成代码的问题查。
@@ -132,6 +132,13 @@
 - 测试: `packages/daemon/test/agy-project-folder.test.ts#takes the project whose resources name the folder, not the one made last`, `packages/daemon/test/agy-project-folder.test.ts#makes a project for a folder no project names`, `server/tests/test_agent_ids.py#test_a_macs_folder_is_kept_as_asked`, `server/tests/test_agent_ids.py#test_another_platforms_folder_becomes_the_one_most_of_the_projects_documents_name`
 - 禁止: `lastCreatedProjectId` @ `packages/daemon/src/antigravity.ts`, `packages/daemon/src/agy-runner/`; `"win" in` @ `server/server/services/orchestrator.py`
 - 要求: `ANTIGRAVITY_PROJECT_ID = ` @ `packages/daemon/src/agy-runner/runner.ts`
+
+### R-AGY-APP-CSRF Antigravity 应用不给会话接口令牌时，任务改走 Google 官方 agy 命令行
+- 来源: 用户 2026-11-21 客户端对话报错「failed to fetch available models: rpc error: code = Unauthenticated desc = unauthenticated: missing CSRF token」，四个档位依次失败
+- 说明: Antigravity 2.34 起桌面应用的 language_server 以 hub 模式启动，CSRF 令牌经 host bridge 只交给应用自己启动的进程（命令行不再带 --csrf_token，页面里 csrfToken 为空），守护进程调 agentapi 一律被拒。不去绕这个限制：取不到令牌就视为应用不可用，改用 Google 官方 agy 命令行（官方文档：同一台机器上应用和命令行共用登录）；没装就用官方安装脚本自动装（30 分钟内最多试一次），~/.local/bin/agy 上 memento 自己的包装脚本给它让位。执行脚本遇到 CSRF 拒绝不再逐个档位重试；已经用应用跑起来的任务遇到它，自动换命令行重跑一次。
+- 代码: `packages/daemon/src/antigravity.ts#discoverAntigravityEnv`, `packages/daemon/src/antigravity.ts#ensureOfficialAgyCli`, `packages/daemon/src/antigravity.ts#isAppAuthRejection`, `packages/daemon/src/task-runner.ts#execute`, `packages/daemon/src/agy-runner/runner.ts`
+- 测试: `packages/daemon/test/antigravity-csrf.test.ts#tells the language server's CSRF rejection from other failures`, `packages/daemon/test/antigravity-official-cli.test.ts`
+- 要求: `if (!ls.csrf) return null;` @ `packages/daemon/src/antigravity.ts`
 
 ### R-TRACK-BACKGROUND 后台任务跟踪到结束，不提前收尾
 - 来源: CLAUDE.md（memento）「后台任务要跟踪到结束，不要提前结束」；用户 2026-11-14「antigravity经常会出现任务还没完成……不能精准的判断到任务是否结束吗」
@@ -621,7 +628,7 @@
 
 > 生成器随每次提交核对：代码位置还在不在、测试还在不在、禁止 / 要求的写法满不满足。✅ 通过 · ⚠️ 缺代码位置、测试或来源 · ❌ 位置失效或违反规则（CI 会拦下）。
 
-- 汇总：规则 72（✅ 72 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
+- 汇总：规则 73（✅ 73 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
 
 | 编号 | 名称 | 代码位置 | 测试 | 检查 | 结论 |
 | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -646,6 +653,7 @@
 | `F-CLIENT-UPGRADE` | 客户端升级 | 3/3 | — | — | ✅ |
 | `F-BLUEPRINT` | 蓝图生成与核对 | 5/5 | — | — | ✅ |
 | `R-AGY-WORKDIR` | 选了哪个目录，Antigravity 就在那个目录干活 | 4/4 | 4/4 | 3/3 | ✅ |
+| `R-AGY-APP-CSRF` | Antigravity 应用不给会话接口令牌时，任务改走 Google 官方 agy 命令行 | 5/5 | 2/2 | 1/1 | ✅ |
 | `R-TRACK-BACKGROUND` | 后台任务跟踪到结束，不提前收尾 | 4/4 | 5/5 | 1/1 | ✅ |
 | `R-STOP-ALL-AGENTS` | Antigravity、Claude Code、Codex 运行中的任务都必须能停 | 3/3 | 4/4 | 1/1 | ✅ |
 | `R-ISLAND-CLEANUP` | 任务结束必须清掉灵动岛状态 | 3/3 | 3/3 | — | ✅ |

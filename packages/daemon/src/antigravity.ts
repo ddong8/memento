@@ -548,9 +548,10 @@ export async function ensureAgyCliInstalled(home = homeDir(), pathDirs?: string[
   try {
     const wrapper = agyWrapper(home, script);
     await mkdir(join(wrapper.path, ".."), { recursive: true });
-    // Google's CLI may own `agy`: only a missing one or ours is (re)written
+    // Google's CLI may own `agy`: only a missing one or ours is (re)written, and none while its installer
+    // runs (it stops when anything sits there; ensureOfficialAgyCli moved ours out of its way)
     const current = await readFile(wrapper.path, "utf8").catch(() => undefined);
-    if (current === undefined || OUR_WRAPPER.test(current)) await writeIfChanged(wrapper.path, wrapper.text, 0o755);
+    if (!officialInstalling && (current === undefined || OUR_WRAPPER.test(current))) await writeIfChanged(wrapper.path, wrapper.text, 0o755);
     const own = await realpath(wrapper.path).catch(() => wrapper.path);
     const dirs = pathDirs ?? (home === homeDir() ? await executionPathDirs() : []);
     for (const older of await olderWrappers(home, dirs)) {
@@ -593,9 +594,73 @@ export async function officialAgyCli(home = homeDir(), env?: NodeJS.ProcessEnv):
   const e = { ...(env ?? (await executionEnvironment())) };
   const key = Object.keys(e).find((k) => k.toUpperCase() === "PATH") ?? "PATH";
   const sep = process.platform === "win32" ? ";" : ":";
-  // A service's PATH often lacks the installer's folder
-  e[key] = [e[key] ?? "", join(home, ".local", "bin")].filter(Boolean).join(sep);
+  // A service's PATH often lacks the installer's folder (install.ps1 puts agy.exe in %LOCALAPPDATA%\agy\bin)
+  const installDirs =
+    process.platform === "win32"
+      ? [join(e.LOCALAPPDATA || join(home, "AppData", "Local"), "agy", "bin"), join(home, ".local", "bin")]
+      : [join(home, ".local", "bin")];
+  e[key] = [e[key] ?? "", ...installDirs].filter(Boolean).join(sep);
   return findExecutable(process.platform === "win32" ? ["agy.exe"] : ["agy"], e, isOurWrapper);
+}
+
+/** Google's install script running now, so the runner's wrapper isn't written back where it installs. */
+let officialInstalling: Promise<string | undefined> | undefined;
+let officialInstallTriedAt = 0;
+
+/**
+ * Google's agy CLI, installed with its official script when it's missing (at most every 30 minutes).
+ * Antigravity's sign-in is shared by the app and the CLI on one machine (docs/install: "Signing in on
+ * one local surface shares your credentials"), so on a desktop where the app is signed in the CLI runs
+ * without asking. On macOS and Linux the script stops when anything sits at ~/.local/bin/agy, so the
+ * runner's wrapper there (only for running `agy` by hand) makes way for it.
+ */
+export async function ensureOfficialAgyCli(home = homeDir()): Promise<string | undefined> {
+  const found = await officialAgyCli(home);
+  if (found) return found;
+  if (officialInstalling) return officialInstalling;
+  if (Date.now() - officialInstallTriedAt < 30 * 60_000) return undefined;
+  officialInstallTriedAt = Date.now();
+  officialInstalling = (async () => {
+    try {
+      const env = await executionEnvironment();
+      await new Promise<void>((resolve) => {
+        const done = () => resolve();
+        if (process.platform === "win32") {
+          execFile(
+            "powershell",
+            ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", "irm https://antigravity.google/cli/install.ps1 | iex"],
+            { env, timeout: 300_000, windowsHide: true, maxBuffer: 4 * 1024 * 1024 },
+            done,
+          );
+          return;
+        }
+        const target = join(home, ".local", "bin", "agy");
+        unlinkIfOurs(target).finally(() =>
+          execFile("/bin/bash", ["-c", "curl -fsSL https://antigravity.google/cli/install.sh | bash"], { env: { ...env, HOME: home }, timeout: 300_000, maxBuffer: 4 * 1024 * 1024 }, done),
+        );
+      });
+      return await officialAgyCli(home);
+    } catch {
+      return undefined;
+    } finally {
+      officialInstalling = undefined;
+    }
+  })();
+  return officialInstalling;
+}
+
+async function unlinkIfOurs(path: string): Promise<void> {
+  if (existsSync(path) && isOurWrapper(path)) await unlink(path).catch(() => {});
+}
+
+/**
+ * Whether the app's language server turned a call down for want of its CSRF token. Antigravity 2.34's
+ * desktop app (its language server in hub mode) hands the token only to the processes it starts itself
+ * (over the host bridge, no --csrf_token argument, an empty csrfToken in its page), so another program's
+ * agentapi calls fail with "missing CSRF token"; Google's CLI is the way in then.
+ */
+export function isAppAuthRejection(text: string): boolean {
+  return /missing CSRF token|invalid CSRF token|code = Unauthenticated/i.test(text);
 }
 
 let cached: { env: Record<string, string>; at: number } | undefined;
@@ -794,6 +859,9 @@ export async function discoverAntigravityEnv(forceRefresh = false): Promise<Reco
   try {
     const ls = await findAntigravityLanguageServer({ launch: true, forceRefresh });
     if (!ls) return null;
+    // No token to be had (Antigravity 2.34+ keeps it to its own processes, isAppAuthRejection): every
+    // agentapi call would be turned down, so tasks go to Google's CLI as on a machine without the app
+    if (!ls.csrf) return null;
     const env: Record<string, string> = { ANTIGRAVITY_LS_ADDRESS: `localhost:${ls.port}` };
     if (ls.csrf) env.ANTIGRAVITY_CSRF_TOKEN = ls.csrf;
     // The runner's agentapi, for an app installed somewhere other than the default folder

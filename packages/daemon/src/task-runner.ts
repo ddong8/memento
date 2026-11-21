@@ -14,7 +14,7 @@ import {
   type AgentEvent,
   type AgentStreamParser,
 } from "./agent-stream.js";
-import { agyCliOpenBackgroundTasks, antigravityExecutable, discoverAntigravityEnv, officialAgyCli } from "./antigravity.js";
+import { agyCliOpenBackgroundTasks, antigravityExecutable, discoverAntigravityEnv, ensureOfficialAgyCli, isAppAuthRejection } from "./antigravity.js";
 import { agyQuotaMessage, isExhausted, listAgyModels, nextAgyModel, noteDefaultModel, noteQuotaExhausted, quotaResetMs } from "./agy-models.js";
 import { ensureProjectBlueprint, findGitRoot } from "./blueprint-auto.js";
 import {
@@ -897,30 +897,37 @@ export class TaskRunner {
       // The Codex and Antigravity runners run on this process's own runtime (Electron as Node in the desktop app)
       const env = { ...withExeDirOnPath(await executionEnvironment(), codex?.codex ?? agyRunner ?? exe), ...env0 };
       if (codex || agyRunner) env.ELECTRON_RUN_AS_NODE = "1";
+      /** Has this task run on Google's agy CLI from here on: its arguments and parser for the first run. */
+      const toOfficialCli = async (cli: string) => {
+        exe = cli;
+        agyRunner = undefined;
+        officialAgy = true;
+        delete env.ELECTRON_RUN_AS_NODE;
+        this.runnerTasks.delete(taskId);
+        this.noSteerTasks.add(taskId);
+        // A model that ran out of quota in an earlier task: straight to one that has some
+        if (isExhausted(model)) {
+          const next = nextAgyModel(await listAgyModels(cli, env), model, effort);
+          if (next) {
+            this.notice(taskId, `\n⚡ [模型切换] ${model || "默认模型"} 的额度还没恢复，这次改用 ${next.label}。\n\n`);
+            model = next.id;
+          }
+        }
+        return {
+          args: antigravityArgs({ sessionId, model, effort, timeoutSeconds: task.timeoutSeconds, prompt, official: true }),
+          parser: new AgyCliStreamParser() as AgentStreamParser,
+        };
+      };
       if (isAntigravity) {
         const ag = await discoverAntigravityEnv();
-        const cli = ag ? undefined : await officialAgyCli();
+        const cli = ag ? undefined : await ensureOfficialAgyCli();
         if (ag) {
           Object.assign(env, ag);
         } else if (cli) {
-          // No Antigravity app here: Google's own CLI in print mode, in its own conversations
-          this.log(`Task ${taskId}: Antigravity app not running, using Google's agy CLI at ${cli}`);
-          exe = cli;
-          agyRunner = undefined;
-          officialAgy = true;
-          delete env.ELECTRON_RUN_AS_NODE;
-          this.runnerTasks.delete(taskId);
-          this.noSteerTasks.add(taskId);
-          // A model that ran out of quota in an earlier task: straight to one that has some
-          if (isExhausted(model)) {
-            const next = nextAgyModel(await listAgyModels(cli, env), model, effort);
-            if (next) {
-              this.notice(taskId, `\n⚡ [模型切换] ${model || "默认模型"} 的额度还没恢复，这次改用 ${next.label}。\n\n`);
-              model = next.id;
-            }
-          }
-          args = antigravityArgs({ sessionId, model, effort, timeoutSeconds: task.timeoutSeconds, prompt, official: true });
-          parser = new AgyCliStreamParser();
+          // No Antigravity app here, or one that keeps its language server to itself: Google's own CLI in
+          // print mode, in its own conversations
+          this.log(`Task ${taskId}: Antigravity app not reachable, using Google's agy CLI at ${cli}`);
+          ({ args, parser } = await toOfficialCli(cli));
         } else {
           this.send(
             taskFinishedMessage({
@@ -928,10 +935,10 @@ export class TaskRunner {
               status: "failed",
               exitCode: 1,
               error:
-                "💡 未检测到正在运行的 Antigravity 应用服务，也没有安装 Google 官方 agy 命令行。\n\n" +
-                "有桌面的机器：启动 Antigravity 应用后再试。\n" +
-                "没有桌面的服务器：运行 curl -fsSL https://antigravity.google/cli/install.sh | bash 安装 agy，" +
-                "在终端里运行一次 agy 完成登录（或按官方文档配置 GEMINI_API_KEY），之后任务会自动改用它。",
+                "💡 本机的 Antigravity 应用不对外开放会话接口（2.34 起不再提供 CSRF 令牌），也没能自动装上 Google 官方 agy 命令行。\n\n" +
+                "macOS / Linux：在终端运行 curl -fsSL https://antigravity.google/cli/install.sh | bash\n" +
+                "Windows：在 PowerShell 运行 irm https://antigravity.google/cli/install.ps1 | iex\n" +
+                "装好后它会沿用 Antigravity 应用的登录（没有桌面的服务器在终端里运行一次 agy 完成登录），之后任务自动改用它。",
             }),
           );
           return;
@@ -964,6 +971,20 @@ export class TaskRunner {
       const errScan = () => `${out.stderr}\n${parser?.errors ?? ""}`;
       const lastErrors = () => `${out.stderr.slice(runFrom)}\n${parser?.errors ?? ""}`;
       if (officialAgy && !model && parser instanceof AgyCliStreamParser) noteDefaultModel(parser.model);
+
+      // Retry 0.1: the Antigravity app's language server turned the runner away (no CSRF token for other
+      // programs since 2.34): the same task on Google's CLI, which shares the app's sign-in
+      if (exitCode !== 0 && isAntigravity && !officialAgy && isAppAuthRejection(lastErrors()) && !this.cancelledTasks.has(taskId)) {
+        const cli = await ensureOfficialAgyCli();
+        if (cli) {
+          this.log(`Task ${taskId}: Antigravity app refused agentapi (CSRF), retrying on Google's agy CLI at ${cli}`);
+          this.notice(taskId, "\n⚡ [环境自愈] Antigravity 应用不再对外开放会话接口，已自动改用 Google 官方 agy 命令行（沿用同一账号登录）重新执行...\n\n");
+          const first = await toOfficialCli(cli);
+          parser = first.parser;
+          agyModel = model;
+          exitCode = await run({ args: first.args, parser, stdinPrompt, consoleEncoding });
+        }
+      }
 
       // Retry 0.4: Google's CLI ran out of this model's quota (each model has its own): go on with another
       for (let switches = 0; exitCode !== 0 && officialAgy && switches < 3 && !this.cancelledTasks.has(taskId); switches++) {

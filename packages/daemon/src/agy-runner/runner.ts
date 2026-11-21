@@ -827,6 +827,8 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
           break;
         }
         lastErr = (res.stderr || res.stdout || "").trim();
+        // Turned away for want of the app's CSRF token: every tier would be too, the daemon goes to Google's CLI
+        if (/missing CSRF token|invalid CSRF token|code = Unauthenticated/i.test(lastErr)) break;
         err(`\n⏳ [模型 ${cand} 启动遇到异常 (${head(lastErr, 80)})，自动尝试切换下一档位...]\n\n`);
       } catch (e) {
         lastErr = e instanceof Error ? e.message : String(e);

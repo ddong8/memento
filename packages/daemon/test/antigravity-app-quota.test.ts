@@ -18,6 +18,7 @@ vi.mock("../src/antigravity.js", async (importOriginal) => {
     antigravityExecutable: async () => runner,
     discoverAntigravityEnv: async () => ({ ANTIGRAVITY_LS_ADDRESS: "127.0.0.1:1", ANTIGRAVITY_CSRF_TOKEN: "t" }),
     officialAgyCli: async () => null,
+    ensureOfficialAgyCli: async () => undefined,
   };
 });
 

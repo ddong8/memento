@@ -93,21 +93,21 @@ const CAMERA_ANGLE_OPTIONS = [
 
 const FALLBACK_PRESETS: Record<string, StudioPreset> = {
   live_action_drama: {
-    label: "真人写实短剧（35mm 电影级）",
+    label: "真人写实短剧（国产 S+ 影视级）",
     style:
-      "cinematic live-action Chinese short drama, shot on 35mm anamorphic lens, natural human skin texture, realistic practical lighting, shallow depth of field, film color grading, photorealistic, 8k",
+      "high-budget contemporary mainland Chinese S+ streaming television drama cinematography, authentic Chinese East Asian beauty aesthetic, refined harmonious East Asian facial bone structure, luminous smooth fair complexion, soft diffused studio butterfly beauty key lighting, clean bright cool-neutral luxury color grading, subtle natural Chinese editorial makeup, restrained authentic micro-expressions, shot on 85mm cinema prime lens, shallow depth of field, photorealistic, no harsh facial shadows, no aged gritty skin, no Western-stereotype Asian features",
     subtitle_preset: "cinema_sub",
   },
   urban_romance: {
-    label: "都市情感爽剧（高端影视）",
+    label: "都市情感爽剧（高端国产剧）",
     style:
-      "high-budget modern Chinese urban television drama, realistic cinematography, soft key lighting, sleek metropolitan interiors, expressive human facial micro-expressions, shallow depth of field, photorealistic",
+      "top-tier modern Shanghai urban Chinese romance television drama (Tencent/iQIYI S+ quality), attractive contemporary Chinese actors with delicate East Asian bone structure, luminous porcelain-ivory skin, soft flattering diffused key lighting, airy sleek metropolitan interiors, quiet-luxury modern Chinese styling, restrained natural micro-expressions, shallow depth of field, photorealistic, no harsh shadows, no greasy hair, no yellow documentary tint",
     subtitle_preset: "manga_gold",
   },
   costume_drama: {
-    label: "古装仙侠短剧（电影实拍感）",
+    label: "古装仙侠短剧（东方美学实拍）",
     style:
-      "cinematic Chinese historical costume wuxia drama, realistic silk hanfu embroidery, misty courtyard lighting, 35mm film grain, epic dramatic composition, photorealistic live-action",
+      "high-budget Chinese historical costume xianxia/wuxia television drama, classical Oriental Chinese beauty aesthetic, refined fair East Asian features, soft misty natural beauty lighting, exquisite authentic silk hanfu embroidery, poetic Jiangnan/palace cinematography, shallow depth of field, photorealistic live-action, no harsh gritty shadows",
     subtitle_preset: "manga_gold",
   },
   suspense_anime: {
@@ -245,6 +245,13 @@ function StudioInner() {
       setBgmList(bgmRes.items || []);
       if (presetRes.presets && Object.keys(presetRes.presets).length > 0) {
         setPresets(presetRes.presets);
+        if (presetRes.presets.live_action_drama?.style) {
+          setNewProjStyle((prev) =>
+            prev === FALLBACK_PRESETS.live_action_drama.style
+              ? presetRes.presets.live_action_drama.style
+              : prev
+          );
+        }
       }
 
       const targetProj =
@@ -294,7 +301,12 @@ function StudioInner() {
         setBatchState(res.batch);
         if (!res.batch.running) {
           await loadEpisode(selectedEpisodeId);
-          const modeLabel = res.batch.mode === "animate" ? "全集转动态 (I2V)" : "全集批量生图";
+          const modeLabel =
+          res.batch.mode === "upscale"
+            ? "全集 SeedVR2 1080P 超分"
+            : res.batch.mode === "animate"
+            ? "全集 MiniMax-H3 原生音画转动态"
+            : "全集批量生图";
           notify(
             res.batch.failed === 0,
             `${modeLabel}已完成：成功 ${res.batch.succeeded}/${res.batch.total}${
@@ -906,7 +918,13 @@ function StudioInner() {
                   >
                     <span>
                       {batchState.running
-                        ? `后台执行中（${batchState.mode === "animate" ? "批量转动态" : "批量生图"}）：已完成 ${batchState.done}/${batchState.total} 镜`
+                        ? `后台执行中（${
+                            batchState.mode === "upscale"
+                              ? "阶段二：SeedVR2 1080P 超分"
+                              : batchState.mode === "animate"
+                              ? "阶段一：MiniMax-H3 原生音画"
+                              : "批量生图"
+                          }）：已完成 ${batchState.done}/${batchState.total} 镜`
                         : `最近批量任务：成功 ${batchState.succeeded}/${batchState.total}${
                             batchState.failed > 0 ? `，失败 ${batchState.failed}` : ""
                           }`}

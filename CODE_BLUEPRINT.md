@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `d6aa865d` · Updated: `2026-11-21`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `e74a3dde` · Updated: `2026-11-21`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,8 +16,8 @@
 - 规模 (Scale): 9 个子系统 · 40 组 API 路由 / 300 个接口 · 39 个前端页面 · 41 个数据模型 · 35 个服务模块 · 250 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `206ac505` (2026-11-21): feat(agents): 全链路支持 Claude Code、Codex、Antigravity 与 WorkBuddy 子智能体及多智能体协同
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 72（✅ 72 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `F-AGY-NEW`, `R-TRACK-BACKGROUND`, `R-WS-BIG-UNTRACKED`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `R-MEDIA-VIEW`, `R-WECHAT-DRAFT`, `R-STUDIO-INLINE-PLAY`
+- 最近改动 (Latest): `10e05b01` (2026-11-21): fix(video): 实现播放器播放后持久化缓存并修复演播台视频缓存失效问题
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 72（✅ 72 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-MEDIA-VIEW`, `F-AGY-NEW`, `R-TRACK-BACKGROUND`, `R-WS-BIG-UNTRACKED`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `R-WECHAT-DRAFT`, `R-STUDIO-INLINE-PLAY`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -687,12 +687,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `10e05b01` (2026-11-21): fix(video): 实现播放器播放后持久化缓存并修复演播台视频缓存失效问题
 - `206ac505` (2026-11-21): feat(agents): 全链路支持 Claude Code、Codex、Antigravity 与 WorkBuddy 子智能体及多智能体协同
 - `35f904aa` (2026-11-21): style(workbench): 精简工作台视窗顶栏按钮组并收纳至更多操作菜单
 - `e204f5b8` (2026-11-21): refactor(plugins): 将演播台入口移出左侧导航并归位至工作台插件区
 - `c18a980a` (2026-11-21): chore(studio): 升级 filmkit 镜像至 c43583b03335 固化 Colab Drive 缓存与多人说话人隔离
 - `0bb662a1` (2026-11-20): chore(studio): 升级 filmkit 镜像至 08b65eaa2ca2 修复 Gemini 网关请求头与 os 导入
-- `ec7a1592` (2026-11-20): chore(studio): 演播台改走 Cloudflare Workers 反代网关并移除直连 fleet-proxy
 
 ## 10. Key Environment Variables & Configuration
 
@@ -715,9 +715,9 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ### 最近提交碰到的业务条目（改动后复查它们还成不成立）
 
+- `10e05b01` fix(video): 实现播放器播放后持久化缓存并修复演播台视频缓存失效问题 → `R-MEDIA-VIEW`
 - `206ac505` feat(agents): 全链路支持 Claude Code、Codex、Antigravity 与 WorkBuddy 子智能体及多智能体协同 → `F-AGY-NEW`, `R-TRACK-BACKGROUND`, `R-WS-BIG-UNTRACKED`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`
 - `35f904aa` style(workbench): 精简工作台视窗顶栏按钮组并收纳至更多操作菜单 → `R-MEDIA-VIEW`, `R-WECHAT-DRAFT`, `R-STUDIO-INLINE-PLAY`
-- `e204f5b8` refactor(plugins): 将演播台入口移出左侧导航并归位至工作台插件区 → `R-MEDIA-VIEW`, `R-WECHAT-DRAFT`, `R-STUDIO-INLINE-PLAY`, `R-PLUGIN-MARKETPLACE`
 
 ---
 _Auto-maintained by `scripts/project_blueprint.mjs` (v20261126) & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._

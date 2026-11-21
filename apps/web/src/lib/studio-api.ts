@@ -21,7 +21,7 @@ export interface StudioPreset {
 
 export interface StudioBatchState {
   running: boolean;
-  mode: "" | "generate" | "animate";
+  mode: "" | "generate" | "animate" | "upscale";
   total: number;
   done: number;
   succeeded: number;

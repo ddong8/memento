@@ -30,11 +30,23 @@ export function formatContextTokens(n: number, zh: boolean): string {
   return n >= 10_000 ? `约 ${Math.round(n / 10_000)} 万 token` : `约 ${Math.max(1, Math.round(n / 1000))} 千 token`;
 }
 
-/** A title the agent gave a session before anything was said in it, so not worth showing. */
+/** A title the agent or UI gave a session/page before a real prompt was recorded, so not worth showing over a real title. */
 export function isJunkSessionTitle(val?: string): boolean {
   if (!val) return true;
   const low = val.trim().toLowerCase();
-  return !low || low === "start" || low.startsWith("starting the conversation") || low.startsWith("starting conversation") || low === "新对话" || low === "untitled";
+  return (
+    !low ||
+    low === "start" ||
+    low.startsWith("starting the conversation") ||
+    low.startsWith("starting conversation") ||
+    low === "新对话" ||
+    low === "新会话" ||
+    low === "智能问答" ||
+    low === "ask" ||
+    low === "ask memento" ||
+    low === "new chat" ||
+    low === "untitled"
+  );
 }
 
 /**
@@ -89,21 +101,47 @@ type GetMessages = (
   limit: number,
 ) => Promise<{ total: number; messages: SessionMessage[] } | null | undefined>;
 
+function hasRealUserMessage(messages: SessionMessage[]): boolean {
+  return messages.some((m) => {
+    if ((m.role || "") !== "user") return false;
+    const text = (m.content || "").trim();
+    if (!text) return false;
+    return !text.startsWith("[Result]") && !text.startsWith("[Tool:") && !text.startsWith('{"tool_use_id"');
+  });
+}
+
 /**
  * A session's latest `limit` messages, oldest first. The endpoint pages from the start, so a long
  * session's first page is only its opening (seen 2026-11-12: a 1021-message session showed its first
- * evening, not that day's work).
+ * evening, not that day's work). If a tool-heavy turn pushed all user messages out of the trailing
+ * `limit` rows, step back up to 2 more pages so the preview still includes the user's question.
  */
 export async function fetchLatestSessionMessages(
   getMessages: GetMessages,
   documentId: string,
   limit = SESSION_PREVIEW_MESSAGES,
 ): Promise<SessionMessage[]> {
-  let page = await getMessages(documentId, 0, limit);
-  if (page && page.total > limit) {
-    page = await getMessages(documentId, page.total - limit, limit);
+  const first = await getMessages(documentId, 0, limit);
+  if (!first) return [];
+  if (first.total <= limit) {
+    return first.messages || [];
   }
-  return page?.messages || [];
+  let offset = Math.max(0, first.total - limit);
+  const tail = await getMessages(documentId, offset, limit);
+  let collected = tail?.messages || [];
+  let steps = 0;
+  while (offset > 0 && steps < 2 && !hasRealUserMessage(collected)) {
+    const nextOffset = Math.max(0, offset - limit);
+    const take = offset - nextOffset;
+    if (take <= 0) break;
+    const earlier = await getMessages(documentId, nextOffset, take);
+    const earlierMsgs = earlier?.messages || [];
+    if (earlierMsgs.length === 0) break;
+    collected = [...earlierMsgs, ...collected];
+    offset = nextOffset;
+    steps += 1;
+  }
+  return collected;
 }
 
 /** Legacy "[Tool: <name>]\n<input>" blocks embedded in an assistant message's text. */

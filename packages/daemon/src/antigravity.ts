@@ -17,44 +17,35 @@ export interface AntigravitySessionInfo {
   nestingDepth?: number;
 }
 
-let summariesCache: { map: Map<string, AntigravitySessionInfo>; at: number } | undefined;
+let summariesCache: { home: string; map: Map<string, AntigravitySessionInfo>; at: number } | undefined;
 
-function loadSummariesMap(home = homeDir()): Map<string, AntigravitySessionInfo> {
-  const dbPath = join(home, ".gemini", "antigravity", "conversation_summaries.db");
-  const map = new Map<string, AntigravitySessionInfo>();
-  if (!existsSync(dbPath)) return map;
-
-  const now = Date.now();
-  if (summariesCache && now - summariesCache.at < 15_000) {
-    return summariesCache.map;
+function readSummariesDb(dbPath: string, map: Map<string, AntigravitySessionInfo>): boolean {
+  if (!existsSync(dbPath)) return false;
+  let rows = sqliteRows(
+    dbPath,
+    "SELECT conversation_id, title, workspace_uris, parent_conversation_id, agent_name, nesting_depth FROM conversation_summaries WHERE status != 'deleted'",
+  );
+  if (!rows) {
+    rows = sqliteRows(dbPath, "SELECT conversation_id, title, workspace_uris FROM conversation_summaries WHERE status != 'deleted'");
   }
+  if (!rows) return false;
+  for (const row of rows) {
+    const cid = String(row[0] ?? "").trim();
+    const title = String(row[1] ?? "").replace(/\n/g, " ").trim();
+    const wsUrisRaw = String(row[2] ?? "").trim();
+    const parentConversationId = String(row[3] ?? "").trim() || undefined;
+    const agentName = String(row[4] ?? "").trim() || undefined;
+    const depthNum = row[5] != null && row[5] !== "" ? Number(row[5]) : undefined;
+    const nestingDepth = typeof depthNum === "number" && Number.isFinite(depthNum) && depthNum > 0 ? depthNum : undefined;
+    if (!cid) continue;
 
-  try {
-    let rows = sqliteRows(
-      dbPath,
-      "SELECT conversation_id, title, workspace_uris, parent_conversation_id, agent_name, nesting_depth FROM conversation_summaries WHERE status != 'deleted'",
-    );
-    if (!rows) {
-      rows = sqliteRows(dbPath, "SELECT conversation_id, title, workspace_uris FROM conversation_summaries WHERE status != 'deleted'");
-    }
-    if (!rows) throw new Error("conversation_summaries.db unreadable");
-    for (const row of rows) {
-      const cid = String(row[0] ?? "").trim();
-      const title = String(row[1] ?? "").replace(/\n/g, " ").trim();
-      const wsUrisRaw = String(row[2] ?? "").trim();
-      const parentConversationId = String(row[3] ?? "").trim() || undefined;
-      const agentName = String(row[4] ?? "").trim() || undefined;
-      const depthNum = row[5] != null && row[5] !== "" ? Number(row[5]) : undefined;
-      const nestingDepth = typeof depthNum === "number" && Number.isFinite(depthNum) && depthNum > 0 ? depthNum : undefined;
-      if (!cid) continue;
-
-      let wsPath: string | undefined;
-      let pName: string | undefined;
-      if (wsUrisRaw) {
-        const m = /"file:\/\/\/([^"]+)"|"file:\/\/([^"]+)"/.exec(wsUrisRaw);
-        if (m) {
-          const rawUri = m[1] || m[2];
-          if (!rawUri) continue;
+    let wsPath: string | undefined;
+    let pName: string | undefined;
+    if (wsUrisRaw) {
+      const m = /"file:\/\/\/([^"]+)"|"file:\/\/([^"]+)"/.exec(wsUrisRaw);
+      if (m) {
+        const rawUri = m[1] || m[2];
+        if (rawUri) {
           let cleaned = decodeURIComponent(rawUri);
           if (process.platform === "win32") {
             if (/^\/[a-zA-Z]:/.test(cleaned)) cleaned = cleaned.slice(1);
@@ -68,19 +59,43 @@ function loadSummariesMap(home = homeDir()): Map<string, AntigravitySessionInfo>
           }
         }
       }
-
-      map.set(cid, {
-        title: title || undefined,
-        workspacePath: wsPath,
-        projectName: pName,
-        ...(parentConversationId ? { parentConversationId } : {}),
-        ...(agentName ? { agentName } : {}),
-        ...(nestingDepth ? { nestingDepth } : {}),
-      });
     }
-    summariesCache = { map, at: now };
+
+    const prev = map.get(cid);
+    map.set(cid, {
+      title: title || prev?.title || undefined,
+      workspacePath: wsPath || prev?.workspacePath,
+      projectName: pName || prev?.projectName,
+      ...(parentConversationId || prev?.parentConversationId ? { parentConversationId: parentConversationId || prev?.parentConversationId } : {}),
+      ...(agentName || prev?.agentName ? { agentName: agentName || prev?.agentName } : {}),
+      ...(nestingDepth || prev?.nestingDepth ? { nestingDepth: nestingDepth || prev?.nestingDepth } : {}),
+    });
+  }
+  return true;
+}
+
+function loadSummariesMap(home = homeDir()): Map<string, AntigravitySessionInfo> {
+  const dbPaths = [
+    join(home, ".gemini", "antigravity", "conversation_summaries.db"),
+    join(home, ".gemini", "antigravity-cli", "conversation_summaries.db"),
+  ];
+  const map = new Map<string, AntigravitySessionInfo>();
+  if (!dbPaths.some((p) => existsSync(p))) return map;
+
+  const now = Date.now();
+  if (summariesCache && summariesCache.home === home && now - summariesCache.at < 15_000) {
+    return summariesCache.map;
+  }
+
+  try {
+    let anyOk = false;
+    for (const dbPath of dbPaths) {
+      if (readSummariesDb(dbPath, map)) anyOk = true;
+    }
+    if (!anyOk) throw new Error("conversation_summaries.db unreadable");
+    summariesCache = { home, map, at: now };
   } catch {
-    if (summariesCache) return summariesCache.map;
+    if (summariesCache && summariesCache.home === home) return summariesCache.map;
   }
   return map;
 }
@@ -274,9 +289,13 @@ export function updateAntigravitySessionTitle(sessionId: string, newTitle: strin
   const trimmedTitle = newTitle.trim().slice(0, 100);
   let updatedDb = false;
 
-  const dbPath = join(home, ".gemini", "antigravity", "conversation_summaries.db");
-  if (existsSync(dbPath)) {
-    updatedDb = sqliteRun(dbPath, "UPDATE conversation_summaries SET title = ? WHERE conversation_id = ?", [trimmedTitle, sessionId]);
+  for (const subdir of ["antigravity", "antigravity-cli"] as const) {
+    const dbPath = join(home, ".gemini", subdir, "conversation_summaries.db");
+    if (existsSync(dbPath)) {
+      if (sqliteRun(dbPath, "UPDATE conversation_summaries SET title = ? WHERE conversation_id = ?", [trimmedTitle, sessionId])) {
+        updatedDb = true;
+      }
+    }
   }
 
   summariesCache = undefined;
@@ -296,6 +315,15 @@ export function updateAntigravitySessionTitle(sessionId: string, newTitle: strin
   return updatedDb;
 }
 
+function antigravityTranscriptFile(sessionId: string, home = homeDir()): string | undefined {
+  if (!/^[\w-]+$/.test(sessionId)) return undefined;
+  for (const subdir of ["antigravity", "antigravity-cli"] as const) {
+    const p = join(home, ".gemini", subdir, "brain", sessionId, ".system_generated", "logs", "transcript.jsonl");
+    if (existsSync(p)) return p;
+  }
+  return undefined;
+}
+
 export function healAntigravitySession(
   sessionId: string,
   linesOrFilePath: string[] | string,
@@ -308,8 +336,8 @@ export function healAntigravitySession(
 
   let cand = extractTitleFromTranscript(linesOrFilePath);
   if (!cand && Array.isArray(linesOrFilePath)) {
-    const transcriptFile = join(home, ".gemini", "antigravity", "brain", sessionId, ".system_generated", "logs", "transcript.jsonl");
-    if (existsSync(transcriptFile)) {
+    const transcriptFile = antigravityTranscriptFile(sessionId, home);
+    if (transcriptFile) {
       cand = extractTitleFromTranscript(transcriptFile);
     }
   }
@@ -327,14 +355,121 @@ export async function healAllAntigravitySessions(home = homeDir()): Promise<numb
   let count = 0;
   for (const [cid, info] of map.entries()) {
     if (!info.title || isJunkAntigravityTitle(info.title, cid)) {
-      const transcriptFile = join(home, ".gemini", "antigravity", "brain", cid, ".system_generated", "logs", "transcript.jsonl");
-      if (existsSync(transcriptFile)) {
+      const transcriptFile = antigravityTranscriptFile(cid, home);
+      if (transcriptFile) {
         const healed = healAntigravitySession(cid, transcriptFile, undefined, home);
         if (healed) count++;
       }
     }
   }
   return count;
+}
+
+/** Whether Google's official agy CLI (~/.gemini/antigravity-cli) owns the trajectory for sessionId. */
+export function antigravityCliHasConversation(sessionId: string, home = homeDir()): boolean {
+  if (!/^[\w-]+$/.test(sessionId)) return false;
+  const db = join(home, ".gemini", "antigravity-cli", "conversations", `${sessionId}.db`);
+  try {
+    return statSync(db).size > 0;
+  } catch {
+    return false;
+  }
+}
+
+/** Whether the Antigravity desktop app (~/.gemini/antigravity) owns sessionId on this machine. */
+export function antigravityDesktopHasConversation(sessionId: string, home = homeDir()): boolean {
+  if (!/^[\w-]+$/.test(sessionId)) return false;
+  const db = join(home, ".gemini", "antigravity", "conversations", `${sessionId}.db`);
+  if (existsSync(db)) return true;
+  return existsSync(join(home, ".gemini", "antigravity", "brain", sessionId, ".system_generated", "logs", "transcript.jsonl"));
+}
+
+function cleanTranscriptTurnText(raw: string): string {
+  let s = raw
+    .replace(/<ADDITIONAL_METADATA>[\s\S]*?<\/ADDITIONAL_METADATA>/gi, "")
+    .replace(/<USER_SETTINGS_CHANGE>[\s\S]*?<\/USER_SETTINGS_CHANGE>/gi, "")
+    .replace(/<CONTEXT_SUMMARY>[\s\S]*?<\/CONTEXT_SUMMARY>/gi, "")
+    .replace(/<system>[\s\S]*?<\/system>/gi, "")
+    .trim();
+  const req = /<USER_REQUEST>([\s\S]*?)<\/USER_REQUEST>/i.exec(s);
+  if (req?.[1]) s = req[1].trim();
+  return s;
+}
+
+/**
+ * Recent user/assistant exchanges from an Antigravity desktop conversation's local transcript,
+ * formatted as a compact preamble so Google's official agy CLI can continue a desktop conversation
+ * without failing with `trajectory not found`.
+ */
+export function antigravityDesktopTranscriptContext(
+  sessionId: string,
+  home = homeDir(),
+  maxMessages = 8,
+): string | undefined {
+  if (!/^[\w-]+$/.test(sessionId)) return undefined;
+  const transcriptPath = join(home, ".gemini", "antigravity", "brain", sessionId, ".system_generated", "logs", "transcript.jsonl");
+  if (!existsSync(transcriptPath)) return undefined;
+  let raw: string;
+  try {
+    // Bound memory on huge transcripts by reading the trailing 1.5 MB at most
+    const size = statSync(transcriptPath).size;
+    const maxBytes = 1_500_000;
+    if (size <= maxBytes) {
+      raw = readFileSync(transcriptPath, "utf8");
+    } else {
+      const fd = openSync(transcriptPath, "r");
+      try {
+        const buf = Buffer.alloc(maxBytes);
+        const read = readSync(fd, buf, 0, maxBytes, size - maxBytes);
+        const slice = buf.toString("utf8", 0, read);
+        const nl = slice.indexOf("\n");
+        raw = nl >= 0 ? slice.slice(nl + 1) : slice;
+      } finally {
+        closeSync(fd);
+      }
+    }
+  } catch {
+    return undefined;
+  }
+
+  const turns: Array<{ role: "用户" | "助手"; text: string }> = [];
+  for (const line of raw.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    let step: { type?: string; source?: string; content?: unknown } | null = null;
+    try {
+      step = JSON.parse(trimmed) as { type?: string; source?: string; content?: unknown };
+    } catch {
+      continue;
+    }
+    if (!step || typeof step.content !== "string" || !step.content.trim()) continue;
+    if (step.type === "USER_INPUT" || step.source === "USER_EXPLICIT") {
+      if (
+        step.content.includes("<SYSTEM_MESSAGE>") ||
+        step.content.includes("[BROWSER_HOST_FACTS") ||
+        /^The subagent\b/i.test(step.content.trim())
+      ) {
+        continue;
+      }
+      const cleaned = cleanTranscriptTurnText(step.content);
+      if (cleaned) turns.push({ role: "用户", text: cleaned });
+    } else if (step.type === "PLANNER_RESPONSE" && step.source === "MODEL") {
+      const cleaned = step.content.trim();
+      if (cleaned) turns.push({ role: "助手", text: cleaned });
+    }
+  }
+  if (!turns.length) return undefined;
+  const tailStart = Math.max(0, turns.length - maxMessages);
+  const firstUserIdx = turns.findIndex((t) => t.role === "用户");
+  const picked =
+    firstUserIdx >= 0 && firstUserIdx < tailStart
+      ? [{ role: "初始提问" as const, text: turns[firstUserIdx]!.text }, ...turns.slice(tailStart)]
+      : turns.slice(tailStart);
+  const recent = picked.map((t) => {
+    const body = t.text.length > 1200 ? `${t.text.slice(0, 1150)}\n...[已节略]` : t.text;
+    return `${t.role}: ${body}`;
+  });
+  return `【前文对话历史（续接自 Antigravity 桌面会话 ${sessionId.slice(0, 8)}）】\n${recent.join("\n\n")}\n\n--------------------`;
 }
 
 const BACKGROUND_STARTED = /(?:Tool is running as a background task with task id|Command running in background with ID|Task running in background with ID):\s*((?:[0-9a-fA-F-]+\/)?task-\d+)/i;

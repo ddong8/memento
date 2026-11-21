@@ -941,6 +941,70 @@ function AskPageContent() {
     }
   }, [conversations.length]);
 
+  // Keep the local conversations list synchronized whenever a single conversation is loaded or created
+  // (e.g. via ensure-by-session or direct URL open), so TopBar / Banner / HistoryDrawer never show stale or fallback titles.
+  const upsertConversationSummary = useCallback((detail: AskConversationDetail, fallbackTitle?: string) => {
+    if (!detail?.id) return;
+    const rawTitle = (detail.title || "").trim();
+    const resolvedTitle =
+      (!isJunkSessionTitle(rawTitle) ? rawTitle : undefined) ||
+      (!isJunkSessionTitle(fallbackTitle) ? fallbackTitle?.trim() : undefined) ||
+      rawTitle;
+    setConversations((prev) => {
+      const idx = prev.findIndex((c) => c.id === detail.id);
+      const mergedConfig = {
+        ...(idx >= 0 ? prev[idx].config : undefined),
+        ...(detail.config || {}),
+        ...(detail.execution_mode ? { execution_mode: detail.execution_mode } : {}),
+        ...(detail.project_id ? { project_id: detail.project_id } : {}),
+        ...(detail.session_id ? { session_id: detail.session_id } : {}),
+        ...(detail.device_id ? { device_id: detail.device_id } : {}),
+        ...(detail.cwd ? { cwd: detail.cwd } : {}),
+      };
+      if (idx >= 0) {
+        const cur = prev[idx];
+        const nextTitle = resolvedTitle || cur.title;
+        const nextUpdated = detail.updated_at ?? cur.updated_at;
+        const nextCount = detail.total_turns ?? detail.turns?.length ?? cur.message_count;
+        if (
+          cur.title === nextTitle &&
+          cur.updated_at === nextUpdated &&
+          cur.message_count === nextCount &&
+          cur.project_title === (detail.project_title ?? cur.project_title) &&
+          cur.config?.session_id === mergedConfig.session_id
+        ) {
+          return prev;
+        }
+        const next = prev.slice();
+        next[idx] = {
+          ...cur,
+          title: nextTitle,
+          device_id: detail.device_id ?? cur.device_id,
+          project_id: detail.project_id ?? cur.project_id,
+          project_title: detail.project_title ?? cur.project_title,
+          cwd: detail.cwd ?? cur.cwd,
+          config: mergedConfig,
+          updated_at: nextUpdated,
+          message_count: nextCount,
+        };
+        return next;
+      }
+      const added: AskConversationSummary = {
+        id: detail.id,
+        title: resolvedTitle || "",
+        created_at: detail.created_at ?? new Date().toISOString(),
+        updated_at: detail.updated_at ?? new Date().toISOString(),
+        device_id: detail.device_id ?? null,
+        project_id: detail.project_id ?? null,
+        project_title: detail.project_title ?? null,
+        cwd: detail.cwd ?? null,
+        config: mergedConfig,
+        message_count: detail.total_turns ?? detail.turns?.length ?? 0,
+      };
+      return [added, ...prev];
+    });
+  }, []);
+
   const handleHistoryFilterDeviceChange = useCallback((filterCurrent: boolean) => {
     setHistoryFilterDevice(filterCurrent);
   }, []);
@@ -1460,6 +1524,7 @@ function AskPageContent() {
       ]);
       // Another conversation (or a new chat) was opened meanwhile: this reply is for nothing on screen
       if (lastRestoredIdRef.current !== id) return;
+      upsertConversationSummary(data);
       activeConversationIdRef.current = data.id;
       setActiveConversationId(data.id);
       replaceAskUrl(hiddenUrlRef, `/ask?id=${data.id}`);
@@ -1533,7 +1598,7 @@ function AskPageContent() {
     } finally {
       endRestore(gen);
     }
-  }, [applyCachedCascade, beginRestore, detachStream, endRestore, restoreCascade]);
+  }, [applyCachedCascade, beginRestore, detachStream, endRestore, restoreCascade, upsertConversationSummary]);
 
   // Load earlier history for long conversation (Cursor Pagination)
   const loadEarlierHistoryTurns = useCallback(async () => {
@@ -4359,6 +4424,7 @@ function AskPageContent() {
         try {
           const detail = await api.getAskConversation(matchedAskConv.id, 40);
           if (superseded()) return;
+          if (detail) upsertConversationSummary(detail, targetSession.title);
           if (detail?.device_id && detail.device_id !== "auto") {
             setSelectedDevice(normalizeDeviceId(detail.device_id));
           }
@@ -4380,6 +4446,7 @@ function AskPageContent() {
           });
           if (superseded()) return;
           if (ensured && ensured.id) {
+            upsertConversationSummary(ensured, targetSession.title);
             openSessionConversation(ensured.id);
             if (ensured.device_id && ensured.device_id !== "auto") {
               setSelectedDevice(normalizeDeviceId(ensured.device_id));
@@ -4400,7 +4467,7 @@ function AskPageContent() {
       setEmptyConvId(activeConversationIdRef.current || null);
       setSessionPreview({ convId: activeConversationIdRef.current || "", sid, turns: loadedTurns });
     },
-    [conversations, normalizeDeviceId, sessions, startNewChat, takeOverCascade]
+    [conversations, normalizeDeviceId, sessions, startNewChat, takeOverCascade, upsertConversationSummary]
   );
 
   // A conversation that continues a session but has no turns of its own yet (opened from the URL or the
@@ -4528,8 +4595,16 @@ function AskPageContent() {
   const sessionPicked = !activeConversationId || activeConversation?.config?.origin_session_id === selectedSessionId;
   const displayConvTitle = useMemo(() => {
     const raw = activeConversation?.title?.trim();
-    if (raw && raw.toLowerCase() !== "start" && raw !== t.ask.title) return raw;
-    for (let i = turns.length - 1; i >= 0; i--) {
+    if (raw && !isJunkSessionTitle(raw) && raw !== t.ask.title) return raw;
+    if (selectedSessionId) {
+      const boundMatches = !activeConversation || activeConversation.config?.session_id === selectedSessionId;
+      if (boundMatches) {
+        const matchedSession = sessions.find((s) => (s.session_id || s.conversation_id) === selectedSessionId);
+        const sessTitle = matchedSession?.title?.trim();
+        if (sessTitle && !isJunkSessionTitle(sessTitle) && sessTitle !== t.ask.title) return sessTitle;
+      }
+    }
+    for (let i = 0; i < turns.length; i++) {
       if (turns[i].role === "user" && turns[i].content?.trim()) {
         const cleaned = turns[i].content
           .replace(/^【用户上传了图片[\s\S]*?提示:[^\n]*\n*/g, "")
@@ -4538,7 +4613,7 @@ function AskPageContent() {
       }
     }
     return raw || t.ask.title;
-  }, [activeConversation?.title, turns, t.ask.title]);
+  }, [activeConversation, selectedSessionId, sessions, turns, t.ask.title]);
 
   const displayConvTitleRef = useRef(displayConvTitle);
   useEffect(() => {
@@ -4739,7 +4814,8 @@ function AskPageContent() {
           : undefined;
 
       const isSelected = selectedTurnIndices.includes(i);
-      const stableKey = (turn as any).id || (turn.created_at ? `${turn.role}-${turn.created_at}-${i}` : `turn-${i}`);
+      const convKeyPrefix = activeConversationId || "new";
+      const stableKey = `${convKeyPrefix}-${(turn as any).id || (turn.created_at ? `${turn.role}-${turn.created_at}-${i}` : `turn-${i}`)}`;
       const isNearEnd = i >= turns.length - 3;
 
       return (
@@ -4794,6 +4870,7 @@ function AskPageContent() {
       );
     });
   }, [
+    activeConversationId,
     turns,
     visibleTurnStart,
     streaming,

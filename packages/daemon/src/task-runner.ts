@@ -14,7 +14,18 @@ import {
   type AgentEvent,
   type AgentStreamParser,
 } from "./agent-stream.js";
-import { agyCliOpenBackgroundTasks, antigravityExecutable, discoverAntigravityEnv, ensureOfficialAgyCli, isAppAuthRejection } from "./antigravity.js";
+import {
+  agyCliOpenBackgroundTasks,
+  antigravityCliHasConversation,
+  antigravityDesktopHasConversation,
+  antigravityDesktopTranscriptContext,
+  antigravityExecutable,
+  discoverAntigravityEnv,
+  ensureOfficialAgyCli,
+  extractUserTitleFromText,
+  isAppAuthRejection,
+  updateAntigravitySessionTitle,
+} from "./antigravity.js";
 import { agyQuotaMessage, isExhausted, listAgyModels, nextAgyModel, noteDefaultModel, noteQuotaExhausted, quotaResetMs } from "./agy-models.js";
 import { ensureProjectBlueprint, findGitRoot } from "./blueprint-auto.js";
 import {
@@ -640,7 +651,7 @@ export class TaskRunner {
     const askedSession = text("session_id").trim();
     // Only an id an agent could have made: text taken for one (an older daemon read `\"\"` out of a tool's
     // output) resumes nothing, so the task starts a session of its own and reports that one instead
-    const sessionId = cleanSessionId(askedSession) ?? "";
+    let sessionId = cleanSessionId(askedSession) ?? "";
     this.taskSessions.set(taskId, { binary, sessionId: sessionId || undefined });
     let model = text("model");
     const effort = text("effort");
@@ -905,6 +916,24 @@ export class TaskRunner {
         delete env.ELECTRON_RUN_AS_NODE;
         this.runnerTasks.delete(taskId);
         this.noSteerTasks.add(taskId);
+        // Official agy CLI keeps its own trajectory store (~/.gemini/antigravity-cli) separate from the
+        // Antigravity desktop app (~/.gemini/antigravity). Passing a desktop-only conversation ID to
+        // `agy --conversation` fails with `trajectory not found`, so bridge its recent transcript into a
+        // fresh CLI session once; subsequent turns resume that CLI session natively.
+        if (sessionId && !antigravityCliHasConversation(sessionId) && antigravityDesktopHasConversation(sessionId)) {
+          const desktopSid = sessionId;
+          const alreadyHasHistory = prompt.includes("【前文对话历史") || prompt.includes("【前序会话核心记忆快照");
+          const ctx = alreadyHasHistory ? undefined : antigravityDesktopTranscriptContext(desktopSid);
+          if (ctx) {
+            prompt = `${ctx}\n【当前用户指令】\n${prompt}`;
+          }
+          this.log(`Task ${taskId}: session ${desktopSid} is in Antigravity desktop store only; starting bridged agy CLI session`);
+          this.notice(
+            taskId,
+            `\n⚡ [会话接续] 原会话 ${desktopSid.slice(0, 8)} 属于 Antigravity 桌面应用，官方 agy 命令行使用独立会话库；${ctx ? "已自动携带最近对话上下文" : "已自动"}在 agy 中开启续接会话，后续对话将在新会话里原样继续。\n\n`,
+          );
+          sessionId = "";
+        }
         // A model that ran out of quota in an earlier task: straight to one that has some
         if (isExhausted(model)) {
           const next = nextAgyModel(await listAgyModels(cli, env), model, effort);
@@ -1140,6 +1169,10 @@ export class TaskRunner {
             });
           }
         } else if (isAntigravity) {
+          if (officialAgy && sessionId && !prompt.includes("【前文对话历史") && !prompt.includes("【前序会话核心记忆快照")) {
+            const ctx = antigravityDesktopTranscriptContext(sessionId);
+            if (ctx) prompt = `${ctx}\n【当前用户指令】\n${prompt}`;
+          }
           exitCode = await run(agyRun({ model: agyModel, effort, timeoutSeconds: task.timeoutSeconds, prompt }));
         } else {
           parser = new UniversalStreamParser();
@@ -1236,6 +1269,19 @@ export class TaskRunner {
         void this.idleCompactor
           .schedule({ sessionId: parser.sessionId, cwd: workDir, exe, model: parser.model || model || undefined, env, contextTokens: parser.contextTokens })
           .catch(() => {});
+      }
+
+      // Keep Google agy CLI's local conversation title aligned with Memento's conversation title (R-TITLE-CONSISTENT)
+      const finalAgySid = officialAgy && effectiveExitCode === 0 ? cleanSessionId(parser?.sessionId) : undefined;
+      if (finalAgySid) {
+        const desiredTitle = text("title").trim() || extractUserTitleFromText(text("user_question") || prompt);
+        if (desiredTitle) {
+          try {
+            updateAntigravitySessionTitle(finalAgySid, desiredTitle);
+          } catch {
+            // non-critical title sync
+          }
+        }
       }
 
       this.send(

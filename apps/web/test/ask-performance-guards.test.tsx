@@ -10,6 +10,7 @@ import {
 } from "../src/components/viewers/MediaInspectorContext";
 import MarkdownViewer, { loadRehypeExtras } from "../src/components/viewers/MarkdownViewer";
 import { AskComposer, type AskComposerHandle } from "../src/components/ask/AskComposer";
+import { SessionResumeBanner } from "../src/components/ask/SessionResumeBanner";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -179,5 +180,58 @@ describe("Ask & Markdown performance guards", () => {
     expect(extras.pluginsRaw).toHaveLength(1);
     expect(extras.pluginsBoth).toHaveLength(2);
     vi.restoreAllMocks();
+  });
+
+  it("SessionResumeBanner shows the picked session title instead of an unrelated open conversation or generic fallback", async () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    await act(async () => {
+      root.render(
+        <SessionResumeBanner
+          sessionId="4ff9e5c4-d996-4f5e-b804-ea6c72eea91d"
+          sessions={[
+            {
+              conversation_id: "aff560df",
+              session_id: "4ff9e5c4-d996-4f5e-b804-ea6c72eea91d",
+              title: "客户端卡顿与模型报错优化",
+              timestamp: "2026-11-21T17:30:00Z",
+              message_count: 600,
+              messages: [],
+            },
+          ]}
+          activeConversation={{
+            id: "c5d95099",
+            title: "无关的旧会话标题",
+            created_at: null,
+            updated_at: null,
+            device_id: null,
+            message_count: 2,
+            config: { session_id: "other-session" },
+          }}
+          conversations={[]}
+          displayConvTitle="智能问答"
+          turns={[]}
+          totalTurns={0}
+          knownCost={undefined}
+          compactMode={false}
+          showContext={false}
+          onToggleContext={() => {}}
+          executionMode="antigravity"
+          inOpenConversation={true}
+          picked={true}
+        />,
+      );
+    });
+
+    expect(host.textContent).toContain("客户端卡顿与模型报错优化");
+    expect(host.textContent).not.toContain("无关的旧会话标题");
+    expect(host.textContent).not.toContain("智能问答");
+
+    await act(async () => {
+      root.unmount();
+    });
+    host.remove();
   });
 });

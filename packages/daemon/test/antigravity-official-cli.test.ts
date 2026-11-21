@@ -2,7 +2,7 @@
 // in print mode instead and reads its stream-json. A fake agy stands in for the CLI, printing the events
 // https://antigravity.google/docs/cli/headless documents; finding the app and the CLI is stubbed out, and so is
 // memento's runner (a build output, missing on a fresh checkout), which the CLI takes over from anyway.
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
@@ -202,6 +202,49 @@ it.skipIf(process.platform === "win32")(
       expect(ended.done, `${ended.done.error}\n${ended.done.stderr}`).toMatchObject({ status: "succeeded", session_id: BG_CID });
       const open = await runTask("feedbeef-0000-4000-8000-0000000000b7", { prompt: "后台起服务" });
       expect(open.done).toMatchObject({ status: "still_running", session_id: BG_CID });
+    } finally {
+      process.env.HOME = home;
+    }
+  },
+  45_000,
+);
+
+it.skipIf(process.platform === "win32")(
+  "resuming an Antigravity desktop-only session on official agy CLI bridges desktop transcript context instead of failing trajectory not found",
+  async () => {
+    const home = process.env.HOME;
+    const fakeHome = join(dir, "bridge-home");
+    const desktopSid = "4ff9e5c4-d996-4f5e-b804-ea6c72eea91d";
+    const deskLogs = join(fakeHome, ".gemini", "antigravity", "brain", desktopSid, ".system_generated", "logs");
+    mkdirSync(deskLogs, { recursive: true });
+    writeFileSync(
+      join(deskLogs, "transcript.jsonl"),
+      [
+        JSON.stringify({ type: "USER_INPUT", source: "USER_EXPLICIT", content: "<USER_REQUEST>\n排查客户端卡顿\n</USER_REQUEST>" }),
+        JSON.stringify({ type: "PLANNER_RESPONSE", source: "MODEL", content: "已完成渲染优化。" }),
+      ].join("\n") + "\n",
+    );
+    // Clear out-of-quota flags set by earlier tests in this file
+    rmSync(join(dir, "argon-out"), { force: true });
+    rmSync(join(dir, "flash-out"), { force: true });
+    process.env.HOME = fakeHome;
+    try {
+      const before = calls().length;
+      const { done } = await runTask("feedbeef-0000-4000-8000-0000000000b8", {
+        prompt: "继续检查会话标题",
+        session_id: desktopSid,
+        model: "gemini-4-neon-xhigh",
+        title: "排查客户端卡顿",
+      });
+      expect(done, `${done.error}\n${done.stderr}`).toMatchObject({ status: "succeeded", session_id: CID });
+      const runs = calls().slice(before).filter((c) => c.args[0] !== "models");
+      expect(runs).toHaveLength(1);
+      // Must NOT pass desktop-only --conversation ID to official agy CLI
+      expect(runs[0]!.args).not.toContain("--conversation");
+      const sentPrompt = runs[0]!.args.at(-1) ?? "";
+      expect(sentPrompt).toContain("续接自 Antigravity 桌面会话 4ff9e5c4");
+      expect(sentPrompt).toContain("排查客户端卡顿");
+      expect(sentPrompt).toContain("继续检查会话标题");
     } finally {
       process.env.HOME = home;
     }

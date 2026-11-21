@@ -458,7 +458,14 @@ def _without_images(args: dict) -> dict:
 
 
 # The session to resume isn't on the device (any more)
-_SESSION_GONE = ("No conversation found", "session not found", "conversation not found", "could not find session", "no rollout found")
+_SESSION_GONE = (
+    "No conversation found",
+    "session not found",
+    "conversation not found",
+    "trajectory not found",
+    "could not find session",
+    "no rollout found",
+)
 
 
 def _next_session(result: dict | None, session_id: str | None, orig_session_id: str | None) -> str | None:
@@ -801,7 +808,7 @@ async def direct_agent_stream(
                     summary_text = _clean_agent_summary(stdout)
             elif status == "succeeded" or exit_code == 0:
                 if not stdout:
-                    if stderr and any(s in stderr for s in ["No conversation found", "session not found", "conversation not found", "could not find session"]):
+                    if stderr and any(s in stderr for s in _SESSION_GONE):
                         summary_text = f"⚠️ 历史会话未在设备上找到或已过期（{stderr.strip()[:120]}）。已自动为您重置会话，请重新提问。"
                     elif stderr:
                         summary_text = f"⚠️ 任务执行完成但无输出（{stderr.strip()[:120]}）。"

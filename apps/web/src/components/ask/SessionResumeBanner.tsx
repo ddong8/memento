@@ -51,20 +51,24 @@ export function SessionResumeBanner({
   const { locale } = useI18n();
   const isZh = locale.startsWith("zh");
   const activeSession = sessions.find((s) => (s.session_id || s.conversation_id) === sessionId);
-  const isCurrentActive = inOpenConversation || Boolean(
+  // Only treat activeConversation's title as this session's title when it is actually bound to this session
+  // (mid-switch, activeConversation can still be the previous conversation, or undefined before list sync).
+  const activeMatchesSession = Boolean(
     activeConversation &&
     (activeConversation.config?.session_id === sessionId ||
      activeConversation.id === sessionId)
   );
-  const matchedConv = isCurrentActive
+  const isCurrentActive = activeMatchesSession || (inOpenConversation && !activeConversation && !activeSession);
+  const matchedConv = activeMatchesSession
     ? activeConversation
     : conversations.find((c) => c.config?.session_id === sessionId || c.id === sessionId);
-  
-  const convTitle = isCurrentActive ? displayConvTitle : matchedConv?.title;
+
+  const convTitle = activeMatchesSession ? displayConvTitle : matchedConv?.title;
   const sessionTitle = (!isJunkSessionTitle(convTitle) ? convTitle : undefined)
     || (!isJunkSessionTitle(activeSession?.title) ? activeSession?.title : undefined)
-    || convTitle
+    || (!isJunkSessionTitle(displayConvTitle) && activeMatchesSession ? displayConvTitle : undefined)
     || activeSession?.title
+    || convTitle
     || sessionId;
   
   let msgs: Array<{ role: string; content: string; timestamp?: string; subagent_name?: string }> = activeSession?.messages || [];

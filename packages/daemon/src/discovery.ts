@@ -329,7 +329,9 @@ async function vscTool(
 
 export const discoverAntigravity = (env = defaultEnv()) => {
   const gemini = join(env.home, ".gemini", "antigravity");
-  return vscTool(env, "antigravity", "Google Antigravity", "Antigravity", existsSync(gemini) ? gemini : join(env.home, ".antigravity"));
+  const geminiCli = join(env.home, ".gemini", "antigravity-cli");
+  const root = existsSync(gemini) ? gemini : existsSync(geminiCli) ? geminiCli : join(env.home, ".antigravity");
+  return vscTool(env, "antigravity", "Google Antigravity", "Antigravity", root);
 };
 export const discoverCursor = (env = defaultEnv()) => vscTool(env, "cursor", "Cursor", "Cursor", join(env.home, ".cursor"));
 export const discoverWindsurf = (env = defaultEnv()) =>

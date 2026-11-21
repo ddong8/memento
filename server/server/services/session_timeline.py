@@ -41,6 +41,8 @@ WINDOW_SLACK = timedelta(seconds=30)
 SAME_QUESTION = timedelta(minutes=10)
 # A session first taken in: its latest messages only, as the preview showed them
 SEED_MESSAGES = 200
+# Hard cap when reaching back past long tool runs to find the user question that started them
+MAX_SEED_MESSAGES = 1200
 TOOL_OUTPUT_CHARS = 4000
 THINKING_CHARS = 8000
 
@@ -462,21 +464,51 @@ async def _session_document(db, user_id, tool: str, session_id: str) -> uuid.UUI
 async def _messages(db, doc_id: uuid.UUID, start: int | None) -> list[Msg]:
     from ..db.models import ConversationMessage as CM
 
-    q = select(CM.line_number, CM.role, CM.message_type, CM.content, CM.timestamp, CM.metadata_).where(
+    base_cond = [
         CM.document_id == doc_id,
         CM.line_number >= 0,  # below 0: questions copied in from a tool's history file, already in the log
-    )
+    ]
+    q = select(CM.line_number, CM.role, CM.message_type, CM.content, CM.timestamp, CM.metadata_).where(*base_cond)
+    anchor_row = None
     if start is None:
         # A session first taken in: its latest messages, from a question on
         floor = (await db.execute(
-            select(CM.line_number).where(CM.document_id == doc_id, CM.line_number >= 0)
+            select(CM.line_number).where(*base_cond)
             .order_by(CM.line_number.desc()).offset(SEED_MESSAGES - 1).limit(1)
         )).scalar_one_or_none()
         if floor is not None:
+            # Tool-heavy Antigravity/Claude runs can emit >200 tool rows after the user's question;
+            # without reaching back to that question, merge_session sees question=None and drops the whole turn.
+            tail_users = (await db.execute(
+                select(CM.line_number, CM.content).where(
+                    *base_cond, CM.line_number >= floor, CM.role == "user"
+                ).order_by(CM.line_number.asc()).limit(20)
+            )).all()
+            has_tail_question = any(_said(c or "") for _, c in tail_users)
+            if not has_tail_question:
+                prev_users = (await db.execute(
+                    select(CM.line_number, CM.role, CM.message_type, CM.content, CM.timestamp, CM.metadata_).where(
+                        *base_cond, CM.line_number < floor, CM.role == "user"
+                    ).order_by(CM.line_number.desc()).limit(20)
+                )).all()
+                last_q = next((r for r in prev_users if _said(r[3] or "")), None)
+                if last_q is not None:
+                    q_line = last_q[0]
+                    # Include everything from the question when within MAX_SEED_MESSAGES; otherwise attach the question row ahead of the tail
+                    max_floor = (await db.execute(
+                        select(CM.line_number).where(*base_cond)
+                        .order_by(CM.line_number.desc()).offset(MAX_SEED_MESSAGES - 1).limit(1)
+                    )).scalar_one_or_none()
+                    if max_floor is None or q_line >= max_floor:
+                        floor = q_line
+                    else:
+                        anchor_row = last_q
             q = q.where(CM.line_number >= floor)
     else:
         q = q.where(CM.line_number >= start)
-    rows = (await db.execute(q.order_by(CM.line_number.asc()))).all()
+    rows = list((await db.execute(q.order_by(CM.line_number.asc()))).all())
+    if anchor_row is not None and (not rows or rows[0][0] != anchor_row[0]):
+        rows.insert(0, anchor_row)
     return [
         Msg(line, (role or kind or "user"), content or "", _parse_time(ts), kind or "", dict(meta or {}))
         for line, role, kind, content, ts, meta in rows

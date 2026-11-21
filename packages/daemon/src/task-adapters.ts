@@ -276,6 +276,7 @@ export function isSessionNotFound(text: string): boolean {
       "thread not found",
       "session not found",
       "conversation not found",
+      "trajectory not found",
       "Error resuming conversation",
       "failed to resume",
       "cannot resume",

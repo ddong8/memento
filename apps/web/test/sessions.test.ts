@@ -20,7 +20,9 @@ describe("session resume banner", () => {
   });
 
   it("titles the agent made before anything was said are skipped", () => {
-    for (const v of [undefined, "", " start ", "Starting the conversation…", "新对话", "Untitled"]) expect(isJunkSessionTitle(v)).toBe(true);
+    for (const v of [undefined, "", " start ", "Starting the conversation…", "新对话", "新会话", "智能问答", "Ask", "Ask Memento", "New Chat", "Untitled"]) {
+      expect(isJunkSessionTitle(v)).toBe(true);
+    }
     expect(isJunkSessionTitle("修复登录")).toBe(false);
   });
 

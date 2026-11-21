@@ -258,3 +258,69 @@ class SyncTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(await sync_conversation(self.conv_id))
         # Not the user's: left alone
         self.assertFalse(await sync_conversation(self.conv_id, user_id=uuid.uuid4()))
+
+    async def test_initial_seed_reaches_back_past_long_tool_run(self) -> None:
+        from server.db.models import AskConversation, ConversationMessage, Document
+        from server.services.session_timeline import SEED_MESSAGES, sync_conversation
+
+        long_sid = "4ff9e5c4-d996-4f5e-b804-ea6c72eea91d"
+        async with self.Session() as db:
+            doc0 = await db.get(Document, self.doc_id)
+            doc = Document(
+                tool_id="antigravity",
+                machine_id=doc0.machine_id,
+                relative_path=f"antigravity/brain/{long_sid}/transcript.jsonl",
+                category="conversation",
+                content_type="jsonl",
+                title="客户端卡顿与模型报错优化",
+                content="",
+                content_hash="h2",
+                file_size_bytes=0,
+                metadata_={"session_id": long_sid},
+            )
+            db.add(doc)
+            await db.flush()
+            # One user question followed by > SEED_MESSAGES tool lines and a final assistant summary
+            db.add(ConversationMessage(
+                document_id=doc.id, line_number=1, role="user", message_type="user",
+                content="帮我优化客户端卡顿", timestamp=T0, metadata_={},
+            ))
+            for idx in range(2, SEED_MESSAGES + 40):
+                db.add(ConversationMessage(
+                    document_id=doc.id, line_number=idx, role="tool", message_type="tool_call",
+                    content="[run_command]", timestamp=T0 + timedelta(seconds=idx),
+                    metadata_={"tool_name": "run_command", "tool_input": "{}"},
+                ))
+            db.add(ConversationMessage(
+                document_id=doc.id, line_number=SEED_MESSAGES + 40, role="assistant", message_type="assistant",
+                content="已全部优化完成。", timestamp=T0 + timedelta(minutes=10), metadata_={},
+            ))
+            conv = AskConversation(
+                id=uuid.uuid4(), user_id=self.user_id, title="客户端卡顿与模型报错优化", turns=[], message_count=0,
+                config={"execution_mode": "antigravity", "session_id": long_sid},
+            )
+            db.add(conv)
+            await db.commit()
+            conv_id = conv.id
+
+        self.assertTrue(await sync_conversation(conv_id, user_id=self.user_id))
+        async with self.Session() as db:
+            loaded = await db.get(AskConversation, conv_id)
+            turns = list(loaded.turns or [])
+        self.assertEqual([t["role"] for t in turns], ["user", "assistant"])
+        self.assertEqual(turns[0]["content"], "帮我优化客户端卡顿")
+        self.assertEqual(turns[1]["content"], "已全部优化完成。")
+
+
+class AskStreamSessionGoneTest(unittest.TestCase):
+    def test_trajectory_not_found_clears_stale_session(self) -> None:
+        from server.services.ask_stream import _next_session
+
+        sid = "4ff9e5c4-d996-4f5e-b804-ea6c72eea91d"
+        res = {
+            "status": "failed",
+            "session_id": sid,
+            "error": f"error: failed to send message: not_found: trajectory not found: {sid}: not found",
+            "stderr": "",
+        }
+        self.assertEqual(_next_session(res, sid, sid), "")

@@ -56,6 +56,8 @@ function watchTargets(tools: Record<string, DiscoveredTool>, extraDirs: string[]
         break;
       case "antigravity":
         add(join(tool.root, "brain"), "antigravity");
+        add(join(homeDir(), ".gemini", "antigravity", "brain"), "antigravity");
+        add(join(homeDir(), ".gemini", "antigravity-cli", "brain"), "antigravity");
         break;
       case "workbuddy": {
         add(join(tool.root, "projects"), "workbuddy");
@@ -380,19 +382,22 @@ function sessionMetadata(
     }
 
     if (!cwd) {
-      try {
-        const db = readFileSync(join(home, ".gemini", "antigravity", "conversations", `${sessionId}.db`)).toString("utf8");
-        // The first folder it mentions outside Antigravity's own files: the db also names files the agent
-        // wrote (brain/<id>/.system_generated/steps/2/output.txt became a project "output.txt")
-        for (const ws of db.matchAll(/file:\/\/(\/[a-zA-Z]:\/[a-zA-Z0-9_.-]+(?:\/[a-zA-Z0-9_.-]+)*|\/[a-zA-Z0-9_.-]+(?:\/[a-zA-Z0-9_.-]+)*)/g)) {
-          let raw = ws[1]!;
-          if (/^\/[a-zA-Z]:/.test(raw)) raw = raw.slice(1);
-          const candidate = cleanPath(raw);
-          if (/\.[a-zA-Z0-9]{1,8}$/.test(basename(candidate))) continue; // a file, not a workspace
-          if (setProject(candidate)) break;
+      for (const subdir of ["antigravity", "antigravity-cli"] as const) {
+        try {
+          const db = readFileSync(join(home, ".gemini", subdir, "conversations", `${sessionId}.db`)).toString("utf8");
+          // The first folder it mentions outside Antigravity's own files: the db also names files the agent
+          // wrote (brain/<id>/.system_generated/steps/2/output.txt became a project "output.txt")
+          for (const ws of db.matchAll(/file:\/\/(\/[a-zA-Z]:\/[a-zA-Z0-9_.-]+(?:\/[a-zA-Z0-9_.-]+)*|\/[a-zA-Z0-9_.-]+(?:\/[a-zA-Z0-9_.-]+)*)/g)) {
+            let raw = ws[1]!;
+            if (/^\/[a-zA-Z]:/.test(raw)) raw = raw.slice(1);
+            const candidate = cleanPath(raw);
+            if (/\.[a-zA-Z0-9]{1,8}$/.test(basename(candidate))) continue; // a file, not a workspace
+            if (setProject(candidate)) break;
+          }
+          if (cwd) break;
+        } catch {
+          // no conversation db
         }
-      } catch {
-        // no conversation db
       }
     }
   }

@@ -37,6 +37,21 @@ describe("fetchLatestSessionMessages", () => {
   it("is empty when the endpoint has nothing", async () => {
     expect(await fetchLatestSessionMessages(async () => null, "doc")).toEqual([]);
   });
+
+  it("steps back past tool-only tail rows so the preview still includes a user question", async () => {
+    const all: SessionMessage[] = [
+      { role: "user", content: "优化客户端卡顿" },
+      ...Array.from({ length: 140 }, (_, i) => ({ role: "tool", content: `step ${i}` })),
+      { role: "assistant", content: "已完成优化" },
+    ];
+    const get = vi.fn(async (_id: string, offset: number, limit: number) => ({
+      total: all.length,
+      messages: all.slice(offset, offset + limit),
+    }));
+    const msgs = await fetchLatestSessionMessages(get, "doc", 100);
+    expect(msgs.some((m) => m.role === "user" && m.content === "优化客户端卡顿")).toBe(true);
+    expect(msgs[msgs.length - 1].content).toBe("已完成优化");
+  });
 });
 
 describe("sessionMessagesToTurns", () => {

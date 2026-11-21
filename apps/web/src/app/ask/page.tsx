@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
 import { getApiBase, authFetch, api, forgetRunStatus, DeviceSummary, AskConversationSummary, ProjectSummary, seedApiEtagCache, invalidateApiCache, type AgentQuotasResponse, type AskConversationDetail } from "@/lib/api-client";
@@ -10,7 +10,7 @@ import { BrandMark } from "@/components/aurora/BrandMark";
 import { Btn } from "@/components/aurora/primitives";
 import { useRouteShown } from "@/components/layout/RouteKeepAlive";
 import { showInAppToast, triggerHapticFeedback } from "@/lib/native-notify";
-import { MediaInspectorProvider, useMediaInspector } from "@/components/viewers/MediaInspectorContext";
+import { MediaInspectorProvider, useMediaInspectorActions } from "@/components/viewers/MediaInspectorContext";
 import { ToolCallItem } from "@/components/ExecutionCard";
 import { mergeTaskEvent, type TaskEvent } from "@memento/core";
 
@@ -37,11 +37,11 @@ import { OfflineCapsule } from "@/components/ask/StatusCapsules";
 import { AskTopBar } from "@/components/ask/AskTopBar";
 import { AskEmptyState } from "@/components/ask/AskEmptyState";
 import { ActiveStreamingTurnBubble, ActiveStreamingTurnStore } from "@/components/ask/ActiveStreamingTurnBubble";
+import { AskComposer, type AskComposerHandle } from "@/components/ask/AskComposer";
 import {
   AttachedImagesPreview,
   BackgroundTasksBanner,
   SpeechHintPill,
-  SuggestedDevicePill,
   WaitingQuestionBanner,
 } from "@/components/ask/AskInputBanners";
 import { MultiSelectShareBar } from "@/components/ask/MultiSelectShareBar";
@@ -119,12 +119,18 @@ function AskPageContent() {
   const initSnap = initialSnapshotRef.current;
   const initialRestoredFromSnapshotRef = useRef<boolean>(Boolean(initSnap));
 
-  const inspector = useMediaInspector();
-  const syncTurnsMedia = inspector?.syncTurnsMedia;
+  const inspectorActions = useMediaInspectorActions();
+  const syncTurnsMedia = inspectorActions?.syncTurnsMedia;
   const streamingTurnStoreRef = useRef<ActiveStreamingTurnStore>(new ActiveStreamingTurnStore());
   const [staticTurns, setStaticTurns] = useState<Turn[]>(() => askCache?.turns || initSnap?.turns || []);
   const turns = staticTurns;
   const setTurns = setStaticTurns;
+  // Reverse progressive window: render the newest turns first so opening a 40+ turn conversation
+  // never blocks the main thread with 25,000 DOM nodes; earlier turns mount smoothly as the user scrolls up.
+  const initialTailWindow = () => (typeof window !== "undefined" && window.innerWidth < 768 ? 8 : 10);
+  const [visibleTailCount, setVisibleTailCount] = useState<number>(10);
+  const pendingPrependAnchorRef = useRef<{ scrollHeight: number; scrollTop: number } | null>(null);
+  const prevTurnsConvIdRef = useRef<string | null>(askCache?.activeConversationId || initSnap?.id || null);
   // A started conversation keeps its agent, device, project, session and folder (config-lock.ts)
   const configLocked = conversationConfigLocked(turns);
   const configLockedRef = useRef(configLocked);
@@ -138,7 +144,22 @@ function AskPageContent() {
   // stayed above the conversation's own turns (seen 2026-11-14: 12 preview turns over 20 real ones).
   const [emptyConvId, setEmptyConvId] = useState<string | null>(null);
 
-  const [input, setInput] = useState(() => askCache?.input || "");
+  // Composer input lives inside isolated <AskComposer> so keystrokes never re-render AskPage.
+  const composerRef = useRef<AskComposerHandle>(null);
+  const inputCacheRef = useRef<string>(askCache?.input || "");
+  const syncInputCache = useCallback((val: string) => {
+    inputCacheRef.current = val;
+    if (askCache) askCache.input = val;
+  }, []);
+  const setInput = useCallback((next: string | ((prev: string) => string)) => {
+    if (composerRef.current) {
+      composerRef.current.setValue(next);
+      return;
+    }
+    const resolved = typeof next === "function" ? next(inputCacheRef.current) : next;
+    inputCacheRef.current = resolved;
+    if (askCache) askCache.input = resolved;
+  }, []);
   const [streaming, setStreaming] = useState<boolean>(() => Boolean(askCache?.streaming || askCache?.activeRun));
   // Messages sent while a reply runs: steered into the running agent, or queued for when the reply ends
   const [followUps, setFollowUps] = useState<FollowUp[]>([]);
@@ -159,10 +180,18 @@ function AskPageContent() {
   }, [streaming]);
   const [isReconnecting, setIsReconnecting] = useState<boolean>(false);
 
-  // 自动将当前对话所有轮次中的媒体同步至右侧独立视窗列表中（流式输出期间跳过逐帧全量正则扫描，流式结束或会话加载时立即同步）
+  // Defer full-history media regex scanning until after first paint so opening a long conversation stays instant
   useEffect(() => {
-    if (streaming) return;
-    syncTurnsMedia?.(turns);
+    if (streaming || !syncTurnsMedia) return;
+    const run = () => syncTurnsMedia(turns);
+    if (typeof window !== "undefined" && "requestIdleCallback" in window) {
+      const id = (window as unknown as { requestIdleCallback: (cb: () => void, opts?: { timeout: number }) => number }).requestIdleCallback(run, { timeout: 220 });
+      return () => {
+        (window as unknown as { cancelIdleCallback?: (id: number) => void }).cancelIdleCallback?.(id);
+      };
+    }
+    const timer = setTimeout(run, 80);
+    return () => clearTimeout(timer);
   }, [turns, streaming, syncTurnsMedia]);
   const lastSentQuestionRef = useRef<string>(askCache?.activeRun?.question || "");
   const [devices, setDevices] = useState<DeviceSummary[]>([]);
@@ -220,9 +249,10 @@ function AskPageContent() {
   const [attachedImages, setAttachedImages] = useState<
     Array<{ id: string; name: string; dataUrl: string; size: number }>
   >([]);
+  const attachedImagesRef = useRef(attachedImages);
+  attachedImagesRef.current = attachedImages;
   const [isDraggingOver, setIsDraggingOver] = useState<boolean>(false);
   const viewportBottomOffset = useMobileKeyboardOffset();
-  const [isInputFocused, setIsInputFocused] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const lastPasteTimeRef = useRef<number>(0);
   const recentPastedFingerprintsRef = useRef<Map<string, number>>(new Map());
@@ -472,7 +502,6 @@ function AskPageContent() {
   }, [activeConversationId]);
 
   const [historyOpen, setHistoryOpen] = useState<boolean>(false);
-  const promptHistoryIdxRef = useRef<number>(-1);
 
   // Global offline / online network state monitoring
   const [isOffline, setIsOffline] = useState<boolean>(false);
@@ -499,7 +528,6 @@ function AskPageContent() {
     };
   }, []);
 
-  const promptDraftRef = useRef<string>("");
   const [showScrollBottom, setShowScrollBottom] = useState<boolean>(false);
   const showScrollBottomRef = useRef<boolean>(false);
   const [quotaOpen, setQuotaOpen] = useState<boolean>(false);
@@ -636,7 +664,7 @@ function AskPageContent() {
     askCache = {
       activeConversationId,
       turns,
-      input,
+      input: inputCacheRef.current,
       conversations,
       selectedDevice,
       cwd,
@@ -700,15 +728,6 @@ function AskPageContent() {
     setHistoryOpen(false);
   }, []);
 
-  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    const val = e.target.value;
-    promptHistoryIdxRef.current = -1;
-    setInput(val);
-    if (askCache) {
-      askCache.input = val;
-    }
-  }, []);
-
   const { t, locale } = useI18n();
   const isZh = locale.startsWith("zh");
 
@@ -762,11 +781,17 @@ function AskPageContent() {
   const touchInteractionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const userScrolledAwayRef = useRef<boolean>(false);
 
+  const scrollRafRef = useRef<number>(0);
+
   const scrollConversationToBottom = useCallback((instant = true, force = false) => {
     // 1. 如果用户正在手动滑动/触摸屏幕，且不是用户显式指令（如点击回到底部/发送消息），绝不抢夺滚动权
     if (!force && isUserInteractingRef.current) {
       scrollSettleTimersRef.current.forEach(clearTimeout);
       scrollSettleTimersRef.current = [];
+      if (scrollRafRef.current) {
+        cancelAnimationFrame(scrollRafRef.current);
+        scrollRafRef.current = 0;
+      }
       return;
     }
 
@@ -775,9 +800,12 @@ function AskPageContent() {
       isUserInteractingRef.current = false;
     }
 
-    // 2. 清理先前的阶梯定时器
     scrollSettleTimersRef.current.forEach(clearTimeout);
     scrollSettleTimersRef.current = [];
+    if (scrollRafRef.current) {
+      cancelAnimationFrame(scrollRafRef.current);
+      scrollRafRef.current = 0;
+    }
 
     const doScroll = () => {
       if (!force && isUserInteractingRef.current) {
@@ -785,44 +813,39 @@ function AskPageContent() {
         scrollSettleTimersRef.current = [];
         return;
       }
-      if (chatScrollRef.current && chatScrollRef.current.scrollHeight > 0) {
-        chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
+      const el = chatScrollRef.current;
+      if (!el) return;
+      const maxTop = el.scrollHeight - el.clientHeight;
+      if (maxTop > 0 && maxTop - el.scrollTop > 1) {
+        el.scrollTop = el.scrollHeight;
         if (askCache) {
-          askCache.scrollTop = chatScrollRef.current.scrollTop;
+          askCache.scrollTop = el.scrollTop;
         }
       }
     };
 
-    // 阶段1：立即执行首次滚动尝试
-    doScroll();
+    // Single rAF after layout commit (avoids forcing 9x synchronous full-tree reflows on long conversations);
+    // subsequent height changes (images, syntax highlighting, tool cards) are tracked by the ResizeObserver.
+    scrollRafRef.current = requestAnimationFrame(() => {
+      scrollRafRef.current = 0;
+      doScroll();
+    });
 
-    // 阶段2：连续 4 帧 requestAnimationFrame 跟踪（对抗 React 18 异步调度与挂载）
-    let frames = 0;
-    const rafStep = () => {
+    // One lightweight fallback for environments where async content settles without resizing the observed wrapper
+    const timer = setTimeout(() => {
       if (!force && isUserInteractingRef.current) return;
       doScroll();
-      frames++;
-      if (frames < 4) {
-        requestAnimationFrame(rafStep);
-      }
-    };
-    requestAnimationFrame(rafStep);
-
-    // 阶段3：阶梯定时器持续校准（紧凑防抖，一旦用户手指触碰立即被清除）
-    const delays = [40, 120, 260, 480];
-    delays.forEach((ms) => {
-      const timer = setTimeout(() => {
-        if (!force && isUserInteractingRef.current) return;
-        doScroll();
-      }, ms);
-      scrollSettleTimersRef.current.push(timer);
-    });
+    }, 120);
+    scrollSettleTimersRef.current.push(timer);
   }, []);
 
   // 组件卸载时清理定时器
   useEffect(() => {
     return () => {
       scrollSettleTimersRef.current.forEach(clearTimeout);
+      if (scrollRafRef.current) {
+        cancelAnimationFrame(scrollRafRef.current);
+      }
       if (touchInteractionTimeoutRef.current) {
         clearTimeout(touchInteractionTimeoutRef.current);
       }
@@ -896,19 +919,21 @@ function AskPageContent() {
         localStorage.setItem(CONVERSATIONS_CACHE_KEY, JSON.stringify(safeList.slice(0, 500)));
       } catch {}
 
-      // Idle prefetch: warm top recent conversations in background for true 0ms clicks
-      if (typeof window !== "undefined") {
+      // Idle prefetch: on desktop only, gently warm up to 2 recent uncached conversations after startup settles
+      // (mobile skips eager background prefetch to avoid main-thread JSON/localStorage stalls).
+      if (typeof window !== "undefined" && window.innerWidth >= 1024) {
         const prefetchRecent = () => {
-          safeList.slice(0, 4).forEach((item) => {
-            if (!conversationTurnsCache.has(item.id)) {
-              void prefetchConversationTurns(item.id);
-            }
+          const candidates = safeList
+            .filter((item) => item.id !== activeConversationIdRef.current && !conversationTurnsCache.has(item.id))
+            .slice(0, 2);
+          candidates.forEach((item, idx) => {
+            void prefetchConversationTurns(item.id, 1800 + idx * 1500);
           });
         };
         if ("requestIdleCallback" in window) {
-          (window as any).requestIdleCallback(prefetchRecent, { timeout: 2500 });
+          (window as any).requestIdleCallback(prefetchRecent, { timeout: 3000 });
         } else {
-          setTimeout(prefetchRecent, 800);
+          setTimeout(prefetchRecent, 1500);
         }
       }
     } catch (e) {
@@ -1536,6 +1561,7 @@ function AskPageContent() {
         const newTurns = [...data.turns, ...turnsRef.current];
         turnsRef.current = newTurns;
         setTurns(newTurns);
+        setVisibleTailCount((prev) => prev + data.turns.length);
         setHasMoreTurns(Boolean(data.has_more));
         if (data.total_turns) setTotalTurns(data.total_turns);
 
@@ -1700,10 +1726,10 @@ function AskPageContent() {
     setShareModalOpen(true);
   }, [isZh]);
 
-  // Fetch online/registered devices
+  // Fetch online/registered devices (shared via api.getDevices() cache & in-flight deduplication)
   useEffect(() => {
-    devicesLoadedRef.current = authFetch(`${getApiBase()}/api/devices`)
-      .then((r) => r.json())
+    devicesLoadedRef.current = api
+      .getDevices()
       .then((d: DeviceSummary[]) => {
         const list = Array.isArray(d) ? d : [];
         devicesRef.current = list;
@@ -2145,26 +2171,37 @@ function AskPageContent() {
     if (!el || typeof ResizeObserver === "undefined") return;
     let prevHeight = el.clientHeight;
     let prevScrollHeight = el.scrollHeight;
+    let rafId = 0;
     const ro = new ResizeObserver(() => {
-      const h = el.clientHeight;
-      const shrunk = prevHeight - h;
-      // Where the bottom was before this change (content grew, or the list got shorter)
-      const distBefore = prevScrollHeight - el.scrollTop - prevHeight;
-      prevHeight = h;
-      prevScrollHeight = el.scrollHeight;
-      if (isUserInteractingRef.current) return;
-      // Following the reply: it grows after the turn's text lands too (code highlighting, images, tool
-      // cards, the final render), and the turns effect never sees that.
-      if (!userScrolledAwayRef.current && (streamingRef.current || distBefore < 40)) {
-        el.scrollTop = el.scrollHeight;
-        return;
-      }
-      if (shrunk > 0) el.scrollTop += shrunk;
+      if (rafId) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = 0;
+        const h = el.clientHeight;
+        const shrunk = prevHeight - h;
+        // Where the bottom was before this change (content grew, or the list got shorter)
+        const distBefore = prevScrollHeight - el.scrollTop - prevHeight;
+        prevHeight = h;
+        prevScrollHeight = el.scrollHeight;
+        if (isUserInteractingRef.current || pendingPrependAnchorRef.current) return;
+        // Following the reply: it grows after the turn's text lands too (code highlighting, images, tool
+        // cards, the final render), and the turns effect never sees that.
+        if (!userScrolledAwayRef.current && (streamingRef.current || distBefore < 40)) {
+          const maxTop = el.scrollHeight - el.clientHeight;
+          if (maxTop > 0 && maxTop - el.scrollTop > 1) {
+            el.scrollTop = el.scrollHeight;
+          }
+          return;
+        }
+        if (shrunk > 0) el.scrollTop += shrunk;
+      });
     });
     ro.observe(el);
     const content = el.firstElementChild;
     if (content) ro.observe(content);
-    return () => ro.disconnect();
+    return () => {
+      if (rafId) cancelAnimationFrame(rafId);
+      ro.disconnect();
+    };
   }, []);
 
   // Follow the stream as tokens land & handle conversation switching auto-scroll
@@ -2480,25 +2517,6 @@ function AskPageContent() {
   const [speechHint, setSpeechHint] = useState<string | null>(null);
   const speechHintTimer = useRef<NodeJS.Timeout | null>(null);
   const recognitionRef = useRef<any>(null);
-  const inputElRef = useRef<HTMLTextAreaElement>(null);
-
-  useEffect(() => {
-    const el = inputElRef.current;
-    if (!el) return;
-    if (!input) {
-      if (el.style.height !== "22px") el.style.height = "22px";
-      if (el.style.overflowY !== "hidden") el.style.overflowY = "hidden";
-      return;
-    }
-    // Fast path: short single-line input without newline never wraps, avoiding synchronous scrollHeight layout thrashing on every keystroke
-    if (!input.includes("\n") && input.length < 22 && el.style.height === "22px") {
-      return;
-    }
-    el.style.height = "22px";
-    const nextHeight = Math.min(Math.max(el.scrollHeight, 22), 160);
-    el.style.height = `${nextHeight}px`;
-    el.style.overflowY = el.scrollHeight > 160 ? "auto" : "hidden";
-  }, [input]);
 
   const toggleVoiceInput = useCallback(() => {
     // 1. Instant tactile feedback
@@ -2533,7 +2551,7 @@ function AskPageContent() {
     // Instead of failing with a permission warning, immediately focus the input synchronously
     // to bring up the iOS keyboard with the Apple Neural Engine dictation microphone.
     if (isIOSDevice || isMobileShell) {
-      inputElRef.current?.focus();
+      composerRef.current?.focus();
       setTimeout(() => {
         bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
       }, 80);
@@ -2553,7 +2571,7 @@ function AskPageContent() {
         : null;
 
     if (!SpeechRecognition) {
-      inputElRef.current?.focus();
+      composerRef.current?.focus();
       const msg = isZh
         ? "当前环境暂不支持浏览器内置语音转录，请直接键入文本"
         : "Speech recognition not supported in this browser.";
@@ -2594,7 +2612,7 @@ function AskPageContent() {
         setIsRecordingVoice(false);
         const errType = e?.error;
         if (errType === "not-allowed" || errType === "service-not-allowed") {
-          inputElRef.current?.focus();
+          composerRef.current?.focus();
           const fallbackMsg = isZh
             ? "未开启麦克风权限：请在浏览器设置中允许麦克风访问"
             : "Microphone blocked. Please grant microphone access in browser settings.";
@@ -2614,7 +2632,7 @@ function AskPageContent() {
     } catch (err) {
       console.warn("Failed to start speech recognition:", err);
       setIsRecordingVoice(false);
-      inputElRef.current?.focus();
+      composerRef.current?.focus();
       const fallbackMsg = isZh
         ? "已为您呼出键盘，点击键盘右下角「麦克风」即可开始语音吩咐！"
         : "Keyboard opened. Tap the mic on your keyboard to dictate.";
@@ -3806,20 +3824,17 @@ function AskPageContent() {
       .catch(() => settle(false));
   }, [updateFollowUps]);
 
-  const send = useCallback(() => {
-    if (!input.trim() && attachedImages.length === 0) return;
-    const textToSend = input.trim();
-    const imgs = attachedImages.map((img) => img.dataUrl);
-    setAttachedImages([]);
-    setInput("");
-    if (askCache) {
-      askCache.input = "";
-    }
-    promptHistoryIdxRef.current = -1;
-    promptDraftRef.current = "";
-    if (streamingRef.current) sendFollowUp(textToSend, imgs);
-    else sendWithText(textToSend, { images: imgs });
-  }, [input, attachedImages, sendWithText, sendFollowUp]);
+  const handleSendFromComposer = useCallback(
+    (textToSend: string) => {
+      const currentImgs = attachedImagesRef.current;
+      if (!textToSend && currentImgs.length === 0) return;
+      const imgs = currentImgs.map((img) => img.dataUrl);
+      if (currentImgs.length > 0) setAttachedImages([]);
+      if (streamingRef.current) sendFollowUp(textToSend, imgs);
+      else sendWithText(textToSend, { images: imgs });
+    },
+    [sendWithText, sendFollowUp]
+  );
 
   // The reply ended: what's still queued goes out as one next message, the way Claude Code sends what was
   // typed while it worked. Stopped by the user, or another conversation opened: back into the input instead.
@@ -3903,58 +3918,6 @@ function AskPageContent() {
     }
   }, [qParam, streaming, sendWithText]);
 
-  const onKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
-    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-      e.preventDefault();
-      send();
-      return;
-    }
-    if (e.key === "Enter" && !e.shiftKey) {
-      const isMobileViewport = typeof window !== "undefined" && window.innerWidth < 768;
-      if (!isMobileViewport) {
-        e.preventDefault();
-        send();
-        return;
-      }
-    }
-    // 上下方向键回溯历史提问 (Prompt History Navigation)
-    if (e.key === "ArrowUp") {
-      const textarea = e.currentTarget;
-      const isAtStart = textarea.selectionStart === 0 && textarea.selectionEnd === 0;
-      if (isAtStart || !input.trim()) {
-        const userQuestions = turns.filter((t) => t.role === "user" && t.content).map((t) => t.content);
-        if (userQuestions.length > 0) {
-          e.preventDefault();
-          if (promptHistoryIdxRef.current === -1) {
-            promptDraftRef.current = input;
-          }
-          const nextIdx = promptHistoryIdxRef.current === -1 ? userQuestions.length - 1 : Math.max(0, promptHistoryIdxRef.current - 1);
-          promptHistoryIdxRef.current = nextIdx;
-          const val = userQuestions[nextIdx];
-          setInput(val);
-          if (askCache) askCache.input = val;
-        }
-      }
-    } else if (e.key === "ArrowDown") {
-      if (promptHistoryIdxRef.current !== -1) {
-        e.preventDefault();
-        const userQuestions = turns.filter((t) => t.role === "user" && t.content).map((t) => t.content);
-        if (promptHistoryIdxRef.current < userQuestions.length - 1) {
-          promptHistoryIdxRef.current += 1;
-          const val = userQuestions[promptHistoryIdxRef.current];
-          setInput(val);
-          if (askCache) askCache.input = val;
-        } else {
-          promptHistoryIdxRef.current = -1;
-          const draft = promptDraftRef.current;
-          setInput(draft);
-          if (askCache) askCache.input = draft;
-        }
-      }
-    }
-  }, [send, input, turns]);
-
   // 全局快捷键与事件监听: Cmd/Ctrl+K 聚焦、Cmd+Shift+O 新建、Cmd+Shift+E 导出，memento_fill_input 一键错误排查与填充
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -3969,7 +3932,7 @@ function AskPageContent() {
             sendWithText(text);
           }, 60);
         } else {
-          inputElRef.current?.focus();
+          composerRef.current?.focus();
         }
       }
     };
@@ -4010,7 +3973,7 @@ function AskPageContent() {
             document.querySelector<HTMLInputElement>('input[placeholder*="Search"]');
           searchInput?.focus();
         } else {
-          inputElRef.current?.focus();
+          composerRef.current?.focus();
         }
         return;
       }
@@ -4556,37 +4519,6 @@ function AskPageContent() {
     return null;
   }, [turns]);
 
-  // Smart device routing recommendation based on prompt input
-  const suggestedDevice = useMemo(() => {
-    if (!input || !devices || devices.length <= 1) return null;
-    const lower = input.toLowerCase();
-    const osOf = (d?: DeviceSummary) => {
-      const n = (d?.name || "").toLowerCase();
-      if (n.includes("windows") || n.startsWith("desktop-") || n.startsWith("laptop-")) return "windows";
-      if (n.includes("darwin") || n.includes("mac")) return "mac";
-      if (n.includes("linux")) return "linux";
-      return "";
-    };
-    // Suggest only when the device picked can't be the one meant: a Mac path on another Mac is fine
-    const currentOs = osOf(devices.find((d) => d.device_id === selectedDevice));
-    const firstOf = (os: string) =>
-      devices.filter((d) => osOf(d) === os).sort((a, b) => Number(isDeviceOnline(b)) - Number(isDeviceOnline(a)))[0];
-
-    const hasWinPath = /\b[cd]:[\\/]/.test(lower) || /\b(powershell|cmd\.exe|choco|winget)\b/.test(lower);
-    if (hasWinPath && currentOs !== "windows") {
-      const winDev = firstOf("windows");
-      if (winDev) return { device: winDev, reason: isZh ? "检测到 Windows 路径/命令" : "Windows path/command detected" };
-    }
-
-    const hasMacPath = /(^|[\s"'`(=])\/users\//.test(lower) || lower.includes(".app/") || /\b(brew\s+|osascript|launchctl)\b/.test(lower);
-    if (hasMacPath && currentOs !== "mac") {
-      const macDev = firstOf("mac");
-      if (macDev) return { device: macDev, reason: isZh ? "检测到 macOS 路径/命令" : "macOS path/command detected" };
-    }
-
-    return null;
-  }, [input, devices, selectedDevice, isZh]);
-
   const activeConversation = useMemo(
     () => conversations.find((c) => c.id === activeConversationId),
     [conversations, activeConversationId]
@@ -4751,8 +4683,56 @@ function AskPageContent() {
     setShareModalOpen(true);
   }, [getTurnAbsIndex]);
 
+  // Reset reverse-progressive window whenever switching to a different conversation
+  useEffect(() => {
+    if (prevTurnsConvIdRef.current !== activeConversationId) {
+      prevTurnsConvIdRef.current = activeConversationId;
+      pendingPrependAnchorRef.current = null;
+      setVisibleTailCount(initialTailWindow());
+    }
+  }, [activeConversationId]);
+
+  const visibleTurnStart = selectTurnsMode ? 0 : Math.max(0, turns.length - visibleTailCount);
+  const hiddenEarlierCount = visibleTurnStart;
+
+  const expandEarlierLocalTurns = useCallback((step = 12) => {
+    const el = chatScrollRef.current;
+    if (el) {
+      pendingPrependAnchorRef.current = { scrollHeight: el.scrollHeight, scrollTop: el.scrollTop };
+    }
+    setVisibleTailCount((prev) => prev + step);
+  }, []);
+
+  // Keep reading position pinned when earlier turns prepend above the viewport
+  useLayoutEffect(() => {
+    const anchor = pendingPrependAnchorRef.current;
+    if (!anchor) return;
+    pendingPrependAnchorRef.current = null;
+    const el = chatScrollRef.current;
+    if (!el) return;
+    const delta = el.scrollHeight - anchor.scrollHeight;
+    if (delta > 0) {
+      el.scrollTop = anchor.scrollTop + delta;
+    }
+  }, [visibleTurnStart]);
+
+  // If the initial tail turns are very short and don't fill the viewport yet, automatically reveal more
+  useEffect(() => {
+    if (hiddenEarlierCount <= 0) return;
+    const el = chatScrollRef.current;
+    if (!el) return;
+    const raf = requestAnimationFrame(() => {
+      if (el.clientHeight > 0 && el.scrollHeight <= el.clientHeight + 240) {
+        setVisibleTailCount((prev) => prev + 8);
+      }
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [hiddenEarlierCount, turns.length, activeConversationId]);
+
   const renderedTurns = useMemo(() => {
-    return turns.map((turn, i) => {
+    const slice = visibleTurnStart > 0 ? turns.slice(visibleTurnStart) : turns;
+    return slice.map((turn, offset) => {
+      const i = visibleTurnStart + offset;
       const prevUserCreatedAt =
         turn.role === "assistant" && i > 0 && turns[i - 1]?.role === "user"
           ? turns[i - 1].created_at
@@ -4815,7 +4795,9 @@ function AskPageContent() {
     });
   }, [
     turns,
+    visibleTurnStart,
     streaming,
+    isReconnecting,
     handleSourcesClick,
     handleSmartCompactAndRetry,
     handleRetryLastTurn,
@@ -4826,10 +4808,42 @@ function AskPageContent() {
     t,
   ]);
 
+  const handleOpenHistoryTopBar = useCallback(() => {
+    setHistoryOpen(true);
+    void loadConversations("all");
+  }, [loadConversations]);
+
+  const handleOpenQuotaTopBar = useCallback(() => {
+    setQuotaOpen(true);
+  }, []);
+
+  const handleToggleSelectTurnsTopBar = useCallback(() => {
+    setSelectTurnsMode((prev) => !prev);
+    setSelectedTurnIndices([]);
+  }, []);
+
+  const handleShareTopBar = useCallback(() => {
+    const cid = activeConversationIdRef.current;
+    if (cid) openSingleShare(cid, displayConvTitleRef.current);
+  }, [openSingleShare]);
+
+  const handleOpenFilePicker = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+
+  const handleFocusMobileCollapse = useCallback(() => {
+    setIsConfigCollapsed(true);
+  }, []);
+
+  const handleWarmupAsk = useCallback(() => {
+    if (!warmedAskRef.current) {
+      warmedAskRef.current = true;
+      api.warmupAsk().catch(() => {});
+    }
+  }, []);
+
   return (
-    <div className="w-full flex h-full rounded-none border-0 bg-[var(--aurora-bg)] sm:bg-[var(--aurora-surface-solid)]/45 overflow-hidden relative">
-      {/* 磨砂玻璃背景层，独立于主布局，避免 CSS backdrop-filter 阻断子元素 position: fixed 全屏脱离容器 */}
-      <div className="pointer-events-none absolute inset-0 rounded-none sm:backdrop-blur-xl -z-10" />
+    <div className="w-full flex h-full rounded-none border-0 bg-[var(--aurora-bg)] sm:bg-[var(--aurora-surface-solid)]/82 overflow-hidden relative">
       {/* 离线状态全局浮动感知胶囊 */}
       <OfflineCapsule offline={isOffline} recovered={offlineRecovered} />
 
@@ -4848,18 +4862,12 @@ function AskPageContent() {
           quotasData={quotasData}
           modelQuota={currentModelQuota}
           selecting={selectTurnsMode}
-          onOpenHistory={() => {
-            setHistoryOpen(true);
-            void loadConversations("all");
-          }}
-          onOpenQuota={() => setQuotaOpen(true)}
+          onOpenHistory={handleOpenHistoryTopBar}
+          onOpenQuota={handleOpenQuotaTopBar}
           onNewChat={startNewChat}
-          onToggleSelectTurns={() => {
-            setSelectTurnsMode(!selectTurnsMode);
-            setSelectedTurnIndices([]);
-          }}
+          onToggleSelectTurns={handleToggleSelectTurnsTopBar}
           onExportMarkdown={handleExportMarkdown}
-          onShare={() => activeConversationId && openSingleShare(activeConversationId, displayConvTitle)}
+          onShare={handleShareTopBar}
         />
 
         {/* 中栏消息滚动列表 */}
@@ -4887,6 +4895,15 @@ function AskPageContent() {
               } else if (dist > 80 && (isUserInteractingRef.current || st < prevTop - 2)) {
                 userScrolledAwayRef.current = true;
               }
+              // Reveal earlier already-fetched turns seamlessly as the user scrolls toward the top
+              if (
+                hiddenEarlierCount > 0 &&
+                st < 1000 &&
+                !pendingPrependAnchorRef.current &&
+                (userScrolledAwayRef.current || isUserInteractingRef.current || st < prevTop - 2)
+              ) {
+                expandEarlierLocalTurns(12);
+              }
             }}
             onTouchStart={handleTouchStart}
             onTouchEnd={handleTouchEnd}
@@ -4895,10 +4912,7 @@ function AskPageContent() {
             className="flex-1 overflow-y-auto px-1 sm:px-5 md:px-8 pt-1.5 pb-2 sm:pt-4 sm:pb-2 select-text"
             style={{
               overscrollBehaviorY: "contain",
-              WebkitOverflowScrolling: "touch",
               touchAction: "pan-y",
-              transform: "translateZ(0)",
-              willChange: "scroll-position",
               userSelect: "text",
               WebkitUserSelect: "text",
             }}
@@ -4919,7 +4933,35 @@ function AskPageContent() {
 
       {/* Conversation turns list */}
       <div className="flex flex-col gap-2 sm:gap-4 max-w-full min-w-0">
-        {hasMoreTurns && (
+        {hiddenEarlierCount > 0 && (
+          <div style={{ display: "flex", justifyContent: "center", padding: "8px 0" }}>
+            <button
+              type="button"
+              onClick={() => expandEarlierLocalTurns(16)}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "6px 14px",
+                borderRadius: 16,
+                fontSize: 12,
+                color: "var(--aurora-fg2)",
+                background: "var(--aurora-chip)",
+                border: "1px solid var(--aurora-border)",
+                cursor: "pointer",
+                transition: "all 0.15s ease",
+              }}
+            >
+              <Icon name="clock" size={13} />
+              <span>
+                {isZh
+                  ? `展开更早消息 (上方还有 ${hiddenEarlierCount + Math.max(0, totalTurns - turns.length)} 条)`
+                  : `Show earlier messages (${hiddenEarlierCount + Math.max(0, totalTurns - turns.length)} more)`}
+              </span>
+            </button>
+          </div>
+        )}
+        {hiddenEarlierCount === 0 && hasMoreTurns && (
           <div style={{ display: "flex", justifyContent: "center", padding: "8px 0" }}>
             <button
               type="button"
@@ -5045,20 +5087,16 @@ function AskPageContent() {
     >
       <div className="max-w-3xl xl:max-w-4xl 2xl:max-w-5xl mx-auto w-full min-w-0" style={{ boxSizing: "border-box" }}>
         <div
-          className="px-2.5 py-2 sm:px-3.5 sm:py-2.5"
+          className="ask-footer-card px-2.5 py-2 sm:px-3.5 sm:py-2.5"
           style={{
             background: isDraggingOver ? "var(--aurora-accent-soft)" : "var(--aurora-surface-solid)",
-            border: isDraggingOver
-              ? "2px dashed var(--aurora-accent)"
-              : isInputFocused
-              ? "1px solid color-mix(in srgb, var(--aurora-accent) 42%, var(--aurora-border-strong))"
-              : "1px solid var(--aurora-border-strong)",
+            ...(isDraggingOver
+              ? {
+                  border: "2px dashed var(--aurora-accent)",
+                  boxShadow: "0 0 24px rgba(99, 102, 241, 0.25)",
+                }
+              : undefined),
             borderRadius: 16,
-            boxShadow: isDraggingOver
-              ? "0 0 24px rgba(99, 102, 241, 0.25)"
-              : isInputFocused
-              ? "var(--aurora-card-shadow), 0 0 0 3px var(--aurora-accent-soft)"
-              : "var(--aurora-card-shadow)",
             maxWidth: "100%",
             width: "100%",
             minWidth: 0,
@@ -6443,206 +6481,43 @@ function AskPageContent() {
             {/* Active Waiting Question Sticky Banner */}
             <WaitingQuestionBanner activeWaitingQuestion={activeWaitingQuestion} isZh={isZh} bottomRef={bottomRef} />
 
-            {/* Smart Device Routing Recommendation Pill */}
-            <SuggestedDevicePill
-              suggestedDevice={suggestedDevice}
-              configLocked={configLocked}
-              isZh={isZh}
-              onSwitch={handleDeviceChange}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              style={{ display: "none" }}
+              onChange={handleFileChange}
             />
 
-
-            {/* Input box and action button */}
-            <div className="flex items-end gap-1.5 sm:gap-2 w-full min-w-0 box-border">
-              {/* Image Upload Button */}
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                title={isZh ? "上传图片或截图 (支持直接粘贴 Ctrl+V / Cmd+V)" : "Upload image (supports Ctrl+V / Cmd+V)"}
-                style={{
-                  borderRadius: 12,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  background: attachedImages.length > 0 ? "var(--aurora-accent-soft)" : "var(--aurora-chip)",
-                  border: `1px solid ${attachedImages.length > 0 ? "var(--aurora-accent)" : "var(--aurora-border)"}`,
-                  color: attachedImages.length > 0 ? "var(--aurora-accent)" : "var(--aurora-fg3)",
-                  cursor: "pointer",
-                  transition: "all 0.2s ease",
-                  flexShrink: 0,
-                  boxSizing: "border-box",
-                }}
-                className="w-11 h-11 sm:w-10 sm:h-10 hover:text-[var(--aurora-fg1)] hover:border-[var(--aurora-border-strong)] active:scale-95 !rounded-xl"
-              >
-                <Icon name="image" size={17} />
-              </button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                multiple
-                style={{ display: "none" }}
-                onChange={handleFileChange}
-              />
-
-              <label
-                className="aurora-input !px-3 sm:!px-4 !py-2.5 sm:!py-2 !min-h-[44px] sm:!min-h-[42px] transition-all !rounded-xl"
-                style={{
-                  flex: 1,
-                  minWidth: 0,
-                  background: isInputFocused ? "var(--aurora-surface-solid)" : "var(--aurora-chip)",
-                  border: isInputFocused ? "1px solid var(--aurora-accent)" : "1px solid var(--aurora-border)",
-                  boxShadow: isInputFocused ? "0 0 0 2px var(--aurora-accent-soft)" : "none",
-                  boxSizing: "border-box",
-                  alignItems: "flex-start",
-                  borderRadius: 12,
-                }}
-              >
-                <span className="hidden sm:inline-flex" style={{ color: "var(--aurora-fg3)", flexShrink: 0, marginTop: 3 }}>
-                  <Icon
-                    name={
-                      executionMode === "shell"
-                        ? "terminal"
-                        : executionMode === "claude" || executionMode === "codex" || executionMode === "antigravity" || executionMode === "workbuddy"
-                        ? "code"
-                        : selectedDevice === "ask_only"
-                        ? "sparkles"
-                        : "brain"
-                    }
-                    size={15}
-                  />
-                </span>
-                <textarea
-                  ref={inputElRef}
-                  rows={1}
-                  value={input}
-                  onChange={handleInputChange}
-                  onPaste={handlePaste}
-                  onFocus={() => {
-                    setIsInputFocused(true);
-                    if (typeof window !== "undefined" && window.innerWidth < 768) {
-                      setIsConfigCollapsed(true);
-                    }
-                    if (!warmedAskRef.current) {
-                      warmedAskRef.current = true;
-                      api.warmupAsk().catch(() => {});
-                    }
-                    setTimeout(() => {
-                      bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-                    }, 120);
-                  }}
-                  onBlur={() => {
-                    setTimeout(() => setIsInputFocused(false), 200);
-                  }}
-                  onKeyDown={onKeyDown}
-                  placeholder={streaming ? (isZh ? "继续追问，可以连着发几条…" : "Follow up; send as many as you like…") : placeholderText}
-                  style={{
-                    minWidth: 0,
-                    width: "100%",
-                    height: 24,
-                    minHeight: 24,
-                    maxHeight: 160,
-                    lineHeight: "24px",
-                    padding: 0,
-                    margin: 0,
-                    border: "none",
-                    outline: "none",
-                    background: "transparent",
-                    color: "var(--aurora-fg1)",
-                    resize: "none",
-                    overflowY: "hidden",
-                    whiteSpace: "pre-wrap",
-                    wordBreak: "break-word",
-                    fontSize: 14.5,
-                  }}
-                />
-              </label>
-              {/* Voice Input Button */}
-              <button
-                type="button"
-                onClick={toggleVoiceInput}
-                title={isRecordingVoice ? (isZh ? "停止倾听" : "Stop listening") : (isZh ? "语音吩咐 (按键说话)" : "Voice input")}
-                style={{
-                  borderRadius: 12,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  background: isRecordingVoice ? "rgba(239, 68, 68, 0.16)" : "var(--aurora-chip)",
-                  border: isRecordingVoice ? "1px solid #ef4444" : "1px solid var(--aurora-border)",
-                  color: isRecordingVoice ? "#ef4444" : "var(--aurora-fg3)",
-                  cursor: "pointer",
-                  transition: "all 0.2s ease",
-                  flexShrink: 0,
-                  boxSizing: "border-box",
-                }}
-                className={`w-11 h-11 sm:w-10 sm:h-10 active:scale-95 !rounded-xl ${isRecordingVoice ? "animate-pulse shadow-sm" : "hover:text-[var(--aurora-fg1)]"}`}
-              >
-                <Icon name="microphone" size={17} />
-              </button>
-              {isReconnecting && (
-                <div
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 6,
-                    padding: "0 10px",
-                    height: 44,
-                    borderRadius: 12,
-                    background: "rgba(245, 158, 11, 0.15)",
-                    border: "1px solid rgba(245, 158, 11, 0.35)",
-                    color: "#f59e0b",
-                    fontSize: 12,
-                    fontWeight: 500,
-                    flexShrink: 0,
-                  }}
-                  className="animate-pulse"
-                >
-                  <Icon name="refresh" size={12} className="animate-spin" />
-                  <span>正在恢复流式同步...</span>
-                </div>
-              )}
-              {/* Always shown while the reply runs, so it's clear the input still sends: next to Stop, not instead of it */}
-              {streaming && (
-                <Btn
-                  onClick={send}
-                  disabled={!input.trim() && attachedImages.length === 0}
-                  icon="message"
-                  title={isZh ? "追问：正在运行的智能体会在下一步读到，读不了的等这轮结束后接着发" : "Follow up"}
-                  className="!h-[44px] sm:!h-[42px] !w-[44px] sm:!w-auto !px-0 sm:!px-4 !justify-center !rounded-xl"
-                  style={{ flexShrink: 0 }}
-                >
-                  {/* Icon only on a phone: with Stop beside it the words left the input three characters wide */}
-                  <span className="hidden sm:inline font-semibold text-sm">{isZh ? "追问" : "Follow up"}</span>
-                </Btn>
-              )}
-              {streaming ? (
-                <Btn
-                  variant="danger"
-                  icon="close"
-                  onClick={stopRun}
-                  title={t.ask.stop}
-                  className="!h-[44px] sm:!h-[42px] !w-[44px] sm:!w-auto !px-0 sm:!px-4 !justify-center !rounded-xl"
-                  style={{
-                    flexShrink: 0,
-                    background: "rgba(239, 68, 68, 0.18)",
-                    border: "1px solid rgba(239, 68, 68, 0.45)",
-                    color: "#ef4444",
-                  }}
-                >
-                  <span className="hidden sm:inline">{t.ask.stop}</span>
-                </Btn>
-              ) : (
-                <Btn
-                  onClick={send}
-                  disabled={!input.trim() && attachedImages.length === 0}
-                  icon={executionMode === "shell" ? "terminal" : executionMode !== "ai" ? "rocket" : selectedDevice === "ask_only" ? "search" : "rocket"}
-                  className="!h-[44px] sm:!h-[42px] !px-3.5 sm:!px-4 !rounded-xl"
-                  style={{ flexShrink: 0 }}
-                >
-                  <span className="font-semibold text-xs sm:text-sm">{t.ask.send}</span>
-                </Btn>
-              )}
-            </div>
+            {/* Isolated Composer: typing & auto-height stay local so AskPage never re-renders per keystroke */}
+            <AskComposer
+              ref={composerRef}
+              initialValue={inputCacheRef.current}
+              onCacheSync={syncInputCache}
+              onSendText={handleSendFromComposer}
+              onStop={stopRun}
+              onPaste={handlePaste}
+              onOpenFilePicker={handleOpenFilePicker}
+              onToggleVoice={toggleVoiceInput}
+              onFocusMobileCollapse={handleFocusMobileCollapse}
+              onWarmupAsk={handleWarmupAsk}
+              onDeviceSwitch={handleDeviceChange}
+              turnsRef={turnsRef}
+              bottomRef={bottomRef}
+              devices={devices}
+              selectedDevice={selectedDevice}
+              configLocked={configLocked}
+              executionMode={executionMode}
+              streaming={streaming}
+              isReconnecting={isReconnecting}
+              isRecordingVoice={isRecordingVoice}
+              attachedImageCount={attachedImages.length}
+              placeholderText={placeholderText}
+              sendLabel={t.ask.send}
+              stopLabel={t.ask.stop}
+              isZh={isZh}
+            />
           </div>
         </div>
       </footer>

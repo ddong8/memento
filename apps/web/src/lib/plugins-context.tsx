@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { authFetch, getApiBase } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 
@@ -145,27 +145,44 @@ export function PluginProvider({ children }: { children: React.ReactNode }) {
     return next;
   }, []);
 
+  const inflightRef = useRef<Promise<void> | null>(null);
+  const lastFetchedAuthKeyRef = useRef<string | null>(null);
+
   const refreshPlugins = useCallback(async () => {
     if (!token && !user) return;
+    if (inflightRef.current) return inflightRef.current;
     setLoading(true);
-    try {
-      const res = await pluginRequest<PluginsResponse>("/api/plugins");
-      applyPayload(res);
-    } catch {
-      setLoaded(true);
-    } finally {
-      setLoading(false);
-    }
+    const run = (async () => {
+      try {
+        const res = await pluginRequest<PluginsResponse>("/api/plugins");
+        applyPayload(res);
+      } catch {
+        setLoaded(true);
+      } finally {
+        inflightRef.current = null;
+        setLoading(false);
+      }
+    })();
+    inflightRef.current = run;
+    return run;
   }, [token, user, applyPayload]);
 
   useEffect(() => {
     if (!user && !token) {
+      lastFetchedAuthKeyRef.current = null;
       setPlugins([]);
       setServerCapabilities({});
       setLoaded(false);
       clearCached();
       return;
     }
+    // Avoid firing a duplicate /api/plugins request when `user` resolves right after lazy `token` mount
+    const authKey = user?.id ? `user:${user.id}` : "authed";
+    if (lastFetchedAuthKeyRef.current && (lastFetchedAuthKeyRef.current === authKey || lastFetchedAuthKeyRef.current === "authed")) {
+      lastFetchedAuthKeyRef.current = authKey;
+      return;
+    }
+    lastFetchedAuthKeyRef.current = authKey;
     void refreshPlugins();
   }, [user?.id, token, refreshPlugins]);
 

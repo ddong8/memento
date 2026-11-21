@@ -12,16 +12,13 @@ import { ImageViewerModal } from "@/components/viewers/ImageViewerModal";
 import { FiZoomIn } from "react-icons/fi";
 import { showInAppToast, triggerHapticFeedback } from "@/lib/native-notify";
 import { api } from "@/lib/api-client";
-import { useMediaInspector, extractMediaFromMarkdown } from "@/components/viewers/MediaInspectorContext";
+import { useMediaInspectorOpen } from "@/components/viewers/MediaInspectorContext";
 
-export function ThinkingBlock({ thinking, isLive }: { thinking: string; isLive?: boolean }) {
-  const { t } = useI18n();
-  const [userToggled, setUserToggled] = useState<boolean>(false);
-  const [manualExpanded, setManualExpanded] = useState<boolean>(false);
+/** Isolated live elapsed timer so ticking while thinking never re-renders the Markdown body. */
+function ThinkingDurationMeta({ isLive, charCount }: { isLive?: boolean; charCount: number }) {
   const [elapsedSec, setElapsedSec] = useState<number>(0);
   const [finalDuration, setFinalDuration] = useState<number | null>(null);
   const startTimeRef = useRef<number | null>(null);
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (isLive) {
@@ -30,14 +27,40 @@ export function ThinkingBlock({ thinking, isLive }: { thinking: string; isLive?:
         if (startTimeRef.current) {
           setElapsedSec((Date.now() - startTimeRef.current) / 1000);
         }
-      }, 100);
+      }, 250);
       return () => clearInterval(interval);
-    } else {
-      if (startTimeRef.current && finalDuration === null) {
-        setFinalDuration(Math.max(0.1, (Date.now() - startTimeRef.current) / 1000));
-      }
+    } else if (startTimeRef.current && finalDuration === null) {
+      setFinalDuration(Math.max(0.1, (Date.now() - startTimeRef.current) / 1000));
     }
   }, [isLive, finalDuration]);
+
+  const countLabel = charCount > 0 ? `${charCount.toLocaleString()} 字` : "";
+  const duration = isLive ? elapsedSec : (finalDuration ?? elapsedSec);
+  const durLabel = duration > 0 ? `${duration.toFixed(1)}s` : "";
+  const speedLabel = !isLive && duration > 0.5 && charCount > 10 ? `约 ${Math.round(charCount / duration)} 字/秒` : "";
+
+  if (isLive) {
+    return (
+      <span style={{ fontSize: 11.5, color: "var(--aurora-fg4)", opacity: 0.9, fontVariantNumeric: "tabular-nums" }}>
+        ({durLabel ? `推演中 ${durLabel}` : "推演中"}{countLabel ? ` · ${countLabel}` : ""})
+      </span>
+    );
+  }
+  return (
+    <span style={{ fontSize: 11.5, color: "var(--aurora-fg4)", opacity: 0.9, fontVariantNumeric: "tabular-nums", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+      ({durLabel ? `耗时 ${durLabel}` : ""}{countLabel ? ` · 共 ${countLabel}` : ""}{speedLabel ? ` · ${speedLabel}` : ""})
+    </span>
+  );
+}
+
+/** Fast check for simple user prompts that need no full micromark/remark AST pass. */
+const PLAIN_USER_TEXT_UNSAFE_RE = /[`*_~[\]#<>|\\]|https?:\/\/|^\s*[-+•·]\s|^\s*\d+[.)]\s|(?:^|[\s"'(])(?:\/|[a-zA-Z]:[/\\])\S+\.\w{2,5}/m;
+
+export function ThinkingBlock({ thinking, isLive }: { thinking: string; isLive?: boolean }) {
+  const { t } = useI18n();
+  const [userToggled, setUserToggled] = useState<boolean>(false);
+  const [manualExpanded, setManualExpanded] = useState<boolean>(false);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   // 用户规则「思考过程始终铺满全屏」：推演中和推演完都展开铺满，只有用户点胶囊才收起。
   // 10-31 一次无关提交（5af514f1）把它改回了"推演完自动收拢"，业务蓝图 R-THINKING-FULL 现由测试守着
@@ -46,10 +69,6 @@ export function ThinkingBlock({ thinking, isLive }: { thinking: string; isLive?:
   if (!thinking && !isLive) return null;
 
   const charCount = thinking.trim().length;
-  const countLabel = charCount > 0 ? `${charCount.toLocaleString()} 字` : "";
-  const duration = isLive ? elapsedSec : (finalDuration ?? elapsedSec);
-  const durLabel = duration > 0 ? `${duration.toFixed(1)}s` : "";
-  const speedLabel = (!isLive && duration > 0.5 && charCount > 10) ? `约 ${Math.round(charCount / duration)} 字/秒` : "";
 
   return (
     <>
@@ -101,15 +120,7 @@ export function ThinkingBlock({ thinking, isLive }: { thinking: string; isLive?:
             <span style={{ fontWeight: 600, color: isLive ? "var(--aurora-accent)" : "var(--aurora-fg2)", whiteSpace: "nowrap" }}>
               {isLive ? t.ask.thinking : t.ask.thinkingDone}
             </span>
-            {isLive ? (
-              <span style={{ fontSize: 11.5, color: "var(--aurora-fg4)", opacity: 0.9, fontVariantNumeric: "tabular-nums" }}>
-                ({durLabel ? `推演中 ${durLabel}` : "推演中"}{countLabel ? ` · ${countLabel}` : ""})
-              </span>
-            ) : (
-              <span style={{ fontSize: 11.5, color: "var(--aurora-fg4)", opacity: 0.9, fontVariantNumeric: "tabular-nums", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                ({durLabel ? `耗时 ${durLabel}` : ""}{countLabel ? ` · 共 ${countLabel}` : ""}{speedLabel ? ` · ${speedLabel}` : ""})
-              </span>
-            )}
+            <ThinkingDurationMeta isLive={isLive} charCount={charCount} />
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 11.5, color: "var(--aurora-fg4)", flexShrink: 0 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
@@ -305,7 +316,13 @@ export const UserBubble = memo(function UserBubble({
               WebkitUserSelect: "text",
             }}
           >
-            <MarkdownViewer content={displayContent} compactText={true} />
+            {displayContent.length <= 400 && !PLAIN_USER_TEXT_UNSAFE_RE.test(displayContent) ? (
+              <p className="text-[13px] leading-[1.5] my-0 whitespace-pre-wrap break-words text-[var(--aurora-fg1)]">
+                {displayContent}
+              </p>
+            ) : (
+              <MarkdownViewer content={displayContent} compactText={true} />
+            )}
           </div>
         )}
         {(timeInfo || displayContent) && (
@@ -412,8 +429,7 @@ export const AssistantBubble = memo(function AssistantBubble({
   const isThinkingActive = Boolean(isCurrentlyStreaming && !content);
   const hasTools = Boolean(turn.toolCalls && turn.toolCalls.length > 0);
   const [copied, setCopied] = useState(false);
-  const inspector = useMediaInspector();
-  const isInspectorOpen = Boolean(inspector?.isOpen);
+  const isInspectorOpen = useMediaInspectorOpen();
 
   const { locale } = useI18n();
   const isZh = locale ? locale.startsWith("zh") : true;

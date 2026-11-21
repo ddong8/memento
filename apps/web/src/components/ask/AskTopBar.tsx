@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { api, type AgentQuotasResponse } from "@/lib/api-client";
 import { Icon } from "@/components/aurora/Icon";
 import { BrandMark } from "@/components/aurora/BrandMark";
@@ -20,7 +20,7 @@ import type { ModelQuota } from "@/lib/ask/model-limits";
  * The bar over the conversation: history, which agent it runs on and the title, the workbench and quota
  * buttons, new chat, select / export / share / clear (in a "more" menu on narrow screens).
  */
-export function AskTopBar({
+export const AskTopBar = memo(function AskTopBar({
   conversationCount,
   turnCount,
   activeConversationId,
@@ -118,7 +118,7 @@ export function AskTopBar({
   };
 
   return (
-    <header className={`px-3 sm:px-5 h-11 sm:h-12 border-b border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/95 sm:bg-[var(--aurora-surface)] sm:backdrop-blur-md flex items-center justify-between gap-1.5 sm:gap-2.5 shrink-0 select-none relative z-20 ${isDesktopApp ? "app-region-drag" : ""}`}>
+    <header className={`px-3 sm:px-5 h-11 sm:h-12 border-b border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/96 flex items-center justify-between gap-1.5 sm:gap-2.5 shrink-0 select-none relative z-20 ${isDesktopApp ? "app-region-drag" : ""}`}>
       <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-1 mr-1 sm:mr-2 overflow-hidden">
         {/* 移动端与平板侧边菜单开关 */}
         <button
@@ -527,4 +527,4 @@ export function AskTopBar({
       </div>
     </header>
   );
-}
+});

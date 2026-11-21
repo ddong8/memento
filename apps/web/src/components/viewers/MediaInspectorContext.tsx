@@ -19,10 +19,7 @@ export interface MediaItem {
   content?: string | null;
 }
 
-interface MediaInspectorContextType {
-  mediaList: MediaItem[];
-  activeMedia: MediaItem | null;
-  isOpen: boolean;
+export interface MediaInspectorActions {
   openMedia: (item: MediaItem) => void;
   /** `device`: the device the file is on (a task's device), when known. */
   openMediaByUrl: (url: string, title?: string, content?: string | null, device?: FileDevice) => void;
@@ -32,12 +29,20 @@ interface MediaInspectorContextType {
   nextMedia: () => void;
   prevMedia: () => void;
   registerMedia: (item: { url: string; title?: string; type?: MediaType; localPath?: string | null; id?: string; content?: string | null }) => void;
-  syncTurnsMedia: (turns: Array<{ content?: string | null; role?: string | null }>) => void;
-  refreshKey: number;
+  syncTurnsMedia: (turns: Array<{ content?: string | null; role?: string | null; toolCalls?: any[]; thinking?: string | null }>) => void;
   refreshActiveMedia: () => void;
 }
 
+interface MediaInspectorContextType extends MediaInspectorActions {
+  mediaList: MediaItem[];
+  activeMedia: MediaItem | null;
+  isOpen: boolean;
+  refreshKey: number;
+}
+
 const MediaInspectorContext = createContext<MediaInspectorContextType | null>(null);
+const MediaInspectorActionsContext = createContext<MediaInspectorActions | null>(null);
+const MediaInspectorOpenContext = createContext<boolean>(false);
 
 /**
  * Scan Markdown string to discover media links (video, audio, image, pdf, markdown).
@@ -328,11 +333,8 @@ export function MediaInspectorProvider({ children }: { children: React.ReactNode
     });
   }, []);
 
-  const value = useMemo(
+  const actions = useMemo<MediaInspectorActions>(
     () => ({
-      mediaList,
-      activeMedia,
-      isOpen,
       openMedia,
       openMediaByUrl,
       closeInspector,
@@ -342,13 +344,9 @@ export function MediaInspectorProvider({ children }: { children: React.ReactNode
       prevMedia,
       registerMedia,
       syncTurnsMedia,
-      refreshKey,
       refreshActiveMedia,
     }),
     [
-      mediaList,
-      activeMedia,
-      isOpen,
       openMedia,
       openMediaByUrl,
       closeInspector,
@@ -358,15 +356,40 @@ export function MediaInspectorProvider({ children }: { children: React.ReactNode
       prevMedia,
       registerMedia,
       syncTurnsMedia,
-      refreshKey,
       refreshActiveMedia,
     ]
   );
 
-  return <MediaInspectorContext.Provider value={value}>{children}</MediaInspectorContext.Provider>;
+  const value = useMemo<MediaInspectorContextType>(
+    () => ({
+      mediaList,
+      activeMedia,
+      isOpen,
+      refreshKey,
+      ...actions,
+    }),
+    [mediaList, activeMedia, isOpen, refreshKey, actions]
+  );
+
+  return (
+    <MediaInspectorActionsContext.Provider value={actions}>
+      <MediaInspectorOpenContext.Provider value={isOpen}>
+        <MediaInspectorContext.Provider value={value}>{children}</MediaInspectorContext.Provider>
+      </MediaInspectorOpenContext.Provider>
+    </MediaInspectorActionsContext.Provider>
+  );
 }
 
 export function useMediaInspector() {
-  const ctx = useContext(MediaInspectorContext);
-  return ctx;
+  return useContext(MediaInspectorContext);
+}
+
+/** Stable action callbacks only: never triggers re-renders when mediaList/activeMedia/isOpen changes. */
+export function useMediaInspectorActions() {
+  return useContext(MediaInspectorActionsContext);
+}
+
+/** Only subscribes to the boolean open/closed state of the inspector drawer. */
+export function useMediaInspectorOpen() {
+  return useContext(MediaInspectorOpenContext);
 }

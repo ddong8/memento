@@ -10,7 +10,6 @@ import {
   BackHandler,
   Keyboard,
   type KeyboardEvent,
-  LayoutAnimation,
   Linking,
   Platform,
   Pressable,
@@ -126,7 +125,7 @@ const INJECTED_CLIENT_HELPERS = `(() => {
     html, body {
       -webkit-font-smoothing: antialiased !important;
       -moz-osx-font-smoothing: grayscale !important;
-      text-rendering: optimizeLegibility !important;
+      text-rendering: auto !important;
       max-width: 100vw !important;
       width: 100% !important;
       overflow-x: hidden !important;
@@ -177,9 +176,6 @@ const INJECTED_CLIENT_HELPERS = `(() => {
       display: none !important;
       width: 0 !important;
       height: 0 !important;
-    }
-    * {
-      -webkit-overflow-scrolling: touch !important;
     }
   \`;
   (document.head || document.documentElement).appendChild(nativeStyle);
@@ -262,16 +258,10 @@ export default function WebShell() {
     const showEvt = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
     const hideEvt = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
     const showSub = Keyboard.addListener(showEvt, (e: KeyboardEvent) => {
-      if (Platform.OS === "ios") {
-        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-      }
       setKeyboardVisible(true);
       setKeyboardHeight(e.endCoordinates.height);
     });
     const hideSub = Keyboard.addListener(hideEvt, () => {
-      if (Platform.OS === "ios") {
-        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-      }
       setKeyboardVisible(false);
       setKeyboardHeight(0);
     });
@@ -604,7 +594,6 @@ export default function WebShell() {
           source={{ uri: start }}
           style={{ flex: 1, backgroundColor: bg }}
           applicationNameForUserAgent={USER_AGENT_SUFFIX}
-          injectedJavaScript={INJECTED_CLIENT_HELPERS}
           injectedJavaScriptBeforeContentLoaded={INJECTED_CLIENT_HELPERS}
           onMessage={onMessage}
           onNavigationStateChange={onNavigation}

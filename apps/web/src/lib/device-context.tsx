@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
-import { getApiBase, authFetch } from "./api-client";
+import { api } from "./api-client";
 
 interface Device {
   id: string;
@@ -29,12 +29,12 @@ export function DeviceProvider({ children }: { children: ReactNode }) {
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
 
   useEffect(() => {
-    // Only fetch if logged in
+    // Only fetch if logged in (uses shared api.getDevices() cache & in-flight deduplication)
     const token = localStorage.getItem("dr_token");
     if (token) {
-      authFetch(`${getApiBase()}/api/devices`)
-        .then((r) => r.json())
-        .then(setDevices)
+      api
+        .getDevices()
+        .then((list) => setDevices(Array.isArray(list) ? list : []))
         .catch(() => {});
     }
   }, []);

@@ -18,7 +18,7 @@ html, body {
   text-size-adjust: 100%;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  text-rendering: optimizeLegibility;
+  text-rendering: auto;
   touch-action: manipulation;
 }
 
@@ -120,7 +120,7 @@ code, kbd, samp, pre, .font-mono {
   --aurora-surface: rgba(255, 255, 255, 0.76);
   --aurora-surface-solid: #FFFFFF;
   --aurora-surface-mute: rgba(246, 245, 250, 0.72);
-  --aurora-sidebar: rgba(255, 255, 255, 0.68);
+  --aurora-sidebar: rgba(255, 255, 255, 0.86);
   --aurora-border: rgba(15, 15, 30, 0.065);
   --aurora-border-strong: rgba(15, 15, 30, 0.11);
   --aurora-fg1: #0B0B14;
@@ -171,7 +171,7 @@ code, kbd, samp, pre, .font-mono {
   --aurora-surface: rgba(22, 22, 34, 0.70);
   --aurora-surface-solid: #15151F;
   --aurora-surface-mute: rgba(22, 22, 34, 0.45);
-  --aurora-sidebar: rgba(15, 15, 24, 0.68);
+  --aurora-sidebar: rgba(15, 15, 24, 0.88);
   --aurora-border: rgba(255, 255, 255, 0.065);
   --aurora-border-strong: rgba(255, 255, 255, 0.12);
   --aurora-fg1: #F4F4F8;
@@ -501,7 +501,6 @@ body {
   background: var(--aurora-surface);
   color: var(--aurora-fg1);
   border: 1px solid var(--aurora-border);
-  backdrop-filter: var(--aurora-blur);
   box-shadow: none;
 }
 .aurora-btn-glass:hover {
@@ -543,10 +542,9 @@ html[data-skin="baseline"] .aurora-btn-danger:hover {
   gap: 10px;
   padding: 10px 14px;
   background: var(--aurora-surface);
-  backdrop-filter: var(--aurora-blur);
   border: 1px solid var(--aurora-border);
   border-radius: var(--aurora-radius-btn);
-  transition: all .2s;
+  transition: border-color .2s, background-color .2s, box-shadow .2s;
   color: var(--aurora-fg1);
   min-width: 0;
   max-width: 100%;
@@ -1024,6 +1022,34 @@ html, body {
   select,
   textarea {
     font-size: 16px !important; /* Critical: iOS WebKit auto-zooms if < 16px */
+  }
+}
+
+/* Ask footer card focus state handled via CSS :focus-within (zero AskPage re-renders on focus/blur) */
+.ask-footer-card {
+  border: 1px solid var(--aurora-border-strong);
+  box-shadow: var(--aurora-card-shadow);
+}
+.ask-footer-card:focus-within {
+  border-color: color-mix(in srgb, var(--aurora-accent) 42%, var(--aurora-border-strong));
+  box-shadow: var(--aurora-card-shadow), 0 0 0 3px var(--aurora-accent-soft);
+}
+
+/* Native zero-reflow textarea auto-sizing on Chrome/Electron/Safari 18+
+   Scoped to :not(:placeholder-shown) so an empty narrow mobile box never expands to wrap placeholder text. */
+.ask-composer-textarea {
+  white-space: pre-wrap;
+}
+.ask-composer-textarea:placeholder-shown {
+  height: 24px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+@supports (field-sizing: content) {
+  .ask-composer-textarea:not(:placeholder-shown) {
+    field-sizing: content;
+    overflow-y: auto !important;
   }
 }
 

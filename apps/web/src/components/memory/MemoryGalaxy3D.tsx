@@ -676,8 +676,17 @@ export default function MemoryGalaxy3D({
         const isPrimary = selectedNodeIdRef.current === id || hoveredNodeIdRef.current === id;
         const isNeighbor = connectedSet ? connectedSet.has(id) : false;
         const mat = mesh.material as THREE.MeshStandardMaterial;
-        const label = mesh.userData.label as THREE.Sprite | undefined;
-        if (label) label.visible = isPrimary || isNeighbor || (!focusId && hubLabelIdsRef.current.has(id));
+        const shouldShowLabel = isPrimary || isNeighbor || (!focusId && hubLabelIdsRef.current.has(id));
+        let label = mesh.userData.label as THREE.Sprite | undefined;
+        if (shouldShowLabel && !label && mesh.userData.node) {
+          const n = mesh.userData.node as GalaxyNode;
+          const colorHex = TYPE_COLOR_HEX[n.type] || TYPE_COLOR_HEX.default;
+          label = createTextSprite(n.name, colorHex);
+          label.position.set(0, 0.48, 0);
+          mesh.add(label);
+          mesh.userData.label = label;
+        }
+        if (label) label.visible = shouldShowLabel;
 
         if (isPrimary) {
           mesh.scale.setScalar(1.38 + Math.sin(elapsed * 4.5) * 0.14);
@@ -835,7 +844,6 @@ export default function MemoryGalaxy3D({
       nodePositionMap.set(node.id, pos);
 
       const colorVal = TYPE_COLORS[node.type] || TYPE_COLORS.default;
-      const colorHex = TYPE_COLOR_HEX[node.type] || TYPE_COLOR_HEX.default;
       const geo = sharedGeos[node.type] || sharedGeos.default;
 
       const mat = new THREE.MeshStandardMaterial({
@@ -849,11 +857,6 @@ export default function MemoryGalaxy3D({
       const mesh = new THREE.Mesh(geo, mat);
       mesh.position.copy(pos);
       mesh.userData = { node, baseY: pos.y, phase: idx * 0.7 };
-
-      const sprite = createTextSprite(node.name, colorHex);
-      sprite.position.set(0, 0.48, 0);
-      mesh.add(sprite);
-      mesh.userData.label = sprite;
 
       galaxyRoot.add(mesh);
       nodeMeshMap.set(node.id, mesh);
@@ -968,8 +971,8 @@ export default function MemoryGalaxy3D({
       <div className="relative z-10 p-2 sm:p-3.5 flex items-center justify-between pointer-events-none gap-1 sm:gap-2 flex-nowrap overflow-hidden">
         {/* Left: Galaxy Badge & Filter Type Pills */}
         <div className="flex items-center gap-1 sm:gap-1.5 min-w-0">
-          <div className="flex items-center gap-1.5 bg-black/65 backdrop-blur-xl px-2 sm:px-3 py-1 sm:py-1.5 rounded-full border border-white/10 shadow-lg pointer-events-auto shrink-0">
-            <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-[#38BDF8] animate-ping" />
+          <div className="flex items-center gap-1.5 bg-black/75 px-2 sm:px-3 py-1 sm:py-1.5 rounded-full border border-white/10 shadow-lg pointer-events-auto shrink-0">
+            <div className={`w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-[#38BDF8] ${dreamingActive ? "animate-ping" : ""}`} />
             <span className="text-[11px] sm:text-xs font-bold text-white tracking-wide">
               
               <span className="hidden sm:inline">知识图谱 · </span>

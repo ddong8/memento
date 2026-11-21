@@ -19,7 +19,7 @@ import {
   resolveRelativeLink,
   safeDecodePath,
 } from "./MediaPreview";
-import { useMediaInspector, extractMediaFromMarkdown } from "./MediaInspectorContext";
+import { useMediaInspector, useMediaInspectorActions } from "./MediaInspectorContext";
 import { triggerHapticFeedback } from "@/lib/native-notify";
 
 interface MarkdownViewerProps {
@@ -319,15 +319,125 @@ function normalizeMarkdownContent(content: string): string {
     .join("");
 }
 
+/**
+ * Small isolated status badge subscribed to activeMedia/isOpen so opening or switching media
+ * in the workbench never forces MarkdownViewer (or all 40+ messages) to re-parse Markdown.
+ */
+function InspectorStatusBadge({
+  cleanHref,
+  label,
+  activeText,
+  idleText,
+  idleClassName,
+}: {
+  cleanHref: string;
+  label: string;
+  activeText: string;
+  idleText: string;
+  idleClassName?: string;
+}) {
+  const inspector = useMediaInspector();
+  const isCurrentlyInspected = Boolean(
+    inspector?.isOpen &&
+      inspector?.activeMedia &&
+      (safeDecodePath(inspector.activeMedia.url) === cleanHref ||
+        inspector.activeMedia.title === label ||
+        getFilenameFromUrl(inspector.activeMedia.url) === getFilenameFromUrl(cleanHref))
+  );
+  if (isCurrentlyInspected) {
+    return (
+      <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 font-medium shrink-0">
+        {activeText}
+      </span>
+    );
+  }
+  return (
+    <span className={idleClassName || "text-[11px] text-[var(--aurora-accent)] font-semibold shrink-0 flex items-center gap-0.5 whitespace-nowrap"}>
+      {idleText}
+    </span>
+  );
+}
+
+function VideoInspectorCard({
+  href,
+  cleanHref,
+  label,
+  activeBadgeText,
+  idleActionText,
+  onOpen,
+}: {
+  href: string;
+  cleanHref: string;
+  label: string;
+  activeBadgeText: string;
+  idleActionText: string;
+  onOpen: (url: string, label: string) => void;
+}) {
+  const inspector = useMediaInspector();
+  const isCurrentlyInspected = Boolean(
+    inspector?.isOpen &&
+      inspector?.activeMedia &&
+      (safeDecodePath(inspector.activeMedia.url) === cleanHref ||
+        getFilenameFromUrl(inspector.activeMedia.url) === getFilenameFromUrl(cleanHref))
+  );
+  return (
+    <div className="not-prose my-2 inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-[var(--aurora-border)] bg-[var(--aurora-chip)] text-xs text-[var(--aurora-fg1)] transition-colors hover:border-[var(--aurora-accent)]">
+      <Icon name="film" size={14} className="text-[var(--aurora-accent)] shrink-0" />
+      <span className="font-medium truncate max-w-[240px]" title={label}>{label}</span>
+      {isCurrentlyInspected && (
+        <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 font-medium">
+          {activeBadgeText}
+        </span>
+      )}
+      <button
+        type="button"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onOpen(href, label);
+        }}
+        className="ml-1 text-[var(--aurora-accent)] hover:underline font-semibold cursor-pointer whitespace-nowrap"
+      >
+        {isCurrentlyInspected ? "对焦视窗 ↗" : idleActionText}
+      </button>
+    </div>
+  );
+}
+
 // rehype-raw (an HTML parser) and rehype-highlight (37 grammars) are two thirds of the markdown
-// stack, so they load once the first markdown is on screen rather than with every page's first JS
-type RehypeExtras = { raw: any; highlight: any };
+// stack, so they load once the first markdown needing them is on screen rather than with every page's first JS.
+// Both plugins return stateless transformers; caching the compiled transformer avoids calling
+// createLowlight(common) (37x registerLanguage) on every single message render (40 messages = 1480 registrations).
+type RehypeExtras = {
+  raw: any;
+  highlight: any;
+  pluginsRaw: any[];
+  pluginsHighlight: any[];
+  pluginsBoth: any[];
+};
+const REMARK_PLUGINS: any[] = [remarkGfm];
+const EMPTY_REHYPE_PLUGINS: any[] = [];
+const INLINE_HTML_RE = /<[a-zA-Z!/]/;
+
 let rehypeExtras: RehypeExtras | null = null;
 let rehypeExtrasLoading: Promise<RehypeExtras> | null = null;
 
 export function loadRehypeExtras(): Promise<RehypeExtras> {
   rehypeExtrasLoading ??= Promise.all([import("rehype-raw"), import("rehype-highlight")]).then(
-    ([raw, highlight]) => (rehypeExtras = { raw: raw.default, highlight: highlight.default }),
+    ([rawMod, highlightMod]) => {
+      const rawTransformer = (rawMod.default as any)();
+      const highlightTransformer = (highlightMod.default as any)();
+      const raw = () => rawTransformer;
+      const highlight = () => highlightTransformer;
+      rehypeExtras = {
+        raw,
+        highlight,
+        pluginsRaw: [raw],
+        pluginsHighlight: [highlight],
+        pluginsBoth: [raw, highlight],
+      };
+      return rehypeExtras;
+    },
     (err) => {
       rehypeExtrasLoading = null; // a chunk lost to a deploy loads again on the next mount
       throw err;
@@ -336,17 +446,17 @@ export function loadRehypeExtras(): Promise<RehypeExtras> {
   return rehypeExtrasLoading;
 }
 
-function useRehypeExtras(): RehypeExtras | null {
+function useRehypeExtras(needed: boolean): RehypeExtras | null {
   const [extras, setExtras] = useState(rehypeExtras);
   useEffect(() => {
-    if (extras) return;
+    if (!needed || extras) return;
     let alive = true;
     loadRehypeExtras().then((x) => alive && setExtras(x), () => {});
     return () => {
       alive = false;
     };
-  }, [extras]);
-  return extras;
+  }, [needed, extras]);
+  return needed ? (extras ?? rehypeExtras) : null;
 }
 
 const MarkdownViewer = memo(function MarkdownViewer({
@@ -357,9 +467,10 @@ const MarkdownViewer = memo(function MarkdownViewer({
   isStreaming = false,
   baseDir = null,
 }: MarkdownViewerProps) {
-  const inspector = useMediaInspector();
-  // Per-render deduplication tracker for inline videos
-  const renderedVideos = new Set<string>();
+  const inspectorActions = useMediaInspectorActions();
+  // Per-render deduplication tracker for inline videos (cleared on every render)
+  const renderedVideosRef = useRef<Set<string>>(new Set());
+  renderedVideosRef.current.clear();
 
   // 流式渲染节流：在 SSE 高频传输时将 DOM 重构频率约束在 50ms 一次，大幅降低主线程 CPU 开销
   const [throttledContent, setThrottledContent] = useState<string>(content);
@@ -396,17 +507,26 @@ const MarkdownViewer = memo(function MarkdownViewer({
   const formattedContent = useMemo(() => normalizeMarkdownContent(activeContent), [activeContent]);
 
   const baseProse = compactText ? "prose-compact" : "prose";
-  const remarkPlugins = useMemo(() => [remarkGfm], []);
   const shouldHighlight = !isStreaming && content.length <= 60_000;
-  const extras = useRehypeExtras();
-  const rehypePlugins = useMemo(() => {
-    if (!extras) return [];
-    const plugins: any[] = [extras.raw];
-    if (shouldHighlight) {
-      plugins.push(extras.highlight);
-    }
-    return plugins;
-  }, [extras, shouldHighlight]);
+  const hasInlineHtml = useMemo(() => INLINE_HTML_RE.test(formattedContent), [formattedContent]);
+  const hasCodeFence = useMemo(
+    () => formattedContent.includes("```") || formattedContent.includes("~~~"),
+    [formattedContent]
+  );
+  const needsRaw = hasInlineHtml;
+  const needsHighlight = shouldHighlight && hasCodeFence;
+  const needsExtras = needsRaw || needsHighlight;
+
+  const extras = useRehypeExtras(needsExtras);
+  const rehypePlugins = !extras
+    ? EMPTY_REHYPE_PLUGINS
+    : needsRaw && needsHighlight
+    ? extras.pluginsBoth
+    : needsRaw
+    ? extras.pluginsRaw
+    : needsHighlight
+    ? extras.pluginsHighlight
+    : EMPTY_REHYPE_PLUGINS;
 
   const components = useMemo(
     () => ({
@@ -417,37 +537,19 @@ const MarkdownViewer = memo(function MarkdownViewer({
             const type = detectMediaType(src);
             if (type === "video") {
               const cleanHref = safeDecodePath(src);
-              const isDuplicate = renderedVideos.has(cleanHref);
-              renderedVideos.add(cleanHref);
-              const isCurrentlyInspected = Boolean(
-                inspector?.isOpen &&
-                inspector?.activeMedia &&
-                (safeDecodePath(inspector.activeMedia.url) === cleanHref ||
-                 getFilenameFromUrl(inspector.activeMedia.url) === getFilenameFromUrl(cleanHref))
-              );
-              if (inspector || compactMedia || isDuplicate || isCurrentlyInspected) {
+              const isDuplicate = renderedVideosRef.current.has(cleanHref);
+              renderedVideosRef.current.add(cleanHref);
+              if (inspectorActions || compactMedia || isDuplicate) {
                 const label = alt || getFilenameFromUrl(src);
                 return (
-                  <div className="not-prose my-2 inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-[var(--aurora-border)] bg-[var(--aurora-chip)] text-xs text-[var(--aurora-fg1)] transition-colors hover:border-[var(--aurora-accent)]">
-                    <Icon name="film" size={14} className="text-[var(--aurora-accent)] shrink-0" />
-                    <span className="font-medium truncate max-w-[240px]" title={label}>{label}</span>
-                    {isCurrentlyInspected && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 font-medium">
-                        已在右侧视窗展示
-                      </span>
-                    )}
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        inspector?.openMediaByUrl(src, label);
-                      }}
-                      className="ml-1 text-[var(--aurora-accent)] hover:underline font-semibold cursor-pointer whitespace-nowrap"
-                    >
-                      {isCurrentlyInspected ? "对焦视窗 ↗" : "在右侧独立视窗播放 ↗"}
-                    </button>
-                  </div>
+                  <VideoInspectorCard
+                    href={src}
+                    cleanHref={cleanHref}
+                    label={label}
+                    activeBadgeText="已在右侧视窗展示"
+                    idleActionText="在右侧独立视窗播放 ↗"
+                    onOpen={(u, l) => inspectorActions?.openMediaByUrl(u, l)}
+                  />
                 );
               }
               return <VideoPlayer src={src} title={alt} />;
@@ -468,40 +570,22 @@ const MarkdownViewer = memo(function MarkdownViewer({
             if (type === "video") {
               const label = typeof children === "string" ? children : getFilenameFromUrl(href);
               const cleanHref = safeDecodePath(href);
-              const isDuplicate = renderedVideos.has(cleanHref);
-              renderedVideos.add(cleanHref);
-              const isCurrentlyInspected = Boolean(
-                inspector?.isOpen &&
-                inspector?.activeMedia &&
-                (safeDecodePath(inspector.activeMedia.url) === cleanHref ||
-                 getFilenameFromUrl(inspector.activeMedia.url) === getFilenameFromUrl(cleanHref))
-              );
+              const isDuplicate = renderedVideosRef.current.has(cleanHref);
+              renderedVideosRef.current.add(cleanHref);
 
               // 仅在桌面端大屏三栏模式下（width >= 1024 且 inspector 处于常驻分栏环境）统一收敛为徽章；
               // 在移动端（如 iOS/Android）因无侧边分栏，在消息气泡中直接呈现内嵌播放器，让用户在手机上即刻看到并播放视频
               const isDesktopDocked = typeof window !== "undefined" && window.innerWidth >= 1024;
-              if ((isDesktopDocked && inspector) || compactMedia || isDuplicate) {
+              if ((isDesktopDocked && inspectorActions) || compactMedia || isDuplicate) {
                 return (
-                  <div className="not-prose my-2 inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-[var(--aurora-border)] bg-[var(--aurora-chip)] text-xs text-[var(--aurora-fg1)] transition-colors hover:border-[var(--aurora-accent)]">
-                    <Icon name="film" size={14} className="text-[var(--aurora-accent)] shrink-0" />
-                    <span className="font-medium truncate max-w-[240px]" title={label}>{label}</span>
-                    {isCurrentlyInspected && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 font-medium">
-                        已在视窗展示
-                      </span>
-                    )}
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        inspector?.openMediaByUrl(href, label);
-                      }}
-                      className="ml-1 text-[var(--aurora-accent)] hover:underline font-semibold cursor-pointer whitespace-nowrap"
-                    >
-                      {isCurrentlyInspected ? "对焦视窗 ↗" : isDesktopDocked ? "在右侧独立视窗播放 ↗" : "在视窗中打开 ↗"}
-                    </button>
-                  </div>
+                  <VideoInspectorCard
+                    href={href}
+                    cleanHref={cleanHref}
+                    label={label}
+                    activeBadgeText="已在视窗展示"
+                    idleActionText={isDesktopDocked ? "在右侧独立视窗播放 ↗" : "在视窗中打开 ↗"}
+                    onOpen={(u, l) => inspectorActions?.openMediaByUrl(u, l)}
+                  />
                 );
               }
 
@@ -527,12 +611,6 @@ const MarkdownViewer = memo(function MarkdownViewer({
             ) {
               const label = typeof children === "string" ? children : getFilenameFromUrl(href);
               const cleanHref = safeDecodePath(href);
-              const isCurrentlyInspected = Boolean(
-                inspector?.isOpen &&
-                inspector?.activeMedia &&
-                (safeDecodePath(inspector.activeMedia.url) === cleanHref ||
-                 inspector.activeMedia.title === label)
-              );
               const docIconName =
                 type === "presentation"
                   ? "layers"
@@ -550,7 +628,7 @@ const MarkdownViewer = memo(function MarkdownViewer({
                   ? "PDF 文档"
                   : "办公文档";
 
-              if (!inspector) {
+              if (!inspectorActions) {
                 const isLocal = isLocalFilePath(href);
                 const resolvedHref = isLocal ? resolveMediaUrl(href).downloadUrl : href;
                 return (
@@ -574,7 +652,7 @@ const MarkdownViewer = memo(function MarkdownViewer({
                   onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    inspector?.openMediaByUrl(href, label);
+                    inspectorActions.openMediaByUrl(href, label);
                   }}
                   className="not-prose my-2 inline-flex items-center gap-2.5 px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl border border-[var(--aurora-border)] bg-[var(--aurora-chip)] text-xs text-[var(--aurora-fg1)] transition-all hover:border-[var(--aurora-accent)] hover:shadow-md active:scale-[0.98] cursor-pointer select-none group/doc max-w-full text-left"
                   title={`点击在工作台独立视窗中查看${typeDesc}`}
@@ -586,15 +664,12 @@ const MarkdownViewer = memo(function MarkdownViewer({
                   <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-white/5 text-[var(--aurora-fg3)] uppercase shrink-0">
                     {href.split(".").pop() || type}
                   </span>
-                  {isCurrentlyInspected ? (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 font-medium shrink-0">
-                      已在工作台打开
-                    </span>
-                  ) : (
-                    <span className="text-[11px] text-[var(--aurora-accent)] font-semibold shrink-0 flex items-center gap-0.5 whitespace-nowrap">
-                      在工作台查看 ↗
-                    </span>
-                  )}
+                  <InspectorStatusBadge
+                    cleanHref={cleanHref}
+                    label={label}
+                    activeText="已在工作台打开"
+                    idleText="在工作台查看 ↗"
+                  />
                 </button>
               );
             }
@@ -611,14 +686,8 @@ const MarkdownViewer = memo(function MarkdownViewer({
             if (type === "markdown") {
               const label = typeof children === "string" ? children : getFilenameFromUrl(href);
               const cleanHref = safeDecodePath(href);
-              const isCurrentlyInspected = Boolean(
-                inspector?.isOpen &&
-                inspector?.activeMedia &&
-                (safeDecodePath(inspector.activeMedia.url) === cleanHref ||
-                 inspector.activeMedia.title === label)
-              );
 
-              if (!inspector) {
+              if (!inspectorActions) {
                 return (
                   <a
                     href={href}
@@ -639,7 +708,7 @@ const MarkdownViewer = memo(function MarkdownViewer({
                   onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    inspector?.openMediaByUrl(href, label);
+                    inspectorActions.openMediaByUrl(href, label);
                   }}
                   className="not-prose my-2 inline-flex items-center gap-2.5 px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl border border-[var(--aurora-border)] bg-[var(--aurora-chip)] text-xs text-[var(--aurora-fg1)] transition-all hover:border-[var(--aurora-accent)] hover:shadow-md active:scale-[0.98] cursor-pointer select-none group/doc max-w-full text-left"
                   title="点击在工作台独立视窗中打开预览"
@@ -648,15 +717,12 @@ const MarkdownViewer = memo(function MarkdownViewer({
                   <span className="font-semibold truncate max-w-[200px] sm:max-w-[280px] text-[var(--aurora-fg1)] group-hover/doc:text-[var(--aurora-accent)] transition-colors" title={label}>
                     {label}
                   </span>
-                  {isCurrentlyInspected ? (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 font-medium shrink-0">
-                      已在工作台打开
-                    </span>
-                  ) : (
-                    <span className="text-[11px] text-[var(--aurora-accent)] font-semibold shrink-0 flex items-center gap-0.5 whitespace-nowrap">
-                      在工作台预览 ↗
-                    </span>
-                  )}
+                  <InspectorStatusBadge
+                    cleanHref={cleanHref}
+                    label={label}
+                    activeText="已在工作台打开"
+                    idleText="在工作台预览 ↗"
+                  />
                 </button>
               );
             }
@@ -829,15 +895,9 @@ const MarkdownViewer = memo(function MarkdownViewer({
             const mediaType = detectMediaType(rawText);
             const isPath = (rawText.includes("/") || rawText.includes("\\")) && isLocalFilePath(rawText);
 
-            if (mediaType !== "unknown" && isPath && inspector) {
+            if (mediaType !== "unknown" && isPath && inspectorActions) {
               const label = getFilenameFromUrl(rawText);
               const cleanHref = safeDecodePath(rawText);
-              const isCurrentlyInspected = Boolean(
-                inspector.isOpen &&
-                inspector.activeMedia &&
-                (safeDecodePath(inspector.activeMedia.url) === cleanHref ||
-                 inspector.activeMedia.title === label)
-              );
               const codeIconName =
                 mediaType === "presentation"
                   ? "layers"
@@ -869,7 +929,7 @@ const MarkdownViewer = memo(function MarkdownViewer({
                   onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    inspector.openMediaByUrl(rawText, label);
+                    inspectorActions.openMediaByUrl(rawText, label);
                   }}
                   className="not-prose my-1.5 inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border border-[var(--aurora-border)] bg-[var(--aurora-chip)] hover:border-[var(--aurora-accent)] hover:shadow-md active:scale-[0.98] transition-all cursor-pointer select-none group/code max-w-full text-left"
                   title={`点击在 Memento 应用内打开${typeDesc}视窗：${label}`}
@@ -881,15 +941,12 @@ const MarkdownViewer = memo(function MarkdownViewer({
                   <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-white/5 text-[var(--aurora-fg3)] uppercase shrink-0">
                     {label.split(".").pop() || mediaType}
                   </span>
-                  {isCurrentlyInspected ? (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 font-medium shrink-0">
-                      已在视窗展示
-                    </span>
-                  ) : (
-                    <span className="text-[11px] text-[var(--aurora-accent)] font-semibold shrink-0 flex items-center gap-0.5 whitespace-nowrap">
-                      在工作台打开 ↗
-                    </span>
-                  )}
+                  <InspectorStatusBadge
+                    cleanHref={cleanHref}
+                    label={label}
+                    activeText="已在视窗展示"
+                    idleText="在工作台打开 ↗"
+                  />
                 </button>
               );
             }
@@ -990,16 +1047,16 @@ const MarkdownViewer = memo(function MarkdownViewer({
             </kbd>
           ),
     }),
-    [compactMedia, compactText, inspector, baseDir]
+    [compactMedia, compactText, inspectorActions, baseDir]
   );
 
   return (
     <div className={`${baseProse} max-w-full min-w-0 break-words overflow-wrap-anywhere overflow-hidden ${className}`}>
       <ReactMarkdown
-        remarkPlugins={remarkPlugins}
+        remarkPlugins={REMARK_PLUGINS}
         rehypePlugins={rehypePlugins}
         // Until rehype-raw is in, inline HTML would show as literal tags
-        skipHtml={!extras}
+        skipHtml={needsRaw && !extras}
         components={components}
       >
         {formattedContent}

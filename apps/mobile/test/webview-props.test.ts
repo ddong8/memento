@@ -27,4 +27,9 @@ describe("web view props", () => {
     const bad = nonStringProps().filter((name) => new RegExp(`\\b${name}=["']`).test(shell));
     expect(bad).toEqual([]);
   });
+
+  it("injected mobile CSS avoids optimizeLegibility and wildcard overflow-scrolling", () => {
+    expect(shell).not.toContain("optimizeLegibility");
+    expect(shell).not.toContain("-webkit-overflow-scrolling");
+  });
 });

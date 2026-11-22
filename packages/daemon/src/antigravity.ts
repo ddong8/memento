@@ -4,7 +4,7 @@ import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, rea
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { homeDir } from "./config.js";
+import { homeDir, mementoDir } from "./config.js";
 import { executionEnvironment, findExecutable } from "./exec-env.js";
 import { sqliteRows, sqliteRun } from "./sqlite.js";
 
@@ -717,6 +717,64 @@ export class AgyCliTranscriptTailer {
  */
 /** Where the runner ships: next to the daemon's code, or MEMENTO_AGY_RUNNER (bundled apps). */
 const runnerAsset = () => process.env.MEMENTO_AGY_RUNNER || fileURLToPath(new URL("../assets/agy_cli.mjs", import.meta.url));
+const acpRunnerAsset = () => process.env.MEMENTO_AGY_ACP_RUNNER || fileURLToPath(new URL("../assets/agy_acp.mjs", import.meta.url));
+
+/**
+ * Memento's Antigravity ACP runner (assets/agy_acp.mjs), copied to `~/.memento/runners` so a child
+ * process can run it even when the packaged app sits inside app.asar. Rewritten when it changes.
+ */
+export async function agyAcpRunner(home = homeDir()): Promise<string> {
+  const target = join(mementoDir(home), "runners", "agy_acp.mjs");
+  const source = await readFile(acpRunnerAsset(), "utf8");
+  if ((await readFile(target, "utf8").catch(() => "")) !== source) {
+    await mkdir(join(mementoDir(home), "runners"), { recursive: true });
+    await writeIfChanged(target, source, 0o755);
+  }
+  return target;
+}
+
+const acpSupportCache = new Map<string, boolean>();
+
+export function resetAgyAcpSupportCache(): void {
+  acpSupportCache.clear();
+}
+
+/**
+ * Whether Google's official `agy` binary supports `agy acp --stdio` (Agent Client Protocol).
+ * Cached per binary path + mtime so the fast `--help` check runs once per installed version.
+ */
+export async function officialAgySupportsAcp(cli: string, env?: NodeJS.ProcessEnv): Promise<boolean> {
+  let cacheKey = cli;
+  try {
+    const st = statSync(cli);
+    cacheKey = `${cli}@${st.mtimeMs}:${st.size}`;
+  } catch {
+    // ignore stat failure
+  }
+  const hit = acpSupportCache.get(cacheKey);
+  if (hit !== undefined) return hit;
+
+  const supported = await new Promise<boolean>((resolve) => {
+    const viaShell = process.platform === "win32" && /\.(cmd|bat)$/i.test(cli);
+    const opts = { env: env ?? process.env, timeout: 4000, windowsHide: true, maxBuffer: 512 * 1024 };
+    const cb = (err: Error | null, stdout: string | Buffer, stderr: string | Buffer) => {
+      if (err) {
+        resolve(false);
+        return;
+      }
+      const text = `${String(stdout ?? "")}\n${String(stderr ?? "")}`;
+      resolve(/Agent Client Protocol|Usage:\s*agy\s+acp/i.test(text));
+    };
+    if (viaShell) {
+      execFile("cmd.exe", ["/d", "/s", "/c", `"${cli}" acp --help`], opts, cb);
+    } else {
+      execFile(cli, ["acp", "--help"], opts, cb);
+    }
+  });
+
+  acpSupportCache.set(cacheKey, supported);
+  return supported;
+}
 function run(cmd: string, args: string[], timeout = 5000): Promise<{ code: number; stdout: string }> {
   return new Promise((resolve) => {
     execFile(cmd, args, { timeout, windowsHide: true, maxBuffer: 8 * 1024 * 1024 }, (err, stdout) =>

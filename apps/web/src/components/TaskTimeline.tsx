@@ -80,7 +80,8 @@ export default function TaskTimeline({
   /** The device the task ran on, so a file it read or edited opens from that device. */
   device?: FileDevice;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
+  const isZh = locale === "zh-CN";
   const tl = t.taskRun;
   const inspector = useMediaInspector();
   const [showAll, setShowAll] = useState(false);
@@ -125,7 +126,8 @@ export default function TaskTimeline({
 
   const isPinnedRow = (e: TaskEvent) =>
     (e.kind === "question" && ((e as any).status === "waiting" || !(e as any).status)) ||
-    (e.kind === "subagent" && ((e as any).status === "running" || !(e as any).status));
+    (e.kind === "subagent" && ((e as any).status === "running" || !(e as any).status)) ||
+    (e.kind === "tool" && (e as any).status === "background");
 
   // Guaranteed unhide protection: any active question or running subagent is never hidden
   const visible = useMemo(() => {
@@ -385,6 +387,35 @@ export default function TaskTimeline({
           <span style={{ flexShrink: 0, display: "inline-flex", alignItems: "center", marginLeft: "auto", paddingLeft: 4 }}>
             {status === "failed" ? (
               <Icon name="close" size={13} style={{ color: "#DC2626" }} />
+            ) : status === "background" ? (
+              <span
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 4,
+                  fontSize: 10.5,
+                  fontWeight: 600,
+                  padding: "1px 6px",
+                  borderRadius: 9999,
+                  background: "rgba(245, 158, 11, 0.14)",
+                  border: "1px solid rgba(245, 158, 11, 0.32)",
+                  color: "#D97706",
+                  whiteSpace: "nowrap",
+                  lineHeight: 1.4,
+                }}
+              >
+                <span
+                  className={running ? "animate-pulse" : undefined}
+                  style={{
+                    width: 5,
+                    height: 5,
+                    borderRadius: "50%",
+                    background: "#D97706",
+                    flexShrink: 0,
+                  }}
+                />
+                {isZh ? "后台运行中" : "Background"}
+              </span>
             ) : status === "running" ? (
               <span className={running ? "animate-pulse" : undefined} style={{ fontSize: 12, color: running ? "var(--aurora-accent)" : "var(--aurora-fg4)" }}>
                 •••

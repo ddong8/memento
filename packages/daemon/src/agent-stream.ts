@@ -920,8 +920,21 @@ export class UniversalStreamParser extends AgentStreamParser {
           }
           if (d.type === "memento_event" && isObject(d.event)) {
             const ev = d.event as AgentEvent;
-            if (ev.kind === "text" && typeof ev.text === "string") {
+            if (ev.kind === "text_delta" && typeof ev.text === "string") {
+              this.lastText += ev.text;
+            } else if (ev.kind === "text" && typeof ev.text === "string") {
               this.lastText += (this.lastText ? "\n\n" : "") + ev.text;
+            } else if (ev.kind === "session") {
+              const sid = cleanSessionId(ev.session_id);
+              if (sid) this.sessionId = sid;
+              if (typeof ev.model === "string" && ev.model.trim()) this.model = ev.model.trim();
+            } else if (ev.kind === "error" && typeof ev.message === "string" && ev.message.trim()) {
+              this.addError(ev.message.trim());
+            } else if (ev.kind === "background" && Array.isArray(ev.tasks)) {
+              this.activeBackgroundTasks.clear();
+              for (const t of ev.tasks) {
+                if (isObject(t) && typeof t.id === "string" && t.id) this.activeBackgroundTasks.add(t.id);
+              }
             }
             return [ev];
           }
@@ -1175,10 +1188,24 @@ export class AgyCliStreamParser extends AgentStreamParser {
   private stdoutDoneTools = new Set<number>();
   /** Deduplication keys `${step_index}:${status}` for transcript lines already ingested. */
   private seenTranscriptKeys = new Set<string>();
-  /** Pending tool calls announced in PLANNER_RESPONSE.tool_calls, matched FIFO to subsequent GENERIC steps. */
+  /** Pending tool calls announced in PLANNER_RESPONSE.tool_calls, matched once per GENERIC step_index. */
   private pendingTools: Array<{ name: string; args: Json }> = [];
+  /** Tool metadata already bound to a specific transcript step_index (prevents double-shift on RUNNING -> DONE). */
+  private stepTools = new Map<number, { name: string; args: Json }>();
   /** Short task IDs (e.g. task-250) for open background tasks observed from transcript. */
   readonly activeBackgroundTaskIds = new Map<string, string>();
+  /** Descriptions of open background tasks observed from transcript. */
+  private readonly bgDescriptions = new Map<string, string>();
+
+  private backgroundSnapshotEvent(): AgentEvent {
+    return {
+      kind: "background",
+      tasks: [...this.activeBackgroundTaskIds.entries()].map(([fullId, shortId]) => ({
+        id: shortId,
+        description: this.bgDescriptions.get(fullId) || `后台任务 ${shortId}`,
+      })),
+    };
+  }
 
   get finalText(): string | undefined {
     return this.response.trim() || this.messages.join("\n\n").trim() || undefined;
@@ -1242,7 +1269,11 @@ export class AgyCliStreamParser extends AgentStreamParser {
     }
 
     if (type === "GENERIC") {
-      const tc = this.pendingTools.shift();
+      let tc = this.stepTools.get(index);
+      if (!tc && this.pendingTools.length > 0) {
+        tc = this.pendingTools.shift();
+        if (tc) this.stepTools.set(index, tc);
+      }
       const bgMatch = statusRaw === "RUNNING" && content.startsWith("Created At:") ? AGY_BG_STARTED.exec(content) : null;
       if (bgMatch) {
         const fullId = bgMatch[1]!.trim();
@@ -1254,14 +1285,16 @@ export class AgyCliStreamParser extends AgentStreamParser {
         const desc = /Task Description:\s*(.+)/i.exec(content)?.[1]?.trim();
         const name = tc?.name || "run_command";
         const detail = tc ? agyToolDetail(name, tc.args) : desc ? clip(desc, 200) : shortId;
+        this.bgDescriptions.set(fullId, detail || desc || shortId);
         events.push({
           kind: "tool",
           id: `agy_step_${index}`,
           name,
           detail,
-          status: "done",
+          status: "background",
           output: `已转入后台持续运行（${shortId}），完成后将自动通知智能体继续。\n${agyToolOutput(content)}`,
         });
+        events.push(this.backgroundSnapshotEvent());
         return events;
       }
 
@@ -1287,16 +1320,20 @@ export class AgyCliStreamParser extends AgentStreamParser {
     }
 
     if (type === "SYSTEM_MESSAGE" && this.activeBackgroundTaskIds.size > 0 && content) {
+      let bgChanged = false;
       for (const [fullId, shortId] of [...this.activeBackgroundTaskIds]) {
         const sender = content.includes(`sender=${fullId}`) || content.includes(`sender=${shortId}`);
         const mentioned = new RegExp(`(?:^|[^\\w-])${shortId}(?!\\d)`).test(content);
         if (sender || (mentioned && AGY_BG_ENDED.some((kw) => content.includes(kw)))) {
           this.activeBackgroundTasks.delete(fullId);
           this.activeBackgroundTaskIds.delete(fullId);
+          this.bgDescriptions.delete(fullId);
+          bgChanged = true;
           const stepNum = Number(/task-(\d+)$/.exec(shortId)?.[1]);
           if (Number.isInteger(stepNum)) this.backgroundedSteps.delete(stepNum);
         }
       }
+      if (bgChanged) events.push(this.backgroundSnapshotEvent());
     }
 
     return events;

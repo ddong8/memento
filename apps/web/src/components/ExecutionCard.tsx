@@ -164,12 +164,24 @@ const ExecutionCard = memo(function ExecutionCard({
       return q.kind === "question" && q.status !== "answered" && !q.answer;
     });
 
-  // Once the turn has its answer (hasParentContent) the agent is done: still_running then only says it
-  // left background work behind, nothing more comes back here, so it isn't shown as running.
+  const hasActiveBackground =
+    !isTerminal &&
+    (result?.events || []).some(
+      (e) =>
+        (e.kind === "background" && Array.isArray((e as any).tasks) && (e as any).tasks.length > 0) ||
+        (e.kind === "tool" && (e as any).status === "background"),
+    );
+
+  // While the underlying device task is still running/queued or tracking active background work, keep the
+  // card in running state even after live text has started streaming. Only once a run has terminated with
+  // still_running AND already produced its answer does it switch to the "留有后台任务" badge.
   const isRunning =
     !isTerminal &&
     (awaitingAnswer ||
-      (!hasParentContent && (isStillRunning || !result || result.status === "running" || result.status === "queued")));
+      result?.status === "running" ||
+      result?.status === "queued" ||
+      hasActiveBackground ||
+      (!hasParentContent && (isStillRunning || !result)));
 
   // 过滤内部遥测噪音（例如 agy_cli 写入 stderr 的 session id: <uuid>，用于服务端进程关联，并非实际报错）
   const cleanStderr = useMemo(() => {
@@ -219,7 +231,7 @@ const ExecutionCard = memo(function ExecutionCard({
     callStatus === "failed" ||
     (result && typeof result.exit_code === "number" && result.exit_code !== 0)
   );
-  const isSuccess = !isStillRunning && !isFailed && !awaitingAnswer && (
+  const isSuccess = !isRunning && !isStillRunning && !isFailed && !awaitingAnswer && (
     isTerminal ||
     result?.status === "succeeded" ||
     callStatus === "executed" ||
@@ -425,19 +437,21 @@ const ExecutionCard = memo(function ExecutionCard({
                 background:
                   waitingQuestion
                     ? "rgba(245, 158, 11, 0.18)"
+                    : hasActiveBackground
+                    ? "rgba(245, 158, 11, 0.14)"
                     : result?.status === "queued"
                     ? "rgba(245, 158, 11, 0.12)"
                     : "var(--aurora-accent-soft)",
                 color:
-                  waitingQuestion
-                    ? "#d97706"
-                    : result?.status === "queued"
+                  waitingQuestion || hasActiveBackground || result?.status === "queued"
                     ? "#d97706"
                     : "var(--aurora-accent)",
                 fontWeight: 600,
                 border: `1px solid ${
                   waitingQuestion
                     ? "rgba(245, 158, 11, 0.4)"
+                    : hasActiveBackground
+                    ? "rgba(245, 158, 11, 0.32)"
                     : result?.status === "queued"
                     ? "rgba(245, 158, 11, 0.25)"
                     : "var(--aurora-border)"
@@ -450,7 +464,7 @@ const ExecutionCard = memo(function ExecutionCard({
                   height: 6,
                   borderRadius: "50%",
                   background:
-                    waitingQuestion || result?.status === "queued"
+                    waitingQuestion || hasActiveBackground || result?.status === "queued"
                       ? "#d97706"
                       : "var(--aurora-accent)",
                   animation: "pulse 1.5s infinite",
@@ -458,6 +472,8 @@ const ExecutionCard = memo(function ExecutionCard({
               />
               {waitingQuestion
                 ? (locale === "zh-CN" ? "等待回复选择..." : "Waiting for response...")
+                : hasActiveBackground
+                ? (locale === "zh-CN" ? "后台运行中..." : "Running in background...")
                 : result?.status === "queued"
                 ? (t.ask.statusWaitingPoll || "等待设备拉取...")
                 : (result?.stdout || result?.stderr) && isRunning

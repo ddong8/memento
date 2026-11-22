@@ -83,6 +83,7 @@ export class DaemonHost extends EventEmitter {
         MEMENTO_DAEMON_EMBEDDED: "1",
         MEMENTO_DESKTOP_VERSION: app.getVersion(),
         MEMENTO_AGY_RUNNER: this.unpacked(join(__dirname, "..", "assets", "agy_cli.mjs")),
+        MEMENTO_AGY_ACP_RUNNER: this.unpacked(join(__dirname, "..", "assets", "agy_acp.mjs")),
         MEMENTO_WORKBUDDY_RUNNER: this.unpacked(join(__dirname, "..", "assets", "workbuddy_cli.mjs")),
         MEMENTO_BLUEPRINT_RUNNER: this.unpacked(join(__dirname, "..", "assets", "project_blueprint.mjs")),
         ...this.mcpLauncherEnv(),

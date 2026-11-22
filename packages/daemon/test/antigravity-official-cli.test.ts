@@ -145,7 +145,7 @@ const calls = () =>
     .split("\n")
     .map((l) => JSON.parse(l) as { args: string[]; electron: string | null });
 
-const isTaskCall = (c: { args: string[] }) => c.args[0] !== "models" && !c.args.includes("/usage");
+const isTaskCall = (c: { args: string[] }) => c.args[0] !== "models" && c.args[0] !== "acp" && !c.args.includes("/usage");
 
 it.skipIf(process.platform === "win32")(
   "no Antigravity app: the task runs Google's agy CLI in print mode, with its steps, reply and conversation",
@@ -296,8 +296,10 @@ it.skipIf(process.platform === "win32")(
       expect(stdoutChunks.match(/主回复已立刻输出，后台监听运行中。/g)?.length).toBe(1);
       // Thinking surfaced from transcript
       expect(events).toContainEqual(expect.objectContaining({ kind: "thinking", text: "核查渲染守护进程\n\n" }));
-      // Backgrounded tool was marked done with Chinese background notice before stdout unblocked
-      const bgTool = events.find((e) => e.kind === "tool" && e.id === "agy_step_2" && String(e.output ?? "").includes("已转入后台持续运行（task-2）"));
+      // Backgrounded tool was marked background (not done) with Chinese background notice before stdout unblocked
+      const bgTool = events.find(
+        (e) => e.kind === "tool" && e.id === "agy_step_2" && e.status === "background" && String(e.output ?? "").includes("已转入后台持续运行（task-2）"),
+      );
       expect(bgTool).toBeDefined();
       // Idle background status converted to friendly task_progress and stripped from raw stderr
       const progressStatuses = received.filter((m) => m.type === "task_progress").map((m) => String(m.status ?? ""));

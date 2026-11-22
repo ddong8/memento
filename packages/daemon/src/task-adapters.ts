@@ -265,6 +265,33 @@ export function antigravityArgs(o: {
   return args;
 }
 
+/** assets/agy_acp.mjs on Google's official `agy` binary: drives `agy acp --stdio` (JSON-RPC). */
+export function antigravityAcpArgs(o: {
+  runner: string;
+  agy: string;
+  workDir?: string;
+  sessionId?: string;
+  model?: string;
+  effort?: string;
+  timeoutSeconds?: number;
+  prompt: string;
+}): string[] {
+  const sid = o.sessionId ? (UUID_RE.exec(o.sessionId)?.[0] ?? "") : "";
+  const timeout = o.timeoutSeconds && o.timeoutSeconds > 0 ? Math.max(60, o.timeoutSeconds - 15) : 0;
+  return [
+    o.runner,
+    "--agy",
+    o.agy,
+    ...(o.workDir ? ["-C", o.workDir] : []),
+    ...(sid ? ["--conversation", sid] : []),
+    ...(o.model ? ["--model", o.model] : []),
+    ...(o.effort ? ["--effort", o.effort] : []),
+    ...(timeout > 0 ? ["--timeout", String(timeout)] : []),
+    "--",
+    o.prompt,
+  ];
+}
+
 /** Starts the error of a run whose session couldn't be fetched from the device it is on (the page offers compacted retry on it). */
 export const SESSION_UNAVAILABLE = "没能取到原会话";
 
@@ -283,6 +310,7 @@ export function isSessionNotFound(text: string): boolean {
       "unable to resume",
       "No conversation found",
       "could not find session",
+      "failed to read session",
       "no recorded session",
       "unexpected argument",
       "invalid value",

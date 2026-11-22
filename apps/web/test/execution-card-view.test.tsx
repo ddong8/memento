@@ -73,4 +73,25 @@ describe("execution card output", () => {
     expect(text).not.toContain("等待交互");
     expect(text).toContain("直接在下方输入框");
   });
+
+  it("keeps showing 后台运行中 while a running task already streamed text and has an active background tool", () => {
+    const call: ToolCallItem = {
+      name: "run_on_device",
+      args: { action: "agent", binary: "agy", prompt: "监控渲染" },
+      result: {
+        action: "agent",
+        status: "running",
+        task_id: "t-bg",
+        stdout: "渲染已在后台启动。",
+        events: [
+          { kind: "tool", id: "call_bg_1", name: "run_command", detail: "python render.py", status: "background" },
+          { kind: "background", tasks: [{ id: "task-2", description: "python render.py" }] },
+        ],
+      },
+    };
+    act(() => root.render(<ExecutionCard call={call} parentContent="渲染已在后台启动。" />));
+    const text = container.textContent || "";
+    expect(text).toContain("后台运行中");
+    expect(text).not.toContain("完成");
+  });
 });

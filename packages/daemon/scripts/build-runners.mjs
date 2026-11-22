@@ -26,6 +26,12 @@ const RUNNERS = [
     banner: "Memento's Antigravity task runner: drives the language server Antigravity starts, for tasks sent to this device.",
     outputs: [join(pkg, "assets/agy_cli.mjs")],
   },
+  {
+    entry: "src/agy-acp-runner/main.ts",
+    banner: "Memento's Antigravity ACP runner: drives Google's `agy acp --stdio` (JSON-RPC) with live streaming, mid-turn steering, ask_question, subagents and background task tracking.",
+    outputs: [join(pkg, "assets/agy_acp.mjs")],
+    committed: join(pkg, "assets/agy_acp.mjs"),
+  },
 ];
 
 async function bundle(runner) {

@@ -1,5 +1,5 @@
 /** One step of a structured agent run, as reported by the device (see the daemon's agent stream). */
-export type TaskToolStatus = "running" | "done" | "failed";
+export type TaskToolStatus = "running" | "background" | "done" | "failed";
 
 export type TaskEvent = { at?: string } & (
   | {
@@ -26,6 +26,7 @@ export type TaskEvent = { at?: string } & (
       parent_id?: string;
     }
   | { kind: "text"; text: string }
+  | { kind: "text_delta"; text: string }
   | { kind: "thinking"; text: string }
   | { kind: "session"; session_id: string; model?: string }
   | {

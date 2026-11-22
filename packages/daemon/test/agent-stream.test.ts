@@ -482,7 +482,13 @@ describe("Google's agy CLI stream-json", () => {
         id: "agy_step_250",
         name: "run_command",
         detail: "kubectl exec deploy/filmkit -- tail -f daemon.log",
-        status: "done",
+        status: "background",
+      }),
+    );
+    expect(ev250).toContainEqual(
+      expect.objectContaining({
+        kind: "background",
+        tasks: [expect.objectContaining({ id: "task-250" })],
       }),
     );
     expect(String(ev250[0]?.output)).toContain("已转入后台持续运行（task-250）");
@@ -518,6 +524,64 @@ describe("Google's agy CLI stream-json", () => {
     );
     expect(flushed).toContainEqual(expect.objectContaining({ kind: "tool", id: "agy_step_250", status: "done", output: "ALL_DONE" }));
     expect(flushed.filter((e) => e.kind === "text")).toEqual([]);
+  });
+
+  it("keeps step_index tool mapping aligned across RUNNING and DONE transcript lines for parallel tools", () => {
+    const p = new AgyCliStreamParser();
+    const t0 = Date.parse("2026-11-22T02:20:00Z");
+    p.feedTranscriptStep(
+      {
+        step_index: 10,
+        source: "MODEL",
+        type: "PLANNER_RESPONSE",
+        status: "DONE",
+        created_at: "2026-11-22T02:20:01Z",
+        tool_calls: [
+          { name: "run_command", args: { CommandLine: '"sleep 5"' } },
+          { name: "read_file", args: { Path: '"/srv/app/a.ts"' } },
+        ],
+      },
+      t0,
+    );
+    // Step 11 writes RUNNING (backgrounded), then DONE later — must NOT shift step 12's read_file metadata!
+    const ev11Run = p.feedTranscriptStep(
+      {
+        step_index: 11,
+        source: "MODEL",
+        type: "GENERIC",
+        status: "RUNNING",
+        created_at: "2026-11-22T02:20:02Z",
+        content: `Created At: 2026-11-22T10:20:02+08:00\nTool is running as a background task with task id: ${cid}/task-11\nTask Description: sleep 5`,
+      },
+      t0,
+    );
+    expect(ev11Run).toContainEqual(expect.objectContaining({ kind: "tool", id: "agy_step_11", name: "run_command", detail: "sleep 5", status: "background" }));
+
+    const ev11Done = p.feedTranscriptStep(
+      {
+        step_index: 11,
+        source: "MODEL",
+        type: "GENERIC",
+        status: "DONE",
+        created_at: "2026-11-22T02:20:07Z",
+        content: "exited 0",
+      },
+      t0,
+    );
+    expect(ev11Done).toContainEqual(expect.objectContaining({ kind: "tool", id: "agy_step_11", name: "run_command", detail: "sleep 5", status: "done" }));
+
+    const ev12Done = p.feedTranscriptStep(
+      {
+        step_index: 12,
+        source: "MODEL",
+        type: "GENERIC",
+        status: "DONE",
+        created_at: "2026-11-22T02:20:08Z",
+        content: "export const x = 1;",
+      },
+      t0,
+    );
+    expect(ev12Done).toContainEqual(expect.objectContaining({ kind: "tool", id: "agy_step_12", name: "read_file", detail: "/srv/app/a.ts", status: "done" }));
   });
 });
 

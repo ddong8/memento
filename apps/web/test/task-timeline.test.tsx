@@ -150,6 +150,26 @@ describe("TaskTimeline", () => {
     act(() => subBtn!.click());
     expect(container.textContent || "").not.toContain("api.ts");
   });
+
+  it("renders a distinct background badge for backgrounded tools and keeps them pinned when collapsed", () => {
+    const events: TaskEvent[] = [
+      { kind: "tool", id: "bg_1", name: "run_command", detail: "kubectl exec deploy/filmkit -- tail -f daemon.log", status: "background", output: "已转入后台持续运行（task-2）" },
+      ...Array.from({ length: 7 }, (_, i) => ({
+        kind: "tool" as const,
+        id: `t_${i}`,
+        name: "Read",
+        detail: `src/f${i}.ts`,
+        status: "done" as const,
+      })),
+    ];
+    act(() => {
+      root.render(<TaskTimeline events={events} running taskId="task-bg" />);
+    });
+    const text = container.textContent || "";
+    // Pinned even with >6 newer steps, and labelled clearly as background rather than completed
+    expect(text).toContain("kubectl exec deploy/filmkit");
+    expect(text).toContain("后台运行中");
+  });
 });
 
 describe("TaskTimeline in the workbench", () => {

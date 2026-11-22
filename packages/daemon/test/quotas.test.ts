@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { readdirSync, readFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
@@ -358,30 +359,37 @@ describe("quota reads that stay readable", () => {
     const models = parseAgyModels(
       "gemini-4-neon-high\tGemini 4 Neon (High)\ngemini-3.8-flash-high\tGemini 3.8 Flash (High)\nclaude-opus-5-5-high\tClaude Opus 5.5 (High)\n",
     );
-    const quota = await probeAntigravityCliQuota("/tmp/no-oauth-file-home", {
-      deps: {
-        readAccessToken: async () => undefined,
-        readUsage: async () => usage,
-        readModels: async () => models,
-      },
-    });
-    expect(quota).toBeDefined();
-    expect(quota!.available).toBe(true);
-    expect(quota!.logged_in).toBe(true);
-    expect(quota!.probe_source).toBe("官方 agy CLI");
-    expect(quota!.remaining_percent).toBe(85.8);
-    expect(quota!.models?.find((m) => m.model_id === "gemini-4-neon-high")?.remaining_percent).toBe(85.8);
-    expect(quota!.models?.find((m) => m.model_id === "claude-opus-5-5-high")?.remaining_percent).toBe(0);
-    expect((quota!.details?.quota_groups as any[])?.length).toBe(2);
+    const homeOk = mkdtempSync(join(tmpdir(), "memento-agy-cli-ok-"));
+    const homeMissing = mkdtempSync(join(tmpdir(), "memento-agy-cli-miss-"));
+    try {
+      const quota = await probeAntigravityCliQuota(homeOk, {
+        deps: {
+          readAccessToken: async () => undefined,
+          readUsage: async () => usage,
+          readModels: async () => models,
+        },
+      });
+      expect(quota).toBeDefined();
+      expect(quota!.available).toBe(true);
+      expect(quota!.logged_in).toBe(true);
+      expect(quota!.probe_source).toBe("官方 agy CLI");
+      expect(quota!.remaining_percent).toBe(85.8);
+      expect(quota!.models?.find((m) => m.model_id === "gemini-4-neon-high")?.remaining_percent).toBe(85.8);
+      expect(quota!.models?.find((m) => m.model_id === "claude-opus-5-5-high")?.remaining_percent).toBe(0);
+      expect((quota!.details?.quota_groups as any[])?.length).toBe(2);
 
-    // Returns undefined when neither token file nor agy /usage is available
-    const missing = await probeAntigravityCliQuota("/tmp/no-oauth-file-home", {
-      deps: {
-        readAccessToken: async () => undefined,
-        readUsage: async () => undefined,
-        readModels: async () => undefined,
-      },
-    });
-    expect(missing).toBeUndefined();
+      // Returns undefined when neither token file nor agy /usage is available
+      const missing = await probeAntigravityCliQuota(homeMissing, {
+        deps: {
+          readAccessToken: async () => undefined,
+          readUsage: async () => undefined,
+          readModels: async () => undefined,
+        },
+      });
+      expect(missing).toBeUndefined();
+    } finally {
+      rmSync(homeOk, { recursive: true, force: true });
+      rmSync(homeMissing, { recursive: true, force: true });
+    }
   });
 });

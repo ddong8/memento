@@ -16,6 +16,7 @@ import {
 } from "./agent-stream.js";
 import {
   AgyCliTranscriptTailer,
+  agyAcpRunner,
   agyCliOpenBackgroundTasks,
   antigravityCliHasConversation,
   antigravityDesktopHasConversation,
@@ -25,6 +26,7 @@ import {
   ensureOfficialAgyCli,
   extractUserTitleFromText,
   isAppAuthRejection,
+  officialAgySupportsAcp,
   updateAntigravitySessionTitle,
 } from "./antigravity.js";
 import { agyQuotaMessage, isExhausted, listAgyModels, nextAgyModel, noteDefaultModel, noteQuotaExhausted, quotaResetMs } from "./agy-models.js";
@@ -79,6 +81,7 @@ import {
   claudeUserMessage,
   codexArgs,
   antigravityArgs,
+  antigravityAcpArgs,
   isSessionNotFound,
   agentLoginHint,
   usageLimitMessage,
@@ -402,7 +405,7 @@ export class TaskRunner {
       stallTimer = setTimeout(() => {
         const bgCount = Math.max(
           agyIdleBackgroundCount,
-          parser instanceof AgyCliStreamParser ? parser.activeBackgroundTasks.size : 0,
+          parser?.activeBackgroundTasks.size ?? 0,
         );
         this.send({
           type: "task_progress",
@@ -435,7 +438,13 @@ export class TaskRunner {
 
     const dispatchParsedEvents = (events: AgentEvent[]) => {
       for (const e of events) {
-        if (e.kind === "text") {
+        if (e.kind === "text_delta") {
+          const text = String(e.text ?? "");
+          if (text) {
+            out.stdout += text;
+            this.sendChunk(taskId, "stdout", text);
+          }
+        } else if (e.kind === "text") {
           // What the agent says along the way; the final answer replaces it at the end.
           const text = `${String(e.text)}\n\n`;
           out.stdout += text;
@@ -701,8 +710,10 @@ export class TaskRunner {
     let isAntigravity = false;
     // memento's Antigravity runner (agy_cli.mjs), run on this process's own runtime like the Codex runner
     let agyRunner: string | undefined;
-    /** Google's own agy CLI runs the task: the Antigravity app isn't running here (a server without a desktop). */
+    /** Google's own agy CLI runs the task: the Antigravity app isn't running here (or 2.34+ exposes no CSRF). */
     let officialAgy = false;
+    /** Set when Google's official agy CLI runs via memento's ACP runner (`agy_acp.mjs` driving `agy acp --stdio`). */
+    let agyAcp: { runner: string; agy: string } | undefined;
     /** When the task started: the background tasks Google's agy CLI started in it are the ones after this. */
     const startedAt = Date.now();
     // Structured agents (Claude, Codex) report every step through the parser.
@@ -978,18 +989,14 @@ export class TaskRunner {
       // The Codex and Antigravity runners run on this process's own runtime (Electron as Node in the desktop app)
       const env = { ...withExeDirOnPath(await executionEnvironment(), codex?.codex ?? agyRunner ?? exe), ...env0 };
       if (codex || agyRunner) env.ELECTRON_RUN_AS_NODE = "1";
-      /** Has this task run on Google's agy CLI from here on: its arguments and parser for the first run. */
+      /** Has this task run on Google's agy CLI from here on: ACP runner when supported, else stream-json print mode. */
       const toOfficialCli = async (cli: string) => {
-        exe = cli;
         agyRunner = undefined;
         officialAgy = true;
-        delete env.ELECTRON_RUN_AS_NODE;
-        this.runnerTasks.delete(taskId);
-        this.noSteerTasks.add(taskId);
         // Official agy CLI keeps its own trajectory store (~/.gemini/antigravity-cli) separate from the
         // Antigravity desktop app (~/.gemini/antigravity). Passing a desktop-only conversation ID to
-        // `agy --conversation` fails with `trajectory not found`, so bridge its recent transcript into a
-        // fresh CLI session once; subsequent turns resume that CLI session natively.
+        // `agy --conversation` / `session/resume` fails with `trajectory not found`, so bridge its recent
+        // transcript into a fresh CLI session once; subsequent turns resume that CLI session natively.
         if (sessionId && !antigravityCliHasConversation(sessionId) && antigravityDesktopHasConversation(sessionId)) {
           const desktopSid = sessionId;
           const alreadyHasHistory = prompt.includes("【前文对话历史") || prompt.includes("【前序会话核心记忆快照");
@@ -1012,6 +1019,27 @@ export class TaskRunner {
             model = next.id;
           }
         }
+        const useAcp = await officialAgySupportsAcp(cli, env);
+        if (useAcp) {
+          const runnerScript = await agyAcpRunner();
+          agyAcp = { runner: runnerScript, agy: cli };
+          exe = process.execPath;
+          env.ELECTRON_RUN_AS_NODE = "1";
+          Object.assign(env, withExeDirOnPath(env, cli));
+          if (sysAppend) env.MEMENTO_AGY_SYSTEM_APPEND = sysAppend;
+          this.runnerTasks.add(taskId);
+          this.noSteerTasks.delete(taskId);
+          this.log(`Task ${taskId}: using Google's agy CLI via ACP runner (${cli})`);
+          return {
+            args: antigravityAcpArgs({ ...agyAcp, workDir, sessionId, model, effort, timeoutSeconds: task.timeoutSeconds, prompt }),
+            parser: new UniversalStreamParser({ sessionFromStdout: false }) as AgentStreamParser,
+          };
+        }
+        agyAcp = undefined;
+        exe = cli;
+        delete env.ELECTRON_RUN_AS_NODE;
+        this.runnerTasks.delete(taskId);
+        this.noSteerTasks.add(taskId);
         return {
           args: antigravityArgs({ sessionId, model, effort, timeoutSeconds: task.timeoutSeconds, prompt, official: true }),
           parser: new AgyCliStreamParser() as AgentStreamParser,
@@ -1045,8 +1073,12 @@ export class TaskRunner {
       }
       /** The model Antigravity retries take: none once Google's CLI turned it down. */
       let agyModel = model;
-      /** Antigravity's arguments and parser for a run: memento's runner or Google's CLI. */
+      /** Antigravity's arguments and parser for a run: ACP runner, official CLI stream-json, or memento's app runner. */
       const agyRun = (o: Omit<Parameters<typeof antigravityArgs>[0], "official">) => {
+        if (agyAcp) {
+          parser = new UniversalStreamParser({ sessionFromStdout: false });
+          return { args: antigravityAcpArgs({ ...agyAcp, workDir, ...o }), parser };
+        }
         parser = officialAgy ? new AgyCliStreamParser() : new UniversalStreamParser({ sessionFromStdout: false });
         return { args: antigravityArgs({ ...o, official: officialAgy }), parser };
       };
@@ -1069,7 +1101,7 @@ export class TaskRunner {
       // Errors can come on stderr or inside the JSON stream; retries look at both.
       const errScan = () => `${out.stderr}\n${parser?.errors ?? ""}`;
       const lastErrors = () => `${out.stderr.slice(runFrom)}\n${parser?.errors ?? ""}`;
-      if (officialAgy && !model && parser instanceof AgyCliStreamParser) noteDefaultModel(parser.model);
+      if (officialAgy && !model && parser?.model) noteDefaultModel(parser.model);
 
       // Retry 0.1: the Antigravity app's language server turned the runner away (no CSRF token for other
       // programs since 2.34): the same task on Google's CLI, which shares the app's sign-in
@@ -1089,9 +1121,9 @@ export class TaskRunner {
       for (let switches = 0; exitCode !== 0 && officialAgy && switches < 3 && !this.cancelledTasks.has(taskId); switches++) {
         const quota = agyQuotaMessage(lastErrors());
         if (!quota) break;
-        const models = await listAgyModels(exe, env);
+        const models = await listAgyModels(agyAcp?.agy ?? exe, env);
         // No model asked for and the CLI failed before naming it: its default, which `agy models` lists first
-        const failed = agyModel || (parser instanceof AgyCliStreamParser ? parser.model : "") || models[0]?.id || "";
+        const failed = agyModel || parser?.model || models[0]?.id || "";
         if (!agyModel) noteDefaultModel(failed);
         noteQuotaExhausted(failed, quota);
         this.reportModelLimits();
@@ -1184,7 +1216,7 @@ export class TaskRunner {
       }
 
       // Retry 0.6: Google's CLI doesn't know the model (memento's tier names, or one it dropped): its default
-      if (exitCode !== 0 && officialAgy && model && /invalid model selection|not recognized as a known model/i.test(errScan())) {
+      if (exitCode !== 0 && officialAgy && model && /invalid model selection|not recognized as a known model|unknown model id/i.test(errScan())) {
         this.notice(taskId, `\n⚡ [模型自适应] agy 不认识模型 ${model}，已改用它的默认模型重试...\n\n`);
         agyModel = "";
         exitCode = await run(agyRun({ sessionId, effort, timeoutSeconds: task.timeoutSeconds, prompt }));
@@ -1276,9 +1308,11 @@ export class TaskRunner {
       // Google's agy CLI: its conversation's transcript says which background tasks ended. Its stream and the
       // agent's words don't (2026-11-19: both tasks of a run on vps3 exited 0 and it still read as left running).
       const agyOpen = officialAgy && parser?.sessionId ? agyCliOpenBackgroundTasks(parser.sessionId, startedAt) : undefined;
-      const isStillRunning = agyOpen
+      const isStillRunning = hasStillRunningTag
+        ? true
+        : agyOpen
         ? agyOpen.length > 0
-        : (!timedOut || hasStillRunningTag) && detectStillRunning(out.stdout, fullErr, parser, exitCode);
+        : !timedOut && detectStillRunning(out.stdout, fullErr, parser, exitCode);
       if (agyOpen?.length) this.log(`Task ${taskId}: Antigravity left background tasks running: ${agyOpen.join(", ")}`);
       const promptTooLong = errScan().includes("Prompt is too long") || fullOut.includes("Prompt is too long");
 

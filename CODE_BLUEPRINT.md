@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `afe46448` · Updated: `2026-11-22`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `9c7698d9` · Updated: `2026-11-22`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,8 +16,8 @@
 - 规模 (Scale): 9 个子系统 · 40 组 API 路由 / 300 个接口 · 39 个前端页面 · 41 个数据模型 · 35 个服务模块 · 253 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `d1c46a4e` (2026-11-22): fix(antigravity): 修复官方 agy 后台命令阻塞 stdout 导致回复与步骤卡住并升级至 v1.0.151
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 73（✅ 73 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `F-ASK`, `R-AGY-APP-CSRF`, `R-MULTI-DEVICE-STABLE`, `R-ENT-DEVICE-POLICY`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `T-QUOTA`, `R-WS-EXEC-STOP`
+- 最近改动 (Latest): `f2c855f1` (2026-11-22): feat(antigravity): 升级官方 agy ACP 协议通道支持实时流式、运行中追问、交互提问、子智能体与后台状态并升级至 v1.0.152
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 73（✅ 73 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `F-ASK`, `R-AGY-APP-CSRF`, `R-MULTI-DEVICE-STABLE`, `R-WS-BIG-UNTRACKED`, `R-ENT-DEVICE-POLICY`, `R-DEVICE-SESSION-MAP`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -655,16 +655,16 @@ erDiagram
 
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
+- [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (9 commits)
 - [`apps/web/src/components/layout/Sidebar.tsx`](apps/web/src/components/layout/Sidebar.tsx) (8 commits)
 - [`deploy/k8s/studio.yaml`](deploy/k8s/studio.yaml) (8 commits)
 - [`packages/daemon/src/source-exec.ts`](packages/daemon/src/source-exec.ts) (8 commits)
-- [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (8 commits)
 - [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (7 commits)
+- [`packages/daemon/src/antigravity.ts`](packages/daemon/src/antigravity.ts) (7 commits)
 - [`apps/web/src/components/viewers/MediaInspectorPanel.tsx`](apps/web/src/components/viewers/MediaInspectorPanel.tsx) (6 commits)
-- [`packages/daemon/src/antigravity.ts`](packages/daemon/src/antigravity.ts) (6 commits)
 - [`packages/daemon/src/ws-client.ts`](packages/daemon/src/ws-client.ts) (6 commits)
+- [`packages/daemon/test/antigravity-official-cli.test.ts`](packages/daemon/test/antigravity-official-cli.test.ts) (6 commits)
 - [`packages/daemon/test/source-exec.test.ts`](packages/daemon/test/source-exec.test.ts) (6 commits)
-- [`server/server/main.py`](server/server/main.py) (6 commits)
 
 ## 8. Development & Verification Commands
 
@@ -687,12 +687,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `f2c855f1` (2026-11-22): feat(antigravity): 升级官方 agy ACP 协议通道支持实时流式、运行中追问、交互提问、子智能体与后台状态并升级至 v1.0.152
 - `d1c46a4e` (2026-11-22): fix(antigravity): 修复官方 agy 后台命令阻塞 stdout 导致回复与步骤卡住并升级至 v1.0.151
 - `21b1bac1` (2026-11-22): fix(antigravity): 修复 Antigravity 2.34 额度误报未启动与模型列表同步并升级至 v1.0.150
 - `29cefb1c` (2026-11-22): fix(ask,antigravity): 修复会话标题错配、长工具链预览缺失与官方 agy 续接桌面会话失败并升级至 v1.0.149
 - `6f51f72d` (2026-11-22): perf(client): 根治 PC 与手机客户端长会话渲染、输入回流与 GPU 磨砂卡顿并升级至 v1.0.148
 - `207a5ba0` (2026-11-22): fix(antigravity): 应用 2.34 不再提供 CSRF 令牌时任务自动改走官方 agy 命令行
-- `53608a46` (2026-11-21): feat(studio): 同步国产 S+ 影视预设与批量 SeedVR2 1080P 阶段进度展示
 
 ## 10. Key Environment Variables & Configuration
 
@@ -715,8 +715,8 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ### 最近提交碰到的业务条目（改动后复查它们还成不成立）
 
+- `f2c855f1` feat(antigravity): 升级官方 agy ACP 协议通道支持实时流式、运行中追问、交互提问、子智能体与后台状态并升级至 v1.0.152 → `F-ASK`, `R-AGY-APP-CSRF`, `R-MULTI-DEVICE-STABLE`, `R-WS-BIG-UNTRACKED`, `R-ENT-DEVICE-POLICY`, `R-DEVICE-SESSION-MAP`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`
 - `d1c46a4e` fix(antigravity): 修复官方 agy 后台命令阻塞 stdout 导致回复与步骤卡住并升级至 v1.0.151 → `F-ASK`, `R-AGY-APP-CSRF`, `R-MULTI-DEVICE-STABLE`, `R-ENT-DEVICE-POLICY`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`
-- `21b1bac1` fix(antigravity): 修复 Antigravity 2.34 额度误报未启动与模型列表同步并升级至 v1.0.150 → `T-QUOTA`, `R-AGY-APP-CSRF`, `R-ENT-DEVICE-POLICY`, `R-WS-EXEC-STOP`, `R-QUOTA-AGY-GROUPS`, `R-TITLE-CONSISTENT`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `S-QUOTA`, `S-CONV-TITLE`
 
 ---
 _Auto-maintained by `scripts/project_blueprint.mjs` (v20261126) & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._

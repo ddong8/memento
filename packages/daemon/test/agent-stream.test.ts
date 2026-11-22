@@ -438,6 +438,87 @@ describe("Google's agy CLI stream-json", () => {
     expect(p.finalText).toBeUndefined();
     expect(p.feed("Warning: something on stdout")).toBeNull();
   });
+
+  it("streams backgrounded tool transitions, thinking, and completed replies from transcript without duplicating stdout flush", () => {
+    const p = new AgyCliStreamParser();
+    const t0 = Date.parse("2026-11-22T02:14:00Z");
+    const initEvs = feed(
+      p,
+      { event: "init", conversation_id: cid, init: { cwd: "/w" } },
+      { event: "step_update", step_update: { conversation_id: cid, step_index: 250, state: "ACTIVE", step_type: "tool", tool_name: "run_command", tool_info: { name: "run_command", parameters: { CommandLine: "kubectl exec deploy/filmkit -- tail -f daemon.log" } } } },
+    );
+    expect(initEvs).toContainEqual(expect.objectContaining({ kind: "tool", id: "agy_step_250", status: "running" }));
+
+    // Transcript writes step 249 (tool call), step 250 (backgrounded RUNNING), step 252 (reply + thinking)
+    // while agy stdout is head-of-line blocked waiting for step 250 to exit.
+    const ev249 = p.feedTranscriptStep(
+      {
+        step_index: 249,
+        source: "MODEL",
+        type: "PLANNER_RESPONSE",
+        status: "DONE",
+        created_at: "2026-11-22T02:14:17Z",
+        thinking: "检查集群守护进程存活。",
+        tool_calls: [{ name: "run_command", args: { CommandLine: "\"kubectl exec deploy/filmkit -- tail -f daemon.log\"" } }],
+      },
+      t0,
+    );
+    expect(ev249).toEqual([{ kind: "thinking", text: "检查集群守护进程存活。\n\n" }]);
+
+    const ev250 = p.feedTranscriptStep(
+      {
+        step_index: 250,
+        source: "MODEL",
+        type: "GENERIC",
+        status: "RUNNING",
+        created_at: "2026-11-22T02:14:30Z",
+        content: `Created At: 2026-11-22T10:14:30+08:00\nTool is running as a background task with task id: ${cid}/task-250\nTask Description: kubectl exec deploy/filmkit`,
+      },
+      t0,
+    );
+    expect(ev250).toContainEqual(
+      expect.objectContaining({
+        kind: "tool",
+        id: "agy_step_250",
+        name: "run_command",
+        detail: "kubectl exec deploy/filmkit -- tail -f daemon.log",
+        status: "done",
+      }),
+    );
+    expect(String(ev250[0]?.output)).toContain("已转入后台持续运行（task-250）");
+    expect(p.activeBackgroundTaskIds.get(`${cid}/task-250`)).toBe("task-250");
+    expect(p.activeBackgroundTasks.has(`${cid}/task-250`)).toBe(true);
+
+    // Repeated ACTIVE from stdout must NOT revert step 250 back to "running"
+    expect(
+      feed(p, { event: "step_update", step_update: { conversation_id: cid, step_index: 250, state: "ACTIVE", step_type: "tool", tool_name: "run_command" } }),
+    ).toEqual([]);
+
+    // Step 252 reply is immediately delivered from transcript
+    const ev252 = p.feedTranscriptStep(
+      {
+        step_index: 252,
+        source: "MODEL",
+        type: "PLANNER_RESPONSE",
+        status: "DONE",
+        created_at: "2026-11-22T02:14:33Z",
+        content: "完全没有卡住，已完成 10 / 40 镜。",
+      },
+      t0,
+    );
+    expect(ev252).toEqual([{ kind: "text", text: "完全没有卡住，已完成 10 / 40 镜。" }]);
+    expect(p.finalText).toBe("完全没有卡住，已完成 10 / 40 镜。");
+
+    // Later, when step 250 finally finishes and stdout flushes steps 250 and 252, step 250 updates
+    // with its final output and step 252 is NOT duplicated.
+    const flushed = feed(
+      p,
+      { event: "step_update", step_update: { conversation_id: cid, step_index: 250, state: "DONE", step_type: "tool", tool_name: "run_command", tool_info: { name: "run_command", output: "ALL_DONE" } } },
+      { event: "step_update", step_update: { conversation_id: cid, step_index: 252, state: "DONE", step_type: "agent_response", text_delta: "完全没有卡住，已完成 10 / 40 镜。\n" } },
+    );
+    expect(flushed).toContainEqual(expect.objectContaining({ kind: "tool", id: "agy_step_250", status: "done", output: "ALL_DONE" }));
+    expect(flushed.filter((e) => e.kind === "text")).toEqual([]);
+  });
 });
 
 describe("Codex errors", () => {

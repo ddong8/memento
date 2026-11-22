@@ -15,6 +15,7 @@ import {
   type AgentStreamParser,
 } from "./agent-stream.js";
 import {
+  AgyCliTranscriptTailer,
   agyCliOpenBackgroundTasks,
   antigravityCliHasConversation,
   antigravityDesktopHasConversation,
@@ -325,6 +326,16 @@ export class TaskRunner {
 
   /** Starts one process for the task and resolves with its exit code (TIMED_OUT on timeout). */
   private async runOnce(taskId: string, spec: RunSpec, timeoutSeconds: number): Promise<number> {
+    const { parser } = spec;
+    const runStartedAt = Date.now();
+    const initialAgySid = (() => {
+      if (!(parser instanceof AgyCliStreamParser)) return undefined;
+      const idx = spec.args.indexOf("--conversation");
+      return idx >= 0 ? spec.args[idx + 1] : undefined;
+    })();
+    // Snapshot pre-spawn transcript EOF before starting agy so resumed sessions never replay older turns
+    // and fast new writes are never missed.
+    const agyTailer = parser instanceof AgyCliStreamParser ? new AgyCliTranscriptTailer(homeDir(), initialAgySid) : undefined;
     const prep = await prepareCommand(spec.exe, spec.args);
     const proc = spawn(prep.executable, prep.args, {
       cwd: spec.cwd,
@@ -337,7 +348,6 @@ export class TaskRunner {
     this.running.set(taskId, proc);
     if (proc.pid) this.taskPids.set(taskId, proc.pid);
     const out = this.outputs.get(taskId)!;
-    const { parser } = spec;
 
     proc.stdin.on("error", () => {});
     this.steerInputs.set(taskId, proc.stdin);
@@ -371,6 +381,8 @@ export class TaskRunner {
     let timedOut = false;
     let timer: NodeJS.Timeout | undefined;
     let stallTimer: NodeJS.Timeout | undefined;
+    let agyTranscriptTimer: NodeJS.Timeout | undefined;
+    let agyIdleBackgroundCount = 0;
 
     const cmdLine = `${spec.exe} ${spec.args?.join(" ")} ${spec.stdinPrompt ?? ""}`;
     const isHeavyCommand = /\b(?:cargo\s+build|flutter\s+build|npm\s+run\s+build|docker\s+build|mvn\s+package|gradle\s+build|git\s+clone)\b/i.test(
@@ -388,10 +400,17 @@ export class TaskRunner {
       if (stallTimer) clearTimeout(stallTimer);
       // If process runs for 5 minutes with zero output, send a progress heartbeat alert
       stallTimer = setTimeout(() => {
+        const bgCount = Math.max(
+          agyIdleBackgroundCount,
+          parser instanceof AgyCliStreamParser ? parser.activeBackgroundTasks.size : 0,
+        );
         this.send({
           type: "task_progress",
           task_id: taskId,
-          status: "进程正在静默运行中（超过 5 分钟无新输出，可能处于深度计算或等待输入）",
+          status:
+            bgCount > 0
+              ? `后台任务持续执行中（当前 ${bgCount} 个），主回复已输出，完成后将自动继续`
+              : "进程正在静默运行中（超过 5 分钟无新输出，可能处于深度计算或等待输入）",
         });
       }, 300_000);
     };
@@ -413,6 +432,42 @@ export class TaskRunner {
       }
     };
     armTimer();
+
+    const dispatchParsedEvents = (events: AgentEvent[]) => {
+      for (const e of events) {
+        if (e.kind === "text") {
+          // What the agent says along the way; the final answer replaces it at the end.
+          const text = `${String(e.text)}\n\n`;
+          out.stdout += text;
+          this.sendChunk(taskId, "stdout", text);
+        } else {
+          this.emitEvent(taskId, e);
+        }
+      }
+    };
+
+    const drainAgyTranscript = () => {
+      if (!agyTailer || !(parser instanceof AgyCliStreamParser)) return;
+      if (parser.sessionId) agyTailer.attach(parser.sessionId);
+      const steps = agyTailer.poll();
+      let hadActivity = false;
+      for (const step of steps) {
+        const evs = parser.feedTranscriptStep(step, runStartedAt);
+        if (evs.length > 0) {
+          hadActivity = true;
+          dispatchParsedEvents(evs);
+        }
+      }
+      if (parser.activeBackgroundTaskIds.size > 0 && agyTailer.hasBackgroundLogGrowth(parser.activeBackgroundTaskIds.values())) {
+        hadActivity = true;
+      }
+      if (hadActivity) armTimer();
+    };
+
+    if (agyTailer) {
+      agyTranscriptTimer = setInterval(drainAgyTranscript, 400);
+      agyTranscriptTimer.unref();
+    }
 
     // PowerShell writes the console code page (GBK on Chinese Windows) into the pipe, not UTF-8
     const lineText = (stream: NodeJS.ReadableStream, onText: (text: string) => void) => {
@@ -462,20 +517,12 @@ export class TaskRunner {
           this.sendChunk(taskId, "stdout", `${line}\n`);
           return;
         }
-        for (const e of events) {
-          if (e.kind === "text") {
-            // What the agent says along the way; the final answer replaces it at the end.
-            const text = `${String(e.text)}\n\n`;
-            out.stdout += text;
-            this.sendChunk(taskId, "stdout", text);
-          } else {
-            this.emitEvent(taskId, e);
-          }
-        }
+        dispatchParsedEvents(events);
         flushReplies();
         if (parser.sessionId) {
           const sess = this.taskSessions.get(taskId);
           if (sess && !sess.sessionId) sess.sessionId = parser.sessionId;
+          agyTailer?.attach(parser.sessionId);
         }
         // Answered and nothing queued: stdin closes so the CLI can exit. Not while it still waits on background
         // tasks (it goes on when they end): a follow-up typed then still reaches the session, as in its TUI.
@@ -489,6 +536,25 @@ export class TaskRunner {
     }
     const onStderr = (text: string) => {
       armTimer();
+      if (parser instanceof AgyCliStreamParser) {
+        const idleBg = /root agent idle;\s*waiting(?:\s+up to\s+\S+)?\s+for\s+(\d+)\s+background task/i.exec(text);
+        if (idleBg) {
+          agyIdleBackgroundCount = Number(idleBg[1]) || 1;
+          drainAgyTranscript();
+          this.send({
+            type: "task_progress",
+            task_id: taskId,
+            status: `主回复已输出，正在等待 ${agyIdleBackgroundCount} 个后台任务完成（完成后自动继续处理）`,
+          });
+          // Strip this routine status line so it doesn't clutter user-facing stderr
+          const rest = text
+            .split(/\r?\n/)
+            .filter((l) => !/root agent idle;\s*waiting/i.test(l))
+            .join("\n");
+          if (!rest.trim()) return;
+          text = rest;
+        }
+      }
       out.stderr += text;
       // workbuddy_cli.mjs reports the session it actually runs (a failed resume opens a new one) as
       // "session id: <id>" on stderr; the reply itself goes to stdout.
@@ -508,15 +574,19 @@ export class TaskRunner {
       proc.once("error", (e) => {
         if (timer) clearTimeout(timer);
         if (stallTimer) clearTimeout(stallTimer);
+        if (agyTranscriptTimer) clearInterval(agyTranscriptTimer);
         reject(e);
       });
       proc.once("exit", (code, signal) => {
         if (timer) clearTimeout(timer);
         if (stallTimer) clearTimeout(stallTimer);
+        if (agyTranscriptTimer) clearInterval(agyTranscriptTimer);
+        drainAgyTranscript();
         // Let the last output drain, but don't wait on a pipe some leftover child still holds.
-        void Promise.race([stdoutDone, new Promise((r) => setTimeout(r, 3000))]).then(() =>
-          resolve(timedOut ? TIMED_OUT : (code ?? (signal ? -1 : 1))),
-        );
+        void Promise.race([stdoutDone, new Promise((r) => setTimeout(r, 3000))]).then(() => {
+          drainAgyTranscript();
+          resolve(timedOut ? TIMED_OUT : (code ?? (signal ? -1 : 1)));
+        });
       });
     });
   }

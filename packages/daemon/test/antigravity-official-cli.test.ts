@@ -41,6 +41,28 @@ if (args[0] === "models") {
   console.log("Fetching available models...\\ngemini-4-argon-medium\tGemini 4 Argon (Medium)\\ngemini-4-argon-high\tGemini 4 Argon (High)\\ngemini-3.8-flash-high\tGemini 3.8 Flash (High)\\ngemini-3.8-flash-medium\tGemini 3.8 Flash (Medium)");
   process.exit(0);
 }
+if (args.at(-1) === "后台监听防卡死") {
+  const cid = "6f1c9a0e-3b2d-4c8a-9f11-223344556677";
+  const logs = join(${JSON.stringify(join(dir, "hol-home"))}, ".gemini", "antigravity-cli", "brain", cid, ".system_generated", "logs");
+  mkdirSync(logs, { recursive: true });
+  const now = new Date().toISOString().replace(/\\.\\d+Z$/, "Z");
+  const step = (s) => appendFileSync(join(logs, "transcript.jsonl"), JSON.stringify(s) + "\\n");
+  emit({ event: "init", conversation_id: cid, init: { cwd: process.cwd() } });
+  emit({ event: "step_update", step_update: { conversation_id: cid, step_index: 2, state: "ACTIVE", step_type: "tool", tool_name: "run_command", tool_info: { name: "run_command", parameters: { CommandLine: "kubectl exec deploy/filmkit -- tail -f daemon.log" } } } });
+  step({ step_index: 1, source: "MODEL", type: "PLANNER_RESPONSE", status: "DONE", created_at: now, thinking: "核查渲染守护进程", tool_calls: [{ name: "run_command", args: { CommandLine: '"kubectl exec deploy/filmkit -- tail -f daemon.log"' } }] });
+  step({ step_index: 2, source: "MODEL", type: "GENERIC", status: "RUNNING", created_at: now, content: "Created At: " + now + "\\nTool is running as a background task with task id: " + cid + "/task-2\\nTask Description: kubectl tail" });
+  step({ step_index: 3, source: "MODEL", type: "PLANNER_RESPONSE", status: "DONE", created_at: now, content: "主回复已立刻输出，后台监听运行中。" });
+  console.error("root agent idle; waiting up to 7185s for 1 background task(s)");
+  // Simulate agy stdout head-of-line blocking for 900ms while background task runs
+  setTimeout(() => {
+    step({ step_index: 4, source: "SYSTEM", type: "SYSTEM_MESSAGE", status: "DONE", created_at: now, content: "<SYSTEM_MESSAGE>\\n[Message] sender=" + cid + "/task-2 content=Task id \\"" + cid + "/task-2\\" finished with result:\\nCommand exited with code 0.\\n</SYSTEM_MESSAGE>" });
+    emit({ event: "step_update", step_update: { conversation_id: cid, step_index: 2, state: "DONE", step_type: "tool", tool_name: "run_command", tool_info: { name: "run_command", output: "ALL_DONE" } } });
+    emit({ event: "step_update", step_update: { conversation_id: cid, step_index: 3, state: "DONE", step_type: "agent_response", text_delta: "主回复已立刻输出，后台监听运行中。\\n" } });
+    emit({ event: "result", result: { conversation_id: cid, status: "SUCCESS", response: "主回复已立刻输出，后台监听运行中。\\n", num_turns: 1 } });
+    process.exit(0);
+  }, 900);
+  await new Promise(() => {});
+}
 // A run that starts commands in the background: the CLI writes the conversation's transcript, which says
 // whether each one ended (its stream and the reply don't)
 const bg = args.at(-1) === "后台跑测试" ? "ended" : args.at(-1) === "后台起服务" ? "open" : "";
@@ -114,7 +136,7 @@ async function runTask(taskId: string, payload: Record<string, unknown>) {
   client.dispose();
   await new Promise((r) => wss.close(r));
   const events = received.filter((m) => m.type === "agent_event").map((m) => m.event as Record<string, unknown>);
-  return { done, events };
+  return { done, events, received };
 }
 
 const calls = () =>
@@ -247,6 +269,40 @@ it.skipIf(process.platform === "win32")(
       expect(sentPrompt).toContain("续接自 Antigravity 桌面会话 4ff9e5c4");
       expect(sentPrompt).toContain("排查客户端卡顿");
       expect(sentPrompt).toContain("继续检查会话标题");
+    } finally {
+      process.env.HOME = home;
+    }
+  },
+  45_000,
+);
+
+it.skipIf(process.platform === "win32")(
+  "flushes completed reply and backgrounded command status from transcript while agy stdout is head-of-line blocked",
+  async () => {
+    const home = process.env.HOME;
+    const fakeHome = join(dir, "hol-home");
+    mkdirSync(fakeHome, { recursive: true });
+    rmSync(join(dir, "argon-out"), { force: true });
+    rmSync(join(dir, "flash-out"), { force: true });
+    process.env.HOME = fakeHome;
+    try {
+      const { done, events, received } = await runTask("feedbeef-0000-4000-8000-0000000000b9", { prompt: "后台监听防卡死" });
+      expect(done, `${done.error}\n${done.stderr}`).toMatchObject({ status: "succeeded" });
+      // Reply was streamed live via task_chunk BEFORE agy finished, and NOT duplicated
+      const stdoutChunks = received
+        .filter((m) => m.type === "task_chunk" && m.stream === "stdout")
+        .map((m) => String(m.text ?? ""))
+        .join("");
+      expect(stdoutChunks.match(/主回复已立刻输出，后台监听运行中。/g)?.length).toBe(1);
+      // Thinking surfaced from transcript
+      expect(events).toContainEqual(expect.objectContaining({ kind: "thinking", text: "核查渲染守护进程\n\n" }));
+      // Backgrounded tool was marked done with Chinese background notice before stdout unblocked
+      const bgTool = events.find((e) => e.kind === "tool" && e.id === "agy_step_2" && String(e.output ?? "").includes("已转入后台持续运行（task-2）"));
+      expect(bgTool).toBeDefined();
+      // Idle background status converted to friendly task_progress and stripped from raw stderr
+      const progressStatuses = received.filter((m) => m.type === "task_progress").map((m) => String(m.status ?? ""));
+      expect(progressStatuses.some((s) => s.includes("主回复已输出，正在等待 1 个后台任务完成"))).toBe(true);
+      expect(String(done.stderr ?? "")).not.toContain("root agent idle");
     } finally {
       process.env.HOME = home;
     }

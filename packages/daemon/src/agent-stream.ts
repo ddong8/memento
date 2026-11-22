@@ -1114,11 +1114,71 @@ export function agyToolOutput(content: string): string {
  *     text_delta?, tool_name?, tool_info?: {name, parameters, output, error?: {type, message}}, subagent_info?}}
  *   {"event":"result","result":{conversation_id, status: SUCCESS|ERROR|…, response, error?, duration_seconds, num_turns, usage}}
  */
+const AGY_BG_STARTED =
+  /(?:Tool is running as a background task with task id|Command running in background with ID|Task running in background with ID):\s*((?:[0-9a-fA-F-]+\/)?task-\d+)/i;
+const AGY_BG_ENDED = [
+  "finished with result",
+  "The command exited with code",
+  "Command exited with code",
+  "Timer fired",
+  "Timer cancelled",
+  "Status: DONE",
+  "was canceled",
+  "was cancelled",
+  "Status: CANCELLED",
+  "Status: CANCELED",
+  "Status: ERROR",
+  "Status: FAILED",
+  "failed with result",
+];
+
+function unwrapTranscriptArgs(raw: unknown): Json {
+  let obj: Json = {};
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (isObject(parsed)) obj = parsed;
+    } catch {
+      return {};
+    }
+  } else if (isObject(raw)) {
+    obj = { ...raw };
+  }
+  // Antigravity transcript.jsonl often stores tool arg values as JSON-encoded strings (e.g. "\"kubectl ...\"").
+  for (const [k, v] of Object.entries(obj)) {
+    if (typeof v === "string" && v.length >= 2 && v.startsWith('"') && v.endsWith('"')) {
+      try {
+        const inner = JSON.parse(v) as unknown;
+        if (typeof inner === "string") obj[k] = inner;
+      } catch {
+        // leave as-is
+      }
+    }
+  }
+  return obj;
+}
+
 export class AgyCliStreamParser extends AgentStreamParser {
   private messages: string[] = [];
   /** agent_response text so far, by step. */
   private deltas = new Map<number, string>();
   private response = "";
+  /** Step indices whose reply text has already been emitted (via stdout or transcript side-channel). */
+  private emittedTextSteps = new Set<number>();
+  /** Step indices whose thinking block has already been emitted from the transcript. */
+  private emittedThinkingSteps = new Set<number>();
+  /** Step indices whose tool call moved to a background task (prevents stdout ACTIVE from reverting status to running). */
+  private backgroundedSteps = new Set<number>();
+  /** Step indices whose tool row has already been emitted via stdout stream-json. */
+  private stdoutEmittedTools = new Set<number>();
+  /** Step indices whose tool row has already finished (DONE) via stdout stream-json. */
+  private stdoutDoneTools = new Set<number>();
+  /** Deduplication keys `${step_index}:${status}` for transcript lines already ingested. */
+  private seenTranscriptKeys = new Set<string>();
+  /** Pending tool calls announced in PLANNER_RESPONSE.tool_calls, matched FIFO to subsequent GENERIC steps. */
+  private pendingTools: Array<{ name: string; args: Json }> = [];
+  /** Short task IDs (e.g. task-250) for open background tasks observed from transcript. */
+  readonly activeBackgroundTaskIds = new Map<string, string>();
 
   get finalText(): string | undefined {
     return this.response.trim() || this.messages.join("\n\n").trim() || undefined;
@@ -1129,6 +1189,117 @@ export class AgyCliStreamParser extends AgentStreamParser {
     if (!sid || sid === this.sessionId) return [];
     this.sessionId = sid;
     return [{ kind: "session", session_id: sid }];
+  }
+
+  /**
+   * Ingests a step written to ~/.gemini/antigravity-cli/brain/<id>/.system_generated/logs/transcript.jsonl.
+   *
+   * Google's `agy --output-format stream-json` serializes step_update lines strictly in step_index order,
+   * so any backgrounded `run_command` (which stays ACTIVE until it exits) head-of-line blocks ALL later
+   * steps — including the assistant's completed reply and subsequent tool calls — from being flushed to
+   * stdout. Reading the live transcript delivers background transitions, thinking, blocked tool steps and
+   * completed replies within ~400 ms, while deduplicating cleanly when stdout eventually flushes them.
+   */
+  feedTranscriptStep(step: Json, runStartedAt = 0): AgentEvent[] {
+    const index = num(step.step_index);
+    if (index === undefined) return [];
+    const statusRaw = str(step.status)?.toUpperCase() ?? "";
+    const key = `${index}:${statusRaw}`;
+    if (this.seenTranscriptKeys.has(key)) return [];
+
+    const createdAt = typeof step.created_at === "string" ? Date.parse(step.created_at) : NaN;
+    if (runStartedAt > 0 && Number.isFinite(createdAt) && createdAt < runStartedAt - 2000) {
+      this.seenTranscriptKeys.add(key);
+      return [];
+    }
+    this.seenTranscriptKeys.add(key);
+
+    const events: AgentEvent[] = [];
+    const type = str(step.type)?.toUpperCase() ?? "";
+    const source = str(step.source)?.toUpperCase() ?? "";
+    const content = typeof step.content === "string" ? step.content : "";
+
+    if (type === "PLANNER_RESPONSE" && source === "MODEL") {
+      const thinking = typeof step.thinking === "string" ? step.thinking.trim() : "";
+      if (thinking && !this.emittedThinkingSteps.has(index)) {
+        this.emittedThinkingSteps.add(index);
+        events.push({ kind: "thinking", text: `${thinking}\n\n` });
+      }
+      if (Array.isArray(step.tool_calls)) {
+        for (const rawCall of step.tool_calls) {
+          if (!isObject(rawCall)) continue;
+          const name = str(rawCall.name)?.trim() || "tool";
+          this.pendingTools.push({ name, args: unwrapTranscriptArgs(rawCall.args) });
+        }
+      }
+      if (statusRaw === "DONE" && content.trim() && !this.emittedTextSteps.has(index)) {
+        this.emittedTextSteps.add(index);
+        this.deltas.delete(index);
+        this.messages.push(content.trim());
+        events.push({ kind: "text", text: content.trim() });
+      }
+      return events;
+    }
+
+    if (type === "GENERIC") {
+      const tc = this.pendingTools.shift();
+      const bgMatch = statusRaw === "RUNNING" && content.startsWith("Created At:") ? AGY_BG_STARTED.exec(content) : null;
+      if (bgMatch) {
+        const fullId = bgMatch[1]!.trim();
+        const shortId = fullId.split("/").pop()!;
+        if (this.stdoutDoneTools.has(index)) return events;
+        this.backgroundedSteps.add(index);
+        this.activeBackgroundTasks.add(fullId);
+        this.activeBackgroundTaskIds.set(fullId, shortId);
+        const desc = /Task Description:\s*(.+)/i.exec(content)?.[1]?.trim();
+        const name = tc?.name || "run_command";
+        const detail = tc ? agyToolDetail(name, tc.args) : desc ? clip(desc, 200) : shortId;
+        events.push({
+          kind: "tool",
+          id: `agy_step_${index}`,
+          name,
+          detail,
+          status: "done",
+          output: `已转入后台持续运行（${shortId}），完成后将自动通知智能体继续。\n${agyToolOutput(content)}`,
+        });
+        return events;
+      }
+
+      // While stdout is head-of-line blocked behind an earlier backgrounded step, surface later completed
+      // tool steps directly from the transcript so the timeline keeps moving live.
+      if (
+        this.backgroundedSteps.size > 0 &&
+        !this.stdoutEmittedTools.has(index) &&
+        (statusRaw === "DONE" || statusRaw === "ERROR" || statusRaw === "FAILED")
+      ) {
+        const name = tc?.name || "tool";
+        const detail = tc ? agyToolDetail(name, tc.args) : "";
+        events.push({
+          kind: "tool",
+          id: `agy_step_${index}`,
+          name,
+          detail,
+          status: statusRaw === "ERROR" || statusRaw === "FAILED" ? "failed" : "done",
+          ...(content.trim() ? { output: agyToolOutput(content) } : {}),
+        });
+      }
+      return events;
+    }
+
+    if (type === "SYSTEM_MESSAGE" && this.activeBackgroundTaskIds.size > 0 && content) {
+      for (const [fullId, shortId] of [...this.activeBackgroundTaskIds]) {
+        const sender = content.includes(`sender=${fullId}`) || content.includes(`sender=${shortId}`);
+        const mentioned = new RegExp(`(?:^|[^\\w-])${shortId}(?!\\d)`).test(content);
+        if (sender || (mentioned && AGY_BG_ENDED.some((kw) => content.includes(kw)))) {
+          this.activeBackgroundTasks.delete(fullId);
+          this.activeBackgroundTaskIds.delete(fullId);
+          const stepNum = Number(/task-(\d+)$/.exec(shortId)?.[1]);
+          if (Number.isInteger(stepNum)) this.backgroundedSteps.delete(stepNum);
+        }
+      }
+    }
+
+    return events;
   }
 
   feed(line: string): AgentEvent[] | null {
@@ -1149,7 +1320,8 @@ export class AgyCliStreamParser extends AgentStreamParser {
         this.deltas.set(index, text);
         if (done) {
           this.deltas.delete(index);
-          if (text.trim()) {
+          if (text.trim() && !this.emittedTextSteps.has(index)) {
+            this.emittedTextSteps.add(index);
             this.messages.push(text.trim());
             events.push({ kind: "text", text: text.trim() });
           }
@@ -1159,6 +1331,13 @@ export class AgyCliStreamParser extends AgentStreamParser {
         const name = str(info.name) || str(u.tool_name) || "tool";
         const failure = isObject(info.error) ? str(info.error.message) || str(info.error.type) || "failed" : undefined;
         const output = [str(info.output) ?? "", failure ?? ""].filter((t) => t.trim()).join("\n");
+        this.stdoutEmittedTools.add(index);
+        if (done) {
+          this.stdoutDoneTools.add(index);
+          this.backgroundedSteps.delete(index);
+        }
+        // Never flip a step already marked backgrounded by the transcript side-channel back to "running"
+        if (!done && this.backgroundedSteps.has(index)) return events;
         events.push({
           kind: "tool",
           id: `agy_step_${index}`,

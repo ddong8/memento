@@ -577,6 +577,137 @@ export function agyCliOpenBackgroundTasks(conversationId: string, since: number,
 }
 
 /**
+ * Incrementally tails `~/.gemini/antigravity-cli/brain/<id>/.system_generated/logs/transcript.jsonl`
+ * while an official `agy` CLI process is running, reading only newly appended bytes so Memento can
+ * surface backgrounded commands, thinking, blocked tool calls and completed replies live without
+ * waiting for `agy --output-format stream-json`'s head-of-line-blocked stdout serializer.
+ */
+export class AgyCliTranscriptTailer {
+  private sessionId?: string;
+  private filePath?: string;
+  private offset = 0;
+  private remainder = "";
+  private taskLogSizes = new Map<string, number>();
+
+  constructor(
+    private readonly home = homeDir(),
+    initialSessionId?: string,
+  ) {
+    if (initialSessionId) this.attach(initialSessionId, true);
+  }
+
+  /** Attaches to a conversation ID; when `fromEnd` is true (resuming an existing session before spawn), starts at current EOF. */
+  attach(sessionId: string, fromEnd = false): void {
+    const sid = sessionId.trim();
+    if (!sid || !/^[\w-]+$/.test(sid) || sid === this.sessionId) return;
+    this.sessionId = sid;
+    this.filePath = undefined;
+    this.offset = 0;
+    this.remainder = "";
+    this.taskLogSizes.clear();
+    const resolved = this.resolvePath();
+    if (resolved && fromEnd) {
+      try {
+        this.offset = statSync(resolved).size;
+      } catch {
+        this.offset = 0;
+      }
+    }
+  }
+
+  private resolvePath(): string | undefined {
+    if (this.filePath && existsSync(this.filePath)) return this.filePath;
+    if (!this.sessionId) return undefined;
+    const logs = join(this.home, ".gemini", "antigravity-cli", "brain", this.sessionId, ".system_generated", "logs");
+    for (const name of ["transcript.jsonl", "transcript_full.jsonl"]) {
+      const candidate = join(logs, name);
+      if (existsSync(candidate)) {
+        this.filePath = candidate;
+        return candidate;
+      }
+    }
+    return undefined;
+  }
+
+  /** Reads newly appended complete JSON step objects since the previous poll. */
+  poll(): Record<string, unknown>[] {
+    const path = this.resolvePath();
+    if (!path) return [];
+    let size: number;
+    try {
+      size = statSync(path).size;
+    } catch {
+      return [];
+    }
+    if (size < this.offset) {
+      // File rotated or truncated
+      this.offset = 0;
+      this.remainder = "";
+    }
+    if (size === this.offset) return [];
+    const maxChunk = 2 * 1024 * 1024;
+    const toRead = Math.min(size - this.offset, maxChunk);
+    let fd: number | undefined;
+    let text = "";
+    try {
+      fd = openSync(path, "r");
+      const buf = Buffer.alloc(toRead);
+      const bytesRead = readSync(fd, buf, 0, toRead, this.offset);
+      if (bytesRead <= 0) return [];
+      this.offset += bytesRead;
+      text = buf.toString("utf8", 0, bytesRead);
+    } catch {
+      return [];
+    } finally {
+      if (fd !== undefined) {
+        try {
+          closeSync(fd);
+        } catch {
+          // ignore
+        }
+      }
+    }
+
+    const combined = this.remainder + text;
+    const lines = combined.split("\n");
+    this.remainder = lines.pop() ?? "";
+    const steps: Record<string, unknown>[] = [];
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      try {
+        const parsed = JSON.parse(trimmed) as unknown;
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          steps.push(parsed as Record<string, unknown>);
+        }
+      } catch {
+        // ignore malformed line
+      }
+    }
+    return steps;
+  }
+
+  /** Returns true when any active background task's log file grew since the previous check. */
+  hasBackgroundLogGrowth(shortTaskIds: Iterable<string>): boolean {
+    if (!this.sessionId) return false;
+    const tasksDir = join(this.home, ".gemini", "antigravity-cli", "brain", this.sessionId, ".system_generated", "tasks");
+    let grew = false;
+    for (const shortId of shortTaskIds) {
+      const p = join(tasksDir, `${shortId}.log`);
+      try {
+        const sz = statSync(p).size;
+        const prev = this.taskLogSizes.get(shortId);
+        if (prev !== undefined && sz > prev) grew = true;
+        this.taskLogSizes.set(shortId, sz);
+      } catch {
+        // log not created yet
+      }
+    }
+    return grew;
+  }
+}
+
+/**
  * Antigravity tasks go through memento's runner (assets/agy_cli.mjs, run on the
  * desktop app's Electron as Node) that talks to the running app's language
  * server, so they work in the app's own conversations (~/.gemini/antigravity),

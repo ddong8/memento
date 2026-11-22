@@ -920,6 +920,9 @@ export class UniversalStreamParser extends AgentStreamParser {
           }
           if (d.type === "memento_event" && isObject(d.event)) {
             const ev = d.event as AgentEvent;
+            if ((ev as { kind?: unknown }).kind === "keepalive") {
+              return [];
+            }
             if (ev.kind === "text_delta" && typeof ev.text === "string") {
               this.lastText += ev.text;
             } else if (ev.kind === "text" && typeof ev.text === "string") {

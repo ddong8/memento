@@ -16,23 +16,30 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 
 import {
-  AGY_BG_ENDED,
   acpToolDetail,
   cleanToolOutput,
   clip,
   extractAcpToolOutput,
   formatAskQuestionAnswers,
+  hasBackgroundEndMarker,
+  isAsyncToolName,
+  isCascadeIdle,
+  isCascadeRunning,
+  isFailedToolOutput,
   isObj,
+  isTransientAgyError,
   normalizeAcpEffort,
   parseAskQuestionArgs,
   parseBackgroundStart,
   parseSubagentLaunch,
+  readAgyConversationState,
   resolveAcpModel,
   str,
   timerSeconds,
   unwrapTranscriptArgs,
   type AcpModelOption,
   type AcpQuestionItem,
+  type AgyConversationState,
   type Json,
 } from "./helpers.js";
 
@@ -65,11 +72,24 @@ for (let i = 0; i < argv.length; i++) {
   }
 }
 
-const emit = (event: Json) => process.stdout.write(`${JSON.stringify({ type: "memento_event", event })}\n`);
+let lastStdoutEmitAt = Date.now();
+const emit = (event: Json) => {
+  lastStdoutEmitAt = Date.now();
+  process.stdout.write(`${JSON.stringify({ type: "memento_event", event })}\n`);
+};
 const err = (msg: string) => process.stderr.write(msg);
 
 const home = process.env.HOME || process.env.USERPROFILE || homedir();
-const cliBrainRoot = join(home, ".gemini", "antigravity-cli", "brain");
+const cliDataDir = join(home, ".gemini", "antigravity-cli");
+const cliBrainRoot = join(cliDataDir, "brain");
+const cliSummariesDb = join(cliDataDir, "conversation_summaries.db");
+
+// Authoritative wakeup/keepalive timings (env-overridable for deterministic tests)
+const NO_WAKEUP_IDLE_MS = Number(process.env.MEMENTO_AGY_NO_WAKEUP_MS) || 15_000;
+const POST_RUNNING_IDLE_MS = Number(process.env.MEMENTO_AGY_POST_RUNNING_IDLE_MS) || 5_000;
+const FALLBACK_WAKEUP_QUIET_MS = Number(process.env.MEMENTO_AGY_WAKEUP_FALLBACK_MS) || 120_000;
+const KEEPALIVE_INTERVAL_MS = Number(process.env.MEMENTO_AGY_KEEPALIVE_MS) || 30_000;
+const TIMER_WAKE_GRACE_MS = 120_000;
 
 class JsonlTailer {
   private offset = 0;
@@ -165,12 +185,11 @@ let activeModel = "";
 let replayingHistory = false;
 const startedAt = Date.now();
 let pollTimer: NodeJS.Timeout | undefined;
-let finishCheckTimer: NodeJS.Timeout | undefined;
 let timeoutTimer: NodeJS.Timeout | undefined;
+let lastTimeoutArmedAt = 0;
 
 function cleanupTimers(): void {
   if (pollTimer) clearInterval(pollTimer);
-  if (finishCheckTimer) clearTimeout(finishCheckTimer);
   if (timeoutTimer) clearTimeout(timeoutTimer);
 }
 
@@ -267,6 +286,7 @@ const emittedTools = new Set<string>();
 const completedTools = new Set<string>();
 const activeBgTasks = new Map<string, { shortId: string; description: string; toolCallId?: string; isDaemon?: boolean; timerDue?: number }>();
 const activeSubagents = new Map<string, SubagentTrack>();
+const pendingSubagentMeta: Array<{ name?: string; role?: string; detail?: string }> = [];
 const taskLogSizes = new Map<string, number>();
 
 const openQuestions: Array<{ id: string; batch: PendingAskBatch; index: number }> = [];
@@ -280,13 +300,134 @@ let totalCachedReadTokens = 0;
 let totalOutputTokens = 0;
 let hasEmittedText = false;
 let textEndsWithNewline = true;
+
+// Wakeup state machine (active after inFlightPrompts === 0 and background tasks/subagents finish)
 let awaitingWakeup = false;
+let wakeupStartedAt = 0;
 let wakeupActivityAt = 0;
+let wakeupSeenRunning = false;
 let wakeupDoneConfirmed = false;
-let wakeupSawTextOrTool = false;
+let wakeupEmittedText = false;
+let wakeupIdleSince = 0;
+let wakeupStepIndex = -1;
+let wakeupError = "";
+let maxParentStepIndex = -1;
+// Guards against the race where a background task's SYSTEM_MESSAGE lands right before session/prompt resolves end_turn
+let pendingWakeupAfterStep = -1;
+
+let lastDbState: AgyConversationState | null = null;
+let lastDbReadAt = 0;
 
 let parentTailer: JsonlTailer | undefined;
 const seenParentStepKeys = new Set<string>();
+
+function readDbState(force = false): AgyConversationState | null {
+  if (!sessionId) return null;
+  const now = Date.now();
+  if (!force && now - lastDbReadAt < 350) return lastDbState;
+  lastDbReadAt = now;
+  lastDbState = readAgyConversationState(cliSummariesDb, sessionId);
+  return lastDbState;
+}
+
+function hasPendingTimer(): boolean {
+  const now = Date.now();
+  for (const bg of activeBgTasks.values()) {
+    if (!bg.isDaemon && bg.timerDue !== undefined && now < bg.timerDue + TIMER_WAKE_GRACE_MS) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function armActivityTimeout(force = false): void {
+  if (args.timeout <= 0 || finished || exiting) return;
+  const now = Date.now();
+  if (!force && timeoutTimer && now - lastTimeoutArmedAt < 5_000) return;
+  lastTimeoutArmedAt = now;
+  if (timeoutTimer) clearTimeout(timeoutTimer);
+  timeoutTimer = setTimeout(() => {
+    if (finished || exiting) return;
+    // Never time out while the user is reviewing an ask_question dialog or a schedule timer hasn't fired yet
+    if (openQuestions.length > 0 || hasPendingTimer()) {
+      armActivityTimeout(true);
+      return;
+    }
+    if (hasOpenNonDaemonAsync()) {
+      err(`\n⏳ [任务在后台持续执行中（${backgroundSummaryNames()}），达到单次静默等待上限（${args.timeout}s），保持后台运行]\n`);
+      finishCleanly(true);
+      return;
+    }
+    void cancelAndExit(124, `\n[Agent timeout: 任务执行已达到静默安全上限（${args.timeout}s）]\n`);
+  }, args.timeout * 1000);
+  timeoutTimer.unref();
+}
+
+function markActivity(): void {
+  const now = Date.now();
+  armActivityTimeout(false);
+  if (awaitingWakeup) {
+    wakeupActivityAt = now;
+    wakeupIdleSince = 0;
+  }
+}
+
+function enterWakeup(triggerStepIdx?: number): void {
+  const now = Date.now();
+  awaitingWakeup = true;
+  wakeupStartedAt = now;
+  wakeupActivityAt = now;
+  wakeupSeenRunning = false;
+  wakeupDoneConfirmed = false;
+  wakeupEmittedText = false;
+  wakeupIdleSince = 0;
+  wakeupError = "";
+  const floor = triggerStepIdx !== undefined && triggerStepIdx >= 0 ? triggerStepIdx : maxParentStepIndex;
+  if (floor > wakeupStepIndex) wakeupStepIndex = floor;
+  armActivityTimeout(false);
+}
+
+function leaveWakeupForAsync(): void {
+  awaitingWakeup = false;
+  wakeupSeenRunning = false;
+  wakeupDoneConfirmed = false;
+  wakeupEmittedText = false;
+  wakeupIdleSince = 0;
+  wakeupError = "";
+}
+
+function maybeEmitKeepalive(): void {
+  if (finished || exiting) return;
+  if (Date.now() - lastStdoutEmitAt < KEEPALIVE_INTERVAL_MS) return;
+  const hasWork =
+    hasOpenNonDaemonAsync() ||
+    openQuestions.length > 0 ||
+    (awaitingWakeup && (wakeupSeenRunning || isCascadeRunning(lastDbState) || Boolean(lastDbState?.notFullyIdle)));
+  if (!hasWork) return;
+  emit({ kind: "keepalive" });
+}
+
+function removeBgTaskByTarget(target: string): boolean {
+  if (!target) return false;
+  const targetShort = target.split("/").pop() || target;
+  let removed = false;
+  for (const [fullId, bg] of [...activeBgTasks]) {
+    if (fullId.includes(target) || target.includes(fullId) || bg.shortId === targetShort) {
+      activeBgTasks.delete(fullId);
+      if (bg.toolCallId) {
+        const open = inProgressTools.get(bg.toolCallId);
+        if (open) {
+          inProgressTools.delete(bg.toolCallId);
+          completedTools.add(bg.toolCallId);
+          emit({ kind: "tool", id: open.id, name: open.name, detail: open.detail, status: "done", output: "后台任务已终止。" });
+        }
+      }
+      removed = true;
+    }
+  }
+  if (removed) emitBackgroundSnapshot();
+  return removed;
+}
 
 function emitBackgroundSnapshot(): void {
   const tasks: Array<{ id: string; description?: string }> = [];
@@ -353,7 +494,7 @@ function promoteOpenToolsToBackground(): void {
   let changed = false;
   for (const tool of inProgressTools.values()) {
     if (tool.backgrounded) continue;
-    if (tool.name !== "run_command" && tool.name !== "schedule" && tool.name !== "bash") continue;
+    if (!isAsyncToolName(tool.name)) continue;
     tool.backgrounded = true;
     changed = true;
     emit({
@@ -367,11 +508,35 @@ function promoteOpenToolsToBackground(): void {
         : "已转入后台持续运行，完成后将自动通知智能体继续。",
     });
   }
-  if (changed) emitBackgroundSnapshot();
+  if (changed) {
+    leaveWakeupForAsync();
+    emitBackgroundSnapshot();
+  }
 }
 
 function registerSubagent(subCid: string, meta: { name?: string; role?: string; detail?: string; logPath?: string }): void {
-  if (activeSubagents.has(subCid)) return;
+  const existing = activeSubagents.get(subCid);
+  if (existing) {
+    // Enrich fallback ID-only name when handleToolUpdate arrives after pollParentTranscript
+    const fallbackPrefix = `子智能体 ${subCid.slice(0, 8)}`;
+    const betterName = meta.name || meta.role;
+    if (betterName && existing.name === fallbackPrefix) {
+      existing.name = clip(betterName, 80);
+      if (meta.role) existing.role = clip(meta.role, 60);
+      if (meta.detail) existing.detail = clip(meta.detail, 200);
+      emit({
+        kind: "subagent",
+        id: existing.id,
+        name: existing.name,
+        ...(existing.role ? { role: existing.role } : {}),
+        agent_type: "subagent",
+        ...(existing.detail ? { detail: existing.detail } : {}),
+        status: "running",
+      });
+      emitBackgroundSnapshot();
+    }
+    return;
+  }
   const logPath =
     meta.logPath || join(cliBrainRoot, subCid, ".system_generated", "logs", "transcript.jsonl");
   const name = clip(meta.name || meta.role || `子智能体 ${subCid.slice(0, 8)}`, 80);
@@ -386,6 +551,8 @@ function registerSubagent(subCid: string, meta: { name?: string; role?: string; 
     stepSeq: 0,
   };
   activeSubagents.set(subCid, sub);
+  leaveWakeupForAsync();
+  markActivity();
   emit({
     kind: "subagent",
     id: sub.id,
@@ -463,7 +630,55 @@ function pollSubagents(): boolean {
       }
     }
   }
+  if (activity) markActivity();
   return activity;
+}
+
+function attachBackgroundTask(bg: { fullId: string; shortId: string; description?: string }, content: string, createdAt: number, explicitTool?: OpenTool): void {
+  if (activeBgTasks.has(bg.fullId)) return;
+  let matchedTool = explicitTool;
+  if (!matchedTool) {
+    for (const t of inProgressTools.values()) {
+      if (!t.taskId && isAsyncToolName(t.name)) {
+        matchedTool = t;
+        break;
+      }
+    }
+  }
+  if (!matchedTool) {
+    for (const t of inProgressTools.values()) {
+      if (!t.taskId) {
+        matchedTool = t;
+        break;
+      }
+    }
+  }
+  const secs = timerSeconds(content);
+  const due = secs !== undefined ? (Number.isFinite(createdAt) ? createdAt : Date.now()) + secs * 1000 : undefined;
+  activeBgTasks.set(bg.fullId, {
+    shortId: bg.shortId,
+    description: bg.description || matchedTool?.detail || bg.shortId,
+    toolCallId: matchedTool?.id,
+    isDaemon: matchedTool?.isDaemon,
+    timerDue: due,
+  });
+  if (matchedTool) {
+    matchedTool.backgrounded = true;
+    matchedTool.taskId = bg.fullId;
+    emit({
+      kind: "tool",
+      id: matchedTool.id,
+      name: matchedTool.name,
+      detail: matchedTool.detail,
+      status: "background",
+      output: matchedTool.isDaemon
+        ? `已作为后台常驻进程启动（${bg.shortId}）。\n${cleanToolOutput(content)}`
+        : `已转入后台持续运行（${bg.shortId}），完成后将自动通知智能体继续。\n${cleanToolOutput(content)}`,
+    });
+  }
+  if (!matchedTool?.isDaemon) leaveWakeupForAsync();
+  markActivity();
+  emitBackgroundSnapshot();
 }
 
 function pollParentTranscript(): void {
@@ -479,66 +694,40 @@ function pollParentTranscript(): void {
       if (idx >= 0) seenParentStepKeys.add(key);
       continue;
     }
-    if (idx >= 0) seenParentStepKeys.add(key);
+    if (idx >= 0) {
+      seenParentStepKeys.add(key);
+      if (idx > maxParentStepIndex) maxParentStepIndex = idx;
+    }
 
     const type = str(step.type).toUpperCase();
     const source = str(step.source).toUpperCase();
     const content = str(step.content);
+    markActivity();
 
     if (type === "GENERIC" && statusRaw === "RUNNING" && content.startsWith("Created At:")) {
       const bg = parseBackgroundStart(content);
-      if (bg && !activeBgTasks.has(bg.fullId)) {
-        // Attach to the oldest open run_command / schedule tool without a taskId yet
-        let matchedTool: OpenTool | undefined;
-        for (const t of inProgressTools.values()) {
-          if (!t.taskId && (t.name === "run_command" || t.name === "schedule" || t.name === "bash")) {
-            matchedTool = t;
-            break;
-          }
-        }
-        const secs = timerSeconds(content);
-        const due = secs !== undefined ? (Number.isFinite(createdAt) ? createdAt : Date.now()) + secs * 1000 : undefined;
-        activeBgTasks.set(bg.fullId, {
-          shortId: bg.shortId,
-          description: bg.description || matchedTool?.detail || bg.shortId,
-          toolCallId: matchedTool?.id,
-          isDaemon: matchedTool?.isDaemon,
-          timerDue: due,
-        });
-        if (matchedTool) {
-          matchedTool.backgrounded = true;
-          matchedTool.taskId = bg.fullId;
-          emit({
-            kind: "tool",
-            id: matchedTool.id,
-            name: matchedTool.name,
-            detail: matchedTool.detail,
-            status: "background",
-            output: matchedTool.isDaemon
-              ? `已作为后台常驻进程启动（${bg.shortId}）。\n${cleanToolOutput(content)}`
-              : `已转入后台持续运行（${bg.shortId}），完成后将自动通知智能体继续。\n${cleanToolOutput(content)}`,
-          });
-        }
-        emitBackgroundSnapshot();
-      }
+      if (bg) attachBackgroundTask(bg, content, createdAt);
     } else if (type === "GENERIC" && (statusRaw === "DONE" || statusRaw === "RUNNING")) {
       const launched = parseSubagentLaunch(content);
-      if (launched && !activeSubagents.has(launched.conversationId)) {
-        registerSubagent(launched.conversationId, { logPath: launched.logPath });
+      if (launched) {
+        const queuedMeta = !activeSubagents.has(launched.conversationId) ? pendingSubagentMeta.shift() : undefined;
+        registerSubagent(launched.conversationId, { ...queuedMeta, logPath: launched.logPath });
       }
     } else if (type === "SYSTEM_MESSAGE" && content) {
+      let asyncFinished = false;
       // Check background task completion
       for (const [fullId, bg] of [...activeBgTasks]) {
         const sender = content.includes(`sender=${fullId}`) || content.includes(`sender=${bg.shortId}`);
         const mentioned = new RegExp(`(?:^|[^\\w-])${bg.shortId}(?!\\d)`).test(content);
-        if (sender || (mentioned && AGY_BG_ENDED.some((kw) => content.includes(kw)))) {
+        if (sender || (mentioned && hasBackgroundEndMarker(content))) {
           activeBgTasks.delete(fullId);
+          if (!bg.isDaemon) asyncFinished = true;
           if (bg.toolCallId) {
             const open = inProgressTools.get(bg.toolCallId);
             if (open) {
               inProgressTools.delete(bg.toolCallId);
               completedTools.add(bg.toolCallId);
-              const failed = /Status:\s*(?:ERROR|FAILED)|failed with result|exited with code [1-9]/i.test(content);
+              const failed = isFailedToolOutput(content);
               emit({
                 kind: "tool",
                 id: open.id,
@@ -550,12 +739,6 @@ function pollParentTranscript(): void {
             }
           }
           emitBackgroundSnapshot();
-          if (inFlightPrompts === 0) {
-            awaitingWakeup = true;
-            wakeupActivityAt = Date.now();
-            wakeupDoneConfirmed = false;
-            wakeupSawTextOrTool = false;
-          }
         }
       }
       // Check subagent completion
@@ -563,20 +746,70 @@ function pollParentTranscript(): void {
         if (content.includes(`sender=${subCid}`) || content.includes(subCid)) {
           const failed = /failed|error|terminated|cancelled/i.test(content) && !/completed/i.test(content);
           closeSubagent(subCid, failed ? "failed" : "done", content);
-          if (inFlightPrompts === 0) {
-            awaitingWakeup = true;
-            wakeupActivityAt = Date.now();
-            wakeupDoneConfirmed = false;
-            wakeupSawTextOrTool = false;
+          asyncFinished = true;
+        }
+      }
+      if (asyncFinished) {
+        if (idx >= 0) pendingWakeupAfterStep = Math.max(pendingWakeupAfterStep, idx);
+        if (inFlightPrompts === 0 && !hasOpenNonDaemonAsync()) {
+          enterWakeup(idx);
+        }
+      } else if (awaitingWakeup && idx >= 0 && /\bsender=/.test(content)) {
+        // SYSTEM_MESSAGE landed slightly after tool_call_update already cleared activeBgTasks:
+        // advance wakeupStepIndex so only a PLANNER_RESPONSE strictly after this SYSTEM_MESSAGE confirms completion.
+        if (idx > wakeupStepIndex) wakeupStepIndex = idx;
+        wakeupDoneConfirmed = false;
+        wakeupIdleSince = 0;
+      }
+    } else if (type === "ERROR_MESSAGE") {
+      const errMsg = str(step.error) || str(step.message) || content;
+      if (errMsg && !isTransientAgyError(errMsg) && awaitingWakeup) {
+        wakeupError = errMsg;
+      }
+    } else if (type === "PLANNER_RESPONSE" && source === "MODEL" && statusRaw === "DONE") {
+      const calls = Array.isArray(step.tool_calls) ? step.tool_calls.filter(isObj) : [];
+      for (const rawCall of calls) {
+        const cname = str(rawCall.name);
+        const cargs = unwrapTranscriptArgs(rawCall.args);
+        if (cname === "invoke_subagent") {
+          pendingSubagentMeta.push({
+            name: str(cargs.Role) || str(cargs.TypeName) || undefined,
+            role: str(cargs.TypeName) || undefined,
+            detail: str(cargs.Prompt) || undefined,
+          });
+        } else if (cname === "manage_task" && ["kill", "stop", "cancel"].includes(str(cargs.Action).toLowerCase())) {
+          removeBgTaskByTarget(str(cargs.TaskId));
+        } else if (cname === "manage_subagents") {
+          const act = str(cargs.Action).toLowerCase();
+          if (act === "kill_all") {
+            for (const sid of [...activeSubagents.keys()]) closeSubagent(sid, "done");
+          } else if (act === "kill" && Array.isArray(cargs.ConversationIds)) {
+            for (const rawSid of cargs.ConversationIds) closeSubagent(str(rawSid), "done");
           }
         }
       }
-    } else if (type === "PLANNER_RESPONSE" && source === "MODEL" && statusRaw === "DONE") {
-      const hasToolCalls = Array.isArray(step.tool_calls) && step.tool_calls.length > 0;
-      if (awaitingWakeup && !hasToolCalls && !hasOpenNonDaemonAsync() && openQuestions.length === 0 && inFlightPrompts === 0) {
-        wakeupDoneConfirmed = true;
-        wakeupActivityAt = Date.now();
-        scheduleFinishCheck(800);
+      const hasToolCalls = calls.length > 0;
+      if (hasToolCalls) {
+        if (awaitingWakeup) {
+          wakeupSeenRunning = true;
+          wakeupDoneConfirmed = false;
+          wakeupIdleSince = 0;
+        }
+      } else {
+        if (pendingWakeupAfterStep >= 0 && (idx < 0 || idx > pendingWakeupAfterStep)) {
+          pendingWakeupAfterStep = -1;
+        }
+        if (
+          awaitingWakeup &&
+          !hasOpenNonDaemonAsync() &&
+          openQuestions.length === 0 &&
+          inFlightPrompts === 0 &&
+          (idx < 0 || idx > wakeupStepIndex)
+        ) {
+          wakeupSeenRunning = true;
+          wakeupDoneConfirmed = true;
+          wakeupActivityAt = Date.now();
+        }
       }
     }
   }
@@ -592,7 +825,7 @@ function pollBackgroundLogs(): void {
       const sz = statSync(p).size;
       const prev = taskLogSizes.get(bg.shortId);
       if (prev !== undefined && sz > prev) {
-        wakeupActivityAt = Date.now();
+        markActivity();
       }
       taskLogSizes.set(bg.shortId, sz);
     } catch {
@@ -601,32 +834,67 @@ function pollBackgroundLogs(): void {
   }
 }
 
-function scheduleFinishCheck(delayMs: number): void {
-  if (finishCheckTimer) clearTimeout(finishCheckTimer);
-  finishCheckTimer = setTimeout(() => {
-    if (finished || exiting) return;
-    pollParentTranscript();
-    pollSubagents();
-    if (inFlightPrompts > 0 || openQuestions.length > 0 || hasOpenNonDaemonAsync()) return;
-    if (!awaitingWakeup) {
+/**
+ * Authoritative completion check for autonomous post-background wakeups.
+ * Never uses short fixed quiet timers (which killed real slow-thinking models mid-wakeup);
+ * instead combines agy's own SQLite Cascade state (status + not_fully_idle) with transcript
+ * PLANNER_RESPONSE confirmation.
+ */
+function evaluateWakeupCompletion(): void {
+  if (finished || exiting) return;
+  if (inFlightPrompts > 0 || openQuestions.length > 0) return;
+  if (hasOpenNonDaemonAsync()) return;
+  if (!awaitingWakeup) return;
+
+  const now = Date.now();
+  const db = readDbState();
+
+  // 1. Authoritative RUNNING signal from agy's Cascade engine: NEVER exit while thinking, retrying, or running tools!
+  if (isCascadeRunning(db)) {
+    wakeupSeenRunning = true;
+    wakeupIdleSince = 0;
+    markActivity();
+    return;
+  }
+
+  // 2. Authoritative not_fully_idle signal: agy still tracks an internal async task / swarm worker / pending wakeup
+  if (db?.notFullyIdle) {
+    wakeupIdleSince = 0;
+    markActivity();
+    return;
+  }
+
+  // 3. Fatal non-transient error during wakeup once engine is no longer running
+  if (wakeupError && now - wakeupActivityAt >= 3000) {
+    fail(`Antigravity wakeup error: ${wakeupError}`, 1);
+    return;
+  }
+
+  // 4. Confirmed post-wakeup final PLANNER_RESPONSE (no tool_calls) and engine is idle (or DB unavailable in mock tests)
+  if (wakeupDoneConfirmed && (!db || isCascadeIdle(db))) {
+    if (now - wakeupActivityAt >= 800) {
       finishCleanly(false);
-      return;
     }
-    const quietMs = Date.now() - wakeupActivityAt;
-    if (wakeupDoneConfirmed && quietMs >= 600) {
+    return;
+  }
+
+  // 5. DB-backed fallback when no PLANNER_RESPONSE arrived (e.g. cancelled task or silent no-op wakeup)
+  if (db && isCascadeIdle(db)) {
+    if (wakeupSeenRunning) {
+      if (!wakeupIdleSince) wakeupIdleSince = now;
+      if (now - wakeupIdleSince >= POST_RUNNING_IDLE_MS && now - wakeupActivityAt >= 3000) {
+        finishCleanly(false);
+      }
+    } else if (now - wakeupStartedAt >= NO_WAKEUP_IDLE_MS && now - wakeupActivityAt >= NO_WAKEUP_IDLE_MS) {
       finishCleanly(false);
-      return;
     }
-    if (wakeupSawTextOrTool && quietMs >= 2500) {
-      finishCleanly(false);
-      return;
-    }
-    if (quietMs >= 6000) {
-      finishCleanly(false);
-      return;
-    }
-    scheduleFinishCheck(500);
-  }, delayMs);
+    return;
+  }
+
+  // 6. Fallback when conversation_summaries.db is absent/unreadable (e.g. test harness without SQLite)
+  if (!db && now - wakeupActivityAt >= FALLBACK_WAKEUP_QUIET_MS) {
+    finishCleanly(false);
+  }
 }
 
 // ── ACP notification & server request handlers ──────────────────────────────────
@@ -683,6 +951,7 @@ function handleToolUpdate(upd: Json): void {
   }
 
   const isTerminal = status === "completed" || status === "failed" || status === "cancelled" || status === "canceled";
+  markActivity();
   if (!isTerminal) {
     const existing = inProgressTools.get(toolCallId);
     if (existing?.backgrounded) return; // Don't revert a backgrounded tool back to "running"
@@ -702,28 +971,55 @@ function handleToolUpdate(upd: Json): void {
       emit({ kind: "tool", id: toolCallId, name, detail, status: "running" });
     }
     if (awaitingWakeup) {
-      wakeupActivityAt = Date.now();
-      wakeupSawTextOrTool = true;
+      wakeupSeenRunning = true;
       wakeupDoneConfirmed = false;
+      wakeupIdleSince = 0;
     }
     return;
   }
 
   // Tool reached terminal state (completed / failed / cancelled)
+  const rawText = extractAcpToolOutput(upd.rawOutput, upd.content);
+
+  // Guard: if a tool reports "completed" immediately upon returning a background task ID (without an end marker),
+  // keep it tracked as a live background task instead of dropping it prematurely.
+  if (status === "completed" && rawText && !hasBackgroundEndMarker(rawText)) {
+    const bgStart = parseBackgroundStart(rawText);
+    if (bgStart) {
+      let open = inProgressTools.get(toolCallId);
+      if (!open) {
+        const isDaemon = toolArgs.IsDaemon === true || toolArgs.isDaemon === true;
+        open = {
+          id: toolCallId,
+          name,
+          detail,
+          isDaemon,
+          backgrounded: false,
+          startedAt: Date.now(),
+        };
+        inProgressTools.set(toolCallId, open);
+      }
+      attachBackgroundTask(bgStart, rawText, Date.now(), open);
+      return;
+    }
+  }
+
   const prev = inProgressTools.get(toolCallId);
   const wasBackgrounded = Boolean(prev?.backgrounded);
+  const wasDaemon = Boolean(prev?.isDaemon);
+  let removedNonDaemonBg = false;
   inProgressTools.delete(toolCallId);
   completedTools.add(toolCallId);
 
   for (const [fullId, bg] of [...activeBgTasks]) {
     if (bg.toolCallId === toolCallId) {
+      if (!bg.isDaemon) removedNonDaemonBg = true;
       activeBgTasks.delete(fullId);
     }
   }
 
-  const rawText = extractAcpToolOutput(upd.rawOutput, upd.content);
   const cleanedOutput = rawText ? cleanToolOutput(rawText) : "";
-  const finalStatus = status === "completed" ? "done" : "failed";
+  const finalStatus = status === "completed" && !isFailedToolOutput(rawText) ? "done" : "failed";
 
   emit({
     kind: "tool",
@@ -733,6 +1029,18 @@ function handleToolUpdate(upd: Json): void {
     status: finalStatus,
     ...(cleanedOutput ? { output: cleanedOutput } : {}),
   });
+
+  // Clean up explicitly killed background tasks / subagents
+  if (name === "manage_task" && ["kill", "stop", "cancel"].includes(str(toolArgs.Action).toLowerCase())) {
+    removeBgTaskByTarget(str(toolArgs.TaskId));
+  } else if (name === "manage_subagents") {
+    const act = str(toolArgs.Action).toLowerCase();
+    if (act === "kill_all") {
+      for (const sid of [...activeSubagents.keys()]) closeSubagent(sid, "done");
+    } else if (act === "kill" && Array.isArray(toolArgs.ConversationIds)) {
+      for (const rawSid of toolArgs.ConversationIds) closeSubagent(str(rawSid), "done");
+    }
+  }
 
   // Subagent launch detection from invoke_subagent rawOutput
   if (name === "invoke_subagent" && status === "completed") {
@@ -750,18 +1058,16 @@ function handleToolUpdate(upd: Json): void {
     }
   }
 
-  if (wasBackgrounded) {
+  if (wasBackgrounded || removedNonDaemonBg) {
     emitBackgroundSnapshot();
-    if (inFlightPrompts === 0) {
-      awaitingWakeup = true;
-      wakeupActivityAt = Date.now();
-      wakeupDoneConfirmed = false;
-      wakeupSawTextOrTool = false;
-      scheduleFinishCheck(1200);
+    if (inFlightPrompts === 0 && !wasDaemon && !hasOpenNonDaemonAsync()) {
+      enterWakeup();
     }
   } else if (awaitingWakeup) {
-    wakeupActivityAt = Date.now();
-    wakeupSawTextOrTool = true;
+    // Synchronous tool finished inside a wakeup turn: agent is still actively processing tool output
+    wakeupSeenRunning = true;
+    wakeupDoneConfirmed = false;
+    wakeupIdleSince = 0;
   }
 }
 
@@ -777,10 +1083,12 @@ function onNotification(msg: Json): void {
       const content = isObj(upd.content) ? upd.content : {};
       const text = str(content.text);
       if (text) {
+        markActivity();
         emit({ kind: "thinking", text });
         if (awaitingWakeup) {
-          wakeupActivityAt = Date.now();
-          wakeupSawTextOrTool = true;
+          wakeupSeenRunning = true;
+          wakeupDoneConfirmed = false;
+          wakeupIdleSince = 0;
         }
       }
       break;
@@ -790,18 +1098,20 @@ function onNotification(msg: Json): void {
       const text = str(content.text);
       if (!text) break;
       if (suppressAskFallbackText && openQuestions.length > 0) break;
-      // If a run_command/schedule is still open while the agent starts replying, it went async!
+      markActivity();
+      // If a run_command/schedule/run_workflow is still open while the agent starts replying, it went async!
       promoteOpenToolsToBackground();
       let chunk = text;
-      if (hasEmittedText && !textEndsWithNewline && awaitingWakeup && !wakeupSawTextOrTool && !chunk.startsWith("\n")) {
+      if (hasEmittedText && !textEndsWithNewline && awaitingWakeup && !wakeupEmittedText && !chunk.startsWith("\n")) {
         chunk = `\n\n${chunk}`;
       }
       hasEmittedText = true;
       textEndsWithNewline = chunk.endsWith("\n");
       emit({ kind: "text_delta", text: chunk });
       if (awaitingWakeup) {
-        wakeupActivityAt = Date.now();
-        wakeupSawTextOrTool = true;
+        wakeupSeenRunning = true;
+        wakeupEmittedText = true;
+        wakeupIdleSince = 0;
       }
       break;
     }
@@ -810,10 +1120,8 @@ function onNotification(msg: Json): void {
       handleToolUpdate(upd);
       break;
     case "usage_update": {
-      if (awaitingWakeup && wakeupSawTextOrTool && !hasOpenNonDaemonAsync() && openQuestions.length === 0 && inFlightPrompts === 0) {
-        wakeupActivityAt = Date.now();
-        scheduleFinishCheck(1000);
-      }
+      // Note: agy emits usage_update right BEFORE tool calls too, never treat it as an end-of-turn signal!
+      markActivity();
       break;
     }
     default:
@@ -862,10 +1170,8 @@ function sendPrompt(text: string, isSteer = false): void {
     textEndsWithNewline = true;
   }
   suppressAskFallbackText = false;
-  awaitingWakeup = false;
-  wakeupDoneConfirmed = false;
-  wakeupSawTextOrTool = false;
-  if (finishCheckTimer) clearTimeout(finishCheckTimer);
+  leaveWakeupForAsync();
+  markActivity();
   inFlightPrompts++;
 
   void request("session/prompt", {
@@ -875,6 +1181,7 @@ function sendPrompt(text: string, isSteer = false): void {
     .then((res) => {
       inFlightPrompts = Math.max(0, inFlightPrompts - 1);
       turns++;
+      markActivity();
       const usage = isObj(res.usage) ? res.usage : undefined;
       if (usage) {
         if (typeof usage.inputTokens === "number") totalInputTokens += usage.inputTokens;
@@ -890,6 +1197,12 @@ function sendPrompt(text: string, isSteer = false): void {
       if (openQuestions.length > 0) return;
       if (hasOpenNonDaemonAsync()) {
         emitBackgroundSnapshot();
+        return;
+      }
+      // Guard: if a background task's SYSTEM_MESSAGE arrived right before end_turn and no post-SYSTEM_MESSAGE
+      // PLANNER_RESPONSE has landed yet, wait for the wakeup turn instead of exiting early!
+      if (pendingWakeupAfterStep >= 0) {
+        enterWakeup(pendingWakeupAfterStep);
         return;
       }
       finishCleanly(false);
@@ -1076,28 +1389,18 @@ async function main(): Promise<void> {
 
   emit({ kind: "session", session_id: sessionId, ...(activeModel ? { model: activeModel } : {}) });
 
-  // Background transcript/subagent watcher (lightweight 300ms poll for background task IDs, log growth, subagents)
+  // Background transcript/subagent/wakeup watcher (400ms poll for background task IDs, log growth, subagents, DB state & keepalive)
   pollTimer = setInterval(() => {
     if (finished || exiting) return;
     pollParentTranscript();
     pollSubagents();
     pollBackgroundLogs();
-  }, 300);
+    evaluateWakeupCompletion();
+    maybeEmitKeepalive();
+  }, 400);
   pollTimer.unref();
 
-  if (args.timeout > 0) {
-    timeoutTimer = setTimeout(() => {
-      if (finished || exiting) return;
-      if (openQuestions.length > 0) return; // Don't time out while user is reviewing an ask_question dialog
-      if (hasOpenNonDaemonAsync()) {
-        err(`\n⏳ [任务在后台持续执行中（${backgroundSummaryNames()}），达到单次等待上限（${args.timeout}s），保持后台运行]\n`);
-        finishCleanly(true);
-        return;
-      }
-      void cancelAndExit(124, `\n[Agent timeout: 任务执行已达到安全上限（${args.timeout}s）]\n`);
-    }, args.timeout * 1000);
-    timeoutTimer.unref();
-  }
+  armActivityTimeout(true);
 
   sendPrompt(args.prompt, false);
   for (const early of earlyInputs.splice(0)) {

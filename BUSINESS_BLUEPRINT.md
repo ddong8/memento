@@ -10,9 +10,9 @@
 | :--- | :--- |
 | 1. 业务对象与术语 | L21-L65 |
 | 2. 关键流程 | L67-L124 |
-| 3. 业务规则 | L126-L577 |
-| 4. 状态归属 | L579-L624 |
-| 自动核对 (Auto Check) | L627-L740 |
+| 3. 业务规则 | L126-L578 |
+| 4. 状态归属 | L580-L625 |
+| 自动核对 (Auto Check) | L628-L741 |
 <!-- memento:business-index:end -->
 > 业务蓝图：memento 应该做成什么样，每一条落在哪段代码、由哪个测试或检查保证。和代码蓝图 [CODE_BLUEPRINT.md](CODE_BLUEPRINT.md)（代码长什么样）配合看：代码蓝图回答"在哪里"，这份回答"应该怎样、为什么"。
 > 规则来自用户的原话和纠正（CLAUDE.md、长期记忆、每晚复盘），不是从代码里反推的；代码和这里对不上，先当成代码的问题查。
@@ -141,11 +141,12 @@
 - 要求: `if (!ls.csrf) return null;` @ `packages/daemon/src/antigravity.ts`
 
 ### R-TRACK-BACKGROUND 后台任务跟踪到结束，不提前收尾
-- 来源: CLAUDE.md（memento）「后台任务要跟踪到结束，不要提前结束」；用户 2026-11-14「antigravity经常会出现任务还没完成……不能精准的判断到任务是否结束吗」
-- 说明: 不能用固定的安静时长判定结束。Antigravity 的定时器到点前日志为空，按定时时长等到点再加宽限。用 Google 的 agy 命令行（没有桌面应用的服务器）跑的任务，后台命令是否跑完按它会话记录里每个后台任务自己的结束消息判断，不看回复里的字眼（2026-11-19 用户「antigravity 里的任务总是出现这种后台任务运行中的情况」：vps3 上两个后台命令都已退出码 0，仍显示没跑完）。
-- 代码: `packages/daemon/src/agy-runner/runner.ts#timerSeconds`, `packages/daemon/src/agy-runner/runner.ts#backgroundQuietMs`, `packages/daemon/src/antigravity.ts#openBackgroundTasks`, `packages/daemon/src/antigravity.ts#agyCliOpenBackgroundTasks`
-- 测试: `packages/daemon/test/antigravity-runner.test.ts#waits for a timer Antigravity set and ends on the work it wakes up for, not at the quiet limit`, `packages/daemon/test/agy-project-folder.test.ts#reads how long a schedule timer waits from its task description`, `packages/daemon/test/still-running.test.ts#detects Antigravity active background task`, `packages/daemon/test/antigravity-official-cli.test.ts#background commands: done once the transcript says they ended, whatever the reply says; one still going leaves the task running`, `packages/daemon/test/agy-background.test.ts#none once each one's own message says it finished (the run on vps3 that read as still running)`
-- 要求: `timerSeconds(` @ `packages/daemon/src/agy-runner/runner.ts`
+- 来源: CLAUDE.md（memento）「后台任务要跟踪到结束，不要提前结束」；用户 2026-11-14「antigravity经常会出现任务还没完成……不能精准的判断到任务是否结束吗」；用户 2026-11-23「antigravity 的后台任务没有完整的跟踪而提前退出了。实际上任务没有完成」
+- 说明: 不能用固定的安静时长判定结束。Antigravity 的定时器到点前日志为空，按定时时长等到点再加宽限。用 Google 的 agy 命令行跑的任务，ACP 通道（`agy_acp.mjs`）在后台任务/定时器/子智能体结束后不得用 2.5s/6s 固定静默超时提前收尾，必须结合 `conversation_summaries.db` 的 Cascade 引擎实时运行状态（`CASCADE_RUN_STATUS_RUNNING` / `not_fully_idle`）与唤醒后的 `PLANNER_RESPONSE`（无 `tool_calls`）确认真正空闲，并支持唤醒中接力启动下一波后台任务与静默保活；后台命令是否跑完按会话记录里每个后台任务自己的结束消息判断，不看回复里的字眼（2026-11-19 vps3 误报、2026-11-23 filmkit 8/8 后台唤醒被 6s/2.5s 提前终止）。
+- 代码: `packages/daemon/src/agy-runner/runner.ts#timerSeconds`, `packages/daemon/src/agy-runner/runner.ts#backgroundQuietMs`, `packages/daemon/src/agy-acp-runner/main.ts#evaluateWakeupCompletion`, `packages/daemon/src/agy-acp-runner/helpers.ts#readAgyConversationState`, `packages/daemon/src/antigravity.ts#openBackgroundTasks`, `packages/daemon/src/antigravity.ts#agyCliOpenBackgroundTasks`
+- 测试: `packages/daemon/test/antigravity-runner.test.ts#waits for a timer Antigravity set and ends on the work it wakes up for, not at the quiet limit`, `packages/daemon/test/agy-project-folder.test.ts#reads how long a schedule timer waits from its task description`, `packages/daemon/test/still-running.test.ts#detects Antigravity active background task`, `packages/daemon/test/antigravity-official-cli.test.ts#background commands: done once the transcript says they ended, whatever the reply says; one still going leaves the task running`, `packages/daemon/test/agy-background.test.ts#none once each one's own message says it finished (the run on vps3 that read as still running)`, `packages/daemon/test/antigravity-acp.test.ts#tracks slow-thinking (>6s) and multi-step (>2.5s gaps) autonomous wakeups to completion without exiting early`, `packages/daemon/test/antigravity-acp.test.ts#tracks chained multi-wave background tasks launched during an autonomous wakeup turn`
+- 要求: `timerSeconds(` @ `packages/daemon/src/agy-runner/runner.ts`; `readAgyConversationState(` @ `packages/daemon/src/agy-acp-runner/main.ts`
+- 禁止: `quietMs >= 6000` @ `packages/daemon/src/agy-acp-runner/main.ts`; `quietMs >= 2500` @ `packages/daemon/src/agy-acp-runner/main.ts`
 
 ### R-STOP-ALL-AGENTS Antigravity、Claude Code、Codex 运行中的任务都必须能停
 - 来源: CLAUDE.md（memento）「必须能停止 Antigravity、Claude Code、Codex 运行中的任务」
@@ -654,7 +655,7 @@
 | `F-BLUEPRINT` | 蓝图生成与核对 | 5/5 | — | — | ✅ |
 | `R-AGY-WORKDIR` | 选了哪个目录，Antigravity 就在那个目录干活 | 4/4 | 4/4 | 3/3 | ✅ |
 | `R-AGY-APP-CSRF` | Antigravity 应用不给会话接口令牌时，任务改走 Google 官方 agy 命令行 | 5/5 | 2/2 | 1/1 | ✅ |
-| `R-TRACK-BACKGROUND` | 后台任务跟踪到结束，不提前收尾 | 4/4 | 5/5 | 1/1 | ✅ |
+| `R-TRACK-BACKGROUND` | 后台任务跟踪到结束，不提前收尾 | 6/6 | 7/7 | 4/4 | ✅ |
 | `R-STOP-ALL-AGENTS` | Antigravity、Claude Code、Codex 运行中的任务都必须能停 | 3/3 | 4/4 | 1/1 | ✅ |
 | `R-ISLAND-CLEANUP` | 任务结束必须清掉灵动岛状态 | 3/3 | 3/3 | — | ✅ |
 | `R-MULTI-DEVICE-STABLE` | 多机任务并发执行，过程和结果稳定回传 | 4/4 | 4/4 | — | ✅ |

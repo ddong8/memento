@@ -386,6 +386,7 @@ export class TaskRunner {
     let stallTimer: NodeJS.Timeout | undefined;
     let agyTranscriptTimer: NodeJS.Timeout | undefined;
     let agyIdleBackgroundCount = 0;
+    let lastServerActivityAt = Date.now();
 
     const cmdLine = `${spec.exe} ${spec.args?.join(" ")} ${spec.stdinPrompt ?? ""}`;
     const isHeavyCommand = /\b(?:cargo\s+build|flutter\s+build|npm\s+run\s+build|docker\s+build|mvn\s+package|gradle\s+build|git\s+clone)\b/i.test(
@@ -437,6 +438,7 @@ export class TaskRunner {
     armTimer();
 
     const dispatchParsedEvents = (events: AgentEvent[]) => {
+      if (events.length > 0) lastServerActivityAt = Date.now();
       for (const e of events) {
         if (e.kind === "text_delta") {
           const text = String(e.text ?? "");
@@ -524,6 +526,20 @@ export class TaskRunner {
             out.stdout += `${line}\n`;
           }
           this.sendChunk(taskId, "stdout", `${line}\n`);
+          return;
+        }
+        if (events.length === 0) {
+          // Silent runner keepalive (e.g. agy_acp waiting on a long background command or slow thinking):
+          // armTimer() already refreshed local watchdog; periodically send task_progress so server deadline stays fresh too.
+          if (Date.now() - lastServerActivityAt >= 120_000) {
+            lastServerActivityAt = Date.now();
+            const bgCount = Math.max(agyIdleBackgroundCount, parser.activeBackgroundTasks.size);
+            this.send({
+              type: "task_progress",
+              task_id: taskId,
+              status: bgCount > 0 ? `后台任务持续执行中（当前 ${bgCount} 个），完成后将自动继续` : "running",
+            });
+          }
           return;
         }
         dispatchParsedEvents(events);

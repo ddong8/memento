@@ -7,7 +7,19 @@ import { join } from "node:path";
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
 import { WebSocketServer } from "ws";
 
-import { formatAskQuestionAnswers, parseAskQuestionArgs, parseSubagentLaunch, resolveAcpModel } from "../src/agy-acp-runner/helpers.js";
+import {
+  formatAskQuestionAnswers,
+  isAsyncToolName,
+  isCascadeIdle,
+  isCascadeRunning,
+  isFailedToolOutput,
+  isTransientAgyError,
+  parseAskQuestionArgs,
+  parseSubagentLaunch,
+  readAgyConversationState,
+  resolveAcpModel,
+} from "../src/agy-acp-runner/helpers.js";
+import { sqliteRun } from "../src/sqlite.js";
 
 const dir = mkdtempSync(join(tmpdir(), "agy-acp-test-"));
 const fakeAgy = join(dir, "agy");
@@ -40,9 +52,28 @@ import { createInterface } from "node:readline";
 
 const args = process.argv.slice(2);
 const logFile = ${JSON.stringify(join(dir, "acp_calls.jsonl"))};
+const cliDataDir = ${JSON.stringify(join(fakeHome, ".gemini", "antigravity-cli"))};
 const brainRoot = ${JSON.stringify(join(fakeHome, ".gemini", "antigravity-cli", "brain"))};
+const dbPath = ${JSON.stringify(join(fakeHome, ".gemini", "antigravity-cli", "conversation_summaries.db"))};
 const CID = ${JSON.stringify(CID)};
 const SUB_CID = ${JSON.stringify(SUB_CID)};
+
+function setDbState(cid, status, notFullyIdle, stepCount = 1) {
+  try {
+    const sqlite = process.getBuiltinModule?.("node:sqlite");
+    if (!sqlite) return;
+    mkdirSync(cliDataDir, { recursive: true });
+    const db = new sqlite.DatabaseSync(dbPath);
+    try {
+      db.exec("CREATE TABLE IF NOT EXISTS conversation_summaries (conversation_id text PRIMARY KEY, status text NOT NULL DEFAULT '', not_fully_idle numeric NOT NULL DEFAULT 0, step_count integer NOT NULL DEFAULT 0, killed numeric NOT NULL DEFAULT 0)");
+      db.prepare("INSERT OR REPLACE INTO conversation_summaries (conversation_id, status, not_fully_idle, step_count, killed) VALUES (?, ?, ?, ?, 0)").run(cid, status, notFullyIdle ? 1 : 0, stepCount);
+    } finally {
+      db.close();
+    }
+  } catch {
+    // ignore in runtimes without node:sqlite
+  }
+}
 
 if (args[0] === "acp" && args.includes("--help")) {
   console.log("Usage: agy acp [flags]\\n\\nStart the Agent Client Protocol (ACP) stdio server");
@@ -239,6 +270,217 @@ createInterface({ input: process.stdin, crlfDelay: Infinity }).on("line", (line)
       return;
     }
 
+    // Scenario 5: Slow thinking (>7s) & multi-step pauses (>3s) after background task fails with exit code 1 (repro 79bd668f!)
+    if (text === "慢思考多步唤醒") {
+      const logsDir = join(brainRoot, CID, ".system_generated", "logs");
+      mkdirSync(logsDir, { recursive: true });
+      const t0 = new Date().toISOString().replace(/\\.\\d+Z$/, "Z");
+      setDbState(CID, "CASCADE_RUN_STATUS_RUNNING", true, 20);
+      update({ sessionUpdate: "tool_call", toolCallId: "call_deploy_1174", name: "run_command", args: { CommandLine: "kubectl rollout status deploy/filmkit", WaitMsBeforeAsync: 500 }, status: "in_progress" });
+      appendFileSync(
+        join(logsDir, "transcript.jsonl"),
+        JSON.stringify({ step_index: 20, source: "MODEL", type: "GENERIC", status: "RUNNING", created_at: t0, content: "Created At: " + t0 + "\\nTool is running as a background task with task id: " + CID + "/task-1174\\nTask Description: kubectl rollout status deploy/filmkit" }) + "\\n",
+      );
+      update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "正在导入镜像并等待新 Pod 就绪。" } });
+      appendFileSync(
+        join(logsDir, "transcript.jsonl"),
+        JSON.stringify({ step_index: 21, source: "MODEL", type: "PLANNER_RESPONSE", status: "DONE", created_at: t0, content: "正在导入镜像并等待新 Pod 就绪。" }) + "\\n",
+      );
+      send({ jsonrpc: "2.0", id: msg.id, result: { stopReason: "end_turn", usage: { inputTokens: 800, outputTokens: 20 } } });
+      setDbState(CID, "CASCADE_RUN_STATUS_IDLE", true, 21);
+
+      // Background deploy exits with code 1 at +500ms, engine flips to RUNNING immediately
+      setTimeout(() => {
+        const t1 = new Date().toISOString().replace(/\\.\\d+Z$/, "Z");
+        update({ sessionUpdate: "tool_call_update", toolCallId: "call_deploy_1174", name: "run_command", args: { CommandLine: "kubectl rollout status deploy/filmkit" }, status: "completed", rawOutput: { output: "Command exited with code 1.\\n\\nerror: deployment exceeded its progress deadline" } });
+        appendFileSync(
+          join(logsDir, "transcript.jsonl"),
+          JSON.stringify({ step_index: 22, source: "SYSTEM", type: "SYSTEM_MESSAGE", status: "DONE", created_at: t1, content: "<SYSTEM_MESSAGE>\\n[Message] sender=" + CID + "/task-1174 content=Task id \\"" + CID + "/task-1174\\" finished with result:\\nCommand exited with code 1.\\n</SYSTEM_MESSAGE>" }) + "\\n",
+        );
+        setDbState(CID, "CASCADE_RUN_STATUS_RUNNING", true, 22);
+      }, 500);
+
+      // 6.8s silent TTFT (old 6.0s timer killed EVERY real wakeup here!)
+      setTimeout(() => {
+        update({ sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "部署超时了，先查 Pod 原因。" } });
+      }, 7300);
+
+      // +3.0s gap after thought chunk (old 2.5s timer killed multi-step wakeups here!) -> usage_update + follow-up tool
+      setTimeout(() => {
+        const t2 = new Date().toISOString().replace(/\\.\\d+Z$/, "Z");
+        update({ sessionUpdate: "usage_update", used: 2200, size: 1048576 });
+        update({ sessionUpdate: "tool_call", toolCallId: "call_pods_23", name: "run_command", args: { CommandLine: "kubectl get pods -n memento" }, status: "in_progress" });
+        update({ sessionUpdate: "tool_call_update", toolCallId: "call_pods_23", name: "run_command", args: { CommandLine: "kubectl get pods -n memento" }, status: "completed", rawOutput: { output: "Command exited with code 0.\\nfilmkit-new 1/1 Running" } });
+        appendFileSync(
+          join(logsDir, "transcript.jsonl"),
+          JSON.stringify({ step_index: 23, source: "MODEL", type: "PLANNER_RESPONSE", status: "DONE", created_at: t2, tool_calls: [{ name: "run_command", args: { CommandLine: '"kubectl get pods -n memento"' } }] }) + "\\n" +
+          JSON.stringify({ step_index: 24, source: "MODEL", type: "GENERIC", status: "DONE", created_at: t2, content: "Command exited with code 0.\\nfilmkit-new 1/1 Running" }) + "\\n",
+        );
+      }, 10300);
+
+      // +3.0s pause thinking about tool output -> final answer + IDLE|0
+      setTimeout(() => {
+        const t3 = new Date().toISOString().replace(/\\.\\d+Z$/, "Z");
+        update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "已定位部署超时原因并核验新 Pod 1/1 Running。" } });
+        update({ sessionUpdate: "usage_update", used: 2400, size: 1048576 });
+        appendFileSync(
+          join(logsDir, "transcript.jsonl"),
+          JSON.stringify({ step_index: 25, source: "MODEL", type: "PLANNER_RESPONSE", status: "DONE", created_at: t3, content: "已定位部署超时原因并核验新 Pod 1/1 Running。" }) + "\\n",
+        );
+        setDbState(CID, "CASCADE_RUN_STATUS_IDLE", false, 26);
+      }, 13300);
+      return;
+    }
+
+    // Scenario 6: Chained two-wave background tasks launched during wakeup
+    if (text === "两波接力后台任务") {
+      const logsDir = join(brainRoot, CID, ".system_generated", "logs");
+      mkdirSync(logsDir, { recursive: true });
+      const t0 = new Date().toISOString().replace(/\\.\\d+Z$/, "Z");
+      setDbState(CID, "CASCADE_RUN_STATUS_RUNNING", true, 30);
+      update({ sessionUpdate: "tool_call", toolCallId: "call_wave1", name: "run_command", args: { CommandLine: "gh run watch 1" }, status: "in_progress" });
+      appendFileSync(
+        join(logsDir, "transcript.jsonl"),
+        JSON.stringify({ step_index: 30, source: "MODEL", type: "GENERIC", status: "RUNNING", created_at: t0, content: "Created At: " + t0 + "\\nTool is running as a background task with task id: " + CID + "/task-30\\nTask Description: gh run watch 1" }) + "\\n",
+      );
+      update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "第一波构建已启动。" } });
+      send({ jsonrpc: "2.0", id: msg.id, result: { stopReason: "end_turn", usage: { inputTokens: 300, outputTokens: 10 } } });
+      setDbState(CID, "CASCADE_RUN_STATUS_IDLE", true, 31);
+
+      // Wave 1 finishes at +500ms -> woken agent immediately launches Wave 2 (run_workflow) in background!
+      setTimeout(() => {
+        const t1 = new Date().toISOString().replace(/\\.\\d+Z$/, "Z");
+        update({ sessionUpdate: "tool_call_update", toolCallId: "call_wave1", name: "run_command", args: { CommandLine: "gh run watch 1" }, status: "completed", rawOutput: { output: "Command exited with code 0.\\nIMAGE_BUILT" } });
+        appendFileSync(
+          join(logsDir, "transcript.jsonl"),
+          JSON.stringify({ step_index: 32, source: "SYSTEM", type: "SYSTEM_MESSAGE", status: "DONE", created_at: t1, content: "<SYSTEM_MESSAGE>\\n[Message] sender=" + CID + "/task-30 content=Task id \\"" + CID + "/task-30\\" finished with result:\\nCommand exited with code 0.\\n</SYSTEM_MESSAGE>" }) + "\\n",
+        );
+        setDbState(CID, "CASCADE_RUN_STATUS_RUNNING", true, 32);
+      }, 500);
+
+      setTimeout(() => {
+        const t2 = new Date().toISOString().replace(/\\.\\d+Z$/, "Z");
+        update({ sessionUpdate: "tool_call", toolCallId: "call_wave2", name: "run_workflow", args: { Description: "滚动部署验收" }, status: "in_progress" });
+        appendFileSync(
+          join(logsDir, "transcript.jsonl"),
+          JSON.stringify({ step_index: 33, source: "MODEL", type: "PLANNER_RESPONSE", status: "DONE", created_at: t2, tool_calls: [{ name: "run_workflow", args: { Description: '"滚动部署验收"' } }] }) + "\\n" +
+          JSON.stringify({ step_index: 34, source: "MODEL", type: "GENERIC", status: "RUNNING", created_at: t2, content: "Created At: " + t2 + "\\nTool is running as a background task with task id: " + CID + "/task-34\\nTask Description: 滚动部署验收" }) + "\\n",
+        );
+        update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "第一波完成，已启动第二波部署。" } });
+        appendFileSync(
+          join(logsDir, "transcript.jsonl"),
+          JSON.stringify({ step_index: 35, source: "MODEL", type: "PLANNER_RESPONSE", status: "DONE", created_at: t2, content: "第一波完成，已启动第二波部署。" }) + "\\n",
+        );
+        setDbState(CID, "CASCADE_RUN_STATUS_IDLE", true, 35);
+      }, 1200);
+
+      // Wave 2 finishes at +2400ms -> woken agent emits final summary
+      setTimeout(() => {
+        const t3 = new Date().toISOString().replace(/\\.\\d+Z$/, "Z");
+        update({ sessionUpdate: "tool_call_update", toolCallId: "call_wave2", name: "run_workflow", args: { Description: "滚动部署验收" }, status: "completed", rawOutput: { output: "Command exited with code 0.\\nDEPLOY_VERIFIED" } });
+        appendFileSync(
+          join(logsDir, "transcript.jsonl"),
+          JSON.stringify({ step_index: 36, source: "SYSTEM", type: "SYSTEM_MESSAGE", status: "DONE", created_at: t3, content: "<SYSTEM_MESSAGE>\\n[Message] sender=" + CID + "/task-34 content=Task id \\"" + CID + "/task-34\\" finished with result:\\nCommand exited with code 0.\\n</SYSTEM_MESSAGE>" }) + "\\n",
+        );
+        setDbState(CID, "CASCADE_RUN_STATUS_RUNNING", true, 36);
+      }, 2400);
+
+      setTimeout(() => {
+        const t4 = new Date().toISOString().replace(/\\.\\d+Z$/, "Z");
+        update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "两波后台任务全部完成。" } });
+        appendFileSync(
+          join(logsDir, "transcript.jsonl"),
+          JSON.stringify({ step_index: 37, source: "MODEL", type: "PLANNER_RESPONSE", status: "DONE", created_at: t4, content: "两波后台任务全部完成。" }) + "\\n",
+        );
+        setDbState(CID, "CASCADE_RUN_STATUS_IDLE", false, 38);
+      }, 3000);
+      return;
+    }
+
+    // Scenario 7: Async tool returning status=completed immediately with background task id + silent keepalive
+    if (text === "定时复查保活") {
+      const logsDir = join(brainRoot, CID, ".system_generated", "logs");
+      mkdirSync(logsDir, { recursive: true });
+      const t0 = new Date().toISOString().replace(/\\.\\d+Z$/, "Z");
+      setDbState(CID, "CASCADE_RUN_STATUS_RUNNING", true, 40);
+      update({ sessionUpdate: "tool_call", toolCallId: "call_sched_40", name: "schedule", args: { DurationSeconds: 2, Prompt: "复查结果" }, status: "in_progress" });
+      // Edge case: tool_call_update reports "completed" immediately upon returning a background task ID!
+      update({
+        sessionUpdate: "tool_call_update",
+        toolCallId: "call_sched_40",
+        name: "schedule",
+        args: { DurationSeconds: 2, Prompt: "复查结果" },
+        status: "completed",
+        rawOutput: { output: "Created At: " + t0 + "\\nTool is running as a background task with task id: " + CID + "/task-40\\nTask Description: Timer (2s)" },
+      });
+      update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "已设 2 秒定时复查。" } });
+      send({ jsonrpc: "2.0", id: msg.id, result: { stopReason: "end_turn", usage: { inputTokens: 200, outputTokens: 8 } } });
+      setDbState(CID, "CASCADE_RUN_STATUS_IDLE", true, 41);
+
+      setTimeout(() => {
+        const t1 = new Date().toISOString().replace(/\\.\\d+Z$/, "Z");
+        appendFileSync(
+          join(logsDir, "transcript.jsonl"),
+          JSON.stringify({ step_index: 42, source: "SYSTEM", type: "SYSTEM_MESSAGE", status: "DONE", created_at: t1, content: "<SYSTEM_MESSAGE>\\n[Message] sender=" + CID + "/task-40 content=Task id \\"" + CID + "/task-40\\" finished with result:\\nTimer fired\\n</SYSTEM_MESSAGE>" }) + "\\n",
+        );
+        setDbState(CID, "CASCADE_RUN_STATUS_RUNNING", true, 42);
+      }, 1100);
+
+      setTimeout(() => {
+        const t2 = new Date().toISOString().replace(/\\.\\d+Z$/, "Z");
+        update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "定时复查已完成。" } });
+        appendFileSync(
+          join(logsDir, "transcript.jsonl"),
+          JSON.stringify({ step_index: 43, source: "MODEL", type: "PLANNER_RESPONSE", status: "DONE", created_at: t2, content: "定时复查已完成。" }) + "\\n",
+        );
+        setDbState(CID, "CASCADE_RUN_STATUS_IDLE", false, 44);
+      }, 1500);
+      return;
+    }
+
+    // Scenario 8: Transcript registers subagent before invoke_subagent tool_call_update arrives with Role
+    if (text === "子智能体名称补全") {
+      const subCid2 = "c3d4e5f6-3333-4444-8555-666677778888";
+      const parentLogsDir = join(brainRoot, CID, ".system_generated", "logs");
+      mkdirSync(parentLogsDir, { recursive: true });
+      const t0 = new Date().toISOString().replace(/\\.\\d+Z$/, "Z");
+      setDbState(CID, "CASCADE_RUN_STATUS_RUNNING", true, 50);
+      // Parent transcript gets conversationId BEFORE handleToolUpdate completes
+      appendFileSync(
+        join(parentLogsDir, "transcript.jsonl"),
+        JSON.stringify({ step_index: 50, source: "MODEL", type: "GENERIC", status: "DONE", created_at: t0, content: 'Created the following subagent:\\n{"conversationId":"' + subCid2 + '"}' }) + "\\n",
+      );
+      setTimeout(() => {
+        update({
+          sessionUpdate: "tool_call_update",
+          toolCallId: "call_sub_enrich",
+          name: "invoke_subagent",
+          args: { TypeName: "research", Role: "架构复核员", Prompt: "复核设计" },
+          status: "completed",
+          rawOutput: { output: 'Created the following subagent:\\n{"conversationId":"' + subCid2 + '"}' },
+        });
+        update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "已派发架构复核员。" } });
+        send({ jsonrpc: "2.0", id: msg.id, result: { stopReason: "end_turn", usage: { inputTokens: 200, outputTokens: 8 } } });
+        setDbState(CID, "CASCADE_RUN_STATUS_IDLE", true, 51);
+      }, 450);
+
+      setTimeout(() => {
+        const t1 = new Date().toISOString().replace(/\\.\\d+Z$/, "Z");
+        appendFileSync(
+          join(parentLogsDir, "transcript.jsonl"),
+          JSON.stringify({ step_index: 52, source: "SYSTEM", type: "SYSTEM_MESSAGE", status: "DONE", created_at: t1, content: "<SYSTEM_MESSAGE>\\n[Message] sender=" + subCid2 + " content=Subagent completed: 复核通过\\n</SYSTEM_MESSAGE>" }) + "\\n",
+        );
+        setDbState(CID, "CASCADE_RUN_STATUS_RUNNING", true, 52);
+        update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "架构复核通过。" } });
+        appendFileSync(
+          join(parentLogsDir, "transcript.jsonl"),
+          JSON.stringify({ step_index: 53, source: "MODEL", type: "PLANNER_RESPONSE", status: "DONE", created_at: t1, content: "架构复核通过。" }) + "\\n",
+        );
+        setDbState(CID, "CASCADE_RUN_STATUS_IDLE", false, 54);
+      }, 1000);
+      return;
+    }
+
     send({ jsonrpc: "2.0", id: msg.id, result: { stopReason: "end_turn", usage: { inputTokens: 10, outputTokens: 2 } } });
   }
 });
@@ -256,7 +498,9 @@ async function runAcpTask(
   onMessage?: (msg: Record<string, unknown>, sendToClient: (m: Record<string, unknown>) => void) => void,
 ) {
   const prevHome = process.env.HOME;
+  const prevAcpRunner = process.env.MEMENTO_AGY_ACP_RUNNER;
   process.env.HOME = fakeHome;
+  delete process.env.MEMENTO_AGY_ACP_RUNNER;
   const received: Record<string, unknown>[] = [];
   const wss = new WebSocketServer({ port: 0, host: "127.0.0.1" });
   let resolveDone!: (m: Record<string, unknown>) => void;
@@ -285,6 +529,8 @@ async function runAcpTask(
     client.dispose();
     await new Promise((r) => wss.close(r));
     process.env.HOME = prevHome;
+    if (prevAcpRunner === undefined) delete process.env.MEMENTO_AGY_ACP_RUNNER;
+    else process.env.MEMENTO_AGY_ACP_RUNNER = prevAcpRunner;
   }
 }
 
@@ -307,6 +553,46 @@ it("helper unit checks: model resolution, ask_question parsing, subagent launch 
   expect(
     parseSubagentLaunch('{"conversationId":"11111111-2222-3333-4444-555555555555","logAbsoluteUri":"file:///tmp/sub.jsonl"}'),
   ).toEqual({ conversationId: "11111111-2222-3333-4444-555555555555", logPath: "/tmp/sub.jsonl" });
+
+  expect(isAsyncToolName("run_command")).toBe(true);
+  expect(isAsyncToolName("schedule")).toBe(true);
+  expect(isAsyncToolName("run_workflow")).toBe(true);
+  expect(isAsyncToolName("read_file")).toBe(false);
+  expect(isFailedToolOutput("Command exited with code 1.\nerror: exceeded deadline")).toBe(true);
+  expect(isFailedToolOutput("Command exited with code 0.\nOK")).toBe(false);
+  expect(isTransientAgyError("503 No capacity available (attempt 2)")).toBe(true);
+  expect(isTransientAgyError("invalid argument")).toBe(false);
+
+  const testDb = join(dir, "helper_summaries.db");
+  expect(
+    sqliteRun(
+      testDb,
+      "CREATE TABLE conversation_summaries (conversation_id text PRIMARY KEY, status text, not_fully_idle numeric, step_count integer, killed numeric)",
+    ),
+  ).toBe(true);
+  expect(
+    sqliteRun(
+      testDb,
+      "INSERT INTO conversation_summaries VALUES (?, ?, ?, ?, ?)",
+      ["cid-run", "CASCADE_RUN_STATUS_RUNNING", 1, 12, 0],
+    ),
+  ).toBe(true);
+  expect(
+    sqliteRun(
+      testDb,
+      "INSERT INTO conversation_summaries VALUES (?, ?, ?, ?, ?)",
+      ["cid-idle", "CASCADE_RUN_STATUS_IDLE", 0, 14, 0],
+    ),
+  ).toBe(true);
+  const runState = readAgyConversationState(testDb, "cid-run");
+  expect(runState).toEqual({ status: "CASCADE_RUN_STATUS_RUNNING", notFullyIdle: true, stepCount: 12, killed: false });
+  expect(isCascadeRunning(runState)).toBe(true);
+  expect(isCascadeIdle(runState)).toBe(false);
+  const idleState = readAgyConversationState(testDb, "cid-idle");
+  expect(idleState).toEqual({ status: "CASCADE_RUN_STATUS_IDLE", notFullyIdle: false, stepCount: 14, killed: false });
+  expect(isCascadeRunning(idleState)).toBe(false);
+  expect(isCascadeIdle(idleState)).toBe(true);
+  expect(readAgyConversationState(testDb, "missing")).toBeNull();
 });
 
 it.skipIf(process.platform === "win32")(
@@ -396,6 +682,78 @@ it.skipIf(process.platform === "win32")(
     expect(String(done.stderr)).toContain("agy 不认识模型 pro");
     const calls = readFileSync(join(dir, "acp_calls.jsonl"), "utf8");
     expect(calls).toContain("session/prompt");
+  },
+  30_000,
+);
+
+it.skipIf(process.platform === "win32")(
+  "tracks slow-thinking (>6s) and multi-step (>2.5s gaps) autonomous wakeups to completion without exiting early",
+  async () => {
+    const { done, events, chunks } = await runAcpTask("acp-0006", { prompt: "慢思考多步唤醒" });
+    expect(done, `${done.error}\n${done.stderr}`).toMatchObject({ status: "succeeded", session_id: CID });
+    // Non-zero exit code background command must be marked failed (not done)
+    expect(events).toContainEqual(expect.objectContaining({ kind: "tool", id: "call_deploy_1174", status: "failed" }));
+    // Follow-up diagnostic tool ran AFTER >6.8s TTFT + >3s pause without being killed
+    expect(events).toContainEqual(expect.objectContaining({ kind: "tool", id: "call_pods_23", status: "done" }));
+    const combined = chunks.join("");
+    expect(combined).toContain("正在导入镜像并等待新 Pod 就绪。");
+    expect(combined).toContain("已定位部署超时原因并核验新 Pod 1/1 Running。");
+    expect(String(done.stdout)).toContain("已定位部署超时原因并核验新 Pod 1/1 Running。");
+  },
+  35_000,
+);
+
+it.skipIf(process.platform === "win32")(
+  "tracks chained multi-wave background tasks launched during an autonomous wakeup turn",
+  async () => {
+    const { done, events, chunks } = await runAcpTask("acp-0007", { prompt: "两波接力后台任务" });
+    expect(done, `${done.error}\n${done.stderr}`).toMatchObject({ status: "succeeded", session_id: CID });
+    expect(events).toContainEqual(expect.objectContaining({ kind: "tool", id: "call_wave1", status: "background" }));
+    expect(events).toContainEqual(expect.objectContaining({ kind: "tool", id: "call_wave1", status: "done" }));
+    expect(events).toContainEqual(expect.objectContaining({ kind: "tool", id: "call_wave2", status: "background" }));
+    expect(events).toContainEqual(expect.objectContaining({ kind: "tool", id: "call_wave2", status: "done" }));
+    const combined = chunks.join("");
+    expect(combined).toContain("第一波构建已启动。");
+    expect(combined).toContain("第一波完成，已启动第二波部署。");
+    expect(combined).toContain("两波后台任务全部完成。");
+  },
+  30_000,
+);
+
+it.skipIf(process.platform === "win32")(
+  "keeps async-launch completed schedule timers alive until Timer fired and swallows keepalive events silently",
+  async () => {
+    const prevKeepalive = process.env.MEMENTO_AGY_KEEPALIVE_MS;
+    process.env.MEMENTO_AGY_KEEPALIVE_MS = "400";
+    try {
+      const { done, events, chunks } = await runAcpTask("acp-0008", { prompt: "定时复查保活" });
+      expect(done, `${done.error}\n${done.stderr}`).toMatchObject({ status: "succeeded", session_id: CID });
+      expect(events).toContainEqual(expect.objectContaining({ kind: "tool", id: "call_sched_40", status: "background" }));
+      expect(events).toContainEqual(expect.objectContaining({ kind: "tool", id: "call_sched_40", status: "done" }));
+      expect(events.some((e) => e.kind === "keepalive")).toBe(false);
+      const combined = chunks.join("");
+      expect(combined).toContain("已设 2 秒定时复查。");
+      expect(combined).toContain("定时复查已完成。");
+    } finally {
+      if (prevKeepalive === undefined) delete process.env.MEMENTO_AGY_KEEPALIVE_MS;
+      else process.env.MEMENTO_AGY_KEEPALIVE_MS = prevKeepalive;
+    }
+  },
+  30_000,
+);
+
+it.skipIf(process.platform === "win32")(
+  "enriches subagent name from invoke_subagent Role even when transcript registers conversationId first",
+  async () => {
+    const { done, events, chunks } = await runAcpTask("acp-0009", { prompt: "子智能体名称补全" });
+    expect(done, `${done.error}\n${done.stderr}`).toMatchObject({ status: "succeeded", session_id: CID });
+    expect(events).toContainEqual(
+      expect.objectContaining({ kind: "subagent", id: "c3d4e5f6-3333-4444-8555-666677778888", name: "架构复核员", status: "running" }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({ kind: "subagent", id: "c3d4e5f6-3333-4444-8555-666677778888", status: "done" }),
+    );
+    expect(chunks.join("")).toContain("架构复核通过。");
   },
   30_000,
 );

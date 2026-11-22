@@ -4,10 +4,75 @@
 
 // packages/daemon/src/agy-acp-runner/main.ts
 import { spawn } from "node:child_process";
-import { closeSync, existsSync, openSync, readSync, statSync } from "node:fs";
+import { closeSync, existsSync as existsSync2, openSync, readSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
+
+// packages/daemon/src/agy-acp-runner/helpers.ts
+import { existsSync } from "node:fs";
+
+// packages/daemon/src/sqlite.ts
+import { execFileSync } from "node:child_process";
+var loaded;
+function nodeSqlite() {
+  if (loaded !== void 0) return loaded;
+  const emit2 = process.emitWarning;
+  process.emitWarning = ((warning, ...rest) => {
+    const text = typeof warning === "string" ? warning : warning?.message;
+    if (/\bSQLite\b/.test(text ?? "")) return;
+    emit2.call(process, warning, ...rest);
+  });
+  try {
+    loaded = process.getBuiltinModule?.("node:sqlite") ?? null;
+  } catch {
+    loaded = null;
+  } finally {
+    process.emitWarning = emit2;
+  }
+  return loaded;
+}
+var sqliteCli = () => process.platform === "darwin" ? "/usr/bin/sqlite3" : "sqlite3";
+var FIELD = "";
+var ROW = "";
+function inline(sql, params) {
+  let i = 0;
+  return sql.replace(/\?/g, () => {
+    const v = params[i++] ?? null;
+    if (v === null) return "NULL";
+    if (typeof v === "number") return String(v);
+    return `'${v.replace(/'/g, "''")}'`;
+  });
+}
+function cli(path, sql, timeout) {
+  return execFileSync(sqliteCli(), ["-batch", "-list", "-noheader", "-separator", FIELD, "-newline", ROW, path, sql], {
+    encoding: "utf8",
+    timeout,
+    windowsHide: true,
+    stdio: ["ignore", "pipe", "ignore"]
+  });
+}
+function sqliteRows(path, sql, params = [], timeout = 3e3) {
+  const sqlite = nodeSqlite();
+  if (sqlite) {
+    try {
+      const db = new sqlite.DatabaseSync(path, { readOnly: true, timeout });
+      try {
+        return db.prepare(sql).all(...params).map((row) => Object.values(row));
+      } finally {
+        db.close();
+      }
+    } catch {
+      return void 0;
+    }
+  }
+  try {
+    const out = cli(path, inline(sql, params), timeout);
+    return out.split(ROW).filter((r) => r !== "" && r !== "\n").map((r) => r.split(FIELD));
+  } catch {
+    return void 0;
+  }
+}
 
 // packages/daemon/src/agy-acp-runner/helpers.ts
 var isObj = (v) => Boolean(v) && typeof v === "object" && !Array.isArray(v);
@@ -289,6 +354,46 @@ function unwrapTranscriptArgs(raw) {
   }
   return obj;
 }
+function readAgyConversationState(dbPath, conversationId) {
+  if (!conversationId || !existsSync(dbPath)) return null;
+  const rows = sqliteRows(
+    dbPath,
+    "SELECT status, not_fully_idle, step_count, killed FROM conversation_summaries WHERE conversation_id = ? LIMIT 1",
+    [conversationId],
+    1500
+  );
+  const row = rows?.[0];
+  if (!row) return null;
+  const status = str(row[0]).trim();
+  const nfiRaw = row[1];
+  const notFullyIdle = nfiRaw === 1 || nfiRaw === true || String(nfiRaw).toLowerCase() === "true" || String(nfiRaw) === "1";
+  const stepCount = Number(row[2] ?? 0) || 0;
+  const killedRaw = row[3];
+  const killed = killedRaw === 1 || killedRaw === true || String(killedRaw).toLowerCase() === "true" || String(killedRaw) === "1";
+  return { status, notFullyIdle, stepCount, killed };
+}
+function isCascadeRunning(state) {
+  if (!state) return false;
+  return /RUNNING|WAITING/i.test(state.status);
+}
+function isCascadeIdle(state) {
+  if (!state) return false;
+  return /IDLE|DONE|ERROR|CANCEL/i.test(state.status) && !state.notFullyIdle;
+}
+function isAsyncToolName(name) {
+  return name === "run_command" || name === "schedule" || name === "run_workflow" || name === "bash";
+}
+function hasBackgroundEndMarker(content) {
+  return AGY_BG_ENDED.some((kw) => content.includes(kw));
+}
+function isFailedToolOutput(content) {
+  return /(?:^|\n)\s*(?:The )?command exited with code [1-9]\d*\.?|\bStatus:\s*(?:ERROR|FAILED)\b|failed with result/i.test(content);
+}
+function isTransientAgyError(message) {
+  return /\b(?:attempt\s+\d+|503|429|502|504|UNAVAILABLE|RESOURCE_EXHAUSTED|DEADLINE_EXCEEDED|ECONNRESET|ETIMEDOUT|overloaded|rate limit|No capacity|temporarily unavailable)\b/i.test(
+    message
+  );
+}
 
 // packages/daemon/src/agy-acp-runner/main.ts
 var argv = process.argv.slice(2);
@@ -318,11 +423,22 @@ for (let i = 0; i < argv.length; i++) {
     args.prompt = args.prompt ? `${args.prompt} ${a}` : a;
   }
 }
-var emit = (event) => process.stdout.write(`${JSON.stringify({ type: "memento_event", event })}
+var lastStdoutEmitAt = Date.now();
+var emit = (event) => {
+  lastStdoutEmitAt = Date.now();
+  process.stdout.write(`${JSON.stringify({ type: "memento_event", event })}
 `);
+};
 var err = (msg) => process.stderr.write(msg);
 var home = process.env.HOME || process.env.USERPROFILE || homedir();
-var cliBrainRoot = join(home, ".gemini", "antigravity-cli", "brain");
+var cliDataDir = join(home, ".gemini", "antigravity-cli");
+var cliBrainRoot = join(cliDataDir, "brain");
+var cliSummariesDb = join(cliDataDir, "conversation_summaries.db");
+var NO_WAKEUP_IDLE_MS = Number(process.env.MEMENTO_AGY_NO_WAKEUP_MS) || 15e3;
+var POST_RUNNING_IDLE_MS = Number(process.env.MEMENTO_AGY_POST_RUNNING_IDLE_MS) || 5e3;
+var FALLBACK_WAKEUP_QUIET_MS = Number(process.env.MEMENTO_AGY_WAKEUP_FALLBACK_MS) || 12e4;
+var KEEPALIVE_INTERVAL_MS = Number(process.env.MEMENTO_AGY_KEEPALIVE_MS) || 3e4;
+var TIMER_WAKE_GRACE_MS = 12e4;
 var JsonlTailer = class {
   constructor(path, startAtEnd) {
     this.path = path;
@@ -335,7 +451,7 @@ var JsonlTailer = class {
   initialized = false;
   snapshotEof() {
     if (this.initialized) return;
-    if (existsSync(this.path)) {
+    if (existsSync2(this.path)) {
       try {
         this.offset = this.startAtEnd ? statSync(this.path).size : 0;
         this.initialized = true;
@@ -347,7 +463,7 @@ var JsonlTailer = class {
     }
   }
   poll(maxBytes = 512 * 1024) {
-    if (!existsSync(this.path)) return [];
+    if (!existsSync2(this.path)) return [];
     let size = 0;
     try {
       size = statSync(this.path).size;
@@ -409,11 +525,10 @@ var activeModel = "";
 var replayingHistory = false;
 var startedAt = Date.now();
 var pollTimer;
-var finishCheckTimer;
 var timeoutTimer;
+var lastTimeoutArmedAt = 0;
 function cleanupTimers() {
   if (pollTimer) clearInterval(pollTimer);
-  if (finishCheckTimer) clearTimeout(finishCheckTimer);
   if (timeoutTimer) clearTimeout(timeoutTimer);
 }
 function shutdown(code) {
@@ -471,6 +586,7 @@ var emittedTools = /* @__PURE__ */ new Set();
 var completedTools = /* @__PURE__ */ new Set();
 var activeBgTasks = /* @__PURE__ */ new Map();
 var activeSubagents = /* @__PURE__ */ new Map();
+var pendingSubagentMeta = [];
 var taskLogSizes = /* @__PURE__ */ new Map();
 var openQuestions = [];
 var askToolCallIds = /* @__PURE__ */ new Set();
@@ -483,11 +599,120 @@ var totalOutputTokens = 0;
 var hasEmittedText = false;
 var textEndsWithNewline = true;
 var awaitingWakeup = false;
+var wakeupStartedAt = 0;
 var wakeupActivityAt = 0;
+var wakeupSeenRunning = false;
 var wakeupDoneConfirmed = false;
-var wakeupSawTextOrTool = false;
+var wakeupEmittedText = false;
+var wakeupIdleSince = 0;
+var wakeupStepIndex = -1;
+var wakeupError = "";
+var maxParentStepIndex = -1;
+var pendingWakeupAfterStep = -1;
+var lastDbState = null;
+var lastDbReadAt = 0;
 var parentTailer;
 var seenParentStepKeys = /* @__PURE__ */ new Set();
+function readDbState(force = false) {
+  if (!sessionId) return null;
+  const now = Date.now();
+  if (!force && now - lastDbReadAt < 350) return lastDbState;
+  lastDbReadAt = now;
+  lastDbState = readAgyConversationState(cliSummariesDb, sessionId);
+  return lastDbState;
+}
+function hasPendingTimer() {
+  const now = Date.now();
+  for (const bg of activeBgTasks.values()) {
+    if (!bg.isDaemon && bg.timerDue !== void 0 && now < bg.timerDue + TIMER_WAKE_GRACE_MS) {
+      return true;
+    }
+  }
+  return false;
+}
+function armActivityTimeout(force = false) {
+  if (args.timeout <= 0 || finished || exiting) return;
+  const now = Date.now();
+  if (!force && timeoutTimer && now - lastTimeoutArmedAt < 5e3) return;
+  lastTimeoutArmedAt = now;
+  if (timeoutTimer) clearTimeout(timeoutTimer);
+  timeoutTimer = setTimeout(() => {
+    if (finished || exiting) return;
+    if (openQuestions.length > 0 || hasPendingTimer()) {
+      armActivityTimeout(true);
+      return;
+    }
+    if (hasOpenNonDaemonAsync()) {
+      err(`
+⏳ [任务在后台持续执行中（${backgroundSummaryNames()}），达到单次静默等待上限（${args.timeout}s），保持后台运行]
+`);
+      finishCleanly(true);
+      return;
+    }
+    void cancelAndExit(124, `
+[Agent timeout: 任务执行已达到静默安全上限（${args.timeout}s）]
+`);
+  }, args.timeout * 1e3);
+  timeoutTimer.unref();
+}
+function markActivity() {
+  const now = Date.now();
+  armActivityTimeout(false);
+  if (awaitingWakeup) {
+    wakeupActivityAt = now;
+    wakeupIdleSince = 0;
+  }
+}
+function enterWakeup(triggerStepIdx) {
+  const now = Date.now();
+  awaitingWakeup = true;
+  wakeupStartedAt = now;
+  wakeupActivityAt = now;
+  wakeupSeenRunning = false;
+  wakeupDoneConfirmed = false;
+  wakeupEmittedText = false;
+  wakeupIdleSince = 0;
+  wakeupError = "";
+  const floor = triggerStepIdx !== void 0 && triggerStepIdx >= 0 ? triggerStepIdx : maxParentStepIndex;
+  if (floor > wakeupStepIndex) wakeupStepIndex = floor;
+  armActivityTimeout(false);
+}
+function leaveWakeupForAsync() {
+  awaitingWakeup = false;
+  wakeupSeenRunning = false;
+  wakeupDoneConfirmed = false;
+  wakeupEmittedText = false;
+  wakeupIdleSince = 0;
+  wakeupError = "";
+}
+function maybeEmitKeepalive() {
+  if (finished || exiting) return;
+  if (Date.now() - lastStdoutEmitAt < KEEPALIVE_INTERVAL_MS) return;
+  const hasWork = hasOpenNonDaemonAsync() || openQuestions.length > 0 || awaitingWakeup && (wakeupSeenRunning || isCascadeRunning(lastDbState) || Boolean(lastDbState?.notFullyIdle));
+  if (!hasWork) return;
+  emit({ kind: "keepalive" });
+}
+function removeBgTaskByTarget(target) {
+  if (!target) return false;
+  const targetShort = target.split("/").pop() || target;
+  let removed = false;
+  for (const [fullId, bg] of [...activeBgTasks]) {
+    if (fullId.includes(target) || target.includes(fullId) || bg.shortId === targetShort) {
+      activeBgTasks.delete(fullId);
+      if (bg.toolCallId) {
+        const open = inProgressTools.get(bg.toolCallId);
+        if (open) {
+          inProgressTools.delete(bg.toolCallId);
+          completedTools.add(bg.toolCallId);
+          emit({ kind: "tool", id: open.id, name: open.name, detail: open.detail, status: "done", output: "后台任务已终止。" });
+        }
+      }
+      removed = true;
+    }
+  }
+  if (removed) emitBackgroundSnapshot();
+  return removed;
+}
 function emitBackgroundSnapshot() {
   const tasks = [];
   for (const [, bg] of activeBgTasks) {
@@ -549,7 +774,7 @@ function promoteOpenToolsToBackground() {
   let changed = false;
   for (const tool of inProgressTools.values()) {
     if (tool.backgrounded) continue;
-    if (tool.name !== "run_command" && tool.name !== "schedule" && tool.name !== "bash") continue;
+    if (!isAsyncToolName(tool.name)) continue;
     tool.backgrounded = true;
     changed = true;
     emit({
@@ -561,10 +786,33 @@ function promoteOpenToolsToBackground() {
       output: tool.isDaemon ? "已作为后台常驻进程启动（IsDaemon）。" : "已转入后台持续运行，完成后将自动通知智能体继续。"
     });
   }
-  if (changed) emitBackgroundSnapshot();
+  if (changed) {
+    leaveWakeupForAsync();
+    emitBackgroundSnapshot();
+  }
 }
 function registerSubagent(subCid, meta) {
-  if (activeSubagents.has(subCid)) return;
+  const existing = activeSubagents.get(subCid);
+  if (existing) {
+    const fallbackPrefix = `子智能体 ${subCid.slice(0, 8)}`;
+    const betterName = meta.name || meta.role;
+    if (betterName && existing.name === fallbackPrefix) {
+      existing.name = clip(betterName, 80);
+      if (meta.role) existing.role = clip(meta.role, 60);
+      if (meta.detail) existing.detail = clip(meta.detail, 200);
+      emit({
+        kind: "subagent",
+        id: existing.id,
+        name: existing.name,
+        ...existing.role ? { role: existing.role } : {},
+        agent_type: "subagent",
+        ...existing.detail ? { detail: existing.detail } : {},
+        status: "running"
+      });
+      emitBackgroundSnapshot();
+    }
+    return;
+  }
   const logPath = meta.logPath || join(cliBrainRoot, subCid, ".system_generated", "logs", "transcript.jsonl");
   const name = clip(meta.name || meta.role || `子智能体 ${subCid.slice(0, 8)}`, 80);
   const sub = {
@@ -578,6 +826,8 @@ function registerSubagent(subCid, meta) {
     stepSeq: 0
   };
   activeSubagents.set(subCid, sub);
+  leaveWakeupForAsync();
+  markActivity();
   emit({
     kind: "subagent",
     id: sub.id,
@@ -652,7 +902,54 @@ function pollSubagents() {
       }
     }
   }
+  if (activity) markActivity();
   return activity;
+}
+function attachBackgroundTask(bg, content, createdAt, explicitTool) {
+  if (activeBgTasks.has(bg.fullId)) return;
+  let matchedTool = explicitTool;
+  if (!matchedTool) {
+    for (const t of inProgressTools.values()) {
+      if (!t.taskId && isAsyncToolName(t.name)) {
+        matchedTool = t;
+        break;
+      }
+    }
+  }
+  if (!matchedTool) {
+    for (const t of inProgressTools.values()) {
+      if (!t.taskId) {
+        matchedTool = t;
+        break;
+      }
+    }
+  }
+  const secs = timerSeconds(content);
+  const due = secs !== void 0 ? (Number.isFinite(createdAt) ? createdAt : Date.now()) + secs * 1e3 : void 0;
+  activeBgTasks.set(bg.fullId, {
+    shortId: bg.shortId,
+    description: bg.description || matchedTool?.detail || bg.shortId,
+    toolCallId: matchedTool?.id,
+    isDaemon: matchedTool?.isDaemon,
+    timerDue: due
+  });
+  if (matchedTool) {
+    matchedTool.backgrounded = true;
+    matchedTool.taskId = bg.fullId;
+    emit({
+      kind: "tool",
+      id: matchedTool.id,
+      name: matchedTool.name,
+      detail: matchedTool.detail,
+      status: "background",
+      output: matchedTool.isDaemon ? `已作为后台常驻进程启动（${bg.shortId}）。
+${cleanToolOutput(content)}` : `已转入后台持续运行（${bg.shortId}），完成后将自动通知智能体继续。
+${cleanToolOutput(content)}`
+    });
+  }
+  if (!matchedTool?.isDaemon) leaveWakeupForAsync();
+  markActivity();
+  emitBackgroundSnapshot();
 }
 function pollParentTranscript() {
   if (!parentTailer) return;
@@ -667,62 +964,37 @@ function pollParentTranscript() {
       if (idx >= 0) seenParentStepKeys.add(key);
       continue;
     }
-    if (idx >= 0) seenParentStepKeys.add(key);
+    if (idx >= 0) {
+      seenParentStepKeys.add(key);
+      if (idx > maxParentStepIndex) maxParentStepIndex = idx;
+    }
     const type = str(step.type).toUpperCase();
     const source = str(step.source).toUpperCase();
     const content = str(step.content);
+    markActivity();
     if (type === "GENERIC" && statusRaw === "RUNNING" && content.startsWith("Created At:")) {
       const bg = parseBackgroundStart(content);
-      if (bg && !activeBgTasks.has(bg.fullId)) {
-        let matchedTool;
-        for (const t of inProgressTools.values()) {
-          if (!t.taskId && (t.name === "run_command" || t.name === "schedule" || t.name === "bash")) {
-            matchedTool = t;
-            break;
-          }
-        }
-        const secs = timerSeconds(content);
-        const due = secs !== void 0 ? (Number.isFinite(createdAt) ? createdAt : Date.now()) + secs * 1e3 : void 0;
-        activeBgTasks.set(bg.fullId, {
-          shortId: bg.shortId,
-          description: bg.description || matchedTool?.detail || bg.shortId,
-          toolCallId: matchedTool?.id,
-          isDaemon: matchedTool?.isDaemon,
-          timerDue: due
-        });
-        if (matchedTool) {
-          matchedTool.backgrounded = true;
-          matchedTool.taskId = bg.fullId;
-          emit({
-            kind: "tool",
-            id: matchedTool.id,
-            name: matchedTool.name,
-            detail: matchedTool.detail,
-            status: "background",
-            output: matchedTool.isDaemon ? `已作为后台常驻进程启动（${bg.shortId}）。
-${cleanToolOutput(content)}` : `已转入后台持续运行（${bg.shortId}），完成后将自动通知智能体继续。
-${cleanToolOutput(content)}`
-          });
-        }
-        emitBackgroundSnapshot();
-      }
+      if (bg) attachBackgroundTask(bg, content, createdAt);
     } else if (type === "GENERIC" && (statusRaw === "DONE" || statusRaw === "RUNNING")) {
       const launched = parseSubagentLaunch(content);
-      if (launched && !activeSubagents.has(launched.conversationId)) {
-        registerSubagent(launched.conversationId, { logPath: launched.logPath });
+      if (launched) {
+        const queuedMeta = !activeSubagents.has(launched.conversationId) ? pendingSubagentMeta.shift() : void 0;
+        registerSubagent(launched.conversationId, { ...queuedMeta, logPath: launched.logPath });
       }
     } else if (type === "SYSTEM_MESSAGE" && content) {
+      let asyncFinished = false;
       for (const [fullId, bg] of [...activeBgTasks]) {
         const sender = content.includes(`sender=${fullId}`) || content.includes(`sender=${bg.shortId}`);
         const mentioned = new RegExp(`(?:^|[^\\w-])${bg.shortId}(?!\\d)`).test(content);
-        if (sender || mentioned && AGY_BG_ENDED.some((kw) => content.includes(kw))) {
+        if (sender || mentioned && hasBackgroundEndMarker(content)) {
           activeBgTasks.delete(fullId);
+          if (!bg.isDaemon) asyncFinished = true;
           if (bg.toolCallId) {
             const open = inProgressTools.get(bg.toolCallId);
             if (open) {
               inProgressTools.delete(bg.toolCallId);
               completedTools.add(bg.toolCallId);
-              const failed = /Status:\s*(?:ERROR|FAILED)|failed with result|exited with code [1-9]/i.test(content);
+              const failed = isFailedToolOutput(content);
               emit({
                 kind: "tool",
                 id: open.id,
@@ -734,32 +1006,68 @@ ${cleanToolOutput(content)}`
             }
           }
           emitBackgroundSnapshot();
-          if (inFlightPrompts === 0) {
-            awaitingWakeup = true;
-            wakeupActivityAt = Date.now();
-            wakeupDoneConfirmed = false;
-            wakeupSawTextOrTool = false;
-          }
         }
       }
       for (const [subCid] of [...activeSubagents]) {
         if (content.includes(`sender=${subCid}`) || content.includes(subCid)) {
           const failed = /failed|error|terminated|cancelled/i.test(content) && !/completed/i.test(content);
           closeSubagent(subCid, failed ? "failed" : "done", content);
-          if (inFlightPrompts === 0) {
-            awaitingWakeup = true;
-            wakeupActivityAt = Date.now();
-            wakeupDoneConfirmed = false;
-            wakeupSawTextOrTool = false;
+          asyncFinished = true;
+        }
+      }
+      if (asyncFinished) {
+        if (idx >= 0) pendingWakeupAfterStep = Math.max(pendingWakeupAfterStep, idx);
+        if (inFlightPrompts === 0 && !hasOpenNonDaemonAsync()) {
+          enterWakeup(idx);
+        }
+      } else if (awaitingWakeup && idx >= 0 && /\bsender=/.test(content)) {
+        if (idx > wakeupStepIndex) wakeupStepIndex = idx;
+        wakeupDoneConfirmed = false;
+        wakeupIdleSince = 0;
+      }
+    } else if (type === "ERROR_MESSAGE") {
+      const errMsg = str(step.error) || str(step.message) || content;
+      if (errMsg && !isTransientAgyError(errMsg) && awaitingWakeup) {
+        wakeupError = errMsg;
+      }
+    } else if (type === "PLANNER_RESPONSE" && source === "MODEL" && statusRaw === "DONE") {
+      const calls = Array.isArray(step.tool_calls) ? step.tool_calls.filter(isObj) : [];
+      for (const rawCall of calls) {
+        const cname = str(rawCall.name);
+        const cargs = unwrapTranscriptArgs(rawCall.args);
+        if (cname === "invoke_subagent") {
+          pendingSubagentMeta.push({
+            name: str(cargs.Role) || str(cargs.TypeName) || void 0,
+            role: str(cargs.TypeName) || void 0,
+            detail: str(cargs.Prompt) || void 0
+          });
+        } else if (cname === "manage_task" && ["kill", "stop", "cancel"].includes(str(cargs.Action).toLowerCase())) {
+          removeBgTaskByTarget(str(cargs.TaskId));
+        } else if (cname === "manage_subagents") {
+          const act = str(cargs.Action).toLowerCase();
+          if (act === "kill_all") {
+            for (const sid of [...activeSubagents.keys()]) closeSubagent(sid, "done");
+          } else if (act === "kill" && Array.isArray(cargs.ConversationIds)) {
+            for (const rawSid of cargs.ConversationIds) closeSubagent(str(rawSid), "done");
           }
         }
       }
-    } else if (type === "PLANNER_RESPONSE" && source === "MODEL" && statusRaw === "DONE") {
-      const hasToolCalls = Array.isArray(step.tool_calls) && step.tool_calls.length > 0;
-      if (awaitingWakeup && !hasToolCalls && !hasOpenNonDaemonAsync() && openQuestions.length === 0 && inFlightPrompts === 0) {
-        wakeupDoneConfirmed = true;
-        wakeupActivityAt = Date.now();
-        scheduleFinishCheck(800);
+      const hasToolCalls = calls.length > 0;
+      if (hasToolCalls) {
+        if (awaitingWakeup) {
+          wakeupSeenRunning = true;
+          wakeupDoneConfirmed = false;
+          wakeupIdleSince = 0;
+        }
+      } else {
+        if (pendingWakeupAfterStep >= 0 && (idx < 0 || idx > pendingWakeupAfterStep)) {
+          pendingWakeupAfterStep = -1;
+        }
+        if (awaitingWakeup && !hasOpenNonDaemonAsync() && openQuestions.length === 0 && inFlightPrompts === 0 && (idx < 0 || idx > wakeupStepIndex)) {
+          wakeupSeenRunning = true;
+          wakeupDoneConfirmed = true;
+          wakeupActivityAt = Date.now();
+        }
       }
     }
   }
@@ -767,46 +1075,62 @@ ${cleanToolOutput(content)}`
 function pollBackgroundLogs() {
   if (!sessionId || activeBgTasks.size === 0) return;
   const tasksDir = join(cliBrainRoot, sessionId, ".system_generated", "tasks");
-  if (!existsSync(tasksDir)) return;
+  if (!existsSync2(tasksDir)) return;
   for (const bg of activeBgTasks.values()) {
     const p = join(tasksDir, `${bg.shortId}.log`);
     try {
       const sz = statSync(p).size;
       const prev = taskLogSizes.get(bg.shortId);
       if (prev !== void 0 && sz > prev) {
-        wakeupActivityAt = Date.now();
+        markActivity();
       }
       taskLogSizes.set(bg.shortId, sz);
     } catch {
     }
   }
 }
-function scheduleFinishCheck(delayMs) {
-  if (finishCheckTimer) clearTimeout(finishCheckTimer);
-  finishCheckTimer = setTimeout(() => {
-    if (finished || exiting) return;
-    pollParentTranscript();
-    pollSubagents();
-    if (inFlightPrompts > 0 || openQuestions.length > 0 || hasOpenNonDaemonAsync()) return;
-    if (!awaitingWakeup) {
+function evaluateWakeupCompletion() {
+  if (finished || exiting) return;
+  if (inFlightPrompts > 0 || openQuestions.length > 0) return;
+  if (hasOpenNonDaemonAsync()) return;
+  if (!awaitingWakeup) return;
+  const now = Date.now();
+  const db = readDbState();
+  if (isCascadeRunning(db)) {
+    wakeupSeenRunning = true;
+    wakeupIdleSince = 0;
+    markActivity();
+    return;
+  }
+  if (db?.notFullyIdle) {
+    wakeupIdleSince = 0;
+    markActivity();
+    return;
+  }
+  if (wakeupError && now - wakeupActivityAt >= 3e3) {
+    fail(`Antigravity wakeup error: ${wakeupError}`, 1);
+    return;
+  }
+  if (wakeupDoneConfirmed && (!db || isCascadeIdle(db))) {
+    if (now - wakeupActivityAt >= 800) {
       finishCleanly(false);
-      return;
     }
-    const quietMs = Date.now() - wakeupActivityAt;
-    if (wakeupDoneConfirmed && quietMs >= 600) {
+    return;
+  }
+  if (db && isCascadeIdle(db)) {
+    if (wakeupSeenRunning) {
+      if (!wakeupIdleSince) wakeupIdleSince = now;
+      if (now - wakeupIdleSince >= POST_RUNNING_IDLE_MS && now - wakeupActivityAt >= 3e3) {
+        finishCleanly(false);
+      }
+    } else if (now - wakeupStartedAt >= NO_WAKEUP_IDLE_MS && now - wakeupActivityAt >= NO_WAKEUP_IDLE_MS) {
       finishCleanly(false);
-      return;
     }
-    if (wakeupSawTextOrTool && quietMs >= 2500) {
-      finishCleanly(false);
-      return;
-    }
-    if (quietMs >= 6e3) {
-      finishCleanly(false);
-      return;
-    }
-    scheduleFinishCheck(500);
-  }, delayMs);
+    return;
+  }
+  if (!db && now - wakeupActivityAt >= FALLBACK_WAKEUP_QUIET_MS) {
+    finishCleanly(false);
+  }
 }
 function onServerRequest(msg) {
   const method = str(msg.method);
@@ -858,6 +1182,7 @@ function handleToolUpdate(upd) {
     return;
   }
   const isTerminal = status === "completed" || status === "failed" || status === "cancelled" || status === "canceled";
+  markActivity();
   if (!isTerminal) {
     const existing = inProgressTools.get(toolCallId);
     if (existing?.backgrounded) return;
@@ -877,24 +1202,47 @@ function handleToolUpdate(upd) {
       emit({ kind: "tool", id: toolCallId, name, detail, status: "running" });
     }
     if (awaitingWakeup) {
-      wakeupActivityAt = Date.now();
-      wakeupSawTextOrTool = true;
+      wakeupSeenRunning = true;
       wakeupDoneConfirmed = false;
+      wakeupIdleSince = 0;
     }
     return;
   }
+  const rawText = extractAcpToolOutput(upd.rawOutput, upd.content);
+  if (status === "completed" && rawText && !hasBackgroundEndMarker(rawText)) {
+    const bgStart = parseBackgroundStart(rawText);
+    if (bgStart) {
+      let open = inProgressTools.get(toolCallId);
+      if (!open) {
+        const isDaemon = toolArgs.IsDaemon === true || toolArgs.isDaemon === true;
+        open = {
+          id: toolCallId,
+          name,
+          detail,
+          isDaemon,
+          backgrounded: false,
+          startedAt: Date.now()
+        };
+        inProgressTools.set(toolCallId, open);
+      }
+      attachBackgroundTask(bgStart, rawText, Date.now(), open);
+      return;
+    }
+  }
   const prev = inProgressTools.get(toolCallId);
   const wasBackgrounded = Boolean(prev?.backgrounded);
+  const wasDaemon = Boolean(prev?.isDaemon);
+  let removedNonDaemonBg = false;
   inProgressTools.delete(toolCallId);
   completedTools.add(toolCallId);
   for (const [fullId, bg] of [...activeBgTasks]) {
     if (bg.toolCallId === toolCallId) {
+      if (!bg.isDaemon) removedNonDaemonBg = true;
       activeBgTasks.delete(fullId);
     }
   }
-  const rawText = extractAcpToolOutput(upd.rawOutput, upd.content);
   const cleanedOutput = rawText ? cleanToolOutput(rawText) : "";
-  const finalStatus = status === "completed" ? "done" : "failed";
+  const finalStatus = status === "completed" && !isFailedToolOutput(rawText) ? "done" : "failed";
   emit({
     kind: "tool",
     id: toolCallId,
@@ -903,6 +1251,16 @@ function handleToolUpdate(upd) {
     status: finalStatus,
     ...cleanedOutput ? { output: cleanedOutput } : {}
   });
+  if (name === "manage_task" && ["kill", "stop", "cancel"].includes(str(toolArgs.Action).toLowerCase())) {
+    removeBgTaskByTarget(str(toolArgs.TaskId));
+  } else if (name === "manage_subagents") {
+    const act = str(toolArgs.Action).toLowerCase();
+    if (act === "kill_all") {
+      for (const sid of [...activeSubagents.keys()]) closeSubagent(sid, "done");
+    } else if (act === "kill" && Array.isArray(toolArgs.ConversationIds)) {
+      for (const rawSid of toolArgs.ConversationIds) closeSubagent(str(rawSid), "done");
+    }
+  }
   if (name === "invoke_subagent" && status === "completed") {
     const launched = parseSubagentLaunch(rawText);
     if (launched) {
@@ -916,18 +1274,15 @@ function handleToolUpdate(upd) {
       pollParentTranscript();
     }
   }
-  if (wasBackgrounded) {
+  if (wasBackgrounded || removedNonDaemonBg) {
     emitBackgroundSnapshot();
-    if (inFlightPrompts === 0) {
-      awaitingWakeup = true;
-      wakeupActivityAt = Date.now();
-      wakeupDoneConfirmed = false;
-      wakeupSawTextOrTool = false;
-      scheduleFinishCheck(1200);
+    if (inFlightPrompts === 0 && !wasDaemon && !hasOpenNonDaemonAsync()) {
+      enterWakeup();
     }
   } else if (awaitingWakeup) {
-    wakeupActivityAt = Date.now();
-    wakeupSawTextOrTool = true;
+    wakeupSeenRunning = true;
+    wakeupDoneConfirmed = false;
+    wakeupIdleSince = 0;
   }
 }
 function onNotification(msg) {
@@ -941,10 +1296,12 @@ function onNotification(msg) {
       const content = isObj(upd.content) ? upd.content : {};
       const text = str(content.text);
       if (text) {
+        markActivity();
         emit({ kind: "thinking", text });
         if (awaitingWakeup) {
-          wakeupActivityAt = Date.now();
-          wakeupSawTextOrTool = true;
+          wakeupSeenRunning = true;
+          wakeupDoneConfirmed = false;
+          wakeupIdleSince = 0;
         }
       }
       break;
@@ -954,9 +1311,10 @@ function onNotification(msg) {
       const text = str(content.text);
       if (!text) break;
       if (suppressAskFallbackText && openQuestions.length > 0) break;
+      markActivity();
       promoteOpenToolsToBackground();
       let chunk = text;
-      if (hasEmittedText && !textEndsWithNewline && awaitingWakeup && !wakeupSawTextOrTool && !chunk.startsWith("\n")) {
+      if (hasEmittedText && !textEndsWithNewline && awaitingWakeup && !wakeupEmittedText && !chunk.startsWith("\n")) {
         chunk = `
 
 ${chunk}`;
@@ -965,8 +1323,9 @@ ${chunk}`;
       textEndsWithNewline = chunk.endsWith("\n");
       emit({ kind: "text_delta", text: chunk });
       if (awaitingWakeup) {
-        wakeupActivityAt = Date.now();
-        wakeupSawTextOrTool = true;
+        wakeupSeenRunning = true;
+        wakeupEmittedText = true;
+        wakeupIdleSince = 0;
       }
       break;
     }
@@ -975,10 +1334,7 @@ ${chunk}`;
       handleToolUpdate(upd);
       break;
     case "usage_update": {
-      if (awaitingWakeup && wakeupSawTextOrTool && !hasOpenNonDaemonAsync() && openQuestions.length === 0 && inFlightPrompts === 0) {
-        wakeupActivityAt = Date.now();
-        scheduleFinishCheck(1e3);
-      }
+      markActivity();
       break;
     }
     default:
@@ -1024,10 +1380,8 @@ function sendPrompt(text, isSteer = false) {
     textEndsWithNewline = true;
   }
   suppressAskFallbackText = false;
-  awaitingWakeup = false;
-  wakeupDoneConfirmed = false;
-  wakeupSawTextOrTool = false;
-  if (finishCheckTimer) clearTimeout(finishCheckTimer);
+  leaveWakeupForAsync();
+  markActivity();
   inFlightPrompts++;
   void request("session/prompt", {
     sessionId,
@@ -1035,6 +1389,7 @@ function sendPrompt(text, isSteer = false) {
   }).then((res) => {
     inFlightPrompts = Math.max(0, inFlightPrompts - 1);
     turns++;
+    markActivity();
     const usage = isObj(res.usage) ? res.usage : void 0;
     if (usage) {
       if (typeof usage.inputTokens === "number") totalInputTokens += usage.inputTokens;
@@ -1048,6 +1403,10 @@ function sendPrompt(text, isSteer = false) {
     if (openQuestions.length > 0) return;
     if (hasOpenNonDaemonAsync()) {
       emitBackgroundSnapshot();
+      return;
+    }
+    if (pendingWakeupAfterStep >= 0) {
+      enterWakeup(pendingWakeupAfterStep);
       return;
     }
     finishCleanly(false);
@@ -1215,25 +1574,11 @@ async function main() {
     pollParentTranscript();
     pollSubagents();
     pollBackgroundLogs();
-  }, 300);
+    evaluateWakeupCompletion();
+    maybeEmitKeepalive();
+  }, 400);
   pollTimer.unref();
-  if (args.timeout > 0) {
-    timeoutTimer = setTimeout(() => {
-      if (finished || exiting) return;
-      if (openQuestions.length > 0) return;
-      if (hasOpenNonDaemonAsync()) {
-        err(`
-⏳ [任务在后台持续执行中（${backgroundSummaryNames()}），达到单次等待上限（${args.timeout}s），保持后台运行]
-`);
-        finishCleanly(true);
-        return;
-      }
-      void cancelAndExit(124, `
-[Agent timeout: 任务执行已达到安全上限（${args.timeout}s）]
-`);
-    }, args.timeout * 1e3);
-    timeoutTimer.unref();
-  }
+  armActivityTimeout(true);
   sendPrompt(args.prompt, false);
   for (const early of earlyInputs.splice(0)) {
     handleUserInput(early.qid, early.text);

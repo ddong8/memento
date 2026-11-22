@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `9c7698d9` · Updated: `2026-11-22`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `7e0ae55c` · Updated: `2026-11-22`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -17,7 +17,7 @@
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
 - 最近改动 (Latest): `f2c855f1` (2026-11-22): feat(antigravity): 升级官方 agy ACP 协议通道支持实时流式、运行中追问、交互提问、子智能体与后台状态并升级至 v1.0.152
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 73（✅ 73 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `F-ASK`, `R-AGY-APP-CSRF`, `R-MULTI-DEVICE-STABLE`, `R-WS-BIG-UNTRACKED`, `R-ENT-DEVICE-POLICY`, `R-DEVICE-SESSION-MAP`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 73（✅ 73 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `F-ASK`, `R-AGY-APP-CSRF`, `R-TRACK-BACKGROUND`, `R-MULTI-DEVICE-STABLE`, `R-WS-BIG-UNTRACKED`, `R-ENT-DEVICE-POLICY`, `R-DEVICE-SESSION-MAP`, `R-APP-NAME`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -715,7 +715,7 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ### 最近提交碰到的业务条目（改动后复查它们还成不成立）
 
-- `f2c855f1` feat(antigravity): 升级官方 agy ACP 协议通道支持实时流式、运行中追问、交互提问、子智能体与后台状态并升级至 v1.0.152 → `F-ASK`, `R-AGY-APP-CSRF`, `R-MULTI-DEVICE-STABLE`, `R-WS-BIG-UNTRACKED`, `R-ENT-DEVICE-POLICY`, `R-DEVICE-SESSION-MAP`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`
+- `f2c855f1` feat(antigravity): 升级官方 agy ACP 协议通道支持实时流式、运行中追问、交互提问、子智能体与后台状态并升级至 v1.0.152 → `F-ASK`, `R-AGY-APP-CSRF`, `R-TRACK-BACKGROUND`, `R-MULTI-DEVICE-STABLE`, `R-WS-BIG-UNTRACKED`, `R-ENT-DEVICE-POLICY`, `R-DEVICE-SESSION-MAP`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`
 - `d1c46a4e` fix(antigravity): 修复官方 agy 后台命令阻塞 stdout 导致回复与步骤卡住并升级至 v1.0.151 → `F-ASK`, `R-AGY-APP-CSRF`, `R-MULTI-DEVICE-STABLE`, `R-ENT-DEVICE-POLICY`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`
 
 ---

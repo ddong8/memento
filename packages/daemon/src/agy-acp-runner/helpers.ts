@@ -1,3 +1,7 @@
+import { existsSync } from "node:fs";
+
+import { sqliteRows } from "../sqlite.js";
+
 export type Json = Record<string, unknown>;
 
 export const isObj = (v: unknown): v is Json => Boolean(v) && typeof v === "object" && !Array.isArray(v);
@@ -301,4 +305,63 @@ export function unwrapTranscriptArgs(raw: unknown): Json {
     }
   }
   return obj;
+}
+
+export interface AgyConversationState {
+  status: string;
+  notFullyIdle: boolean;
+  stepCount: number;
+  killed: boolean;
+}
+
+/**
+ * Reads the authoritative Cascade engine run state from Google agy CLI's
+ * `~/.gemini/antigravity-cli/conversation_summaries.db` (in-process via `node:sqlite`
+ * with `sqlite3` CLI fallback). Returns null when the DB or row doesn't exist.
+ */
+export function readAgyConversationState(dbPath: string, conversationId: string): AgyConversationState | null {
+  if (!conversationId || !existsSync(dbPath)) return null;
+  const rows = sqliteRows(
+    dbPath,
+    "SELECT status, not_fully_idle, step_count, killed FROM conversation_summaries WHERE conversation_id = ? LIMIT 1",
+    [conversationId],
+    1500,
+  );
+  const row = rows?.[0];
+  if (!row) return null;
+  const status = str(row[0]).trim();
+  const nfiRaw = row[1];
+  const notFullyIdle = nfiRaw === 1 || nfiRaw === true || String(nfiRaw).toLowerCase() === "true" || String(nfiRaw) === "1";
+  const stepCount = Number(row[2] ?? 0) || 0;
+  const killedRaw = row[3];
+  const killed = killedRaw === 1 || killedRaw === true || String(killedRaw).toLowerCase() === "true" || String(killedRaw) === "1";
+  return { status, notFullyIdle, stepCount, killed };
+}
+
+export function isCascadeRunning(state: AgyConversationState | null | undefined): boolean {
+  if (!state) return false;
+  return /RUNNING|WAITING/i.test(state.status);
+}
+
+export function isCascadeIdle(state: AgyConversationState | null | undefined): boolean {
+  if (!state) return false;
+  return /IDLE|DONE|ERROR|CANCEL/i.test(state.status) && !state.notFullyIdle;
+}
+
+export function isAsyncToolName(name: string): boolean {
+  return name === "run_command" || name === "schedule" || name === "run_workflow" || name === "bash";
+}
+
+export function hasBackgroundEndMarker(content: string): boolean {
+  return AGY_BG_ENDED.some((kw) => content.includes(kw));
+}
+
+export function isFailedToolOutput(content: string): boolean {
+  return /(?:^|\n)\s*(?:The )?command exited with code [1-9]\d*\.?|\bStatus:\s*(?:ERROR|FAILED)\b|failed with result/i.test(content);
+}
+
+export function isTransientAgyError(message: string): boolean {
+  return /\b(?:attempt\s+\d+|503|429|502|504|UNAVAILABLE|RESOURCE_EXHAUSTED|DEADLINE_EXCEEDED|ECONNRESET|ETIMEDOUT|overloaded|rate limit|No capacity|temporarily unavailable)\b/i.test(
+    message,
+  );
 }

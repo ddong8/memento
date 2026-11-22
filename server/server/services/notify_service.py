@@ -386,6 +386,24 @@ async def send_apns_live_activity(
     return delivered > 0
 
 
+def sanitize_live_activity_step(step: str, status: str = "running", event: str = "update") -> str:
+    """Ensure non-terminal Live Activity step text never contains '完成'/'已结束'/'已停止'.
+
+    Installed iOS Live Activity widgets prior to v1.0.154 infer `isFinished` from
+    `currentStep.contains("完成")`, so any running progress or echoed prompt containing
+    those characters would falsely render the Dynamic Island as "已完成".
+    """
+    text = (step or "").replace("\r", " ").replace("\n", " ").strip()
+    if event != "end" and status not in ("done", "error", "cancelled"):
+        text = (
+            text.replace("已完成", "已就绪")
+            .replace("完成", "就绪")
+            .replace("已结束", "收尾中")
+            .replace("已停止", "暂停中")
+        )
+    return text[:90]
+
+
 async def push_live_activity_event(
     user_id: uuid.UUID | str | None,
     conversation_id: str,
@@ -413,9 +431,10 @@ async def push_live_activity_event(
         act_map: dict = prefs.get("live_activity_tokens") or {}
         start_tokens: list = prefs.get("live_activity_start_tokens") or []
 
+        safe_step = sanitize_live_activity_step(current_step, status=status, event=event)
         content_state = {
             "status": status,
-            "currentStep": current_step[:90],
+            "currentStep": safe_step,
             "stepCount": max(1, int(step_count)),
             "toolName": tool_name,
             "elapsedSeconds": max(0, int(elapsed_seconds)),

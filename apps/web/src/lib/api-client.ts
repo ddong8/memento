@@ -1496,7 +1496,7 @@ export interface AskRunSummary {
   cancelled: boolean;
   failed: boolean;
   current_step?: string;
-  step_type?: "init" | "thinking" | "tool_call" | "executing" | "tool_result" | "generating" | "done" | "cancelled" | "error";
+  step_type?: "init" | "thinking" | "tool_call" | "executing" | "background" | "tool_result" | "generating" | "done" | "cancelled" | "error";
   tool_name?: string | null;
   step_count?: number;
   events: number;

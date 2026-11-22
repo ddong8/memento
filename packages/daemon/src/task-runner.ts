@@ -413,7 +413,7 @@ export class TaskRunner {
           task_id: taskId,
           status:
             bgCount > 0
-              ? `后台任务持续执行中（当前 ${bgCount} 个），主回复已输出，完成后将自动继续`
+              ? `后台任务运行中（当前 ${bgCount} 个），主回复已输出，等待结果后自动继续`
               : "进程正在静默运行中（超过 5 分钟无新输出，可能处于深度计算或等待输入）",
         });
       }, 300_000);
@@ -537,7 +537,7 @@ export class TaskRunner {
             this.send({
               type: "task_progress",
               task_id: taskId,
-              status: bgCount > 0 ? `后台任务持续执行中（当前 ${bgCount} 个），完成后将自动继续` : "running",
+              status: bgCount > 0 ? `后台任务运行中（当前 ${bgCount} 个），等待结果后自动继续` : "running",
             });
           }
           return;
@@ -569,7 +569,7 @@ export class TaskRunner {
           this.send({
             type: "task_progress",
             task_id: taskId,
-            status: `主回复已输出，正在等待 ${agyIdleBackgroundCount} 个后台任务完成（完成后自动继续处理）`,
+            status: `主回复已输出，正在等待 ${agyIdleBackgroundCount} 个后台任务结果`,
           });
           // Strip this routine status line so it doesn't clutter user-facing stderr
           const rest = text

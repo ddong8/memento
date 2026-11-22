@@ -10,9 +10,9 @@
 | :--- | :--- |
 | 1. 业务对象与术语 | L21-L65 |
 | 2. 关键流程 | L67-L124 |
-| 3. 业务规则 | L126-L578 |
-| 4. 状态归属 | L580-L625 |
-| 自动核对 (Auto Check) | L628-L741 |
+| 3. 业务规则 | L126-L581 |
+| 4. 状态归属 | L583-L628 |
+| 自动核对 (Auto Check) | L631-L744 |
 <!-- memento:business-index:end -->
 > 业务蓝图：memento 应该做成什么样，每一条落在哪段代码、由哪个测试或检查保证。和代码蓝图 [CODE_BLUEPRINT.md](CODE_BLUEPRINT.md)（代码长什么样）配合看：代码蓝图回答"在哪里"，这份回答"应该怎样、为什么"。
 > 规则来自用户的原话和纠正（CLAUDE.md、长期记忆、每晚复盘），不是从代码里反推的；代码和这里对不上，先当成代码的问题查。
@@ -155,9 +155,12 @@
 - 要求: `killProcessTree(` @ `packages/daemon/src/task-runner.ts`
 
 ### R-ISLAND-CLEANUP 任务结束必须清掉灵动岛状态
-- 来源: CLAUDE.md（memento）「任务结束清理灵动岛状态」；记忆「灵动岛任务状态必须以底层工具真实终态为准，任务完成后必须同步清理」
-- 代码: `apps/web/src/components/agent/ActiveRunsMonitor.tsx#ActiveRunsMonitor`, `server/server/api/ask.py#list_active_runs`, `packages/daemon/src/task-runner.ts#cancel`
-- 测试: `apps/web/test/run-status.test.ts#is forgotten when a run start or end is pushed`, `server/tests/test_ask_runs.py#test_finished_run_is_dropped_after_retention`, `server/tests/test_agent_limits.py#test_old_daemons_still_running_on_quota_is_failed`
+- 来源: CLAUDE.md（memento）「任务结束清理灵动岛状态」；记忆「灵动岛任务状态必须以底层工具真实终态为准，任务完成后必须同步清理」；用户 2026-11-23「antigravity 的后台任务，灵动岛展示任务已完成？」
+- 说明: 运行中（含后台任务、子智能体、工具调用）严禁根据 `currentStep` 文案是否含「完成 / 已结束 / 已停止」判定为已完成，终态只认显式 `status`（`done` / `error` / `cancelled`）。服务端与前端推送非终态进度时一律改写上述触发词（立即保护已安装的旧版 iOS 客户端），不把用户原始提问塞进 `currentStep`，并同步推送 `task_event`（`background` / `subagent` / `tool`）。前端切换设备、刷新对话列表、切换页面或 `finishStream` 清理时，不得向仍在运行的任务发送 `action: "end", status: "done"`；任务真正结束后立即清理灵动岛。
+- 代码: `apps/web/src/components/agent/ActiveRunsMonitor.tsx#ActiveRunsMonitor`, `apps/web/src/lib/ask/live-activity.ts#sanitizeLiveActivityStep`, `apps/web/src/lib/ask/live-activity.ts#formatLiveActivityTaskEvent`, `server/server/services/notify_service.py#sanitize_live_activity_step`, `server/server/services/ask_runs.py`, `server/server/api/ask.py#list_active_runs`, `packages/daemon/src/task-runner.ts#cancel`, `apps/mobile/targets/MementoLiveActivity/MementoLiveActivity.swift`, `apps/mobile/plugins/withLiveActivity.js`
+- 测试: `apps/web/test/run-status.test.ts#is forgotten when a run start or end is pushed`, `apps/web/test/live-activity.test.ts#rewrites completion words for non-terminal updates while preserving terminal steps`, `apps/web/test/live-activity.test.ts#never sends a bogus done end from ask page effect cleanup`, `server/tests/test_ask_runs.py#test_finished_run_is_dropped_after_retention`, `server/tests/test_ask_runs.py#test_background_task_and_prompt_completion_word_never_mark_live_activity_done`, `server/tests/test_agent_limits.py#test_old_daemons_still_running_on_quota_is_failed`
+- 禁止: `currentStep.contains("完成")` @ `apps/mobile/targets/MementoLiveActivity/MementoLiveActivity.swift`, `apps/mobile/plugins/withLiveActivity.js`
+- 要求: `sanitize_live_activity_step(` @ `server/server/services/notify_service.py`; `sanitizeLiveActivityStep(` @ `apps/web/src/app/ask/page.tsx`
 
 ### R-MULTI-DEVICE-STABLE 多机任务并发执行，过程和结果稳定回传
 - 来源: CLAUDE.md（memento）「多机任务并发执行，过程和结果稳定回传」；心领神会「单台设备离线不得拖垮整体」
@@ -657,7 +660,7 @@
 | `R-AGY-APP-CSRF` | Antigravity 应用不给会话接口令牌时，任务改走 Google 官方 agy 命令行 | 5/5 | 2/2 | 1/1 | ✅ |
 | `R-TRACK-BACKGROUND` | 后台任务跟踪到结束，不提前收尾 | 6/6 | 7/7 | 4/4 | ✅ |
 | `R-STOP-ALL-AGENTS` | Antigravity、Claude Code、Codex 运行中的任务都必须能停 | 3/3 | 4/4 | 1/1 | ✅ |
-| `R-ISLAND-CLEANUP` | 任务结束必须清掉灵动岛状态 | 3/3 | 3/3 | — | ✅ |
+| `R-ISLAND-CLEANUP` | 任务结束必须清掉灵动岛状态 | 9/9 | 6/6 | 3/3 | ✅ |
 | `R-MULTI-DEVICE-STABLE` | 多机任务并发执行，过程和结果稳定回传 | 4/4 | 4/4 | — | ✅ |
 | `R-WS-BIG-UNTRACKED` | 跨设备改代码时，没进 .gitignore 的大文件不让任务失败 | 4/4 | 1/1 | 1/1 | ✅ |
 | `R-WS-EDIT-ONLY` | 远程执行机只改代码，测试、构建、提交、推送等其余工作都在代码所在的设备上做 | 9/9 | 8/8 | 2/2 | ✅ |

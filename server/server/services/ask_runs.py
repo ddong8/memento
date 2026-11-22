@@ -257,38 +257,102 @@ class AskRun:
                 name = payload.get("name") or "tool"
                 self.tool_name = name
                 args = payload.get("args") or {}
-                if isinstance(args, dict):
+                if name == "run_on_device":
+                    # Never echo user's raw prompt into current_step (it's already in title and may contain '完成')
+                    shell_cmd = args.get("command") if isinstance(args, dict) else ""
+                    if shell_cmd:
+                        cmd_str = str(shell_cmd).replace("\n", " ").strip()
+                        if len(cmd_str) > 36:
+                            cmd_str = cmd_str[:33] + "..."
+                        self.current_step = notify_service.sanitize_live_activity_step(f"设备命令: {cmd_str}", "tool", "update")
+                    else:
+                        self.current_step = "正在设备上执行智能体任务..."
+                elif isinstance(args, dict):
                     cmd = args.get("command") or args.get("prompt") or args.get("code") or ""
                     if cmd:
                         cmd_str = str(cmd).replace("\n", " ").strip()
                         if len(cmd_str) > 40:
                             cmd_str = cmd_str[:37] + "..."
-                        self.current_step = f"调用工具: {name} ({cmd_str})"
+                        self.current_step = notify_service.sanitize_live_activity_step(f"调用工具: {name} ({cmd_str})", "tool", "update")
                     else:
                         self.current_step = f"调用工具: {name}"
                 else:
                     self.current_step = f"调用工具: {name}"
                 should_push_la = True
             elif evt_type == "task_progress":
-                self.step_type = "executing"
                 tid = payload.get("task_id")
                 dev_id = payload.get("device_id")
                 if tid:
                     self.active_device_task_id = str(tid)
                 if dev_id:
                     self.active_device_id = str(dev_id)
-                status = payload.get("status") or ""
+                status = str(payload.get("status") or "").strip()
                 if status:
-                    self.current_step = f"执行进度: {status}"
-                    should_push_la = True
+                    if status == "running":
+                        if self.step_type != "background":
+                            self.step_type = "executing"
+                            self.current_step = "设备任务执行中..."
+                            should_push_la = True
+                    elif status == "queued":
+                        self.step_type = "executing"
+                        self.current_step = "设备任务排队中..."
+                        should_push_la = True
+                    else:
+                        if self.step_type != "background":
+                            self.step_type = "executing"
+                        self.current_step = notify_service.sanitize_live_activity_step(f"执行进度: {status}", self.step_type, "update")
+                        should_push_la = True
+            elif evt_type == "task_event":
+                ev = payload.get("event") or {}
+                if isinstance(ev, dict):
+                    ekind = ev.get("kind")
+                    if ekind == "background" and isinstance(ev.get("tasks"), list):
+                        tasks = [t for t in ev["tasks"] if isinstance(t, dict)]
+                        if tasks:
+                            first_desc = str(tasks[0].get("description") or tasks[0].get("id") or "").replace("\n", " ").strip()
+                            if len(first_desc) > 30:
+                                first_desc = first_desc[:27] + "..."
+                            self.step_type = "background"
+                            self.tool_name = "background"
+                            raw_bg = f"后台运行中（{len(tasks)}个）: {first_desc}" if first_desc else f"后台任务运行中（{len(tasks)} 个）"
+                            self.current_step = notify_service.sanitize_live_activity_step(raw_bg, "background", "update")
+                        else:
+                            self.step_type = "thinking"
+                            self.tool_name = None
+                            self.current_step = "后台结果已返回，继续推理中..."
+                        should_push_la = True
+                    elif ekind == "subagent" and ev.get("status") == "running":
+                        sname = str(ev.get("name") or "子智能体").replace("\n", " ").strip()[:30]
+                        self.step_type = "executing"
+                        self.tool_name = "subagent"
+                        self.current_step = notify_service.sanitize_live_activity_step(f"子智能体运行中: {sname}", "executing", "update")
+                        should_push_la = True
+                    elif ekind == "tool" and ev.get("status") in ("running", "background"):
+                        tname = str(ev.get("name") or "tool").strip()
+                        tdetail = str(ev.get("detail") or "").replace("\n", " ").strip()
+                        if len(tdetail) > 30:
+                            tdetail = tdetail[:27] + "..."
+                        is_bg = ev.get("status") == "background"
+                        self.step_type = "background" if is_bg else "tool"
+                        self.step_count += 1
+                        self.tool_name = tname
+                        prefix = "后台运行" if is_bg else "执行工具"
+                        raw_step = f"{prefix}: {tname} ({tdetail})" if tdetail else f"{prefix}: {tname}"
+                        self.current_step = notify_service.sanitize_live_activity_step(raw_step, self.step_type, "update")
+                        should_push_la = True
             elif evt_type == "task_chunk":
-                self.step_type = "executing"
                 chunk_text = payload.get("chunk") or payload.get("text") or ""
                 if any(kw in chunk_text for kw in ("自动退避重试", "容量紧张", "模型容灾", "自动降级")):
+                    self.step_type = "executing"
                     m_tip = re.search(r"\[(.*?)(?:，|\])", chunk_text)
-                    self.current_step = m_tip.group(1)[:40] if m_tip else chunk_text.strip()[:40]
+                    self.current_step = notify_service.sanitize_live_activity_step(
+                        m_tip.group(1)[:40] if m_tip else chunk_text.strip()[:40],
+                        "executing",
+                        "update",
+                    )
                     should_push_la = True
-                elif not self.current_step.startswith("正在执行"):
+                elif self.step_type != "background" and not self.current_step.startswith("正在执行"):
+                    self.step_type = "executing"
                     self.current_step = f"正在执行工具任务 ({self.tool_name or 'device'})..."
                     should_push_la = True
             elif evt_type == "tool_result":
@@ -322,7 +386,7 @@ class AskRun:
 
         if should_push_la and not self.done and self.current_step != self._last_la_step:
             now_ts = time.time()
-            if (now_ts - self._last_la_push_at >= 1.8) or self.step_type in ("tool", "error"):
+            if (now_ts - self._last_la_push_at >= 1.8) or self.step_type in ("tool", "background", "error"):
                 self._last_la_push_at = now_ts
                 self._last_la_step = self.current_step
                 _publish_step(self)

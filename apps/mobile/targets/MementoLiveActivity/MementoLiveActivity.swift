@@ -13,49 +13,43 @@ private struct MementoStatusTheme {
   }
 
   var isFinished: Bool {
-    status == "done" || status == "error" || status == "cancelled" || currentStep.contains("完成") || currentStep.contains("已结束") || currentStep.contains("已停止")
+    status == "done" || status == "error" || status == "cancelled"
   }
 
   var badgeLabel: String {
-    if isFinished && status != "error" && status != "cancelled" {
-      return "已完成"
-    }
     switch status {
     case "thinking": return "深度推演"
     case "tool": return "调用工具"
     case "executing": return "终端执行"
+    case "background": return "后台运行"
     case "generating": return "生成回复"
     case "done": return "已完成"
     case "error": return "任务异常"
     case "cancelled": return "已停止"
-    default: return isFinished ? "已完成" : "运行中"
+    default: return "运行中"
     }
   }
 
   var iconName: String {
-    if isFinished && status != "error" && status != "cancelled" {
-      return "checkmark.circle.fill"
-    }
     switch status {
     case "thinking": return "brain.head.profile"
     case "tool", "executing": return "terminal.fill"
+    case "background": return "clock.arrow.circlepath"
     case "generating": return "sparkles"
     case "done": return "checkmark.circle.fill"
     case "error", "cancelled": return "exclamationmark.triangle.fill"
-    default: return isFinished ? "checkmark.circle.fill" : "bolt.horizontal.circle.fill"
+    default: return "bolt.horizontal.circle.fill"
     }
   }
 
   var accentColor: Color {
-    if isFinished && status != "error" && status != "cancelled" {
-      return Color(red: 0.20, green: 0.83, blue: 0.60)
-    }
     switch status {
     case "done": return Color(red: 0.20, green: 0.83, blue: 0.60)
     case "error", "cancelled": return Color(red: 0.98, green: 0.35, blue: 0.45)
     case "tool", "executing": return Color(red: 0.22, green: 0.74, blue: 0.97)
+    case "background": return Color(red: 0.96, green: 0.62, blue: 0.04)
     case "thinking": return Color(red: 0.66, green: 0.55, blue: 0.98)
-    default: return isFinished ? Color(red: 0.20, green: 0.83, blue: 0.60) : Color(red: 0.55, green: 0.45, blue: 0.98)
+    default: return Color(red: 0.55, green: 0.45, blue: 0.98)
     }
   }
 }

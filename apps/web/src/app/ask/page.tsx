@@ -62,6 +62,13 @@ import { isLiveConnected, onLiveEvent } from "@/lib/live-events";
 import { AGENT_TOOL_ID, type Cascade, cascadeOf, configHas, usableDevice } from "@/lib/ask/cascade";
 import { type FollowUp, nextMessage, requeue, steerableTaskId } from "@/lib/ask/followups";
 import { ExecutionMode, RunCursor, Source, Turn, compressImageToDataUrl, interruptibleSleep, mergeFinishedTurns, normalizeEpochMs, normalizeIsoTimestamp, turnsChanged } from "@/lib/ask/turns";
+import {
+  formatLiveActivityProgressStep,
+  formatLiveActivityTaskEvent,
+  formatLiveActivityToolStep,
+  sanitizeLiveActivityStep,
+  type LiveActivityAction,
+} from "@/lib/ask/live-activity";
 
 
 
@@ -2317,6 +2324,20 @@ function AskPageContent() {
     }, 60);
   }, [turns, activeConversationId, scrollConversationToBottom]);
 
+  const postNativeLiveActivityRef = useRef<((
+    action: LiveActivityAction,
+    patch: {
+      conversationId?: string | null;
+      status: string;
+      currentStep: string;
+      toolName?: string | null;
+      stepCount?: number;
+      startedAtEpoch?: number;
+      executionMode?: string | null;
+      engine?: string | null;
+    },
+  ) => void) | null>(null);
+
   // Abort local reader if the user navigates away mid-answer, but preserve activeRun in askCache
   useEffect(() => {
     return () => {
@@ -2419,6 +2440,11 @@ function AskPageContent() {
               })
             );
           }
+          postNativeLiveActivityRef.current?.("end", {
+            conversationId: convId,
+            status: run?.cancelled ? "cancelled" : (run?.failed ? "error" : "done"),
+            currentStep: run?.cancelled ? "任务已取消" : (run?.failed ? "任务失败" : "任务完成"),
+          });
           return;
         }
 
@@ -2810,8 +2836,11 @@ function AskPageContent() {
     }
   }, []);
 
+  const conversationsRef = useRef<AskConversationSummary[]>(conversations);
+  conversationsRef.current = conversations;
+
   const postNativeLiveActivity = useCallback((
-    action: "start" | "update" | "end",
+    action: LiveActivityAction,
     patch: {
       conversationId?: string | null;
       status: string;
@@ -2839,15 +2868,16 @@ function AskPageContent() {
         return "AI";
       };
 
-      const targetConv = conversations.find((c) => c.id === cid);
+      const targetConv = conversationsRef.current.find((c) => c.id === cid);
       const convMode = targetConv?.config?.executionMode || targetConv?.config?.execution_mode;
       const eng =
         patch.engine ||
         (patch.executionMode ? resolveEngineStr(patch.executionMode) : null) ||
         (convMode ? resolveEngineStr(convMode) : null) ||
-        resolveEngineStr(executionMode);
+        resolveEngineStr(executionModeRef.current);
 
       const qTitle = (lastSentQuestionRef.current || "后台任务").replace(/\s+/g, " ").trim().slice(0, 45);
+      const currentDev = selectedDeviceRef.current;
       w.ReactNativeWebView.postMessage(
         JSON.stringify({
           type: "live_activity",
@@ -2855,16 +2885,17 @@ function AskPageContent() {
           conversationId: cid,
           title: qTitle || "后台任务",
           engine: eng,
-          deviceName: selectedDevice ? "远程设备" : "云端",
+          deviceName: currentDev && currentDev !== "ask_only" ? "远程设备" : "云端",
           status: patch.status,
-          currentStep: patch.currentStep.slice(0, 85),
+          currentStep: sanitizeLiveActivityStep(patch.currentStep, patch.status, action),
           stepCount: patch.stepCount || 1,
           toolName: patch.toolName || null,
           startedAtEpoch: patch.startedAtEpoch || Math.floor(Date.now() / 1000),
         }),
       );
     } catch {}
-  }, [executionMode, selectedDevice, conversations]);
+  }, []);
+  postNativeLiveActivityRef.current = postNativeLiveActivity;
 
   // Read one SSE response of a run, applying its events. Returns true once the run is done.
   const consumeRun = useCallback(async (res: Response, cursor: RunCursor, ctrl: AbortController): Promise<boolean> => {
@@ -3017,8 +3048,7 @@ function AskPageContent() {
         const callObj = evt.call || ({} as any);
         const tName = evt.name || callObj.name || "tool";
         const tArgs = (evt.args || callObj.args || {}) as Record<string, unknown>;
-        const cmdRaw = String(tArgs.command || tArgs.prompt || tArgs.code || "").replace(/\s+/g, " ").trim();
-        const stepDesc = cmdRaw ? `调用工具: ${tName} (${cmdRaw.slice(0, 36)})` : `调用工具: ${tName}`;
+        const stepDesc = formatLiveActivityToolStep(tName, tArgs);
         postLiveActivity("update", {
           status: "tool",
           currentStep: stepDesc,
@@ -3039,11 +3069,15 @@ function AskPageContent() {
         });
       } else if (evt.type === "task_progress") {
         if (evt.status) {
-          laLastStatus = "executing";
-          postLiveActivity("update", {
-            status: "executing",
-            currentStep: `执行进度: ${evt.status}`,
-          });
+          const isRawRunning = String(evt.status).trim().toLowerCase() === "running";
+          if (!isRawRunning || laLastStatus !== "background") {
+            const nextStatus = laLastStatus === "background" && !isRawRunning ? "background" : "executing";
+            laLastStatus = nextStatus;
+            postLiveActivity("update", {
+              status: nextStatus,
+              currentStep: formatLiveActivityProgressStep(evt.status),
+            });
+          }
         }
         const progDev = evt.device_id || evt.device_name;
         if (progDev && !["auto", "ask_only", "all"].includes(progDev.toLowerCase()) && (!selectedDevice || selectedDevice === "auto")) {
@@ -3263,12 +3297,16 @@ function AskPageContent() {
           const text = String(event.text);
           updateFollowUps((items) => requeue(items, text));
         }
-        if (event.kind === "thinking" && event.text) {
-          if (laLastStatus !== "thinking") {
-            laLastStatus = "thinking";
+        const laEventUpdate = formatLiveActivityTaskEvent(event as Record<string, unknown>);
+        if (laEventUpdate) {
+          const isRepeatedThinking = laEventUpdate.status === "thinking" && event.kind === "thinking" && laLastStatus === "thinking";
+          if (!isRepeatedThinking) {
+            if (event.kind === "tool") laStepCount += 1;
+            laLastStatus = laEventUpdate.status;
             postLiveActivity("update", {
-              status: "thinking",
-              currentStep: "正在深度思考与推演...",
+              status: laEventUpdate.status,
+              currentStep: laEventUpdate.currentStep,
+              ...(laEventUpdate.toolName !== undefined ? { toolName: laEventUpdate.toolName } : {}),
             });
           }
         }
@@ -3552,20 +3590,6 @@ function AskPageContent() {
           detail: { conversation_id: activeConversationIdRef.current },
         })
       );
-      try {
-        const w = window as any;
-        if (w?.ReactNativeWebView?.postMessage && activeConversationIdRef.current) {
-          w.ReactNativeWebView.postMessage(
-            JSON.stringify({
-              type: "live_activity",
-              action: "end",
-              conversationId: activeConversationIdRef.current,
-              status: "done",
-              currentStep: "任务完成",
-            })
-          );
-        }
-      } catch {}
     }
     if (askCache) {
       askCache.streaming = false;
@@ -4085,13 +4109,8 @@ function AskPageContent() {
     };
     return () => {
       delete (window as any).__memento_stop_task;
-      if (streamingRef.current && activeConversationIdRef.current) {
-        postNativeLiveActivity("end", {
-          conversationId: activeConversationIdRef.current,
-          status: "done",
-          currentStep: "任务完成",
-        });
-      }
+      // Never end Live Activity on effect cleanup: runs outlive the page (R-RUN-OUTLIVES-PAGE)
+      // and state changes / route switches must not mark a running background task as done.
     };
   }, [postNativeLiveActivity]);
 
@@ -4413,8 +4432,7 @@ function AskPageContent() {
       }
 
       if (superseded()) return;
-      abortRef.current?.abort();
-      streamingRef.current = false;
+      detachStream();
       // 优先从已有的 AskConversations 中寻找关联该底层 session 的真正 Ask 会话，避免将 Document ID 误作为 AskConversation ID
       const matchedAskConv = conversations.find(
         (c) => c.config?.session_id === sid || c.id === sid

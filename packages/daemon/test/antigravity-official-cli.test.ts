@@ -303,7 +303,8 @@ it.skipIf(process.platform === "win32")(
       expect(bgTool).toBeDefined();
       // Idle background status converted to friendly task_progress and stripped from raw stderr
       const progressStatuses = received.filter((m) => m.type === "task_progress").map((m) => String(m.status ?? ""));
-      expect(progressStatuses.some((s) => s.includes("主回复已输出，正在等待 1 个后台任务完成"))).toBe(true);
+      expect(progressStatuses.some((s) => s.includes("主回复已输出，正在等待 1 个后台任务结果"))).toBe(true);
+      expect(progressStatuses.every((s) => !s.includes("完成"))).toBe(true);
       expect(String(done.stderr ?? "")).not.toContain("root agent idle");
     } finally {
       process.env.HOME = home;

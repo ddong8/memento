@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `7e0ae55c` · Updated: `2026-11-22`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `8a8c37d1` · Updated: `2026-11-22`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -13,11 +13,11 @@
 - 类型 (Type): Monorepo (Workspaces)
 - 技术栈 (Stack): TypeScript/JavaScript, Python, Shell / Bash · React, Electron, Next.js, TailwindCSS, Model Context Protocol (MCP), FastAPI, SQLAlchemy, Celery
 - 基础设施 (Infra): PostgreSQL, pgvector (Vector DB), Redis, MinIO / S3 Object Storage, Celery Task Queue
-- 规模 (Scale): 9 个子系统 · 40 组 API 路由 / 300 个接口 · 39 个前端页面 · 41 个数据模型 · 35 个服务模块 · 253 个测试文件
+- 规模 (Scale): 9 个子系统 · 40 组 API 路由 / 300 个接口 · 39 个前端页面 · 41 个数据模型 · 35 个服务模块 · 254 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `f2c855f1` (2026-11-22): feat(antigravity): 升级官方 agy ACP 协议通道支持实时流式、运行中追问、交互提问、子智能体与后台状态并升级至 v1.0.152
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 73（✅ 73 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `F-ASK`, `R-AGY-APP-CSRF`, `R-TRACK-BACKGROUND`, `R-MULTI-DEVICE-STABLE`, `R-WS-BIG-UNTRACKED`, `R-ENT-DEVICE-POLICY`, `R-DEVICE-SESSION-MAP`, `R-APP-NAME`
+- 最近改动 (Latest): `da2c1453` (2026-11-23): fix(antigravity): 修复 ACP 通道后台任务唤醒提前退出并升级至 v1.0.153
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 73（✅ 73 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `F-ASK`, `R-AGY-APP-CSRF`, `R-TRACK-BACKGROUND`, `R-MULTI-DEVICE-STABLE`, `R-WS-BIG-UNTRACKED`, `R-ENT-DEVICE-POLICY`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -29,9 +29,9 @@
 | 6.5. AST Call Graph, DTO Schemas & CLI Entrypoints | L549-L621 |
 | 7. CI/CD Pipelines, Code Hotspots & Test Suites | L623-L667 |
 | 8. Development & Verification Commands | L669-L686 |
-| 9. Recent Architectural Evolutions | L688-L695 |
-| 10. Key Environment Variables & Configuration | L697-L709 |
-| 11. 业务蓝图核对 (Business Blueprint Check) | L711-L719 |
+| 9. Recent Architectural Evolutions | L688-L694 |
+| 10. Key Environment Variables & Configuration | L696-L708 |
+| 11. 业务蓝图核对 (Business Blueprint Check) | L710-L718 |
 
 ## 1. Project Overview & Tech Stack
 
@@ -647,7 +647,7 @@ erDiagram
 | :--- | :--- | :--- | :--- |
 | server/tests (pytest) | [`server/tests`](server/tests) | 128 | `test_agent_ids.py`, `test_agent_limits.py`, `test_agent_login.py`, `test_agent_run_states.py`, `test_ai_provider.py` |
 | packages/daemon/test (vitest / jest) | [`packages/daemon/test`](packages/daemon/test) | 63 | `agent-args.test.ts`, `agent-login.test.ts`, `agent-stream.test.ts`, `agy-background.test.ts`, `agy-models.test.ts` |
-| apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 54 | `active-runs-chip.test.tsx`, `api-client.test.ts`, `ask-performance-guards.test.tsx`, `ask-reading-and-persona-rules.test.tsx`, `ask-top-bar.test.tsx` |
+| apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 55 | `active-runs-chip.test.tsx`, `api-client.test.ts`, `ask-performance-guards.test.tsx`, `ask-reading-and-persona-rules.test.tsx`, `ask-top-bar.test.tsx` |
 | apps/desktop/test (vitest / jest) | [`apps/desktop/test`](apps/desktop/test) | 2 | `helpers.test.ts`, `updater-and-daemon.test.ts` |
 | apps/mobile/test (vitest / jest) | [`apps/mobile/test`](apps/mobile/test) | 2 | `deeplink.test.ts`, `webview-props.test.ts` |
 | packages/core/test (vitest / jest) | [`packages/core/test`](packages/core/test) | 2 | `ask-stream.test.ts`, `task-events.test.ts` |
@@ -655,7 +655,7 @@ erDiagram
 
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
-- [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (9 commits)
+- [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (10 commits)
 - [`apps/web/src/components/layout/Sidebar.tsx`](apps/web/src/components/layout/Sidebar.tsx) (8 commits)
 - [`deploy/k8s/studio.yaml`](deploy/k8s/studio.yaml) (8 commits)
 - [`packages/daemon/src/source-exec.ts`](packages/daemon/src/source-exec.ts) (8 commits)
@@ -687,12 +687,11 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `da2c1453` (2026-11-23): fix(antigravity): 修复 ACP 通道后台任务唤醒提前退出并升级至 v1.0.153
 - `f2c855f1` (2026-11-22): feat(antigravity): 升级官方 agy ACP 协议通道支持实时流式、运行中追问、交互提问、子智能体与后台状态并升级至 v1.0.152
 - `d1c46a4e` (2026-11-22): fix(antigravity): 修复官方 agy 后台命令阻塞 stdout 导致回复与步骤卡住并升级至 v1.0.151
 - `21b1bac1` (2026-11-22): fix(antigravity): 修复 Antigravity 2.34 额度误报未启动与模型列表同步并升级至 v1.0.150
 - `29cefb1c` (2026-11-22): fix(ask,antigravity): 修复会话标题错配、长工具链预览缺失与官方 agy 续接桌面会话失败并升级至 v1.0.149
-- `6f51f72d` (2026-11-22): perf(client): 根治 PC 与手机客户端长会话渲染、输入回流与 GPU 磨砂卡顿并升级至 v1.0.148
-- `207a5ba0` (2026-11-22): fix(antigravity): 应用 2.34 不再提供 CSRF 令牌时任务自动改走官方 agy 命令行
 
 ## 10. Key Environment Variables & Configuration
 
@@ -715,8 +714,8 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ### 最近提交碰到的业务条目（改动后复查它们还成不成立）
 
+- `da2c1453` fix(antigravity): 修复 ACP 通道后台任务唤醒提前退出并升级至 v1.0.153 → `R-APP-NAME`, `R-ALL-TYPESCRIPT`
 - `f2c855f1` feat(antigravity): 升级官方 agy ACP 协议通道支持实时流式、运行中追问、交互提问、子智能体与后台状态并升级至 v1.0.152 → `F-ASK`, `R-AGY-APP-CSRF`, `R-TRACK-BACKGROUND`, `R-MULTI-DEVICE-STABLE`, `R-WS-BIG-UNTRACKED`, `R-ENT-DEVICE-POLICY`, `R-DEVICE-SESSION-MAP`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`
-- `d1c46a4e` fix(antigravity): 修复官方 agy 后台命令阻塞 stdout 导致回复与步骤卡住并升级至 v1.0.151 → `F-ASK`, `R-AGY-APP-CSRF`, `R-MULTI-DEVICE-STABLE`, `R-ENT-DEVICE-POLICY`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`
 
 ---
 _Auto-maintained by `scripts/project_blueprint.mjs` (v20261126) & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._

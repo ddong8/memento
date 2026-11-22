@@ -320,6 +320,79 @@ class RunRegistryTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(await self.registry.cancel("c20", self.user.id))
         await asyncio.wait({again.task}, timeout=2)
 
+    async def test_background_task_and_prompt_completion_word_never_mark_live_activity_done(self):
+        from server.services.notify_service import sanitize_live_activity_step
+
+        self.assertEqual(
+            sanitize_live_activity_step("后台任务持续执行中，完成后将自动继续", status="executing", event="update"),
+            "后台任务持续执行中，就绪后将自动继续",
+        )
+        self.assertEqual(
+            sanitize_live_activity_step("任务已完成", status="running", event="update"),
+            "任务已就绪",
+        )
+        self.assertEqual(
+            sanitize_live_activity_step("任务完成", status="done", event="end"),
+            "任务完成",
+        )
+
+        push_la_mock = ar.notify_service.push_live_activity_event
+        bg_observed = asyncio.Event()
+        bg_cleared = asyncio.Event()
+        resume_after_bg = asyncio.Event()
+        resume_after_clear = asyncio.Event()
+
+        async def gen(db, user):
+            yield frame({
+                "type": "tool_call",
+                "name": "run_on_device",
+                "args": {"prompt": "视频超分完成了吗？如果没完成继续等它完成"},
+            })
+            yield frame({"type": "task_progress", "status": "正在等待 1 个后台任务完成..."})
+            yield frame({
+                "type": "task_event",
+                "event": {
+                    "kind": "background",
+                    "tasks": [{"id": "task-1", "description": "等待 ffmpeg 超分完成"}],
+                },
+            })
+            bg_observed.set()
+            await resume_after_bg.wait()
+            yield frame({"type": "task_progress", "status": "running"})
+            yield frame({"type": "task_chunk", "chunk": "still streaming log"})
+            yield frame({
+                "type": "task_event",
+                "event": {"kind": "background", "tasks": []},
+            })
+            bg_cleared.set()
+            await resume_after_clear.wait()
+            yield frame({"type": "done"})
+
+        run = await self.registry.start("c21", self.user.id, "视频超分完成了吗", gen)
+        await bg_observed.wait()
+        self.assertEqual(run.step_type, "background")
+        self.assertNotIn("完成", run.current_step)
+        self.assertIn("后台运行中", run.current_step)
+
+        resume_after_bg.set()
+        await bg_cleared.wait()
+        self.assertEqual(run.step_type, "thinking")
+        self.assertEqual(run.current_step, "后台结果已返回，继续推理中...")
+
+        resume_after_clear.set()
+        await run.task
+
+        update_calls = [c for c in push_la_mock.call_args_list if c.args[2] == "update"]
+        self.assertGreaterEqual(len(update_calls), 2)
+        for c in update_calls:
+            step = c.kwargs.get("current_step") or ""
+            self.assertNotIn("完成", step)
+            self.assertNotIn("已结束", step)
+            self.assertNotIn("已停止", step)
+        end_calls = [c for c in push_la_mock.call_args_list if c.args[2] == "end"]
+        self.assertGreaterEqual(len(end_calls), 1)
+        self.assertEqual(end_calls[-1].kwargs.get("status"), "done")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `acf562d4` · Updated: `2026-11-22`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `57bbee85` · Updated: `2026-11-23`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,8 +16,8 @@
 - 规模 (Scale): 9 个子系统 · 40 组 API 路由 / 300 个接口 · 39 个前端页面 · 41 个数据模型 · 35 个服务模块 · 254 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `56c31f7d` (2026-11-23): fix(live-activity): 修复 Antigravity 后台任务灵动岛误报已完成并升级至 v1.0.154
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 73（✅ 73 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `T-RUN`, `F-ASK`, `F-RESUME`, `R-AGY-APP-CSRF`, `R-ISLAND-CLEANUP`, `R-ENT-DEVICE-POLICY`, `R-RUN-OUTLIVES-PAGE`, `R-APP-NAME`
+- 最近改动 (Latest): `57bbee85` (2026-11-23): perf(antigravity): 优化 ACP 通道结束收尾延迟并升级至 v1.0.155
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 73（✅ 73 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-TRACK-BACKGROUND`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `T-RUN`, `F-ASK`, `F-RESUME`, `R-AGY-APP-CSRF`, `R-ISLAND-CLEANUP`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -687,11 +687,11 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `57bbee85` (2026-11-23): perf(antigravity): 优化 ACP 通道结束收尾延迟并升级至 v1.0.155
 - `56c31f7d` (2026-11-23): fix(live-activity): 修复 Antigravity 后台任务灵动岛误报已完成并升级至 v1.0.154
 - `da2c1453` (2026-11-23): fix(antigravity): 修复 ACP 通道后台任务唤醒提前退出并升级至 v1.0.153
 - `f2c855f1` (2026-11-22): feat(antigravity): 升级官方 agy ACP 协议通道支持实时流式、运行中追问、交互提问、子智能体与后台状态并升级至 v1.0.152
 - `d1c46a4e` (2026-11-22): fix(antigravity): 修复官方 agy 后台命令阻塞 stdout 导致回复与步骤卡住并升级至 v1.0.151
-- `21b1bac1` (2026-11-22): fix(antigravity): 修复 Antigravity 2.34 额度误报未启动与模型列表同步并升级至 v1.0.150
 
 ## 10. Key Environment Variables & Configuration
 
@@ -714,8 +714,8 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ### 最近提交碰到的业务条目（改动后复查它们还成不成立）
 
+- `57bbee85` perf(antigravity): 优化 ACP 通道结束收尾延迟并升级至 v1.0.155 → `R-TRACK-BACKGROUND`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`
 - `56c31f7d` fix(live-activity): 修复 Antigravity 后台任务灵动岛误报已完成并升级至 v1.0.154 → `T-RUN`, `F-ASK`, `F-RESUME`, `R-AGY-APP-CSRF`, `R-ISLAND-CLEANUP`, `R-ENT-DEVICE-POLICY`, `R-RUN-OUTLIVES-PAGE`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `S-RUN-STATE`
-- `da2c1453` fix(antigravity): 修复 ACP 通道后台任务唤醒提前退出并升级至 v1.0.153 → `R-APP-NAME`, `R-ALL-TYPESCRIPT`
 
 ---
 _Auto-maintained by `scripts/project_blueprint.mjs` (v20261126) & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._

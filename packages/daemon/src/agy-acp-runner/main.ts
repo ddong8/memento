@@ -85,8 +85,14 @@ const cliBrainRoot = join(cliDataDir, "brain");
 const cliSummariesDb = join(cliDataDir, "conversation_summaries.db");
 
 // Authoritative wakeup/keepalive timings (env-overridable for deterministic tests)
-const NO_WAKEUP_IDLE_MS = Number(process.env.MEMENTO_AGY_NO_WAKEUP_MS) || 15_000;
-const POST_RUNNING_IDLE_MS = Number(process.env.MEMENTO_AGY_POST_RUNNING_IDLE_MS) || 5_000;
+const NO_WAKEUP_IDLE_MS = Number(process.env.MEMENTO_AGY_NO_WAKEUP_MS) || 5_000;
+const CANCEL_NO_WAKEUP_IDLE_MS = Number(process.env.MEMENTO_AGY_CANCEL_NO_WAKEUP_MS) || 2_000;
+const POST_RUNNING_TEXT_IDLE_MS = Number(process.env.MEMENTO_AGY_POST_RUNNING_TEXT_IDLE_MS) || 1_500;
+const POST_RUNNING_IDLE_MS = Number(process.env.MEMENTO_AGY_POST_RUNNING_IDLE_MS) || 2_500;
+const CONFIRMED_DB_SETTLE_MS = 150;
+const CONFIRMED_NODB_SETTLE_MS = 500;
+const POLL_INTERVAL_MS = 200;
+const DB_READ_CACHE_MS = 150;
 const FALLBACK_WAKEUP_QUIET_MS = Number(process.env.MEMENTO_AGY_WAKEUP_FALLBACK_MS) || 120_000;
 const KEEPALIVE_INTERVAL_MS = Number(process.env.MEMENTO_AGY_KEEPALIVE_MS) || 30_000;
 const TIMER_WAKE_GRACE_MS = 120_000;
@@ -197,19 +203,31 @@ function shutdown(code: number): void {
   if (exiting) return;
   exiting = true;
   cleanupTimers();
+  let exited = false;
+  const done = () => {
+    if (exited) return;
+    exited = true;
+    process.exit(code);
+  };
+  if (server.exitCode !== null || server.signalCode !== null) {
+    done();
+    return;
+  }
+  server.once("exit", done);
   try {
     server.stdin.end();
   } catch {
     // ignore
   }
-  setTimeout(() => {
+  const killTimer = setTimeout(() => {
     try {
       server.kill();
     } catch {
       // ignore
     }
-    process.exit(code);
-  }, 250);
+    done();
+  }, 150);
+  killTimer.unref();
 }
 
 function fail(message: string, code = 1): void {
@@ -305,15 +323,19 @@ let textEndsWithNewline = true;
 let awaitingWakeup = false;
 let wakeupStartedAt = 0;
 let wakeupActivityAt = 0;
+let wakeupStreamActivityAt = 0;
+let wakeupConfirmedAt = 0;
 let wakeupSeenRunning = false;
 let wakeupDoneConfirmed = false;
 let wakeupEmittedText = false;
+let wakeupTriggerWasCancel = false;
 let wakeupIdleSince = 0;
 let wakeupStepIndex = -1;
 let wakeupError = "";
 let maxParentStepIndex = -1;
 // Guards against the race where a background task's SYSTEM_MESSAGE lands right before session/prompt resolves end_turn
 let pendingWakeupAfterStep = -1;
+let pendingWakeupWasCancel = false;
 
 let lastDbState: AgyConversationState | null = null;
 let lastDbReadAt = 0;
@@ -324,7 +346,7 @@ const seenParentStepKeys = new Set<string>();
 function readDbState(force = false): AgyConversationState | null {
   if (!sessionId) return null;
   const now = Date.now();
-  if (!force && now - lastDbReadAt < 350) return lastDbState;
+  if (!force && now - lastDbReadAt < DB_READ_CACHE_MS) return lastDbState;
   lastDbReadAt = now;
   lastDbState = readAgyConversationState(cliSummariesDb, sessionId);
   return lastDbState;
@@ -363,23 +385,31 @@ function armActivityTimeout(force = false): void {
   timeoutTimer.unref();
 }
 
-function markActivity(): void {
+function isCancelOutput(text: string): boolean {
+  return /\bTimer cancelled\b|\bwas cancel(?:l)?ed\b|\bStatus:\s*CANCEL(?:L)?ED\b/i.test(text);
+}
+
+function markActivity(isStreamEvent = false): void {
   const now = Date.now();
   armActivityTimeout(false);
   if (awaitingWakeup) {
     wakeupActivityAt = now;
+    if (isStreamEvent) wakeupStreamActivityAt = now;
     wakeupIdleSince = 0;
   }
 }
 
-function enterWakeup(triggerStepIdx?: number): void {
+function enterWakeup(triggerStepIdx?: number, wasCancel = false): void {
   const now = Date.now();
   awaitingWakeup = true;
   wakeupStartedAt = now;
   wakeupActivityAt = now;
+  wakeupStreamActivityAt = now;
+  wakeupConfirmedAt = 0;
   wakeupSeenRunning = false;
   wakeupDoneConfirmed = false;
   wakeupEmittedText = false;
+  wakeupTriggerWasCancel = wasCancel;
   wakeupIdleSince = 0;
   wakeupError = "";
   const floor = triggerStepIdx !== undefined && triggerStepIdx >= 0 ? triggerStepIdx : maxParentStepIndex;
@@ -389,9 +419,11 @@ function enterWakeup(triggerStepIdx?: number): void {
 
 function leaveWakeupForAsync(): void {
   awaitingWakeup = false;
+  wakeupConfirmedAt = 0;
   wakeupSeenRunning = false;
   wakeupDoneConfirmed = false;
   wakeupEmittedText = false;
+  wakeupTriggerWasCancel = false;
   wakeupIdleSince = 0;
   wakeupError = "";
 }
@@ -702,7 +734,13 @@ function pollParentTranscript(): void {
     const type = str(step.type).toUpperCase();
     const source = str(step.source).toUpperCase();
     const content = str(step.content);
-    markActivity();
+    const isFinalPlanner =
+      type === "PLANNER_RESPONSE" &&
+      source === "MODEL" &&
+      statusRaw === "DONE" &&
+      (!Array.isArray(step.tool_calls) || step.tool_calls.filter(isObj).length === 0);
+    // Avoid artificially resetting wakeupActivityAt when reading the confirming final PLANNER_RESPONSE itself
+    if (!isFinalPlanner) markActivity();
 
     if (type === "GENERIC" && statusRaw === "RUNNING" && content.startsWith("Created At:")) {
       const bg = parseBackgroundStart(content);
@@ -715,13 +753,20 @@ function pollParentTranscript(): void {
       }
     } else if (type === "SYSTEM_MESSAGE" && content) {
       let asyncFinished = false;
+      let endedCount = 0;
+      let cancelledCount = 0;
+      const msgIsCancel = isCancelOutput(content);
       // Check background task completion
       for (const [fullId, bg] of [...activeBgTasks]) {
         const sender = content.includes(`sender=${fullId}`) || content.includes(`sender=${bg.shortId}`);
         const mentioned = new RegExp(`(?:^|[^\\w-])${bg.shortId}(?!\\d)`).test(content);
         if (sender || (mentioned && hasBackgroundEndMarker(content))) {
           activeBgTasks.delete(fullId);
-          if (!bg.isDaemon) asyncFinished = true;
+          if (!bg.isDaemon) {
+            asyncFinished = true;
+            endedCount++;
+            if (msgIsCancel) cancelledCount++;
+          }
           if (bg.toolCallId) {
             const open = inProgressTools.get(bg.toolCallId);
             if (open) {
@@ -747,18 +792,26 @@ function pollParentTranscript(): void {
           const failed = /failed|error|terminated|cancelled/i.test(content) && !/completed/i.test(content);
           closeSubagent(subCid, failed ? "failed" : "done", content);
           asyncFinished = true;
+          endedCount++;
+          if (msgIsCancel) cancelledCount++;
         }
       }
       if (asyncFinished) {
-        if (idx >= 0) pendingWakeupAfterStep = Math.max(pendingWakeupAfterStep, idx);
+        const allCancelled = endedCount > 0 && cancelledCount === endedCount;
+        if (idx >= 0) {
+          pendingWakeupAfterStep = Math.max(pendingWakeupAfterStep, idx);
+          pendingWakeupWasCancel = allCancelled;
+        }
         if (inFlightPrompts === 0 && !hasOpenNonDaemonAsync()) {
-          enterWakeup(idx);
+          enterWakeup(idx, allCancelled);
         }
       } else if (awaitingWakeup && idx >= 0 && /\bsender=/.test(content)) {
         // SYSTEM_MESSAGE landed slightly after tool_call_update already cleared activeBgTasks:
         // advance wakeupStepIndex so only a PLANNER_RESPONSE strictly after this SYSTEM_MESSAGE confirms completion.
         if (idx > wakeupStepIndex) wakeupStepIndex = idx;
+        if (msgIsCancel) wakeupTriggerWasCancel = true;
         wakeupDoneConfirmed = false;
+        wakeupConfirmedAt = 0;
         wakeupIdleSince = 0;
       }
     } else if (type === "ERROR_MESSAGE") {
@@ -793,11 +846,13 @@ function pollParentTranscript(): void {
         if (awaitingWakeup) {
           wakeupSeenRunning = true;
           wakeupDoneConfirmed = false;
+          wakeupConfirmedAt = 0;
           wakeupIdleSince = 0;
         }
       } else {
         if (pendingWakeupAfterStep >= 0 && (idx < 0 || idx > pendingWakeupAfterStep)) {
           pendingWakeupAfterStep = -1;
+          pendingWakeupWasCancel = false;
         }
         if (
           awaitingWakeup &&
@@ -808,7 +863,7 @@ function pollParentTranscript(): void {
         ) {
           wakeupSeenRunning = true;
           wakeupDoneConfirmed = true;
-          wakeupActivityAt = Date.now();
+          if (!wakeupConfirmedAt) wakeupConfirmedAt = Date.now();
         }
       }
     }
@@ -847,7 +902,8 @@ function evaluateWakeupCompletion(): void {
   if (!awaitingWakeup) return;
 
   const now = Date.now();
-  const db = readDbState();
+  // Force a fresh SQLite read once PLANNER_RESPONSE confirms done so idle transition is noticed immediately
+  const db = readDbState(wakeupDoneConfirmed);
 
   // 1. Authoritative RUNNING signal from agy's Cascade engine: NEVER exit while thinking, retrying, or running tools!
   if (isCascadeRunning(db)) {
@@ -872,7 +928,13 @@ function evaluateWakeupCompletion(): void {
 
   // 4. Confirmed post-wakeup final PLANNER_RESPONSE (no tool_calls) and engine is idle (or DB unavailable in mock tests)
   if (wakeupDoneConfirmed && (!db || isCascadeIdle(db))) {
-    if (now - wakeupActivityAt >= 800) {
+    if (db && isCascadeIdle(db)) {
+      const streamQuiet = now - wakeupStreamActivityAt >= CONFIRMED_DB_SETTLE_MS;
+      const confirmQuiet = wakeupEmittedText || now - wakeupConfirmedAt >= CONFIRMED_DB_SETTLE_MS;
+      if (streamQuiet && confirmQuiet) {
+        finishCleanly(false);
+      }
+    } else if (now - Math.max(wakeupActivityAt, wakeupConfirmedAt) >= CONFIRMED_NODB_SETTLE_MS) {
       finishCleanly(false);
     }
     return;
@@ -882,11 +944,16 @@ function evaluateWakeupCompletion(): void {
   if (db && isCascadeIdle(db)) {
     if (wakeupSeenRunning) {
       if (!wakeupIdleSince) wakeupIdleSince = now;
-      if (now - wakeupIdleSince >= POST_RUNNING_IDLE_MS && now - wakeupActivityAt >= 3000) {
+      const idleThreshold = wakeupEmittedText ? POST_RUNNING_TEXT_IDLE_MS : POST_RUNNING_IDLE_MS;
+      const actThreshold = wakeupEmittedText ? POST_RUNNING_TEXT_IDLE_MS : 2_000;
+      if (now - wakeupIdleSince >= idleThreshold && now - wakeupActivityAt >= actThreshold) {
         finishCleanly(false);
       }
-    } else if (now - wakeupStartedAt >= NO_WAKEUP_IDLE_MS && now - wakeupActivityAt >= NO_WAKEUP_IDLE_MS) {
-      finishCleanly(false);
+    } else {
+      const noWakeupMs = wakeupTriggerWasCancel ? CANCEL_NO_WAKEUP_IDLE_MS : NO_WAKEUP_IDLE_MS;
+      if (now - wakeupStartedAt >= noWakeupMs && now - wakeupActivityAt >= noWakeupMs) {
+        finishCleanly(false);
+      }
     }
     return;
   }
@@ -951,7 +1018,7 @@ function handleToolUpdate(upd: Json): void {
   }
 
   const isTerminal = status === "completed" || status === "failed" || status === "cancelled" || status === "canceled";
-  markActivity();
+  markActivity(true);
   if (!isTerminal) {
     const existing = inProgressTools.get(toolCallId);
     if (existing?.backgrounded) return; // Don't revert a backgrounded tool back to "running"
@@ -1061,12 +1128,14 @@ function handleToolUpdate(upd: Json): void {
   if (wasBackgrounded || removedNonDaemonBg) {
     emitBackgroundSnapshot();
     if (inFlightPrompts === 0 && !wasDaemon && !hasOpenNonDaemonAsync()) {
-      enterWakeup();
+      const wasCancel = status === "cancelled" || status === "canceled" || isCancelOutput(rawText);
+      enterWakeup(undefined, wasCancel);
     }
   } else if (awaitingWakeup) {
     // Synchronous tool finished inside a wakeup turn: agent is still actively processing tool output
     wakeupSeenRunning = true;
     wakeupDoneConfirmed = false;
+    wakeupConfirmedAt = 0;
     wakeupIdleSince = 0;
   }
 }
@@ -1083,11 +1152,12 @@ function onNotification(msg: Json): void {
       const content = isObj(upd.content) ? upd.content : {};
       const text = str(content.text);
       if (text) {
-        markActivity();
+        markActivity(true);
         emit({ kind: "thinking", text });
         if (awaitingWakeup) {
           wakeupSeenRunning = true;
           wakeupDoneConfirmed = false;
+          wakeupConfirmedAt = 0;
           wakeupIdleSince = 0;
         }
       }
@@ -1098,7 +1168,7 @@ function onNotification(msg: Json): void {
       const text = str(content.text);
       if (!text) break;
       if (suppressAskFallbackText && openQuestions.length > 0) break;
-      markActivity();
+      markActivity(true);
       // If a run_command/schedule/run_workflow is still open while the agent starts replying, it went async!
       promoteOpenToolsToBackground();
       let chunk = text;
@@ -1202,7 +1272,7 @@ function sendPrompt(text: string, isSteer = false): void {
       // Guard: if a background task's SYSTEM_MESSAGE arrived right before end_turn and no post-SYSTEM_MESSAGE
       // PLANNER_RESPONSE has landed yet, wait for the wakeup turn instead of exiting early!
       if (pendingWakeupAfterStep >= 0) {
-        enterWakeup(pendingWakeupAfterStep);
+        enterWakeup(pendingWakeupAfterStep, pendingWakeupWasCancel);
         return;
       }
       finishCleanly(false);
@@ -1389,7 +1459,7 @@ async function main(): Promise<void> {
 
   emit({ kind: "session", session_id: sessionId, ...(activeModel ? { model: activeModel } : {}) });
 
-  // Background transcript/subagent/wakeup watcher (400ms poll for background task IDs, log growth, subagents, DB state & keepalive)
+  // Background transcript/subagent/wakeup watcher (200ms poll for background task IDs, log growth, subagents, DB state & keepalive)
   pollTimer = setInterval(() => {
     if (finished || exiting) return;
     pollParentTranscript();
@@ -1397,7 +1467,7 @@ async function main(): Promise<void> {
     pollBackgroundLogs();
     evaluateWakeupCompletion();
     maybeEmitKeepalive();
-  }, 400);
+  }, POLL_INTERVAL_MS);
   pollTimer.unref();
 
   armActivityTimeout(true);

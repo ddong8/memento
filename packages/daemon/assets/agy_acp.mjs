@@ -434,8 +434,14 @@ var home = process.env.HOME || process.env.USERPROFILE || homedir();
 var cliDataDir = join(home, ".gemini", "antigravity-cli");
 var cliBrainRoot = join(cliDataDir, "brain");
 var cliSummariesDb = join(cliDataDir, "conversation_summaries.db");
-var NO_WAKEUP_IDLE_MS = Number(process.env.MEMENTO_AGY_NO_WAKEUP_MS) || 15e3;
-var POST_RUNNING_IDLE_MS = Number(process.env.MEMENTO_AGY_POST_RUNNING_IDLE_MS) || 5e3;
+var NO_WAKEUP_IDLE_MS = Number(process.env.MEMENTO_AGY_NO_WAKEUP_MS) || 5e3;
+var CANCEL_NO_WAKEUP_IDLE_MS = Number(process.env.MEMENTO_AGY_CANCEL_NO_WAKEUP_MS) || 2e3;
+var POST_RUNNING_TEXT_IDLE_MS = Number(process.env.MEMENTO_AGY_POST_RUNNING_TEXT_IDLE_MS) || 1500;
+var POST_RUNNING_IDLE_MS = Number(process.env.MEMENTO_AGY_POST_RUNNING_IDLE_MS) || 2500;
+var CONFIRMED_DB_SETTLE_MS = 150;
+var CONFIRMED_NODB_SETTLE_MS = 500;
+var POLL_INTERVAL_MS = 200;
+var DB_READ_CACHE_MS = 150;
 var FALLBACK_WAKEUP_QUIET_MS = Number(process.env.MEMENTO_AGY_WAKEUP_FALLBACK_MS) || 12e4;
 var KEEPALIVE_INTERVAL_MS = Number(process.env.MEMENTO_AGY_KEEPALIVE_MS) || 3e4;
 var TIMER_WAKE_GRACE_MS = 12e4;
@@ -535,17 +541,29 @@ function shutdown(code) {
   if (exiting) return;
   exiting = true;
   cleanupTimers();
+  let exited = false;
+  const done = () => {
+    if (exited) return;
+    exited = true;
+    process.exit(code);
+  };
+  if (server.exitCode !== null || server.signalCode !== null) {
+    done();
+    return;
+  }
+  server.once("exit", done);
   try {
     server.stdin.end();
   } catch {
   }
-  setTimeout(() => {
+  const killTimer = setTimeout(() => {
     try {
       server.kill();
     } catch {
     }
-    process.exit(code);
-  }, 250);
+    done();
+  }, 150);
+  killTimer.unref();
 }
 function fail(message, code = 1) {
   emit({ kind: "error", message: clip(message, 2e3) });
@@ -601,14 +619,18 @@ var textEndsWithNewline = true;
 var awaitingWakeup = false;
 var wakeupStartedAt = 0;
 var wakeupActivityAt = 0;
+var wakeupStreamActivityAt = 0;
+var wakeupConfirmedAt = 0;
 var wakeupSeenRunning = false;
 var wakeupDoneConfirmed = false;
 var wakeupEmittedText = false;
+var wakeupTriggerWasCancel = false;
 var wakeupIdleSince = 0;
 var wakeupStepIndex = -1;
 var wakeupError = "";
 var maxParentStepIndex = -1;
 var pendingWakeupAfterStep = -1;
+var pendingWakeupWasCancel = false;
 var lastDbState = null;
 var lastDbReadAt = 0;
 var parentTailer;
@@ -616,7 +638,7 @@ var seenParentStepKeys = /* @__PURE__ */ new Set();
 function readDbState(force = false) {
   if (!sessionId) return null;
   const now = Date.now();
-  if (!force && now - lastDbReadAt < 350) return lastDbState;
+  if (!force && now - lastDbReadAt < DB_READ_CACHE_MS) return lastDbState;
   lastDbReadAt = now;
   lastDbState = readAgyConversationState(cliSummariesDb, sessionId);
   return lastDbState;
@@ -655,22 +677,29 @@ function armActivityTimeout(force = false) {
   }, args.timeout * 1e3);
   timeoutTimer.unref();
 }
-function markActivity() {
+function isCancelOutput(text) {
+  return /\bTimer cancelled\b|\bwas cancel(?:l)?ed\b|\bStatus:\s*CANCEL(?:L)?ED\b/i.test(text);
+}
+function markActivity(isStreamEvent = false) {
   const now = Date.now();
   armActivityTimeout(false);
   if (awaitingWakeup) {
     wakeupActivityAt = now;
+    if (isStreamEvent) wakeupStreamActivityAt = now;
     wakeupIdleSince = 0;
   }
 }
-function enterWakeup(triggerStepIdx) {
+function enterWakeup(triggerStepIdx, wasCancel = false) {
   const now = Date.now();
   awaitingWakeup = true;
   wakeupStartedAt = now;
   wakeupActivityAt = now;
+  wakeupStreamActivityAt = now;
+  wakeupConfirmedAt = 0;
   wakeupSeenRunning = false;
   wakeupDoneConfirmed = false;
   wakeupEmittedText = false;
+  wakeupTriggerWasCancel = wasCancel;
   wakeupIdleSince = 0;
   wakeupError = "";
   const floor = triggerStepIdx !== void 0 && triggerStepIdx >= 0 ? triggerStepIdx : maxParentStepIndex;
@@ -679,9 +708,11 @@ function enterWakeup(triggerStepIdx) {
 }
 function leaveWakeupForAsync() {
   awaitingWakeup = false;
+  wakeupConfirmedAt = 0;
   wakeupSeenRunning = false;
   wakeupDoneConfirmed = false;
   wakeupEmittedText = false;
+  wakeupTriggerWasCancel = false;
   wakeupIdleSince = 0;
   wakeupError = "";
 }
@@ -971,7 +1002,8 @@ function pollParentTranscript() {
     const type = str(step.type).toUpperCase();
     const source = str(step.source).toUpperCase();
     const content = str(step.content);
-    markActivity();
+    const isFinalPlanner = type === "PLANNER_RESPONSE" && source === "MODEL" && statusRaw === "DONE" && (!Array.isArray(step.tool_calls) || step.tool_calls.filter(isObj).length === 0);
+    if (!isFinalPlanner) markActivity();
     if (type === "GENERIC" && statusRaw === "RUNNING" && content.startsWith("Created At:")) {
       const bg = parseBackgroundStart(content);
       if (bg) attachBackgroundTask(bg, content, createdAt);
@@ -983,12 +1015,19 @@ function pollParentTranscript() {
       }
     } else if (type === "SYSTEM_MESSAGE" && content) {
       let asyncFinished = false;
+      let endedCount = 0;
+      let cancelledCount = 0;
+      const msgIsCancel = isCancelOutput(content);
       for (const [fullId, bg] of [...activeBgTasks]) {
         const sender = content.includes(`sender=${fullId}`) || content.includes(`sender=${bg.shortId}`);
         const mentioned = new RegExp(`(?:^|[^\\w-])${bg.shortId}(?!\\d)`).test(content);
         if (sender || mentioned && hasBackgroundEndMarker(content)) {
           activeBgTasks.delete(fullId);
-          if (!bg.isDaemon) asyncFinished = true;
+          if (!bg.isDaemon) {
+            asyncFinished = true;
+            endedCount++;
+            if (msgIsCancel) cancelledCount++;
+          }
           if (bg.toolCallId) {
             const open = inProgressTools.get(bg.toolCallId);
             if (open) {
@@ -1013,16 +1052,24 @@ function pollParentTranscript() {
           const failed = /failed|error|terminated|cancelled/i.test(content) && !/completed/i.test(content);
           closeSubagent(subCid, failed ? "failed" : "done", content);
           asyncFinished = true;
+          endedCount++;
+          if (msgIsCancel) cancelledCount++;
         }
       }
       if (asyncFinished) {
-        if (idx >= 0) pendingWakeupAfterStep = Math.max(pendingWakeupAfterStep, idx);
+        const allCancelled = endedCount > 0 && cancelledCount === endedCount;
+        if (idx >= 0) {
+          pendingWakeupAfterStep = Math.max(pendingWakeupAfterStep, idx);
+          pendingWakeupWasCancel = allCancelled;
+        }
         if (inFlightPrompts === 0 && !hasOpenNonDaemonAsync()) {
-          enterWakeup(idx);
+          enterWakeup(idx, allCancelled);
         }
       } else if (awaitingWakeup && idx >= 0 && /\bsender=/.test(content)) {
         if (idx > wakeupStepIndex) wakeupStepIndex = idx;
+        if (msgIsCancel) wakeupTriggerWasCancel = true;
         wakeupDoneConfirmed = false;
+        wakeupConfirmedAt = 0;
         wakeupIdleSince = 0;
       }
     } else if (type === "ERROR_MESSAGE") {
@@ -1057,16 +1104,18 @@ function pollParentTranscript() {
         if (awaitingWakeup) {
           wakeupSeenRunning = true;
           wakeupDoneConfirmed = false;
+          wakeupConfirmedAt = 0;
           wakeupIdleSince = 0;
         }
       } else {
         if (pendingWakeupAfterStep >= 0 && (idx < 0 || idx > pendingWakeupAfterStep)) {
           pendingWakeupAfterStep = -1;
+          pendingWakeupWasCancel = false;
         }
         if (awaitingWakeup && !hasOpenNonDaemonAsync() && openQuestions.length === 0 && inFlightPrompts === 0 && (idx < 0 || idx > wakeupStepIndex)) {
           wakeupSeenRunning = true;
           wakeupDoneConfirmed = true;
-          wakeupActivityAt = Date.now();
+          if (!wakeupConfirmedAt) wakeupConfirmedAt = Date.now();
         }
       }
     }
@@ -1095,7 +1144,7 @@ function evaluateWakeupCompletion() {
   if (hasOpenNonDaemonAsync()) return;
   if (!awaitingWakeup) return;
   const now = Date.now();
-  const db = readDbState();
+  const db = readDbState(wakeupDoneConfirmed);
   if (isCascadeRunning(db)) {
     wakeupSeenRunning = true;
     wakeupIdleSince = 0;
@@ -1112,7 +1161,13 @@ function evaluateWakeupCompletion() {
     return;
   }
   if (wakeupDoneConfirmed && (!db || isCascadeIdle(db))) {
-    if (now - wakeupActivityAt >= 800) {
+    if (db && isCascadeIdle(db)) {
+      const streamQuiet = now - wakeupStreamActivityAt >= CONFIRMED_DB_SETTLE_MS;
+      const confirmQuiet = wakeupEmittedText || now - wakeupConfirmedAt >= CONFIRMED_DB_SETTLE_MS;
+      if (streamQuiet && confirmQuiet) {
+        finishCleanly(false);
+      }
+    } else if (now - Math.max(wakeupActivityAt, wakeupConfirmedAt) >= CONFIRMED_NODB_SETTLE_MS) {
       finishCleanly(false);
     }
     return;
@@ -1120,11 +1175,16 @@ function evaluateWakeupCompletion() {
   if (db && isCascadeIdle(db)) {
     if (wakeupSeenRunning) {
       if (!wakeupIdleSince) wakeupIdleSince = now;
-      if (now - wakeupIdleSince >= POST_RUNNING_IDLE_MS && now - wakeupActivityAt >= 3e3) {
+      const idleThreshold = wakeupEmittedText ? POST_RUNNING_TEXT_IDLE_MS : POST_RUNNING_IDLE_MS;
+      const actThreshold = wakeupEmittedText ? POST_RUNNING_TEXT_IDLE_MS : 2e3;
+      if (now - wakeupIdleSince >= idleThreshold && now - wakeupActivityAt >= actThreshold) {
         finishCleanly(false);
       }
-    } else if (now - wakeupStartedAt >= NO_WAKEUP_IDLE_MS && now - wakeupActivityAt >= NO_WAKEUP_IDLE_MS) {
-      finishCleanly(false);
+    } else {
+      const noWakeupMs = wakeupTriggerWasCancel ? CANCEL_NO_WAKEUP_IDLE_MS : NO_WAKEUP_IDLE_MS;
+      if (now - wakeupStartedAt >= noWakeupMs && now - wakeupActivityAt >= noWakeupMs) {
+        finishCleanly(false);
+      }
     }
     return;
   }
@@ -1182,7 +1242,7 @@ function handleToolUpdate(upd) {
     return;
   }
   const isTerminal = status === "completed" || status === "failed" || status === "cancelled" || status === "canceled";
-  markActivity();
+  markActivity(true);
   if (!isTerminal) {
     const existing = inProgressTools.get(toolCallId);
     if (existing?.backgrounded) return;
@@ -1277,11 +1337,13 @@ function handleToolUpdate(upd) {
   if (wasBackgrounded || removedNonDaemonBg) {
     emitBackgroundSnapshot();
     if (inFlightPrompts === 0 && !wasDaemon && !hasOpenNonDaemonAsync()) {
-      enterWakeup();
+      const wasCancel = status === "cancelled" || status === "canceled" || isCancelOutput(rawText);
+      enterWakeup(void 0, wasCancel);
     }
   } else if (awaitingWakeup) {
     wakeupSeenRunning = true;
     wakeupDoneConfirmed = false;
+    wakeupConfirmedAt = 0;
     wakeupIdleSince = 0;
   }
 }
@@ -1296,11 +1358,12 @@ function onNotification(msg) {
       const content = isObj(upd.content) ? upd.content : {};
       const text = str(content.text);
       if (text) {
-        markActivity();
+        markActivity(true);
         emit({ kind: "thinking", text });
         if (awaitingWakeup) {
           wakeupSeenRunning = true;
           wakeupDoneConfirmed = false;
+          wakeupConfirmedAt = 0;
           wakeupIdleSince = 0;
         }
       }
@@ -1311,7 +1374,7 @@ function onNotification(msg) {
       const text = str(content.text);
       if (!text) break;
       if (suppressAskFallbackText && openQuestions.length > 0) break;
-      markActivity();
+      markActivity(true);
       promoteOpenToolsToBackground();
       let chunk = text;
       if (hasEmittedText && !textEndsWithNewline && awaitingWakeup && !wakeupEmittedText && !chunk.startsWith("\n")) {
@@ -1406,7 +1469,7 @@ function sendPrompt(text, isSteer = false) {
       return;
     }
     if (pendingWakeupAfterStep >= 0) {
-      enterWakeup(pendingWakeupAfterStep);
+      enterWakeup(pendingWakeupAfterStep, pendingWakeupWasCancel);
       return;
     }
     finishCleanly(false);
@@ -1576,7 +1639,7 @@ async function main() {
     pollBackgroundLogs();
     evaluateWakeupCompletion();
     maybeEmitKeepalive();
-  }, 400);
+  }, POLL_INTERVAL_MS);
   pollTimer.unref();
   armActivityTimeout(true);
   sendPrompt(args.prompt, false);

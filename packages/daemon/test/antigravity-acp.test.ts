@@ -481,6 +481,70 @@ createInterface({ input: process.stdin, crlfDelay: Infinity }).on("line", (line)
       return;
     }
 
+    // Scenario 9: Cancelled background task with IDLE DB finishes swiftly (~2s instead of 15s stall)
+    if (text === "取消后台快速收尾") {
+      const logsDir = join(brainRoot, CID, ".system_generated", "logs");
+      mkdirSync(logsDir, { recursive: true });
+      const t0 = new Date().toISOString().replace(/\\.\\d+Z$/, "Z");
+      setDbState(CID, "CASCADE_RUN_STATUS_RUNNING", true, 60);
+      update({ sessionUpdate: "tool_call", toolCallId: "call_cancel_60", name: "schedule", args: { DurationSeconds: 60, Prompt: "定期巡检" }, status: "in_progress" });
+      appendFileSync(
+        join(logsDir, "transcript.jsonl"),
+        JSON.stringify({ step_index: 60, source: "MODEL", type: "GENERIC", status: "RUNNING", created_at: t0, content: "Created At: " + t0 + "\\nTool is running as a background task with task id: " + CID + "/task-60\\nTask Description: Timer (60s)" }) + "\\n",
+      );
+      update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "定时器已创建。" } });
+      send({ jsonrpc: "2.0", id: msg.id, result: { stopReason: "end_turn", usage: { inputTokens: 120, outputTokens: 6 } } });
+      setDbState(CID, "CASCADE_RUN_STATUS_IDLE", true, 61);
+
+      setTimeout(() => {
+        const t1 = new Date().toISOString().replace(/\\.\\d+Z$/, "Z");
+        appendFileSync(
+          join(logsDir, "transcript.jsonl"),
+          JSON.stringify({ step_index: 62, source: "SYSTEM", type: "SYSTEM_MESSAGE", status: "DONE", created_at: t1, content: "<SYSTEM_MESSAGE>\\n[Message] sender=" + CID + "/task-60 content=Task id \\"" + CID + "/task-60\\" finished with result:\\nTimer cancelled\\n</SYSTEM_MESSAGE>" }) + "\\n",
+        );
+        // Cascade goes straight to IDLE/0 with no wakeup reply
+        setDbState(CID, "CASCADE_RUN_STATUS_IDLE", false, 62);
+      }, 300);
+      return;
+    }
+
+    // Scenario 10: Wakeup final PLANNER_RESPONSE + IDLE/0 exits swiftly without the old 1.2s+ artificial stall
+    if (text === "唤醒完成即时收尾") {
+      const logsDir = join(brainRoot, CID, ".system_generated", "logs");
+      mkdirSync(logsDir, { recursive: true });
+      const t0 = new Date().toISOString().replace(/\\.\\d+Z$/, "Z");
+      setDbState(CID, "CASCADE_RUN_STATUS_RUNNING", true, 70);
+      update({ sessionUpdate: "tool_call", toolCallId: "call_fast_70", name: "run_command", args: { CommandLine: "echo fast" }, status: "in_progress" });
+      appendFileSync(
+        join(logsDir, "transcript.jsonl"),
+        JSON.stringify({ step_index: 70, source: "MODEL", type: "GENERIC", status: "RUNNING", created_at: t0, content: "Created At: " + t0 + "\\nTool is running as a background task with task id: " + CID + "/task-70\\nTask Description: echo fast" }) + "\\n",
+      );
+      update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "后台命令已发。" } });
+      send({ jsonrpc: "2.0", id: msg.id, result: { stopReason: "end_turn", usage: { inputTokens: 120, outputTokens: 6 } } });
+      setDbState(CID, "CASCADE_RUN_STATUS_IDLE", true, 71);
+
+      setTimeout(() => {
+        const t1 = new Date().toISOString().replace(/\\.\\d+Z$/, "Z");
+        update({ sessionUpdate: "tool_call_update", toolCallId: "call_fast_70", name: "run_command", args: { CommandLine: "echo fast" }, status: "completed", rawOutput: { output: "Command exited with code 0.\\nfast" } });
+        appendFileSync(
+          join(logsDir, "transcript.jsonl"),
+          JSON.stringify({ step_index: 72, source: "SYSTEM", type: "SYSTEM_MESSAGE", status: "DONE", created_at: t1, content: "<SYSTEM_MESSAGE>\\n[Message] sender=" + CID + "/task-70 content=Task id \\"" + CID + "/task-70\\" finished with result:\\nCommand exited with code 0.\\n</SYSTEM_MESSAGE>" }) + "\\n",
+        );
+        setDbState(CID, "CASCADE_RUN_STATUS_RUNNING", true, 72);
+      }, 300);
+
+      setTimeout(() => {
+        const t2 = new Date().toISOString().replace(/\\.\\d+Z$/, "Z");
+        update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "即时收尾完毕。" } });
+        appendFileSync(
+          join(logsDir, "transcript.jsonl"),
+          JSON.stringify({ step_index: 73, source: "MODEL", type: "PLANNER_RESPONSE", status: "DONE", created_at: t2, content: "即时收尾完毕。" }) + "\\n",
+        );
+        setDbState(CID, "CASCADE_RUN_STATUS_IDLE", false, 74);
+      }, 600);
+      return;
+    }
+
     send({ jsonrpc: "2.0", id: msg.id, result: { stopReason: "end_turn", usage: { inputTokens: 10, outputTokens: 2 } } });
   }
 });
@@ -754,6 +818,32 @@ it.skipIf(process.platform === "win32")(
       expect.objectContaining({ kind: "subagent", id: "c3d4e5f6-3333-4444-8555-666677778888", status: "done" }),
     );
     expect(chunks.join("")).toContain("架构复核通过。");
+  },
+  30_000,
+);
+
+it.skipIf(process.platform === "win32")(
+  "exits swiftly on cancelled background tasks (~2s) and confirmed idle wakeups (<1s) without stale stalls",
+  async () => {
+    const tCancelStart = Date.now();
+    const cancelRes = await runAcpTask("acp-0010", { prompt: "取消后台快速收尾" });
+    const cancelElapsed = Date.now() - tCancelStart;
+    expect(cancelRes.done, `${cancelRes.done.error}\n${cancelRes.done.stderr}`).toMatchObject({ status: "succeeded", session_id: CID });
+    // Previously stalled for NO_WAKEUP_IDLE_MS=15_000ms; now settles in ~2.3s
+    expect(cancelElapsed).toBeLessThan(6_000);
+
+    let finalChunkAt = 0;
+    const fastRes = await runAcpTask("acp-0011", { prompt: "唤醒完成即时收尾" }, (msg) => {
+      if (msg.type === "task_chunk" && String(msg.text ?? "").includes("即时收尾完毕。")) {
+        finalChunkAt = Date.now();
+      }
+    });
+    const tailLatency = Date.now() - finalChunkAt;
+    expect(fastRes.done, `${fastRes.done.error}\n${fastRes.done.stderr}`).toMatchObject({ status: "succeeded", session_id: CID });
+    expect(finalChunkAt).toBeGreaterThan(0);
+    expect(fastRes.chunks.join("")).toContain("即时收尾完毕。");
+    // Previously waited 800ms + 2*400ms poll + 250ms shutdown (~1.2s-1.9s); now finishes well under 1s
+    expect(tailLatency).toBeLessThan(950);
   },
   30_000,
 );

@@ -619,11 +619,29 @@ function StudioInner() {
 
   const episodeVideoVersion = renderVersionOverride || detail?.episode.last_task_id || renderTask?.id || "";
 
+  // 默认播在线观看版（短边 720、约 1.4 Mbps）：先问一次压好没有再定地址，播放途中不换文件
+  const streamKey = selectedEpisodeId ? `${selectedEpisodeId}:${episodeVideoVersion}` : "";
+  const [streamChoice, setStreamChoice] = useState<{ key: string; stream: boolean } | null>(null);
+  useEffect(() => {
+    if (!streamKey || publishedVideoUrl) return;
+    let cancelled = false;
+    const eid = selectedEpisodeId;
+    studioApi
+      .getEpisodeStreamStatus(eid)
+      .then((res) => !cancelled && setStreamChoice({ key: streamKey, stream: Boolean(res.ready) }))
+      .catch(() => !cancelled && setStreamChoice({ key: streamKey, stream: false }));
+    return () => {
+      cancelled = true;
+    };
+  }, [streamKey, selectedEpisodeId, publishedVideoUrl]);
+  const streamDecided = streamChoice?.key === streamKey;
+
   const episodePreviewSrc = useMemo(() => {
     if (publishedVideoUrl) return publishedVideoUrl;
-    if (!selectedEpisodeId) return "";
-    return studioEpisodeVideoUrl(selectedEpisodeId, episodeVideoVersion);
-  }, [publishedVideoUrl, selectedEpisodeId, episodeVideoVersion]);
+    if (!selectedEpisodeId || !streamDecided) return "";
+    return studioEpisodeVideoUrl(selectedEpisodeId, episodeVideoVersion, Boolean(streamChoice?.stream));
+  }, [publishedVideoUrl, selectedEpisodeId, episodeVideoVersion, streamDecided, streamChoice?.stream]);
+  const episodePreviewPending = Boolean(selectedEpisodeId && !publishedVideoUrl && !streamDecided);
 
   const computeOnline = compute?.status === "ready";
   const computeBusy = compute && ["connecting", "awaiting_gpu", "booting", "stopping"].includes(compute.status);
@@ -1053,6 +1071,7 @@ function StudioInner() {
                                   controls
                                   playsInline
                                   muted
+                                  preload="none"
                                   className="h-full w-full object-cover"
                                 />
                               ) : (
@@ -1502,6 +1521,13 @@ function StudioInner() {
                     src={episodePreviewSrc}
                     title={`${detail.project.name} · ${detail.episode.title}`}
                   />
+                ) : episodePreviewPending ? (
+                  <div
+                    className="rounded-xl p-10 text-center text-xs"
+                    style={{ background: "var(--aurora-chip)", color: "var(--aurora-fg4)" }}
+                  >
+                    正在准备在线观看版…
+                  </div>
                 ) : (
                   <div
                     className="rounded-xl p-10 text-center text-xs"

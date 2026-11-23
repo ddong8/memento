@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `a50d872a` · Updated: `2026-11-23`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `04619147` · Updated: `2026-11-23`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -13,11 +13,11 @@
 - 类型 (Type): Monorepo (Workspaces)
 - 技术栈 (Stack): TypeScript/JavaScript, Python, Shell / Bash · React, Electron, Next.js, TailwindCSS, Model Context Protocol (MCP), FastAPI, SQLAlchemy, Celery
 - 基础设施 (Infra): PostgreSQL, pgvector (Vector DB), Redis, MinIO / S3 Object Storage, Celery Task Queue
-- 规模 (Scale): 9 个子系统 · 40 组 API 路由 / 315 个接口 · 39 个前端页面 · 41 个数据模型 · 35 个服务模块 · 255 个测试文件
+- 规模 (Scale): 9 个子系统 · 40 组 API 路由 / 319 个接口 · 39 个前端页面 · 41 个数据模型 · 35 个服务模块 · 255 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
 - 最近改动 (Latest): `a50d872a` (2026-11-23): feat(studio): 演播台接入多平台自动分发中心、内联 Mac 代理配置与剧情确认超分门禁
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 73（✅ 73 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `F-BLUEPRINT`, `R-SELF-EVOLVE`, `R-TRACK-BACKGROUND`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 75（✅ 75 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-STUDIO-PUBLISH-PULL`, `F-BLUEPRINT`, `R-SELF-EVOLVE`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -407,7 +407,7 @@ flowchart TD
 - `POST /api/studio/compute/start`
 - `POST /api/studio/compute/stop`
 - `POST /api/studio/compute/extend`
-- _... (52 more endpoints)_
+- _... (56 more endpoints)_
 
 #### `/api/tasks` (tasks.py)
 
@@ -710,14 +710,14 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 11. 业务蓝图核对 (Business Blueprint Check)
 
-- 业务蓝图：[BUSINESS_BLUEPRINT.md](BUSINESS_BLUEPRINT.md) · 规则 73（✅ 73 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
+- 业务蓝图：[BUSINESS_BLUEPRINT.md](BUSINESS_BLUEPRINT.md) · 规则 75（✅ 75 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
 - 结论：✅ 没有失效或违规
 
 ### 最近提交碰到的业务条目（改动后复查它们还成不成立）
 
+- `a50d872a` feat(studio): 演播台接入多平台自动分发中心、内联 Mac 代理配置与剧情确认超分门禁 → `R-STUDIO-PUBLISH-PULL`
 - `a7ec5649` ci: 服务端测试按 uv.lock 安装依赖，和镜像同版本 → `F-BLUEPRINT`
 - `3bd80145` fix(学习): memento 自己发的提示词不再算用户纠正，评测缺跑自动补，没人用的坑 30 天休眠 → `R-SELF-EVOLVE`
-- `0001ad81` perf(antigravity): 优化 ACP 通道结束收尾延迟并升级至 v1.0.155 → `R-TRACK-BACKGROUND`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`
 
 ---
 _Auto-maintained by `scripts/project_blueprint.mjs` (v20261126) & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._

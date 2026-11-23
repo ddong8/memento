@@ -197,6 +197,8 @@ export interface PublishPlatformMeta {
 
 export interface PublishAgentInfo {
   online: boolean;
+  mode?: "pull" | "push";
+  last_seen?: number | null;
   url: string;
   playwright: boolean;
   biliup: boolean;
@@ -283,7 +285,7 @@ export function studioAssetUrl(relPath: string): string {
   return `${base}/api/studio/assets?${q}`;
 }
 
-export function studioEpisodeVideoUrl(episodeId: string, version?: string | number): string {
+export function studioEpisodeVideoUrl(episodeId: string, version?: string | number, stream = false): string {
   const base = getApiBase().replace(/\/+$/, "");
   const params = new URLSearchParams();
   if (typeof window !== "undefined") {
@@ -293,6 +295,7 @@ export function studioEpisodeVideoUrl(episodeId: string, version?: string | numb
   if (version !== undefined && String(version).trim() !== "") {
     params.set("v", String(version).trim());
   }
+  if (stream) params.set("quality", "stream");
   const qs = params.toString();
   return `${base}/api/studio/episodes/${encodeURIComponent(episodeId)}/latest-video${qs ? `?${qs}` : ""}`;
 }
@@ -442,6 +445,10 @@ export const studioApi = {
 
   getPublishPlatforms: () =>
     studioReq<{ platforms: PublishPlatformMeta[]; agent: PublishAgentInfo }>("/api/studio/publish/platforms"),
+  getEpisodeStreamStatus: (episodeId: string) =>
+    studioReq<{ ready: boolean; variant: string }>(
+      `/api/studio/episodes/${encodeURIComponent(episodeId)}/stream-status`
+    ),
   triggerPublishLogin: (platform: string) =>
     studioReq<{ ok: boolean; platform: string; pid?: number; message?: string }>(
       "/api/studio/publish/agent/login",

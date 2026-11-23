@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..config import settings
 from ..db.models import User
 from ..db.session import get_db
-from ..middleware.auth import get_current_user
+from ..middleware.auth import get_current_user, get_current_user_or_collector, verify_collector_token
 from ..services.ask_store import append_conversation_turns, bust_conv_list, get_or_create_conversation
 from ..services.plugin_service import is_plugin_ready, resolve_studio_connection
 from ..services.storage_service import sign_video_url, store_video_bytes
@@ -156,7 +156,8 @@ async def compute_start(request: Request, _user: User = Depends(_require_studio_
 
 @router.post("/compute/stop")
 async def compute_stop(_user: User = Depends(_require_studio_plugin)):
-    return await _proxy_json("POST", "/api/studio/compute/stop", timeout=30.0)
+    # filmkit 停机后要核实 Colab 真的释放（一般 10 秒左右，unassign 失败重试时最长约 2 分钟）
+    return await _proxy_json("POST", "/api/studio/compute/stop", timeout=150.0)
 
 
 @router.post("/compute/extend")
@@ -424,10 +425,15 @@ async def get_task(task_id: str, _user: User = Depends(_require_studio_plugin)):
 async def _require_media_user(
     authorization: str | None = Header(None),
     token: str | None = Query(None),
+    x_collector_token: str | None = Header(None),
     db: AsyncSession = Depends(get_db),
 ) -> User:
     auth_header = authorization or (f"Bearer {token.strip()}" if token and token.strip() else None)
-    user = await get_current_user(auth_header, db)
+    if not auth_header and x_collector_token:
+        # Mac 上的本机分发代理用设备令牌拉成片与封面
+        user = await verify_collector_token(x_collector_token, db)
+    else:
+        user = await get_current_user(auth_header, db)
     _current_studio_conn.set(resolve_studio_connection(user))
     return user
 
@@ -523,14 +529,31 @@ async def proxy_task_video(
     )
 
 
+@router.get("/episodes/{eid}/stream-status")
+async def episode_stream_status(eid: str, _user: User = Depends(_require_studio_plugin)):
+    """在线观看版压好没有（没压好会顺带在后台开压）。播放页据此决定带不带 quality=stream。"""
+    try:
+        return await _proxy_json(
+            "GET", f"/api/studio/episodes/{_check_id(eid, 'episode_id')}/stream-video", params={"check": "true"}, timeout=20.0,
+        )
+    except HTTPException as exc:
+        if exc.status_code == 404:
+            return {"ready": False, "variant": ""}
+        raise
+
+
 @router.get("/episodes/{eid}/latest-video")
 async def proxy_episode_latest_video(
     eid: str,
     v: str | None = Query(None),
+    quality: str | None = Query(None),
     range_header: str | None = Header(None, alias="Range"),
     _user: User = Depends(_require_media_user),
 ):
-    """Stream the latest rendered MP4 of an episode (from last_task or canonical films/<slug>_final.mp4)."""
+    """Stream the latest rendered MP4 of an episode (from last_task or canonical films/<slug>_final.mp4).
+
+    quality=stream 先给在线观看版（短边 720、约 1.4 Mbps）：公网入口出口约 3.25 Mbps，1080P 原片直接播会卡；
+    还没压好时 filmkit 返回 404 并在后台开压，这里接着回落到原片。"""
     detail = await _proxy_json("GET", f"/api/studio/episodes/{_check_id(eid, 'episode_id')}")
     ep = detail.get("episode") or {}
     proj = detail.get("project") or {}
@@ -538,6 +561,8 @@ async def proxy_episode_latest_video(
     headers = _filmkit_headers({"Range": range_header} if range_header else None)
     slug_name = f"{proj.get('slug', '')}_{ep.get('slug', '')}".strip("_")
     candidates = []
+    if isinstance(quality, str) and quality.strip() == "stream":
+        candidates.append((f"{_filmkit_base()}/api/studio/episodes/{eid}/stream-video", None))
     if tid:
         candidates.append((f"{_filmkit_base()}/api/tasks/{tid}/video", None))
     if slug_name:
@@ -556,7 +581,8 @@ async def proxy_episode_latest_video(
                     if hk in resp.headers
                 }
                 version_tag = tid or slug_name or eid
-                out_headers.setdefault("etag", f'"studio-ep-{eid}-{version_tag}"')
+                variant = "-stream" if url.endswith("/stream-video") else ""
+                out_headers.setdefault("etag", f'"studio-ep-{eid}-{version_tag}{variant}"')
                 if v and tid and v.strip() == tid:
                     out_headers["cache-control"] = "private, max-age=604800, immutable"
                 else:
@@ -729,6 +755,30 @@ def _public_asset_headers(request: Request) -> dict[str, str]:
 @router.get("/publish/platforms")
 async def get_publish_platforms(_user: User = Depends(_require_studio_plugin)):
     return await _proxy_json("GET", "/api/studio/publish/platforms", timeout=15.0)
+
+
+async def _require_agent_device(user: User = Depends(get_current_user_or_collector)) -> User:
+    """本机分发代理（拉模式）用设备令牌来心跳、领任务、回报进度。"""
+    _current_studio_conn.set(resolve_studio_connection(user))
+    return user
+
+
+@router.post("/publish/agent/heartbeat")
+async def publish_agent_heartbeat(request: Request, _user: User = Depends(_require_agent_device)):
+    body = await request.json() if await request.body() else {}
+    return await _proxy_json("POST", "/api/studio/publish/agent/heartbeat", payload=body, timeout=15.0)
+
+
+@router.post("/publish/agent/claim")
+async def publish_agent_claim(request: Request, _user: User = Depends(_require_agent_device)):
+    body = await request.json() if await request.body() else {}
+    return await _proxy_json("POST", "/api/studio/publish/agent/claim", payload=body, timeout=15.0)
+
+
+@router.post("/publish/agent/report")
+async def publish_agent_report(request: Request, _user: User = Depends(_require_agent_device)):
+    body = await request.json() if await request.body() else {}
+    return await _proxy_json("POST", "/api/studio/publish/agent/report", payload=body, timeout=15.0)
 
 
 @router.post("/publish/agent/login")

@@ -10,7 +10,8 @@
  *
  * Strategy:
  * 1. First play streams immediately via HTTP 206 Range (zero startup delay).
- * 2. Once playback starts (`onPlay`), `cacheVideoInBackground` quietly stores the full video response
+ * 2. Once the whole video has buffered or playback ends, `cacheVideoInBackground` stores the full response
+ *    (never at play start: a second full download competes with playback and stutters on slow links)
  *    in `caches.open(CACHE_NAME)` under a normalized stable key (with ephemeral auth params stripped).
  * 3. Every subsequent play (tab switch, fullscreen portal remount, episode switch, page refresh, or
  *    re-opening in chat/inspector) hits the in-memory Blob URL pool or persistent Cache API immediately
@@ -200,6 +201,9 @@ export function cacheVideoInBackground(rawUrl: string | null | undefined): Promi
   if (existing) return existing;
 
   if (!hasCacheApi()) return Promise.resolve(null);
+  // 用户开了省流量就不另外整片下载
+  const conn = typeof navigator !== "undefined" ? (navigator as Navigator & { connection?: { saveData?: boolean } }).connection : undefined;
+  if (conn?.saveData) return Promise.resolve(null);
 
   const task = (async (): Promise<string | null> => {
     try {

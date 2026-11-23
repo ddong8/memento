@@ -24,16 +24,18 @@ type StatusTone = "neutral" | "accent" | "success" | "warn" | "danger";
 
 const STATUS_META: Record<string, { label: string; tone: StatusTone }> = {
   prepared: { label: "待推送", tone: "neutral" },
-  queued: { label: "排队中", tone: "accent" },
+  queued: { label: "排队等 Mac 领取", tone: "accent" },
+  dispatched: { label: "Mac 已领取", tone: "accent" },
   downloading: { label: "拉取素材", tone: "accent" },
   uploading: { label: "上传填表中", tone: "accent" },
   awaiting_user: { label: "需本机扫码/验证", tone: "warn" },
   draft_saved: { label: "已存草稿", tone: "success" },
   published: { label: "已发布", tone: "success" },
+  needs_publish_mode: { label: "该平台无草稿箱", tone: "warn" },
   failed: { label: "失败", tone: "danger" },
 };
 
-const ACTIVE_STATES = new Set(["queued", "downloading", "uploading", "awaiting_user"]);
+const ACTIVE_STATES = new Set(["queued", "dispatched", "downloading", "uploading", "awaiting_user"]);
 
 const fieldStyle = {
   width: "100%",
@@ -46,7 +48,9 @@ const fieldStyle = {
   outline: "none",
 } as const;
 
-const MAC_AGENT_CMD = "cd /Users/haixingdong/dev/filmkit && .venv/bin/python make_film.py publish-agent --tunnel";
+// 拉模式：Mac 上的代理经 memento 主动领取任务，沿用本机 memento 客户端的登录，不用填地址和令牌。
+// 已装成开机自启（launchd：com.filmkit.publisher）时不需要手动运行。
+const MAC_AGENT_CMD = "cd ~/dev/filmkit && .venv/bin/python make_film.py publish-agent --pull";
 
 interface JobDraft {
   title: string;
@@ -113,9 +117,6 @@ export function StudioPublishPanel({ episode, onNotify, onGoScreening }: Props) 
         setDedupRemux(s.publish_dedup_remux !== false);
         if (s.publish_default_mode === "publish" || s.publish_default_mode === "draft") {
           setDefaultMode(s.publish_default_mode);
-        }
-        if (!savedUrl) {
-          setShowAgentConfig(true);
         }
       }
     } catch (e) {
@@ -320,7 +321,7 @@ export function StudioPublishPanel({ episode, onNotify, onGoScreening }: Props) 
             >
               {agent?.online
                 ? `本机 Mac 分发代理在线 (${agent.chrome ? "Chrome" : "Chromium"}${agent.biliup ? " + biliup" : ""})`
-                : "本机 Mac 分发代理未连接（仍可生成并下载全平台 ZIP）"}
+                : "本机 Mac 分发代理未连接：推送的任务会排队，Mac 上线后自动执行"}
             </Chip>
             {overview?.video ? (
               <span className="text-xs truncate" style={{ color: "var(--aurora-fg3)" }}>
@@ -364,7 +365,7 @@ export function StudioPublishPanel({ episode, onNotify, onGoScreening }: Props) 
           >
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="text-xs font-semibold" style={{ color: "var(--aurora-fg1)" }}>
-                本机 Mac 分发代理连接（使用住宅宽带与本地 Chrome Profile，账号 Cookie 不上传云端）
+                本机 Mac 分发代理（拉模式：Mac 经 memento 主动领任务，账号 Cookie 只留在 Mac 上；已设开机自启）
               </div>
               <Btn size="sm" variant="ghost" icon="copy" onClick={handleCopyCommand}>
                 {copiedCmd ? "已复制命令" : "复制 Mac 启动命令"}
@@ -385,7 +386,7 @@ export function StudioPublishPanel({ episode, onNotify, onGoScreening }: Props) 
             <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
               <div>
                 <label className="block text-[11px] mb-1" style={{ color: "var(--aurora-fg3)" }}>
-                  代理隧道地址 (publish_agent_url)
+                  推模式代理地址（可选，留空则 Mac 主动来领任务）
                 </label>
                 <input
                   value={agentUrl}
@@ -396,7 +397,7 @@ export function StudioPublishPanel({ episode, onNotify, onGoScreening }: Props) 
               </div>
               <div>
                 <label className="block text-[11px] mb-1" style={{ color: "var(--aurora-fg3)" }}>
-                  代理鉴权 Token（本机 ~/.secrets/filmkit_publish_token）
+                  推模式鉴权 Token（仅填了地址时需要）
                 </label>
                 <input
                   type="password"

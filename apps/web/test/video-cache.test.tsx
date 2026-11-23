@@ -117,7 +117,7 @@ describe("Video client cache and Studio deterministic URL", () => {
     expect(urlA).not.toContain("t=");
   });
 
-  it("caches once on first playback and serves from local cache on second mount without re-downloading", async () => {
+  it("caches once after the first playback (not at play start) and serves from local cache on second mount without re-downloading", async () => {
     const mock = createMockCacheStorage();
     (globalThis as Record<string, unknown>).caches = mock.storage;
 
@@ -136,9 +136,16 @@ describe("Video client cache and Studio deterministic URL", () => {
     expect(firstVideo?.getAttribute("src")).toContain("/api/studio/episodes/ep1/latest-video");
     expect(fetchMock).not.toHaveBeenCalled();
 
-    // User starts playback -> triggers one background cache fetch
+    // Starting playback must not start a second full download (it competes with playback on slow links)
     await act(async () => {
       firstVideo?.dispatchEvent(new Event("play"));
+      await Promise.resolve();
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    // Once playback ends the whole file is stored, once
+    await act(async () => {
+      firstVideo?.dispatchEvent(new Event("ended"));
       await Promise.resolve();
       await Promise.resolve();
     });

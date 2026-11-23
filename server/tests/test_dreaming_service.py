@@ -289,6 +289,27 @@ class TestUserVoice(unittest.IsolatedAsyncioTestCase):
         asked = "你是不是又把专家模式关了？" + "我之前说过要一直开着，" * 12
         self.assertTrue(clean_user_voice(asked).startswith("你是不是又把专家模式关了"))
 
+    def test_clean_user_voice_drops_antigravity_image_subagents(self):
+        import re as _re
+        from server.services.dreaming_voice import SUBAGENT_IMAGE_SQL_RE, clean_user_voice
+        noise = [
+            "Generated image: `/Users/u/.gemini/antigravity-cli/brain/79bd668f/char_chen_1795439247237.jpg` Depicts a 9:16 portrait",
+            "Generated image path: `/Users/u/.gemini/antigravity/brain/47de008c/ep05_shot05.jpg` Shows a vertical shot",
+            "Final image: `/Users/u/.gemini/antigravity/brain/47de008c/ep02_shot03_v2.jpg` — Vertical 9:16 85mm",
+            "/Users/u/.gemini/antigravity-cli/brain/79bd668f/notary_ep05_shot04_1795340222412.jpg",
+            "Generate a 9:16 vertical photorealistic cinematic television drama keyframe image with filename prefix `mom_ep02_shot03`.",
+            "Generate a photorealistic 9:16 vertical cinematic still frame for Episode 3 Shot 03 of a Chinese drama",
+        ]
+        for text in noise:
+            self.assertIsNone(clean_user_voice(text), text)
+            self.assertTrue(_re.match(SUBAGENT_IMAGE_SQL_RE, text, _re.IGNORECASE), text)
+        resumed = "【前文对话历史（续接自 Antigravity 桌面会话 47de008c）】\n助手: 第 6 集已压好\n\n--------------------\n【当前用户指令】\n第七集画面再亮一点"
+        self.assertEqual(clean_user_voice(resumed), "第七集画面再亮一点")
+        self.assertIsNone(clean_user_voice("【前文对话历史（续接自 Antigravity 桌面会话 47de008c）】\n助手: 被截断"))
+        for typed in ("生成一张封面图，画面亮一点", "把这张图 /Users/u/Desktop/a.jpg 换个背景"):
+            self.assertEqual(clean_user_voice(typed), typed)
+            self.assertFalse(_re.match(SUBAGENT_IMAGE_SQL_RE, typed, _re.IGNORECASE), typed)
+
     def test_clean_user_voice_drops_prompts_memento_sends_itself(self):
         from server.services.business_blueprint import generation_prompt
         for has_file in (True, False):

@@ -19,6 +19,11 @@ from server.api.studio import (
     confirm_episode_story,
     dispatch_publish_job,
     download_publish_bundle,
+    episode_stream_status,
+    publish_agent_claim,
+    publish_agent_heartbeat,
+    publish_agent_report,
+    _require_media_user,
     get_publish_platforms,
     proxy_episode_latest_video,
     proxy_task_video,
@@ -322,3 +327,94 @@ class TestStudioVideoAndChatPublish(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(zip_resp.media_type, "application/zip")
             self.assertIn("ep_1_publish_bundle.zip", zip_resp.headers["content-disposition"])
             self.assertEqual(await _collect_stream(zip_resp), fake_zip)
+
+
+class TestStudioStreamCopyAndPullAgent(unittest.IsolatedAsyncioTestCase):
+    async def test_stream_quality_tries_online_copy_first_with_own_etag(self):
+        ep_detail = {"project": {"id": "p1", "slug": "proj"}, "episode": {"id": "ep1", "slug": "ep01", "last_task_id": "t1"}}
+        fake_user = SimpleNamespace(id=uuid.uuid4(), role="admin")
+        asked: list[str] = []
+
+        class Resp:
+            def __init__(self, code):
+                self.status_code = code
+                self.headers = {"content-type": "video/mp4", "content-length": "4"}
+
+            async def aiter_bytes(self, chunk_size=65536):
+                yield b"mp4!"
+
+            async def aclose(self):
+                pass
+
+        class Client:
+            def __init__(self, *a, **k):
+                pass
+
+            def build_request(self, method, url, params=None, headers=None):
+                return url
+
+            async def send(self, url, stream=False):
+                asked.append(url)
+                return Resp(200 if url.endswith("/stream-video") and ready else 200 if not url.endswith("/stream-video") else 404)
+
+            async def aclose(self):
+                pass
+
+        with patch("server.api.studio._proxy_json", AsyncMock(return_value=ep_detail)), \
+             patch("server.api.studio.httpx.AsyncClient", Client):
+            ready = True
+            resp = await proxy_episode_latest_video(eid="ep1", v="t1", quality="stream", range_header=None, _user=fake_user)
+            self.assertTrue(asked[0].endswith("/api/studio/episodes/ep1/stream-video"))
+            self.assertEqual(resp.headers["etag"], '"studio-ep-ep1-t1-stream"')
+            asked.clear()
+            ready = False  # 还没压好：回落到原片
+            resp = await proxy_episode_latest_video(eid="ep1", v="t1", quality="stream", range_header=None, _user=fake_user)
+            self.assertTrue(asked[1].endswith("/api/tasks/t1/video"), asked)
+            self.assertEqual(resp.headers["etag"], '"studio-ep-ep1-t1"')
+            asked.clear()
+            await proxy_episode_latest_video(eid="ep1", v="t1", quality=None, range_header=None, _user=fake_user)
+            self.assertFalse(any(u.endswith("/stream-video") for u in asked))
+
+    async def test_stream_status_treats_missing_as_not_ready(self):
+        fake_user = SimpleNamespace(id=uuid.uuid4(), role="admin")
+        with patch("server.api.studio._proxy_json", AsyncMock(side_effect=HTTPException(404, "x"))):
+            self.assertEqual(await episode_stream_status("ep1", _user=fake_user), {"ready": False, "variant": ""})
+        with patch("server.api.studio._proxy_json", AsyncMock(return_value={"ready": True, "variant": "stream"})) as m:
+            self.assertTrue((await episode_stream_status("ep1", _user=fake_user))["ready"])
+            self.assertEqual(m.call_args.kwargs["params"], {"check": "true"})
+
+    async def test_pull_agent_endpoints_forward_to_filmkit(self):
+        fake_user = SimpleNamespace(id=uuid.uuid4(), role="admin")
+
+        class Req:
+            def __init__(self, body: bytes):
+                self._b = body
+
+            async def body(self):
+                return self._b
+
+            async def json(self):
+                import json as _json
+                return _json.loads(self._b)
+
+        m = AsyncMock(return_value={"ok": True})
+        with patch("server.api.studio._proxy_json", m):
+            await publish_agent_heartbeat(Req(b'{"agent_id": "mac"}'), _user=fake_user)
+            await publish_agent_claim(Req(b'{"agent_id": "mac"}'), _user=fake_user)
+            await publish_agent_report(Req(b'{"job_id": "j1", "status": "draft_saved"}'), _user=fake_user)
+        paths = [c.args[1] for c in m.call_args_list]
+        self.assertEqual(paths, [
+            "/api/studio/publish/agent/heartbeat", "/api/studio/publish/agent/claim", "/api/studio/publish/agent/report",
+        ])
+        self.assertEqual(m.call_args_list[2].kwargs["payload"]["status"], "draft_saved")
+
+    async def test_media_user_accepts_device_token_for_the_mac_agent(self):
+        user = SimpleNamespace(id=uuid.uuid4(), role="owner")
+        with patch("server.api.studio.verify_collector_token", AsyncMock(return_value=user)) as vt, \
+             patch("server.api.studio.get_current_user", AsyncMock()) as gu, \
+             patch("server.api.studio.resolve_studio_connection", return_value=("http://f", "t")):
+            got = await _require_media_user(authorization=None, token=None, x_collector_token="dev-tok", db=None)
+        self.assertIs(got, user)
+        vt.assert_awaited_once_with("dev-tok", None)
+        gu.assert_not_awaited()
+

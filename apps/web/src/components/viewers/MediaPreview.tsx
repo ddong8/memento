@@ -621,6 +621,13 @@ export function VideoPlayer({
     setIsLoading(true);
     setDirect(!memHit && relayMedia.playUrl.includes("/files/stream/") ? "trying" : "off");
   }
+  // 播放缓存：等整片缓冲完或看完再下载存盘，不在开播时另起一路整片下载和播放抢带宽（慢线路上会卡）
+  const cacheAfterPlayback = useCallback(() => {
+    if (isCached || !relayMedia.playUrl) return;
+    void cacheVideoInBackground(relayMedia.playUrl).then((blobUrl) => {
+      if (blobUrl) setIsCached(true);
+    });
+  }, [isCached, relayMedia.playUrl]);
   const resumeAtRef = useRef<number | null>(null);
   // Check persistent Cache API on mount / src change so replays and page revisits open straight from local disk
   useEffect(() => {
@@ -1802,17 +1809,11 @@ export function VideoPlayer({
           playsInline
           {...({ "webkit-playsinline": "true", "x-webkit-airplay": "allow" } as any)}
           preload={shouldPreload ? "auto" : "metadata"}
-          onPlay={() => {
-            setIsPlaying(true);
-            if (!isCached && relayMedia.playUrl) {
-              void cacheVideoInBackground(relayMedia.playUrl).then((blobUrl) => {
-                if (blobUrl) setIsCached(true);
-              });
-            }
-          }}
+          onPlay={() => setIsPlaying(true)}
           onPause={() => setIsPlaying(false)}
           onEnded={() => {
             setIsPlaying(false);
+            cacheAfterPlayback();
             const posKey = `memento_vpos_${encodeURIComponent(safeDecodePath(src))}`;
             try {
               localStorage.removeItem(posKey);
@@ -1840,6 +1841,10 @@ export function VideoPlayer({
           onProgress={() => {
             const v = videoRef.current;
             if (!v || !v.duration) return;
+            if (v.buffered.length > 0 && v.buffered.start(0) <= 0.5 && v.buffered.end(v.buffered.length - 1) >= v.duration - 0.5 && v.buffered.length === 1) {
+              // 整片已经缓冲完，这时再存进缓存不和播放抢带宽
+              cacheAfterPlayback();
+            }
             if (v.buffered.length > 0) {
               for (let i = 0; i < v.buffered.length; i++) {
                 if (v.buffered.start(i) <= v.currentTime && v.currentTime <= v.buffered.end(i)) {

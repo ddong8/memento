@@ -3,16 +3,16 @@
 <!-- memento:business-index:start (自动生成，勿手改) -->
 > 先读这一段定位；要细节时按下表行号只读对应章节。改了「代码位置」里的文件，先看对应条目还成不成立。
 
-- 汇总：规则 73（✅ 73 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
+- 汇总：规则 75（✅ 75 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
 - 核对：全部通过（详见末尾「自动核对」）
 
 | 章节 | 行号 |
 | :--- | :--- |
 | 1. 业务对象与术语 | L21-L65 |
 | 2. 关键流程 | L67-L124 |
-| 3. 业务规则 | L126-L582 |
-| 4. 状态归属 | L584-L629 |
-| 自动核对 (Auto Check) | L632-L745 |
+| 3. 业务规则 | L126-L597 |
+| 4. 状态归属 | L599-L644 |
+| 自动核对 (Auto Check) | L647-L762 |
 <!-- memento:business-index:end -->
 > 业务蓝图：memento 应该做成什么样，每一条落在哪段代码、由哪个测试或检查保证。和代码蓝图 [CODE_BLUEPRINT.md](CODE_BLUEPRINT.md)（代码长什么样）配合看：代码蓝图回答"在哪里"，这份回答"应该怎样、为什么"。
 > 规则来自用户的原话和纠正（CLAUDE.md、长期记忆、每晚复盘），不是从代码里反推的；代码和这里对不上，先当成代码的问题查。
@@ -477,10 +477,10 @@
 
 ### R-SELF-EVOLVE 越用越了解用户、能自进化
 - 来源: CLAUDE.md（memento）「希望工具越用越了解用户、能自进化」；记忆「越用越聪明核查（10-27）」
-- 说明: 纠正当场学习并跟踪是否学会，每晚复盘（dreaming）沉淀规则、避坑和技能，检索评测集每周回归（每天检查、缺了次日补跑、失败推送）。只有用户亲手打的话才算用户原话：memento 自己发给智能体的提示词（业务蓝图生成、执行机前言）不算纠正、不进提问数（11-23 查实上周 82 次纠正里 28 次是它们）；没被用过也没再遇到的坑 30 天后休眠。
+- 说明: 纠正当场学习并跟踪是否学会，每晚复盘（dreaming）沉淀规则、避坑和技能，检索评测集每周回归（每天检查、缺了次日补跑、失败推送）。只有用户亲手打的话才算用户原话：memento 自己发给智能体的提示词（业务蓝图生成、执行机前言、续接桌面会话的前文历史）和 Antigravity 生图子任务的派活与回报不算纠正、不进提问数（11-23 查实上周 82 次纠正里 28 次是前者；11-24 查实 14 天里 378 条是后者）；没被用过也没再遇到的坑 30 天后休眠。
 - 代码: `server/server/services/correction_service.py`, `server/server/services/dreaming_service.py`, `server/server/services/dreaming_voice.py#clean_user_voice`, `server/server/services/eval_service.py`, `server/server/services/guidance_service.py`, `server/server/services/memory_lifecycle.py#sweep_dormant`, `server/server/tasks/learning_tasks.py#_evaluate`
-- 测试: `server/tests/test_title_healing.py`, `server/tests/test_dreaming_service.py#test_clean_user_voice_drops_prompts_memento_sends_itself`, `server/tests/test_corrections.py#test_a_daily_report_request_counts_as_upfront`, `server/tests/test_eval_grounding.py#test_checked_daily_but_run_once_a_week`, `server/tests/test_memory_sweep.py#test_pitfalls_never_used_sleep_sooner`
-- 要求: `_GENERATED_PROMPT_RE` @ `server/server/services/dreaming_voice.py`; `GENERATED_PROMPT_SQL_RE` @ `server/server/services/learning_eval_service.py`
+- 测试: `server/tests/test_title_healing.py`, `server/tests/test_dreaming_service.py#test_clean_user_voice_drops_prompts_memento_sends_itself`, `server/tests/test_dreaming_service.py#test_clean_user_voice_drops_antigravity_image_subagents`, `server/tests/test_corrections.py#test_a_daily_report_request_counts_as_upfront`, `server/tests/test_eval_grounding.py#test_checked_daily_but_run_once_a_week`, `server/tests/test_memory_sweep.py#test_pitfalls_never_used_sleep_sooner`
+- 要求: `_GENERATED_PROMPT_RE` @ `server/server/services/dreaming_voice.py`; `_SUBAGENT_IMAGE_REPORT_RE` @ `server/server/services/dreaming_voice.py`; `GENERATED_PROMPT_SQL_RE` @ `server/server/services/learning_eval_service.py`; `SUBAGENT_IMAGE_SQL_RE` @ `server/server/services/learning_eval_service.py`
 
 ### R-PLAN-THEN-FINISH 规划周全后一次性全部完成，追求好用，界面高级精致
 - 来源: CLAUDE.md（memento）「规划周全后一次性全部完成，追求好用；界面高级精致」
@@ -526,8 +526,9 @@
 
 ### R-MEDIA-VIEW 图片可点击放大；视频可预览、全屏、播放后缓存；工作台能看图片和 ppt/excel/word/md 等产物
 - 来源: CLAUDE.md（memento）「图片可点击放大；视频可预览、可全屏、播放后缓存；工作台能查看图片和 ppt/excel/word/md 等产物」
-- 代码: `apps/web/src/components/viewers/ImageViewerModal.tsx#ImageViewerModal`, `apps/web/src/components/viewers/MediaPreview.tsx`, `apps/web/src/components/viewers/OfficePreview.tsx`, `apps/web/src/lib/office-preview.ts`, `apps/web/src/components/viewers/MediaInspectorPanel.tsx`
-- 测试: `apps/web/test/video-player-fullscreen.test.tsx#clicking center '点击放大全屏播放' badge triggers fullscreen toggle and playback`, `apps/web/test/office-preview.test.ts#places shapes on the slide`, `apps/web/test/office-preview.test.ts#reads sheets with shared strings`, `apps/web/test/markdown-viewer.test.ts`, `apps/web/test/workbench-links.test.ts`
+- 说明: 视频整片缓冲完或看完后才存进本地缓存，开播时不另起整片下载（11-24 查实它和播放抢公网入口约 3.25 Mbps 的带宽，演播台必卡）。
+- 代码: `apps/web/src/components/viewers/ImageViewerModal.tsx#ImageViewerModal`, `apps/web/src/components/viewers/MediaPreview.tsx`, `apps/web/src/lib/video-cache.ts#cacheVideoInBackground`, `apps/web/src/components/viewers/OfficePreview.tsx`, `apps/web/src/lib/office-preview.ts`, `apps/web/src/components/viewers/MediaInspectorPanel.tsx`
+- 测试: `apps/web/test/video-player-fullscreen.test.tsx#clicking center '点击放大全屏播放' badge triggers fullscreen toggle and playback`, `apps/web/test/video-cache.test.tsx#caches once after the first playback (not at play start)`, `apps/web/test/office-preview.test.ts#places shapes on the slide`, `apps/web/test/office-preview.test.ts#reads sheets with shared strings`, `apps/web/test/markdown-viewer.test.ts`, `apps/web/test/workbench-links.test.ts`
 
 ### R-LLM-IN-PROFILE 大模型配置放在个人设置里
 - 来源: CLAUDE.md（memento）「大模型配置放在个人设置里」
@@ -565,6 +566,20 @@
 - 代码: `server/server/api/studio.py#publish_episode_to_chat`, `server/server/api/media.py#get_media_video`, `server/server/services/storage_service.py#store_video_bytes`, `server/server/services/storage_service.py#sign_video_links_in_text`, `apps/web/src/app/studio/page.tsx#StudioPage`, `apps/web/src/components/viewers/media-utils.ts#resolveMediaUrl`
 - 测试: `server/tests/test_studio_media.py#test_get_media_video_range_206_and_auth`, `server/tests/test_studio_media.py#test_publish_episode_to_chat_archives_and_embeds_video_markdown`, `apps/web/test/studio-video-media.test.tsx#renders inline VideoPlayer directly inside MarkdownViewer chat bubble`
 - 要求: `sign_video_links_in_text(` @ `server/server/services/ask_store.py`; `href="/studio"` @ `apps/web/src/components/viewers/MediaInspectorPanel.tsx`
+
+### R-STUDIO-SMOOTH-PLAY 演播台成片默认播在线观看版，播放不卡
+- 来源: 用户 2026-11-22「演播台的视频播放很卡」；2026-11-24「全部修复吧」
+- 说明: 浏览器到演播台经阿里云入口机，实测出口约 3.25 Mbps，1080P 原片 6.7 Mbps 直接播必卡。播放页先问一次在线观看版（filmkit 后台压的短边 720、约 1.4 Mbps H.264）压好没有，压好就带 `quality=stream` 播它，没压好播原片、同时在后台开压；同一个地址播放途中不换文件。分镜候选小视频点了才加载（`preload="none"`）。原片只用于下载与分发。
+- 代码: `server/server/api/studio.py#proxy_episode_latest_video`, `server/server/api/studio.py#episode_stream_status`, `apps/web/src/app/studio/page.tsx#StudioPage`, `apps/web/src/lib/studio-api.ts#studioEpisodeVideoUrl`
+- 测试: `server/tests/test_studio_media.py#test_stream_quality_tries_online_copy_first_with_own_etag`, `server/tests/test_studio_media.py#test_stream_status_treats_missing_as_not_ready`
+- 要求: `preload="none"` @ `apps/web/src/app/studio/page.tsx`; `getEpisodeStreamStatus` @ `apps/web/src/app/studio/page.tsx`
+
+### R-STUDIO-PUBLISH-PULL 多平台分发由 Mac 上的代理主动领任务，结果如实回报
+- 来源: 用户 2026-11-23「演播台接入多平台自动分发」；2026-11-24「那个一键发布到社交媒体的功能是不是完全可用」
+- 说明: 账号登录态只留在 Mac 上。Mac 上的分发代理（filmkit `make_film.py publish-agent --pull`，launchd 开机自启）沿用 memento 客户端的设备令牌，经 `/api/studio/publish/agent/*` 心跳、领任务、回报进度，素材用同一令牌从 `/api/studio/assets` 拉；集群不需要能连到 Mac（原来的推模式默认地址指向容器自己，从未推成功过）。只有平台确认收下才算「已存草稿/已发布」，B站没有草稿接口时如实返回需改成发布。
+- 代码: `server/server/api/studio.py#publish_agent_heartbeat`, `server/server/api/studio.py#publish_agent_claim`, `server/server/api/studio.py#publish_agent_report`, `server/server/api/studio.py#_require_media_user`, `apps/web/src/components/studio/StudioPublishPanel.tsx#StudioPublishPanel`
+- 测试: `server/tests/test_studio_media.py#test_pull_agent_endpoints_forward_to_filmkit`, `server/tests/test_studio_media.py#test_media_user_accepts_device_token_for_the_mac_agent`
+- 要求: `get_current_user_or_collector` @ `server/server/api/studio.py`; `publish-agent --pull` @ `apps/web/src/components/studio/StudioPublishPanel.tsx`
 
 ### R-PLUGIN-MARKETPLACE 演播台与公众号分发做成插件市场按需安装并配置后启用
 - 来源: 用户 2026-11-20「把演播台和一键推送到公众号的两个服务做成插件吧，安装并配置后才能用」「对做成插件市场中安装」「演播台插件不应该出现在左侧菜单里吧，它和一键推送公众号一样，属于工作台的插件」
@@ -633,7 +648,7 @@
 
 > 生成器随每次提交核对：代码位置还在不在、测试还在不在、禁止 / 要求的写法满不满足。✅ 通过 · ⚠️ 缺代码位置、测试或来源 · ❌ 位置失效或违反规则（CI 会拦下）。
 
-- 汇总：规则 73（✅ 73 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
+- 汇总：规则 75（✅ 75 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
 
 | 编号 | 名称 | 代码位置 | 测试 | 检查 | 结论 |
 | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -713,7 +728,7 @@
 | `R-DEPLOY-AFTER-CI` | 部署流水线必须等 CI 通过 | 1/1 | — | 1/1 | ✅ 约定 |
 | `R-DEPLOY-BUMP-RACE` | 回写镜像 tag 撞车时在最新 main 上重来，不把线上退回旧提交 | 1/1 | 3/3 | 1/1 | ✅ |
 | `R-ALL-TYPESCRIPT` | 客户端全 TypeScript，Electron + React，不混入 Flutter、Tauri 等框架 | 2/2 | — | 2/2 | ✅ |
-| `R-SELF-EVOLVE` | 越用越了解用户、能自进化 | 7/7 | 5/5 | 2/2 | ✅ |
+| `R-SELF-EVOLVE` | 越用越了解用户、能自进化 | 7/7 | 6/6 | 4/4 | ✅ |
 | `R-PLAN-THEN-FINISH` | 规划周全后一次性全部完成，追求好用，界面高级精致 | — | — | — | ✅ 约定 |
 | `R-UI-COMMERCIAL` | 界面像成熟商业产品：统一外壳、平实文案、不用 emoji 当图标 | 5/5 | 5/5 | 9/9 | ✅ |
 | `R-LOGIN-PERSIST` | 客户端登录永久记住 | 3/3 | — | 1/1 | ✅ |
@@ -721,13 +736,15 @@
 | `R-MAC-TRAY` | Mac 客户端支持最小化到托盘，关窗口不退出 | 1/1 | — | 2/2 | ✅ |
 | `R-THINKING-FULL` | 思考过程始终铺满显示，回答正文字号统一 | 3/3 | 2/2 | 2/2 | ✅ |
 | `R-PASTE-IMAGE-ONCE` | 粘贴图片不重复 | 1/1 | — | 1/1 | ✅ |
-| `R-MEDIA-VIEW` | 图片可点击放大；视频可预览、全屏、播放后缓存；工作台能看图片和 ppt/excel/word/md 等产物 | 5/5 | 5/5 | — | ✅ |
+| `R-MEDIA-VIEW` | 图片可点击放大；视频可预览、全屏、播放后缓存；工作台能看图片和 ppt/excel/word/md 等产物 | 6/6 | 6/6 | — | ✅ |
 | `R-LLM-IN-PROFILE` | 大模型配置放在个人设置里 | 2/2 | — | 1/1 | ✅ |
 | `R-PERSONA-ONBOARD` | 个人画像首次进入引导设性别和卡通形象，可上传照片生成，默认全屏 3D 动画，手机端完整显示 | 6/6 | 4/4 | 6/6 | ✅ |
 | `R-ASK-INSTANT` | AI 执事区域刷新尽量零延迟 | 3/3 | 2/2 | — | ✅ |
 | `R-SESSION-PREVIEW-WHOLE` | 项目对话和时间线先带每个会话的一段，展开全部一条不丢 | 4/4 | 2/2 | 2/2 | ✅ |
 | `R-WECHAT-DRAFT` | 工作台文本可多次润色，确认后推到公众号草稿，文章带官网链接 | 2/2 | — | 2/2 | ✅ |
 | `R-STUDIO-INLINE-PLAY` | 演播台成片归档支持 HTTP 206 流播，并可一键发送到对话中直接内联播放 | 6/6 | 3/3 | 2/2 | ✅ |
+| `R-STUDIO-SMOOTH-PLAY` | 演播台成片默认播在线观看版，播放不卡 | 4/4 | 2/2 | 2/2 | ✅ |
+| `R-STUDIO-PUBLISH-PULL` | 多平台分发由 Mac 上的代理主动领任务，结果如实回报 | 5/5 | 2/2 | 2/2 | ✅ |
 | `R-PLUGIN-MARKETPLACE` | 演播台与公众号分发做成插件市场按需安装并配置后启用 | 5/5 | 4/4 | 6/6 | ✅ |
 | `R-BUSINESS-CHECKED` | 业务规则挂到代码和测试上，每次提交自动核对 | 6/6 | 4/4 | 1/1 | ✅ |
 | `S-CONV-LIST` | 对话列表 | 6/6 | — | — | ✅ |

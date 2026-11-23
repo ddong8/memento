@@ -129,16 +129,25 @@ SCRIPTED_PROMPT_MIN_CHARS = 120
 # Continuing a session, Memento sends the earlier session's snapshot (quoting the user's old words)
 # in front of the prompt (session_compactor.format_injected_context); only what follows the
 # "当前用户指令" marker was typed this time. A snapshot with no prompt after it is dropped.
+# daemon antigravity.ts also writes "【前文对话历史（续接自 Antigravity 桌面会话 xxxxxxxx）】" when it bridges a
+# desktop conversation to the agy CLI (11 of them in the 14 days to 11-24).
 _INJECTED_CONTEXT_RE = re.compile(
-    r"^(?:Memento: )?(?:【前序会话核心记忆快照|【前文对话历史】)[\s\S]*?(?:当前用户指令[：:]|【当前用户指令】)\s*"
+    r"^(?:Memento: )?(?:【前序会话核心记忆快照|【前文对话历史(?:（[^】]{0,60}）)?】)[\s\S]*?(?:当前用户指令[：:]|【当前用户指令】)\s*"
 )
-_INJECTED_CONTEXT_HEADS = ("【前序会话核心记忆快照", "【前文对话历史】", "Memento: 【前序会话核心记忆快照")
+_INJECTED_CONTEXT_HEADS = ("【前序会话核心记忆快照", "【前文对话历史", "Memento: 【前序会话核心记忆快照")
 
 # Another agent's report posted into the session as a user message: from 10-30 to 11-01 Antigravity
 # pipelines sent 31 ("DeepCoder pipeline completed. **Worker Report**: > [!WARNING] Skepticism
 # Disclaimer …"); two were learned as the user pushing back on a rule, and a nightly memory said the
 # user wants reports to carry a Skepticism Disclaimer.
 _AGENT_REPORT_RE = re.compile(r"^[\w.-]+ pipeline (?:completed|failed)\b|\*\*Worker Report\*\*|Skepticism Disclaimer", re.IGNORECASE)
+# Antigravity image subagents, both directions stored as role="user" (14 days to 11-24: 197 reports
+# "Generated image: `…/.gemini/antigravity/brain/<id>/x.jpg` Depicts …" and 181 English delegations
+# "Generate a 9:16 vertical photorealistic … keyframe image …" written by the parent agent).
+_SUBAGENT_IMAGE_REPORT_RE = re.compile(
+    r"^(?:(?:Generated|Final|Saved|Output) image(?: path)?\s*:\s*)?`?\S*/\.gemini/antigravity(?:-cli)?/brain/", re.IGNORECASE
+)
+_SUBAGENT_IMAGE_TASK_RE = re.compile(r"^Generate an? [^\n]{0,120}?\b(?:image|keyframe|still|portrait)\b", re.IGNORECASE)
 
 # Prompts Memento itself sends to an agent, stored as role="user". From 11-18 to 11-22 they were 28 of the
 # week's 82 "corrections" and taught a rule whose evidence was "the user asked 7 times with the same template".
@@ -150,6 +159,11 @@ _GENERATED_PROMPT_RE = re.compile(r"^请为项目 .{1,120}? (?:更新仓库根�
 _EXECUTOR_HINT_RE = re.compile(r"^\[只在这里改代码\][\s\S]*?(?:\n-{3,}\n|$)\s*")
 # For SQL filters (Postgres ARE) on raw message content: the generated prompts that carry no typed words.
 GENERATED_PROMPT_SQL_RE = r"^请为项目 .{1,120}? (更新仓库根目录已有的|在仓库根目录新建) BUSINESS_BLUEPRINT\.md"
+# Same for the Antigravity image subagents' reports and delegations (see _SUBAGENT_IMAGE_*_RE below).
+SUBAGENT_IMAGE_SQL_RE = (
+    r"^\s*(((Generated|Final|Saved|Output) image( path)?\s*:\s*)?`?\S*/\.gemini/antigravity(-cli)?/brain/"
+    r"|Generate an? [^\n]{0,120}?(image|keyframe|still|portrait))"
+)
 
 _CLIENT_INJECTED_BLOCK_RE = re.compile(
     r"(?:【用户上传了(?:图片|附件)\s*#\d+】[\s\S]*?(?:\n\n|$)|\[本轮答复已输出[^\]]*\])"
@@ -173,7 +187,7 @@ def clean_user_voice(content: str | None) -> str | None:
         return None
     if len(text) >= SCRIPTED_PROMPT_MIN_CHARS and _SCRIPTED_PROMPT_RE.match(text):
         return None
-    if _AGENT_REPORT_RE.search(text):
+    if _AGENT_REPORT_RE.search(text) or _SUBAGENT_IMAGE_REPORT_RE.match(text) or _SUBAGENT_IMAGE_TASK_RE.match(text):
         return None
     if len(text) > USER_VOICE_MSG_CHARS:
         text = text[:USER_VOICE_MSG_CHARS] + "…"

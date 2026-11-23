@@ -8,7 +8,7 @@ import re
 from typing import Any
 
 import httpx
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -63,6 +63,7 @@ async def _proxy_json(
     *,
     payload: Any = None,
     params: dict[str, Any] | None = None,
+    extra_headers: dict[str, str] | None = None,
     timeout: float = 120.0,
 ) -> Any:
     url = f"{_filmkit_base()}{path}"
@@ -73,7 +74,7 @@ async def _proxy_json(
                 url,
                 json=payload,
                 params=params,
-                headers=_filmkit_headers(),
+                headers=_filmkit_headers(extra_headers),
             )
     except httpx.ConnectError:
         raise HTTPException(
@@ -437,16 +438,20 @@ async def proxy_asset(
     range_header: str | None = Header(None, alias="Range"),
     _user: User = Depends(_require_media_user),
 ):
-    """Proxy studio thumbnails, audio previews and shot clips from filmkit."""
+    """Stream studio thumbnails, audio previews, shot clips and deduped publish MP4s from filmkit."""
     url = f"{_filmkit_base()}/api/assets"
     headers = _filmkit_headers({"Range": range_header} if range_header else None)
+    client = httpx.AsyncClient(timeout=300.0)
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            resp = await client.get(url, params={"path": path}, headers=headers)
+        req = client.build_request("GET", url, params={"path": path}, headers=headers)
+        resp = await client.send(req, stream=True)
     except httpx.HTTPError as e:
+        await client.aclose()
         raise HTTPException(status_code=502, detail=f"演播台素材拉取失败: {e}")
 
     if resp.status_code >= 400:
+        await resp.aclose()
+        await client.aclose()
         raise HTTPException(status_code=resp.status_code, detail="素材不存在或不可访问")
 
     out_headers = {}
@@ -454,8 +459,17 @@ async def proxy_asset(
         if hk in resp.headers:
             out_headers[hk] = resp.headers[hk]
     out_headers.setdefault("cache-control", "private, max-age=300")
-    return Response(
-        content=resp.content,
+
+    async def _gen():
+        try:
+            async for chunk in resp.aiter_bytes(chunk_size=512 * 1024):
+                yield chunk
+        finally:
+            await resp.aclose()
+            await client.aclose()
+
+    return StreamingResponse(
+        _gen(),
         status_code=resp.status_code,
         media_type=resp.headers.get("content-type", "application/octet-stream"),
         headers=out_headers,
@@ -656,3 +670,191 @@ async def publish_episode_to_chat(
         "canonical_video_url": canonical_video_url,
         "size_bytes": len(mp4_bytes),
     }
+
+
+# ---------- Settings, Story Confirm & Batch Upscale ----------
+
+@router.get("/settings")
+async def get_studio_settings(_user: User = Depends(_require_studio_plugin)):
+    return await _proxy_json("GET", "/api/studio/settings", timeout=15.0)
+
+
+@router.put("/settings")
+async def update_studio_settings(request: Request, _user: User = Depends(_require_studio_plugin)):
+    body = await request.json() if await request.body() else {}
+    return await _proxy_json("PUT", "/api/studio/settings", payload=body, timeout=15.0)
+
+
+@router.post("/episodes/{eid}/confirm-story")
+async def confirm_episode_story(eid: str, request: Request, _user: User = Depends(_require_studio_plugin)):
+    body = await request.json() if await request.body() else {"confirmed": True}
+    return await _proxy_json(
+        "POST",
+        f"/api/studio/episodes/{_check_id(eid, 'episode_id')}/confirm-story",
+        payload=body,
+        timeout=15.0,
+    )
+
+
+@router.post("/episodes/{eid}/batch-upscale")
+async def batch_upscale_episode(eid: str, request: Request, _user: User = Depends(_require_studio_plugin)):
+    body = await request.json() if await request.body() else {}
+    return await _proxy_json(
+        "POST",
+        f"/api/studio/episodes/{_check_id(eid, 'episode_id')}/batch-upscale",
+        payload=body,
+        timeout=30.0,
+    )
+
+
+# ---------- Multi-Platform Video Publish Center ----------
+
+def _public_asset_headers(request: Request) -> dict[str, str]:
+    """透传公网可访问的素材网关地址与当前用户鉴权头，供 Mac 本机分发代理拉取成片与封面。"""
+    pub = (settings.public_url or "").strip().rstrip("/")
+    if not pub:
+        proto = (request.headers.get("x-forwarded-proto") or request.url.scheme or "https").split(",")[0].strip()
+        host = (request.headers.get("x-forwarded-host") or request.headers.get("host") or "").split(",")[0].strip()
+        if host:
+            pub = f"{proto}://{host}"
+    headers: dict[str, str] = {}
+    if pub:
+        headers["X-Public-Asset-Base"] = f"{pub}/api/studio/assets"
+    auth = (request.headers.get("authorization") or "").strip()
+    if auth:
+        headers["X-Public-Asset-Auth"] = auth
+    return headers
+
+
+@router.get("/publish/platforms")
+async def get_publish_platforms(_user: User = Depends(_require_studio_plugin)):
+    return await _proxy_json("GET", "/api/studio/publish/platforms", timeout=15.0)
+
+
+@router.post("/publish/agent/login")
+async def trigger_publish_agent_login(request: Request, _user: User = Depends(_require_studio_plugin)):
+    body = await request.json() if await request.body() else {}
+    return await _proxy_json("POST", "/api/studio/publish/agent/login", payload=body, timeout=20.0)
+
+
+@router.get("/episodes/{eid}/publish")
+async def get_episode_publish_overview(eid: str, _user: User = Depends(_require_studio_plugin)):
+    return await _proxy_json(
+        "GET",
+        f"/api/studio/episodes/{_check_id(eid, 'episode_id')}/publish",
+        timeout=30.0,
+    )
+
+
+@router.post("/episodes/{eid}/publish/prepare")
+async def prepare_episode_publish(eid: str, request: Request, _user: User = Depends(_require_studio_plugin)):
+    body = await request.json() if await request.body() else {}
+    return await _proxy_json(
+        "POST",
+        f"/api/studio/episodes/{_check_id(eid, 'episode_id')}/publish/prepare",
+        payload=body,
+        timeout=240.0,
+    )
+
+
+@router.patch("/publish/jobs/{jid}")
+async def patch_publish_job(jid: str, request: Request, _user: User = Depends(_require_studio_plugin)):
+    body = await request.json() if await request.body() else {}
+    return await _proxy_json(
+        "PATCH",
+        f"/api/studio/publish/jobs/{_check_id(jid, 'job_id')}",
+        payload=body,
+        timeout=30.0,
+    )
+
+
+@router.delete("/publish/jobs/{jid}")
+async def delete_publish_job(jid: str, _user: User = Depends(_require_studio_plugin)):
+    return await _proxy_json(
+        "DELETE",
+        f"/api/studio/publish/jobs/{_check_id(jid, 'job_id')}",
+        timeout=30.0,
+    )
+
+
+@router.post("/publish/jobs/{jid}/dispatch")
+async def dispatch_publish_job(jid: str, request: Request, _user: User = Depends(_require_studio_plugin)):
+    body = await request.json() if await request.body() else {}
+    return await _proxy_json(
+        "POST",
+        f"/api/studio/publish/jobs/{_check_id(jid, 'job_id')}/dispatch",
+        payload=body,
+        extra_headers=_public_asset_headers(request),
+        timeout=30.0,
+    )
+
+
+@router.post("/episodes/{eid}/publish/dispatch-batch")
+async def dispatch_batch_publish(eid: str, request: Request, _user: User = Depends(_require_studio_plugin)):
+    body = await request.json() if await request.body() else {}
+    return await _proxy_json(
+        "POST",
+        f"/api/studio/episodes/{_check_id(eid, 'episode_id')}/publish/dispatch-batch",
+        payload=body,
+        extra_headers=_public_asset_headers(request),
+        timeout=60.0,
+    )
+
+
+@router.get("/publish/jobs/{jid}/sync")
+async def sync_publish_job(jid: str, _user: User = Depends(_require_studio_plugin)):
+    return await _proxy_json(
+        "GET",
+        f"/api/studio/publish/jobs/{_check_id(jid, 'job_id')}/sync",
+        timeout=15.0,
+    )
+
+
+@router.post("/publish/jobs/{jid}/confirm")
+async def confirm_publish_job(jid: str, _user: User = Depends(_require_studio_plugin)):
+    return await _proxy_json(
+        "POST",
+        f"/api/studio/publish/jobs/{_check_id(jid, 'job_id')}/confirm",
+        payload={},
+        timeout=15.0,
+    )
+
+
+@router.get("/episodes/{eid}/publish/bundle.zip")
+async def download_publish_bundle(eid: str, _user: User = Depends(_require_media_user)):
+    """流式下载该剧集的多平台差异化分发包 ZIP。"""
+    clean_eid = _check_id(eid, "episode_id")
+    url = f"{_filmkit_base()}/api/studio/episodes/{clean_eid}/publish/bundle.zip"
+    client = httpx.AsyncClient(timeout=180.0)
+    try:
+        req = client.build_request("GET", url, headers=_filmkit_headers())
+        resp = await client.send(req, stream=True)
+    except httpx.HTTPError as e:
+        await client.aclose()
+        raise HTTPException(status_code=502, detail=f"拉取多平台分发包失败: {e}")
+
+    if resp.status_code >= 400:
+        await resp.aclose()
+        await client.aclose()
+        raise HTTPException(status_code=resp.status_code, detail="尚未生成多平台发布包")
+
+    out_headers: dict[str, str] = {}
+    for hk in ("content-disposition", "content-length"):
+        if hk in resp.headers:
+            out_headers[hk] = resp.headers[hk]
+    out_headers.setdefault("content-disposition", f'attachment; filename="{clean_eid}_publish_bundle.zip"')
+
+    async def _gen():
+        try:
+            async for chunk in resp.aiter_bytes(chunk_size=512 * 1024):
+                yield chunk
+        finally:
+            await resp.aclose()
+            await client.aclose()
+
+    return StreamingResponse(
+        _gen(),
+        status_code=resp.status_code,
+        media_type="application/zip",
+        headers=out_headers,
+    )

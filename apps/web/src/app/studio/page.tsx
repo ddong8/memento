@@ -24,9 +24,12 @@ import {
 } from "@/lib/studio-api";
 import { Icon } from "@/components/aurora/Icon";
 import { Btn, Chip, Glass, TopBar } from "@/components/aurora/primitives";
+import { StudioPublishPanel } from "@/components/studio/StudioPublishPanel";
 import { VideoPlayer } from "@/components/viewers/MediaPreview";
 
-type StudioTab = "storyboard" | "cast_audio" | "screening";
+type StudioTab = "storyboard" | "cast_audio" | "screening" | "publish";
+
+const VALID_TABS: StudioTab[] = ["storyboard", "cast_audio", "screening", "publish"];
 
 const MOTION_OPTIONS = [
   { id: "zoom_in", label: "缓慢推近" },
@@ -134,6 +137,7 @@ function StudioInner() {
   const searchParams = useSearchParams();
   const initialProjectParam = searchParams.get("project") || "";
   const initialEpisodeParam = searchParams.get("episode") || "";
+  const initialTabParam = searchParams.get("tab") || "";
 
   const [health, setHealth] = useState<StudioHealth | null>(null);
   const [projects, setProjects] = useState<StudioProject[]>([]);
@@ -146,7 +150,26 @@ function StudioInner() {
   const [conversations, setConversations] = useState<AskConversationSummary[]>([]);
   const [compute, setCompute] = useState<StudioComputeState | null>(null);
 
-  const [activeTab, setActiveTab] = useState<StudioTab>("storyboard");
+  const [activeTab, setActiveTabState] = useState<StudioTab>(() => {
+    if (VALID_TABS.includes(initialTabParam as StudioTab)) {
+      return initialTabParam as StudioTab;
+    }
+    if (typeof window !== "undefined") {
+      const saved = sessionStorage.getItem("memento_studio_active_tab");
+      if (saved && VALID_TABS.includes(saved as StudioTab)) {
+        return saved as StudioTab;
+      }
+    }
+    return "storyboard";
+  });
+  const setActiveTab = useCallback((next: StudioTab) => {
+    setActiveTabState(next);
+    if (typeof window !== "undefined") {
+      try {
+        sessionStorage.setItem("memento_studio_active_tab", next);
+      } catch {}
+    }
+  }, []);
   const [loading, setLoading] = useState(true);
   const [busyAction, setBusyAction] = useState<string>("");
   const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null);
@@ -458,6 +481,44 @@ function StudioInner() {
     }
   };
 
+  const handleConfirmStory = async () => {
+    if (!selectedEpisodeId || !detail) return;
+    const nextConfirmed = !detail.episode.story_confirmed;
+    setBusyAction("confirm_story");
+    try {
+      await studioApi.confirmStory(selectedEpisodeId, nextConfirmed);
+      await loadEpisode(selectedEpisodeId);
+      notify(
+        true,
+        nextConfirmed
+          ? "已确认本集剧情无误，现可执行全集 1080P 超分"
+          : "已取消剧情确认锁定，可继续修改分镜并按原分辨率快速预览"
+      );
+    } catch (e) {
+      notify(false, (e as Error).message);
+    } finally {
+      setBusyAction("");
+    }
+  };
+
+  const handleBatchUpscale = async () => {
+    if (!selectedEpisodeId) return;
+    setBusyAction("batch_upscale");
+    try {
+      const res = await studioApi.batchUpscale(selectedEpisodeId, { force: false });
+      setBatchState(res.batch);
+      if (res.batch.total === 0) {
+        notify(true, "所有动态片段均已完成 1080P 超分，无需重复执行");
+      } else {
+        notify(true, `已启动后台批量 1080P 超分（共 ${res.batch.total} 镜）`);
+      }
+    } catch (e) {
+      notify(false, (e as Error).message);
+    } finally {
+      setBusyAction("");
+    }
+  };
+
   const handleSyncAudio = async () => {
     if (!selectedEpisodeId) return;
     setBusyAction("sync_audio");
@@ -691,6 +752,14 @@ function StudioInner() {
                   >
                     放映并发送到对话
                   </Btn>
+                  <Btn
+                    icon="rocket"
+                    variant="ghost"
+                    onClick={() => setActiveTab("publish")}
+                    disabled={!selectedEpisodeId}
+                  >
+                    多平台分发
+                  </Btn>
                 </div>
               </div>
 
@@ -801,6 +870,7 @@ function StudioInner() {
                 { id: "storyboard", label: `分镜剧场 (${detail?.shots.length ?? 0})`, icon: "layers" },
                 { id: "cast_audio", label: "角色与配乐", icon: "music" },
                 { id: "screening", label: "成片放映与对话发布", icon: "film" },
+                { id: "publish", label: "多平台分发", icon: "rocket" },
               ] as const
             ).map((tab) => {
               const active = activeTab === tab.id;
@@ -891,6 +961,27 @@ function StudioInner() {
                       disabled={!!busyAction || detail.shots.length === 0}
                     >
                       {busyAction === "sync_audio" ? "对齐中…" : "以声定画对齐时长"}
+                    </Btn>
+                    <Btn
+                      icon="check"
+                      variant={detail.episode.story_confirmed ? "primary" : "ghost"}
+                      onClick={handleConfirmStory}
+                      disabled={!!busyAction || detail.shots.length === 0}
+                    >
+                      {detail.episode.story_confirmed ? "剧情已确认" : "确认剧情"}
+                    </Btn>
+                    <Btn
+                      icon="zap"
+                      variant="ghost"
+                      onClick={handleBatchUpscale}
+                      disabled={
+                        !!busyAction ||
+                        !!batchState?.running ||
+                        !detail.episode.story_confirmed ||
+                        detail.shots.length === 0
+                      }
+                    >
+                      全集 1080P 超分
                     </Btn>
                   </div>
 
@@ -1470,6 +1561,14 @@ function StudioInner() {
                     {busyAction === "publish" ? "正在归档并发送…" : "发送到对话直接播放"}
                   </Btn>
 
+                  <Btn
+                    icon="rocket"
+                    variant="ghost"
+                    onClick={() => setActiveTab("publish")}
+                  >
+                    前往多平台自动分发
+                  </Btn>
+
                   {publishedConvId && (
                     <Btn
                       icon="message"
@@ -1482,6 +1581,15 @@ function StudioInner() {
                 </div>
               </Glass>
             </div>
+          )}
+
+          {/* TAB 4: 多平台自动分发中心 */}
+          {activeTab === "publish" && detail && (
+            <StudioPublishPanel
+              episode={detail.episode}
+              onNotify={notify}
+              onGoScreening={() => setActiveTab("screening")}
+            />
           )}
         </>
       )}

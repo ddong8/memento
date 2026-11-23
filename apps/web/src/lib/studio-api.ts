@@ -59,6 +59,8 @@ export interface StudioEpisode {
   bgm_volume: number;
   bgm_path: string;
   story_text: string;
+  story_confirmed?: boolean;
+  story_confirmed_at?: number | null;
   last_task_id: string;
   shot_count?: number;
   ready_count?: number;
@@ -161,6 +163,86 @@ export interface PublishToChatResult {
   size_bytes: number;
 }
 
+export interface StudioSettings {
+  publish_agent_url?: string;
+  publish_agent_token_set?: boolean;
+  publish_default_mode?: "draft" | "publish";
+  publish_dedup_remux?: boolean;
+  upscale_enabled?: boolean;
+  [key: string]: unknown;
+}
+
+export interface PublishPlatformAgentStatus {
+  platform: string;
+  adapter: string;
+  logged_in: boolean;
+  ready: boolean;
+  detail: string;
+}
+
+export interface PublishPlatformMeta {
+  id: string;
+  name: string;
+  adapter: "playwright" | "biliup" | "youtube_api";
+  login_url: string;
+  upload_url: string;
+  max_title: number;
+  max_desc: number;
+  max_tags: number;
+  supports_draft: boolean;
+  supports_schedule: boolean;
+  style_hint: string;
+  agent_status: PublishPlatformAgentStatus | null;
+}
+
+export interface PublishAgentInfo {
+  online: boolean;
+  url: string;
+  playwright: boolean;
+  biliup: boolean;
+  chrome: boolean;
+  error: string;
+  platform_status: Record<string, PublishPlatformAgentStatus>;
+}
+
+export interface PublishCoverCandidate {
+  name: string;
+  path: string;
+  url: string;
+}
+
+export interface PublishJob {
+  id: string;
+  project_id: string;
+  episode_id: string;
+  platform: string;
+  status: string;
+  mode: "draft" | "publish";
+  title: string;
+  description: string;
+  tags: string[];
+  cover_path: string;
+  video_path: string;
+  video_sha256: string;
+  scheduled_at: string;
+  agent_job_id: string;
+  published_url: string;
+  error: string;
+  logs: string[];
+  already_published?: boolean;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface EpisodePublishOverview {
+  episode: StudioEpisode;
+  video: { name: string; path: string; size_bytes: number; url: string } | null;
+  covers: PublishCoverCandidate[];
+  jobs: PublishJob[];
+  has_zip: boolean;
+  zip_url: string;
+}
+
 async function studioReq<T>(path: string, init?: RequestInit): Promise<T> {
   const base = getApiBase().replace(/\/+$/, "");
   const res = await authFetch(`${base}${path}`, init);
@@ -213,6 +295,12 @@ export function studioEpisodeVideoUrl(episodeId: string, version?: string | numb
   }
   const qs = params.toString();
   return `${base}/api/studio/episodes/${encodeURIComponent(episodeId)}/latest-video${qs ? `?${qs}` : ""}`;
+}
+
+export function studioPublishBundleUrl(episodeId: string): string {
+  const base = getApiBase().replace(/\/+$/, "");
+  const tok = tokenParam();
+  return `${base}/api/studio/episodes/${encodeURIComponent(episodeId)}/publish/bundle.zip${tok ? `?${tok}` : ""}`;
 }
 
 export const studioApi = {
@@ -336,4 +424,73 @@ export const studioApi = {
       jsonPost("POST", { prompt, name, model })
     ),
   getTask: (tid: string) => studioReq<{ task: StudioTask }>(`/api/studio/tasks/${encodeURIComponent(tid)}`),
+
+  getSettings: () => studioReq<{ settings: StudioSettings }>("/api/studio/settings"),
+  updateSettings: (patch: Record<string, unknown>) =>
+    studioReq<{ settings: StudioSettings }>("/api/studio/settings", jsonPost("PUT", patch)),
+
+  confirmStory: (eid: string, confirmed = true) =>
+    studioReq<{ episode: StudioEpisode }>(
+      `/api/studio/episodes/${encodeURIComponent(eid)}/confirm-story`,
+      jsonPost("POST", { confirmed })
+    ),
+  batchUpscale: (eid: string, body: { force?: boolean } = {}) =>
+    studioReq<{ batch: StudioBatchState }>(
+      `/api/studio/episodes/${encodeURIComponent(eid)}/batch-upscale`,
+      jsonPost("POST", body)
+    ),
+
+  getPublishPlatforms: () =>
+    studioReq<{ platforms: PublishPlatformMeta[]; agent: PublishAgentInfo }>("/api/studio/publish/platforms"),
+  triggerPublishLogin: (platform: string) =>
+    studioReq<{ ok: boolean; platform: string; pid?: number; message?: string }>(
+      "/api/studio/publish/agent/login",
+      jsonPost("POST", { platform })
+    ),
+  getEpisodePublish: (eid: string) =>
+    studioReq<EpisodePublishOverview>(`/api/studio/episodes/${encodeURIComponent(eid)}/publish`),
+  prepareEpisodePublish: (
+    eid: string,
+    body: { platforms: string[]; mode?: "draft" | "publish"; force_copy?: boolean }
+  ) =>
+    studioReq<{ covers: PublishCoverCandidate[]; jobs: PublishJob[]; zip_url: string; dedup_remux: boolean }>(
+      `/api/studio/episodes/${encodeURIComponent(eid)}/publish/prepare`,
+      jsonPost("POST", body)
+    ),
+  patchPublishJob: (
+    jid: string,
+    patch: {
+      title?: string;
+      description?: string;
+      tags?: string[];
+      cover_path?: string;
+      mode?: "draft" | "publish";
+      scheduled_at?: string;
+    }
+  ) =>
+    studioReq<{ job: PublishJob }>(
+      `/api/studio/publish/jobs/${encodeURIComponent(jid)}`,
+      jsonPost("PATCH", patch)
+    ),
+  deletePublishJob: (jid: string) =>
+    studioReq<{ ok: boolean }>(`/api/studio/publish/jobs/${encodeURIComponent(jid)}`, jsonPost("DELETE")),
+  dispatchPublishJob: (jid: string, force = false) =>
+    studioReq<{ job: PublishJob }>(
+      `/api/studio/publish/jobs/${encodeURIComponent(jid)}/dispatch`,
+      jsonPost("POST", { force })
+    ),
+  dispatchBatchPublish: (eid: string, body: { job_ids?: string[]; force?: boolean } = {}) =>
+    studioReq<{ dispatched: PublishJob[]; errors: Array<{ job_id: string; platform: string; detail: string }> }>(
+      `/api/studio/episodes/${encodeURIComponent(eid)}/publish/dispatch-batch`,
+      jsonPost("POST", body)
+    ),
+  syncPublishJob: (jid: string) =>
+    studioReq<{ job: PublishJob; sync_error?: string }>(
+      `/api/studio/publish/jobs/${encodeURIComponent(jid)}/sync`
+    ),
+  confirmPublishJob: (jid: string) =>
+    studioReq<{ job: PublishJob }>(
+      `/api/studio/publish/jobs/${encodeURIComponent(jid)}/confirm`,
+      jsonPost("POST", {})
+    ),
 };

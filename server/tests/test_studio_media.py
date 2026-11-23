@@ -12,7 +12,18 @@ from urllib.parse import parse_qs, urlparse
 from fastapi import HTTPException
 
 from server.api.media import get_media_video
-from server.api.studio import PublishToChatReq, proxy_episode_latest_video, proxy_task_video, publish_episode_to_chat
+from server.api.studio import (
+    PublishToChatReq,
+    _public_asset_headers,
+    batch_upscale_episode,
+    confirm_episode_story,
+    dispatch_publish_job,
+    download_publish_bundle,
+    get_publish_platforms,
+    proxy_episode_latest_video,
+    proxy_task_video,
+    publish_episode_to_chat,
+)
 from server.services import storage_service as st
 
 
@@ -233,3 +244,81 @@ class TestStudioVideoAndChatPublish(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(resp_task.headers["cache-control"], "private, max-age=604800, immutable")
             self.assertEqual(resp_task.headers["etag"], '"studio-task-task_42"')
             self.assertEqual(await _collect_stream(resp_task), fake_mp4)
+
+    async def test_publish_center_proxy_headers_and_zip_streaming(self):
+        fake_user = SimpleNamespace(id=uuid.uuid4(), role="admin")
+
+        class FakeRequest:
+            def __init__(self, body_bytes: bytes = b"{}", headers: dict[str, str] | None = None):
+                self._body = body_bytes
+                self.headers = headers or {
+                    "host": "mem.ihasy.com",
+                    "x-forwarded-proto": "https",
+                    "authorization": "Bearer jwt_test_token",
+                }
+                self.url = SimpleNamespace(scheme="https")
+
+            async def body(self):
+                return self._body
+
+            async def json(self):
+                import json as _json
+                return _json.loads(self._body.decode("utf-8"))
+
+        req = FakeRequest(b'{"force": true}')
+        with patch("server.api.studio.settings.public_url", "https://mem.ihasy.com"):
+            hdrs = _public_asset_headers(req)
+            self.assertEqual(hdrs["X-Public-Asset-Base"], "https://mem.ihasy.com/api/studio/assets")
+            self.assertEqual(hdrs["X-Public-Asset-Auth"], "Bearer jwt_test_token")
+
+            proxy_mock = AsyncMock(return_value={"job": {"id": "pub_1", "status": "queued"}})
+            with patch("server.api.studio._proxy_json", proxy_mock):
+                res = await dispatch_publish_job("pub_1", req, _user=fake_user)
+                self.assertEqual(res["job"]["status"], "queued")
+                proxy_mock.assert_awaited_once()
+                call_kwargs = proxy_mock.call_args.kwargs
+                self.assertEqual(
+                    call_kwargs["extra_headers"]["X-Public-Asset-Base"],
+                    "https://mem.ihasy.com/api/studio/assets",
+                )
+                self.assertEqual(call_kwargs["extra_headers"]["X-Public-Asset-Auth"], "Bearer jwt_test_token")
+
+                await get_publish_platforms(_user=fake_user)
+                await confirm_episode_story("ep_1", FakeRequest(b'{"confirmed": true}'), _user=fake_user)
+                await batch_upscale_episode("ep_1", FakeRequest(b"{}"), _user=fake_user)
+
+        fake_zip = b"PK\x03\x04fake-publish-bundle-zip"
+
+        class FakeZipResp:
+            status_code = 200
+            headers = {
+                "content-type": "application/zip",
+                "content-length": str(len(fake_zip)),
+                "content-disposition": 'attachment; filename="ep_1_publish_bundle.zip"',
+            }
+
+            async def aiter_bytes(self, chunk_size=65536):
+                yield fake_zip
+
+            async def aclose(self):
+                pass
+
+        class FakeZipClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def build_request(self, method, url, headers=None):
+                return (method, url)
+
+            async def send(self, req_obj, stream=False):
+                return FakeZipResp()
+
+            async def aclose(self):
+                pass
+
+        with patch("server.api.studio.httpx.AsyncClient", FakeZipClient):
+            zip_resp = await download_publish_bundle("ep_1", _user=fake_user)
+            self.assertEqual(zip_resp.status_code, 200)
+            self.assertEqual(zip_resp.media_type, "application/zip")
+            self.assertIn("ep_1_publish_bundle.zip", zip_resp.headers["content-disposition"])
+            self.assertEqual(await _collect_stream(zip_resp), fake_zip)

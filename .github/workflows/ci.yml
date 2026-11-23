@@ -46,8 +46,12 @@ jobs:
 
       - name: Install package + dev deps
         working-directory: ${{ matrix.package }}
+        # The exact versions in uv.lock, the same the Docker image runs. Resolving pyproject.toml here took whatever
+        # was newest: on 11-23 redis-py 8.2.0 (production runs 6.4.0) broke fakeredis and failed 30-odd tests.
         run: |
-          uv pip install --system -e ".[dev]"
+          uv export --frozen --extra dev --no-emit-project --no-header --format requirements-txt -o /tmp/ci-requirements.txt
+          uv pip install --system --require-hashes -r /tmp/ci-requirements.txt
+          uv pip install --system --no-deps -e .
           uv pip install --system ruff==0.17.6
 
       - name: AST syntax check

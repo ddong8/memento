@@ -30,7 +30,7 @@ spec:
         - name: ghcr-pull
       containers:
         - name: filmkit
-          image: ghcr.io/ddong8/filmkit:df47f8f38381
+          image: ghcr.io/ddong8/filmkit:0269339f91b8
           imagePullPolicy: IfNotPresent
           env:
             - name: FILMKIT_ROOT

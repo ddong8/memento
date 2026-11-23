@@ -35,6 +35,9 @@ logger = logging.getLogger("server.memory_lifecycle")
 
 ACTIVE, DORMANT, SUPERSEDED = "active", "dormant", "superseded"
 DORMANT_AFTER = timedelta(days=60)
+# A pitfall no AI was ever handed and no session ran into again in this long was a one-off: from 11-09 to 11-23
+# active pitfalls went 198 -> 310 (about 50 new a week), 101 of those under 30 days never recalled once.
+PITFALL_UNUSED_AFTER = timedelta(days=30)
 ALWAYS_ON = ("rule", "rules", "preference")
 NEW_PER_CALL = 30
 EXISTING_PER_CALL = 80
@@ -92,8 +95,23 @@ async def sweep_dormant(db: AsyncSession, user: User, now: datetime | None = Non
         .values(status=DORMANT, status_reason=f"{DORMANT_AFTER.days} 天没有被用到，也没有更新")
         .execution_options(synchronize_session=False)
     )
+    # last_recalled_at also moves when a session review runs into the pitfall again (retrospective_service)
+    unused = await db.execute(
+        update(UserMemory)
+        .where(
+            UserMemory.user_id == user.id,
+            active(),
+            UserMemory.is_folder.is_(False),
+            UserMemory.source != "manual",
+            UserMemory.category == "pitfall",
+            func.coalesce(UserMemory.recall_count, 0) == 0,
+            last_touch < now - PITFALL_UNUSED_AFTER,
+        )
+        .values(status=DORMANT, status_reason=f"记下 {PITFALL_UNUSED_AFTER.days} 天没有被用到，也没有再遇到")
+        .execution_options(synchronize_session=False)
+    )
     await db.commit()
-    return result.rowcount or 0
+    return (result.rowcount or 0) + (unused.rowcount or 0)
 
 
 # ---- reconcile ----

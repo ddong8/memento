@@ -47,6 +47,7 @@ from .guidance_service import score, terms_for
 from .profile_service import get_published_profile, split_profile_scopes
 
 import json
+_BACKGROUND: set[asyncio.Task] = set()  # fire-and-forget writes, kept referenced until done
 logger = logging.getLogger("server.mind_resonance")
 
 # Built-in baseline domain patterns with fully decoupled metadata and guardrails
@@ -624,6 +625,7 @@ async def _fetch_pitfalls(
 
         scored_pitfalls.sort(key=lambda item: item[0], reverse=True)
         best = scored_pitfalls[0][0] if scored_pitfalls else 0
+        handed: list[uuid.UUID] = []
         for sc, p_mem in scored_pitfalls[:limit_pitfalls]:
             if sc < PITFALL_KEEP_SHARE * best:
                 break
@@ -632,6 +634,13 @@ async def _fetch_pitfalls(
                 "category": p_mem.category,
                 "content": p_mem.content,
             })
+            handed.append(p_mem.id)
+        if handed:
+            # Handed to an agent is the usage signal sweep_dormant keeps a pitfall awake by; off the request path
+            from .memory_lifecycle import touch_recalled
+            task = asyncio.get_running_loop().create_task(touch_recalled(handed))
+            _BACKGROUND.add(task)
+            task.add_done_callback(_BACKGROUND.discard)
     except Exception as e:
         logger.warning("Error fetching pitfalls in mind resonance: %s", e)
     return pitfalls_data

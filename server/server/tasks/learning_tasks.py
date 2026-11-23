@@ -13,11 +13,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
 
-from ..db.models import User
+from ..db.models import EvalRun, User
 from ..db.session import async_session_factory
 from ..services import ai_health
 from ..services.correction_service import learn_from_corrections, summarize_new_topics
@@ -253,10 +253,23 @@ def memory_vectors_task() -> dict:
 
 # ---- weekly evaluation ----
 
+# Checked daily, run when the last scheduled run is older than this: a weekly crontab alone lost the
+# 11-16 run (no record of why; the error went only to a log), and nobody noticed for a week.
+EVAL_EVERY = timedelta(days=6, hours=12)
+
+
 async def _evaluate() -> dict:
     out = {}
+    now = datetime.now(timezone.utc)
     async with async_session_factory() as db:
         for user in await _users(db):
+            last = (await db.execute(
+                select(EvalRun.created_at).where(EvalRun.user_id == user.id, EvalRun.trigger == "scheduled")
+                .order_by(EvalRun.created_at.desc()).limit(1)
+            )).scalar()
+            if last is not None and now - last < EVAL_EVERY:
+                out[str(user.id)] = {"skipped": "ran this week"}
+                continue
             try:
                 run = await run_eval(db, user, trigger="scheduled")
                 if needs_new_set(run):
@@ -272,6 +285,12 @@ async def _evaluate() -> dict:
                 await db.rollback()
                 logger.warning("Retrieval eval failed for user %s: %s", user.id, e)
                 out[str(user.id)] = {"error": str(e)[:200]}
+                # Tomorrow's check runs it again; say so once instead of failing silently
+                if await ai_health.claim_alert(f"eval_failed:{user.id}", 6 * 86400):
+                    await notify_user(
+                        user.id, "health", "Memento 检索评测没跑成",
+                        f"本周检索评测出错：{str(e)[:120]}。明天凌晨会自动重跑，可到「系统健康」查看。",
+                    )
                 continue
             out[str(user.id)] = {"set_version": run.set_version, "hybrid": (run.metrics or {}).get("hybrid")}
             drop = regression(await recent_runs(db, user, limit=6))

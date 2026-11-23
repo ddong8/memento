@@ -29,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import ConversationMessage, CorrectionEvent, CorrectionTopic, Document, LearningEval, Machine, User
 from .dreaming_service import SUBAGENT_PATH_REGEX
+from .dreaming_voice import GENERATED_PROMPT_SQL_RE
 from .guard_service import guard_stats
 
 USER_MESSAGE_TYPES = ("user", "USER_INPUT", "message")
@@ -81,6 +82,7 @@ async def count_prompts(db: AsyncSession, user_id: uuid.UUID, start: datetime, e
             content.op("!~")(r"^\s*<"),
             ~content.contains("tool_result"),
             ~content.startswith("[Result]"),
+            content.op("!~")(GENERATED_PROMPT_SQL_RE),  # Memento's own prompts (business blueprint)
             Document.relative_path.op("!~")(SUBAGENT_PATH_REGEX),
             ~func.coalesce(Document.metadata_.has_key("parent_session_id"), False),
         )

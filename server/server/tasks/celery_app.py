@@ -199,10 +199,11 @@ celery_app.conf.beat_schedule = {
         "task": "server.tasks.tsvector_backfill.backfill_content_tsv",
         "schedule": crontab(hour=4, minute=25),
     },
-    # Monday 04:40 — score retrieval against the frozen question set.
+    # 04:40 daily — score retrieval against the frozen question set when the last run is a week old
+    # (so a missed Monday is made up the next morning).
     "evaluate-retrieval": {
         "task": "server.tasks.learning_tasks.evaluate_retrieval",
-        "schedule": crontab(hour=4, minute=40, day_of_week=1),
+        "schedule": crontab(hour=4, minute=40),
     },
     # Monday 04:50 — last week's corrections per 100 prompts and repeats of learned rules.
     "evaluate-learning": {

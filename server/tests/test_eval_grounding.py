@@ -157,8 +157,9 @@ class HolderScoringTests(unittest.IsolatedAsyncioTestCase):
 
 
 class ScheduledEvalTests(unittest.IsolatedAsyncioTestCase):
-    async def run_task(self, run_eval: AsyncMock, build_set: AsyncMock) -> dict:
+    async def run_task(self, run_eval: AsyncMock, build_set: AsyncMock, last=None, notify=None) -> dict:
         session = AsyncMock()
+        session.execute.return_value = unittest.mock.MagicMock(scalar=lambda: last)  # the last scheduled run
         factory = unittest.mock.MagicMock()
         factory.return_value.__aenter__.return_value = session
         with patch.object(learning_tasks, "async_session_factory", factory), \
@@ -166,8 +167,29 @@ class ScheduledEvalTests(unittest.IsolatedAsyncioTestCase):
                 patch.object(learning_tasks, "run_eval", run_eval), \
                 patch.object(learning_tasks, "build_set", build_set), \
                 patch.object(learning_tasks, "recent_runs", AsyncMock(return_value=[])), \
-                patch.object(learning_tasks, "notify_user", AsyncMock()):
+                patch.object(learning_tasks.ai_health, "claim_alert", AsyncMock(return_value=True)), \
+                patch.object(learning_tasks, "notify_user", notify or AsyncMock()):
             return await learning_tasks._evaluate()
+
+    async def test_checked_daily_but_run_once_a_week(self) -> None:
+        from datetime import datetime, timedelta, timezone
+        run_eval = AsyncMock()
+        out = await self.run_task(run_eval, AsyncMock(), last=datetime.now(timezone.utc) - timedelta(days=2))
+        self.assertEqual(out, {"u1": {"skipped": "ran this week"}})
+        run_eval.assert_not_awaited()
+        # a missed Monday (11-16) is made up the next morning
+        done = SimpleNamespace(set_version=3, cases=43, metrics={"hybrid": {"hit5": 0.93}, "grounded": True, "stale": 0})
+        with patch.object(learning_tasks, "needs_new_set", lambda run: False):
+            out = await self.run_task(AsyncMock(return_value=done), AsyncMock(),
+                                      last=datetime.now(timezone.utc) - timedelta(days=13))
+        self.assertEqual(out["u1"]["set_version"], 3)
+
+    async def test_a_failed_run_is_reported_not_only_logged(self) -> None:
+        notify = AsyncMock()
+        with self.assertLogs(level="WARNING"):
+            out = await self.run_task(AsyncMock(side_effect=RuntimeError("embedding timeout")), AsyncMock(), notify=notify)
+        self.assertIn("error", out["u1"])
+        self.assertIn("检索评测没跑成", notify.await_args.args[2])
 
     async def test_a_user_without_documents_is_skipped_quietly(self) -> None:
         with self.assertNoLogs(level="WARNING"):

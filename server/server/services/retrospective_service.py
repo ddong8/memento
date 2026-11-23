@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import and_, case, func, or_, select
+from sqlalchemy import and_, case, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import (
@@ -478,6 +478,13 @@ async def review_session(db: AsyncSession, user: User, cand: Candidate) -> dict[
         matched = known.pitfalls.get(str(item.get("match") or ""))
         if matched is not None:
             result["pitfalls_seen"].append(str(matched.id))
+            # Ran into again: still a live pitfall, keep it awake (memory_lifecycle.sweep_dormant). Core update
+            # keeping updated_at, so it doesn't read as an edit to reconcile.
+            await db.execute(
+                update(UserMemory).where(UserMemory.id == matched.id)
+                .values(last_recalled_at=now, updated_at=UserMemory.updated_at)
+                .execution_options(synchronize_session=False)
+            )
             continue
         mem = await save_pitfall(db, user, item, cand.project, "outcome")
         if mem is not None:

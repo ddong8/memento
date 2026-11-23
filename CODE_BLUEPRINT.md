@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `57bbee85` · Updated: `2026-11-23`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `7856ce8e` · Updated: `2026-11-23`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -13,11 +13,11 @@
 - 类型 (Type): Monorepo (Workspaces)
 - 技术栈 (Stack): TypeScript/JavaScript, Python, Shell / Bash · React, Electron, Next.js, TailwindCSS, Model Context Protocol (MCP), FastAPI, SQLAlchemy, Celery
 - 基础设施 (Infra): PostgreSQL, pgvector (Vector DB), Redis, MinIO / S3 Object Storage, Celery Task Queue
-- 规模 (Scale): 9 个子系统 · 40 组 API 路由 / 300 个接口 · 39 个前端页面 · 41 个数据模型 · 35 个服务模块 · 254 个测试文件
+- 规模 (Scale): 9 个子系统 · 40 组 API 路由 / 300 个接口 · 39 个前端页面 · 41 个数据模型 · 35 个服务模块 · 255 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `57bbee85` (2026-11-23): perf(antigravity): 优化 ACP 通道结束收尾延迟并升级至 v1.0.155
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 73（✅ 73 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-TRACK-BACKGROUND`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `T-RUN`, `F-ASK`, `F-RESUME`, `R-AGY-APP-CSRF`, `R-ISLAND-CLEANUP`
+- 最近改动 (Latest): `0001ad81` (2026-11-23): perf(antigravity): 优化 ACP 通道结束收尾延迟并升级至 v1.0.155
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 73（✅ 73 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-TRACK-BACKGROUND`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -29,9 +29,9 @@
 | 6.5. AST Call Graph, DTO Schemas & CLI Entrypoints | L549-L621 |
 | 7. CI/CD Pipelines, Code Hotspots & Test Suites | L623-L667 |
 | 8. Development & Verification Commands | L669-L686 |
-| 9. Recent Architectural Evolutions | L688-L694 |
-| 10. Key Environment Variables & Configuration | L696-L708 |
-| 11. 业务蓝图核对 (Business Blueprint Check) | L710-L718 |
+| 9. Recent Architectural Evolutions | L688-L693 |
+| 10. Key Environment Variables & Configuration | L695-L707 |
+| 11. 业务蓝图核对 (Business Blueprint Check) | L709-L716 |
 
 ## 1. Project Overview & Tech Stack
 
@@ -645,7 +645,7 @@ erDiagram
 
 | Suite | Directory | Files | Sample Tests |
 | :--- | :--- | :--- | :--- |
-| server/tests (pytest) | [`server/tests`](server/tests) | 128 | `test_agent_ids.py`, `test_agent_limits.py`, `test_agent_login.py`, `test_agent_run_states.py`, `test_ai_provider.py` |
+| server/tests (pytest) | [`server/tests`](server/tests) | 129 | `test_agent_ids.py`, `test_agent_limits.py`, `test_agent_login.py`, `test_agent_run_states.py`, `test_ai_provider.py` |
 | packages/daemon/test (vitest / jest) | [`packages/daemon/test`](packages/daemon/test) | 63 | `agent-args.test.ts`, `agent-login.test.ts`, `agent-stream.test.ts`, `agy-background.test.ts`, `agy-models.test.ts` |
 | apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 55 | `active-runs-chip.test.tsx`, `api-client.test.ts`, `ask-performance-guards.test.tsx`, `ask-reading-and-persona-rules.test.tsx`, `ask-top-bar.test.tsx` |
 | apps/desktop/test (vitest / jest) | [`apps/desktop/test`](apps/desktop/test) | 2 | `helpers.test.ts`, `updater-and-daemon.test.ts` |
@@ -687,11 +687,10 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
-- `57bbee85` (2026-11-23): perf(antigravity): 优化 ACP 通道结束收尾延迟并升级至 v1.0.155
+- `0001ad81` (2026-11-23): perf(antigravity): 优化 ACP 通道结束收尾延迟并升级至 v1.0.155
 - `56c31f7d` (2026-11-23): fix(live-activity): 修复 Antigravity 后台任务灵动岛误报已完成并升级至 v1.0.154
 - `da2c1453` (2026-11-23): fix(antigravity): 修复 ACP 通道后台任务唤醒提前退出并升级至 v1.0.153
 - `f2c855f1` (2026-11-22): feat(antigravity): 升级官方 agy ACP 协议通道支持实时流式、运行中追问、交互提问、子智能体与后台状态并升级至 v1.0.152
-- `d1c46a4e` (2026-11-22): fix(antigravity): 修复官方 agy 后台命令阻塞 stdout 导致回复与步骤卡住并升级至 v1.0.151
 
 ## 10. Key Environment Variables & Configuration
 
@@ -714,8 +713,7 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ### 最近提交碰到的业务条目（改动后复查它们还成不成立）
 
-- `57bbee85` perf(antigravity): 优化 ACP 通道结束收尾延迟并升级至 v1.0.155 → `R-TRACK-BACKGROUND`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`
-- `56c31f7d` fix(live-activity): 修复 Antigravity 后台任务灵动岛误报已完成并升级至 v1.0.154 → `T-RUN`, `F-ASK`, `F-RESUME`, `R-AGY-APP-CSRF`, `R-ISLAND-CLEANUP`, `R-ENT-DEVICE-POLICY`, `R-RUN-OUTLIVES-PAGE`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `S-RUN-STATE`
+- `0001ad81` perf(antigravity): 优化 ACP 通道结束收尾延迟并升级至 v1.0.155 → `R-TRACK-BACKGROUND`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`
 
 ---
 _Auto-maintained by `scripts/project_blueprint.mjs` (v20261126) & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._

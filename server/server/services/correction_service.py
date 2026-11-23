@@ -71,6 +71,15 @@ _PUSHBACK_RE = re.compile(
 )
 
 
+# A fresh request that restates a standing one ("我今天做了什么，我要写日报，尽量通俗，不要提问题"): the model
+# doesn't always mark it upfront, and 10-19..11-22 it came back as "learned but forgotten" almost every week.
+_STANDING_REQUEST_RE = re.compile(r"^.{0,30}?(?:做了什么|干了什么|做了哪些).{0,40}?日报|^.{0,10}?(?:帮我)?写(?:一?份|个)?(?:今天的|昨天的|本周的?)?日报")
+
+
+def is_standing_request(text: str) -> bool:
+    return bool(_STANDING_REQUEST_RE.search(text or ""))
+
+
 def looks_like_pushback(text: str) -> bool:
     return bool(_CORRECTION_RE.search(text) or _PUSHBACK_RE.search(text))
 
@@ -374,7 +383,8 @@ async def classify(batch: list[Said], known: list[tuple[str, str]]) -> list[dict
             "category": category if category in CATEGORY_HEADINGS else "rule",
             "scope": scope if scope in ("global", "project", "device") else "global",
             "match": str(item["match"]) if item.get("match") else None,
-            "upfront": sorted(_numbers(item.get("upfront")).intersection(indices)),
+            "upfront": sorted((_numbers(item.get("upfront")) | {i for i in indices if is_standing_request(batch[i - 1].text)})
+                              .intersection(indices)),
             "unmet": sorted(_numbers(item.get("unmet")).intersection(indices)),
         })
     return out

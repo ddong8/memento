@@ -140,6 +140,17 @@ _INJECTED_CONTEXT_HEADS = ("【前序会话核心记忆快照", "【前文对话
 # user wants reports to carry a Skepticism Disclaimer.
 _AGENT_REPORT_RE = re.compile(r"^[\w.-]+ pipeline (?:completed|failed)\b|\*\*Worker Report\*\*|Skepticism Disclaimer", re.IGNORECASE)
 
+# Prompts Memento itself sends to an agent, stored as role="user". From 11-18 to 11-22 they were 28 of the
+# week's 82 "corrections" and taught a rule whose evidence was "the user asked 7 times with the same template".
+# - business_blueprint.generation_prompt: the whole message is generated, dropped.
+# - daemon source-exec.ts sourceExecHint, put on top of a Codex / Antigravity task as "<hint>\n\n---\n\n<prompt>":
+#   only what follows the separator was typed. A hint with nothing after it is dropped.
+# Adding a prompt template there means adding it here (tests/test_dreaming_voice.py keeps them in step).
+_GENERATED_PROMPT_RE = re.compile(r"^请为项目 .{1,120}? (?:更新仓库根目录已有的|在仓库根目录新建) BUSINESS_BLUEPRINT\.md")
+_EXECUTOR_HINT_RE = re.compile(r"^\[只在这里改代码\][\s\S]*?(?:\n-{3,}\n|$)\s*")
+# For SQL filters (Postgres ARE) on raw message content: the generated prompts that carry no typed words.
+GENERATED_PROMPT_SQL_RE = r"^请为项目 .{1,120}? (更新仓库根目录已有的|在仓库根目录新建) BUSINESS_BLUEPRINT\.md"
+
 _CLIENT_INJECTED_BLOCK_RE = re.compile(
     r"(?:【用户上传了(?:图片|附件)\s*#\d+】[\s\S]*?(?:\n\n|$)|\[本轮答复已输出[^\]]*\])"
 )
@@ -151,7 +162,10 @@ def clean_user_voice(content: str | None) -> str | None:
         return None
     text = _CLIENT_INJECTED_BLOCK_RE.sub("", content).strip()
     text = _INJECTED_CONTEXT_RE.sub("", text, count=1).strip()
-    if not text or text.startswith(_NON_USER_PREFIXES) or text.startswith(_INJECTED_CONTEXT_HEADS):
+    text = _EXECUTOR_HINT_RE.sub("", text, count=1).strip()
+    if not text or _GENERATED_PROMPT_RE.match(text):
+        return None
+    if text.startswith(_NON_USER_PREFIXES) or text.startswith(_INJECTED_CONTEXT_HEADS):
         return None
     text = _EMBEDDED_CONTEXT_RE.sub("", text)
     text = re.sub(r"\s+", " ", sanitize_transient_text(text)).strip()

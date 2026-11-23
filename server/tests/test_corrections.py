@@ -218,6 +218,18 @@ class ClassifyTests(unittest.IsolatedAsyncioTestCase):
             items = await classify(batch, [("t1", "写日报不要提问题")])
         self.assertEqual(items[0]["upfront"], [1])  # out-of-range and junk numbers dropped
 
+    async def test_a_daily_report_request_counts_as_upfront_even_when_the_model_misses_it(self) -> None:
+        texts = ["我昨天和今天做了什么，我要写日报，尽量通俗，不要提问题，不要提除Windows上的项目",
+                 "我今天做了什么，尽量通俗，不要提问题，不要提memento 相关的，写日报",
+                 "帮我写今天的日报，不要提问题",
+                 "日报里怎么又提问题了"]
+        batch = [Said(i, t, NOW) for i, t in enumerate(texts, 1)]
+        answer = ('{"items": [{"i": [1, 2, 3, 4], "statement": "写日报不要提问题", "category": "communication",'
+                  ' "match": "t1", "upfront": []}]}')
+        with patch("server.services.correction_service.call_plain_chat", new=AsyncMock(return_value=answer)):
+            items = await classify(batch, [("t1", "写日报不要提问题")])
+        self.assertEqual(items[0]["upfront"], [1, 2, 3])  # "怎么又提问题了" is pushback
+
     async def test_a_feature_still_broken_is_told_apart_from_breaking_the_rule(self) -> None:
         batch = [Said(1, "这张图还是没有被识别为两个反应啊", NOW), Said(2, "你到底测试没，还是空白", NOW)]
         answer = ('{"items": [{"i": [1, 2], "statement": "交付前先在真实环境验证", "category": "rule",'

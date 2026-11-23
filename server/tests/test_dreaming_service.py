@@ -1,5 +1,6 @@
 import json
 import unittest
+from pathlib import Path
 import uuid
 from datetime import date, datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -287,6 +288,25 @@ class TestUserVoice(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(clean_user_voice("你是专家，怎么还犯这种错"), "你是专家，怎么还犯这种错")
         asked = "你是不是又把专家模式关了？" + "我之前说过要一直开着，" * 12
         self.assertTrue(clean_user_voice(asked).startswith("你是不是又把专家模式关了"))
+
+    def test_clean_user_voice_drops_prompts_memento_sends_itself(self):
+        from server.services.business_blueprint import generation_prompt
+        for has_file in (True, False):
+            prompt = generation_prompt("filmkit", ["- 视频制作先完成剧情"], has_file)
+            self.assertIsNone(clean_user_voice(prompt), prompt[:60])
+        # The executor hint on top of a Codex / Antigravity task: only the user's prompt after the separator counts
+        repo = Path(__file__).resolve().parents[2]
+        hint_src = (repo / "packages/daemon/src/source-exec.ts").read_text(encoding="utf-8")
+        runner_src = (repo / "packages/daemon/src/task-runner.ts").read_text(encoding="utf-8")
+        self.assertIn("`[只在这里改代码] 代码在「${sourceName}」上", hint_src)
+        self.assertIn("prompt = `${hint}\\n\\n---\\n\\n${prompt}`", runner_src)
+        hint = ("[只在这里改代码] 代码在「haixingdeMac-mini」上，你在另一台设备（执行机）上它的副本里工作。\n"
+                "1) 测试、构建一律用 `memento-source \"<命令>\"`。\n5) 不要在这台执行机上安装依赖、跑测试或构建。")
+        self.assertEqual(clean_user_voice(f"{hint}\n\n---\n\n为什么额度面板不对，不要再显示错误状态"),
+                         "为什么额度面板不对，不要再显示错误状态")
+        self.assertIsNone(clean_user_voice(hint))
+        # The user saying the same words is still the user
+        self.assertEqual(clean_user_voice("所有项目都要有业务蓝图 BUSINESS_BLUEPRINT.md"), "所有项目都要有业务蓝图 BUSINESS_BLUEPRINT.md")
 
     def test_clean_user_voice_keeps_typed_text_and_strips_injected_context(self):
         self.assertEqual(

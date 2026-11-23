@@ -93,7 +93,7 @@ class ReviewDropsSlipsTests(unittest.IsolatedAsyncioTestCase):
             ],
         }
         cand = rs.Candidate(uuid.uuid4(), "会话", "claude_code", "memento", "memento", 40, 20, datetime.now(timezone.utc))
-        db = MagicMock(commit=AsyncMock(), get=AsyncMock(return_value=None))
+        db = MagicMock(commit=AsyncMock(), get=AsyncMock(return_value=None), execute=AsyncMock())
         user = SimpleNamespace(id=uuid.uuid4())
         saved = SimpleNamespace(id=uuid.uuid4())
         save = AsyncMock(return_value=saved)
@@ -104,6 +104,9 @@ class ReviewDropsSlipsTests(unittest.IsolatedAsyncioTestCase):
             result = await rs.review_session(db, user, cand)
 
         self.assertEqual(result["pitfalls_seen"], [str(env_known.id)])
+        # the known pitfall run into again is kept awake (last_recalled_at), the slips are not
+        self.assertEqual(db.execute.await_count, 1)
+        self.assertIn("last_recalled_at", str(db.execute.await_args.args[0]))
         self.assertEqual(result["slips"], 2)
         self.assertEqual(result["pitfalls_new"], 1)
         self.assertEqual(result["pitfalls_added"], [str(saved.id)])

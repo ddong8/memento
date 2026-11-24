@@ -576,9 +576,9 @@
 
 ### R-STUDIO-PUBLISH-PULL 多平台分发由 Mac 上的代理主动领任务，结果如实回报
 - 来源: 用户 2026-11-23「演播台接入多平台自动分发」；2026-11-24「那个一键发布到社交媒体的功能是不是完全可用」
-- 说明: 账号登录态只留在 Mac 上。Mac 上的分发代理（filmkit `make_film.py publish-agent --pull`，launchd 开机自启）沿用 memento 客户端的设备令牌，经 `/api/studio/publish/agent/*` 心跳、领任务、回报进度，素材用同一令牌从 `/api/studio/assets` 拉；集群不需要能连到 Mac（原来的推模式默认地址指向容器自己，从未推成功过）。只有平台确认收下才算「已存草稿/已发布」，B站没有草稿接口时如实返回需改成发布。2026-11-24「怎么推送一直没有成功」：推送中途再点推送曾把任务重排、Mac 那份回报一直被拒（409）卡死；现在执行中的任务再推原样返回，代理只领本机已登录平台的任务（没登录就留在队列里，扫码后自动开始），拉成片显示进度。
-- 代码: `server/server/api/studio.py#publish_agent_heartbeat`, `server/server/api/studio.py#publish_agent_claim`, `server/server/api/studio.py#publish_agent_report`, `server/server/api/studio.py#_require_media_user`, `apps/web/src/components/studio/StudioPublishPanel.tsx#StudioPublishPanel`
-- 测试: `server/tests/test_studio_media.py#test_pull_agent_endpoints_forward_to_filmkit`, `server/tests/test_studio_media.py#test_media_user_accepts_device_token_for_the_mac_agent`
+- 说明: 账号登录态只留在 Mac 上。Mac 上的分发代理（filmkit `make_film.py publish-agent --pull`，launchd 开机自启）沿用 memento 客户端的设备令牌，经 `/api/studio/publish/agent/*` 心跳、领任务、回报进度，素材用同一令牌从 `/api/studio/assets` 拉；集群不需要能连到 Mac（原来的推模式默认地址指向容器自己，从未推成功过）。只有平台确认收下才算「已存草稿/已发布」，B站没有草稿接口时如实返回需改成发布。2026-11-24「怎么推送一直没有成功」：推送中途再点推送曾把任务重排、Mac 那份回报一直被拒（409）卡死；现在执行中的任务再推原样返回，代理只领本机已登录平台的任务（没登录就留在队列里，扫码后自动开始），拉成片显示进度条。同日「全部都优化」：Mac 拉素材优先走家里局域网直连集群入口（实测 112 MB/s，公网约 0.3 MB/s），不通自动回落公网；演播台更新重启期间断点续传、不判失败。
+- 代码: `server/server/api/studio.py#publish_agent_heartbeat`, `server/server/api/studio.py#publish_agent_claim`, `server/server/api/studio.py#publish_agent_report`, `server/server/api/studio.py#_require_media_user`, `apps/web/src/components/studio/StudioPublishPanel.tsx#StudioPublishPanel`, `apps/web/src/lib/publish-progress.ts#parseDownloadProgress`
+- 测试: `server/tests/test_studio_media.py#test_pull_agent_endpoints_forward_to_filmkit`, `apps/web/test/publish-progress.test.ts#parseDownloadProgress`, `server/tests/test_studio_media.py#test_media_user_accepts_device_token_for_the_mac_agent`
 - 要求: `get_current_user_or_collector` @ `server/server/api/studio.py`; `publish-agent --pull` @ `apps/web/src/components/studio/StudioPublishPanel.tsx`
 
 ### R-PLUGIN-MARKETPLACE 演播台与公众号分发做成插件市场按需安装并配置后启用
@@ -744,7 +744,7 @@
 | `R-WECHAT-DRAFT` | 工作台文本可多次润色，确认后推到公众号草稿，文章带官网链接 | 2/2 | — | 2/2 | ✅ |
 | `R-STUDIO-INLINE-PLAY` | 演播台成片归档支持 HTTP 206 流播，并可一键发送到对话中直接内联播放 | 6/6 | 3/3 | 2/2 | ✅ |
 | `R-STUDIO-SMOOTH-PLAY` | 演播台成片默认播在线观看版，播放不卡 | 4/4 | 2/2 | 2/2 | ✅ |
-| `R-STUDIO-PUBLISH-PULL` | 多平台分发由 Mac 上的代理主动领任务，结果如实回报 | 5/5 | 2/2 | 2/2 | ✅ |
+| `R-STUDIO-PUBLISH-PULL` | 多平台分发由 Mac 上的代理主动领任务，结果如实回报 | 6/6 | 3/3 | 2/2 | ✅ |
 | `R-PLUGIN-MARKETPLACE` | 演播台与公众号分发做成插件市场按需安装并配置后启用 | 5/5 | 4/4 | 6/6 | ✅ |
 | `R-BUSINESS-CHECKED` | 业务规则挂到代码和测试上，每次提交自动核对 | 6/6 | 4/4 | 1/1 | ✅ |
 | `S-CONV-LIST` | 对话列表 | 6/6 | — | — | ✅ |

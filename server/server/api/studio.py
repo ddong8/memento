@@ -77,9 +77,11 @@ async def _proxy_json(
                 headers=_filmkit_headers(extra_headers),
             )
     except httpx.ConnectError:
+        # 集群里 filmkit 单副本，发版重启时有几十秒连不上：如实说明并让客户端稍后重试
         raise HTTPException(
             status_code=503,
-            detail=f"演播台引擎 (filmkit) 未启动或不可达 ({_filmkit_base()})，请先启动 filmkit serve",
+            detail="演播台正在更新或重启，通常 1 分钟内恢复，请稍后重试",
+            headers={"Retry-After": "15"},
         )
     except httpx.TimeoutException:
         raise HTTPException(status_code=504, detail="演播台引擎请求超时")

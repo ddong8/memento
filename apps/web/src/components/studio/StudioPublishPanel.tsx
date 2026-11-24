@@ -13,6 +13,7 @@ import {
 } from "@/lib/studio-api";
 import { Icon } from "@/components/aurora/Icon";
 import { Btn, Chip, Glass } from "@/components/aurora/primitives";
+import { parseDownloadProgress } from "@/lib/publish-progress";
 
 interface Props {
   episode: StudioEpisode;
@@ -34,6 +35,26 @@ const STATUS_META: Record<string, { label: string; tone: StatusTone }> = {
   needs_publish_mode: { label: "该平台无草稿箱", tone: "warn" },
   failed: { label: "失败", tone: "danger" },
 };
+
+function DownloadProgress({ logs }: { logs: string[] }) {
+  const p = parseDownloadProgress(logs);
+  const percent = p ? p.percent : 0;
+  const left = p ? (p.leftSec >= 60 ? `约剩 ${Math.floor(p.leftSec / 60)} 分 ${p.leftSec % 60} 秒` : `约剩 ${p.leftSec} 秒`) : "";
+  return (
+    <div className="flex flex-col gap-1.5" aria-label="成片拉取进度">
+      <div className="flex items-center justify-between text-xs" style={{ color: "var(--aurora-fg2)" }}>
+        <span>Mac 正在拉取成片{p ? `（${p.doneMb}/${p.totalMb} MB）` : "…"}</span>
+        <span className="tabular-nums">{p ? `${percent}% · ${p.speed} MB/s · ${left}` : ""}</span>
+      </div>
+      <div className="h-1.5 w-full overflow-hidden rounded-full" style={{ background: "var(--aurora-chip)" }}>
+        <div
+          className="h-full rounded-full transition-[width] duration-700"
+          style={{ width: `${Math.max(3, percent)}%`, background: "var(--aurora-accent)" }}
+        />
+      </div>
+    </div>
+  );
+}
 
 const ACTIVE_STATES = new Set(["queued", "dispatched", "downloading", "uploading", "awaiting_user"]);
 
@@ -811,6 +832,8 @@ export function StudioPublishPanel({ episode, onNotify, onGoScreening }: Props) 
                         {job.error}
                       </div>
                     )}
+
+                    {job.status === "downloading" && <DownloadProgress logs={job.logs || []} />}
 
                     {job.logs && job.logs.length > 0 && (
                       <div

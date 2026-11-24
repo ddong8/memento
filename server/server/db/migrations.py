@@ -275,6 +275,22 @@ def _run_migrations(conn) -> None:
     # 建在半精度上（models.embedding_half）：全精度索引 787 MB 装不进 512 MB 共享缓冲，冷查询要读盘。
     # 线上的表大，先 CREATE INDEX CONCURRENTLY 建好再发版，这里就只是确认存在。
     if "document_embeddings" in tables:
+        # 2026-11-24 改为半精度存储（线上已手动转换，锁表 92 秒）；其它库仍是 vector 就在这里转一次。
+        # 不并行建索引：postgres 容器 /dev/shm 只有 512 MB，并行建 HNSW 会报 No space left on device。
+        emb_type = conn.execute(text(
+            "SELECT format_type(atttypid, atttypmod) FROM pg_attribute "
+            "WHERE attrelid = 'document_embeddings'::regclass AND attname = 'embedding'"
+        )).scalar()
+        if emb_type and emb_type.startswith("vector"):
+            sp_half = conn.begin_nested()
+            try:
+                conn.execute(text("SET LOCAL max_parallel_maintenance_workers = 0"))
+                conn.execute(text(
+                    "ALTER TABLE document_embeddings ALTER COLUMN embedding TYPE halfvec(1024) USING embedding::halfvec"
+                ))
+                sp_half.commit()
+            except Exception:
+                sp_half.rollback()
         sp_hnsw = conn.begin_nested()
         try:
             conn.execute(text(

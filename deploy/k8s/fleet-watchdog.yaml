@@ -7,6 +7,12 @@
 # 用 server 镜像自带的 Python 标准库直接调 k8s API：不额外拉镜像，tag 跟着 kustomization 的 images 走。
 # 权限只到 fleet-local 里名叫 memento 的那个 gitrepo（ClusterRole + resourceNames；kustomization 的
 # namespace: memento 会改写命名空间级对象的命名空间，所以不用 fleet-local 里的 Role）。
+#
+# 另外清理手动改镜像留下的字段归属（2026-11-24 加）：有人 `kubectl set image` / `kubectl edit` 改过 memento 里的
+# Deployment 镜像后，managedFields 里留下 kubectl-set 之类的归属，Fleet 之后按 studio.yaml 改镜像就报
+# "conflict with kubectl-set ... image"，整个 memento-deploy-k8s 包卡在 WaitApplied，连带挡住 api/web 发版
+# （11-23 filmkit 就这样卡过）。这里每轮把 manager 以 kubectl 开头、拥有 f:image 的那几条归属删掉
+# （只删归属记录，不改镜像本身），Fleet 下一轮就能正常应用仓库里的镜像。
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -30,6 +36,28 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
   name: memento-fleet-watchdog
+subjects:
+- kind: ServiceAccount
+  name: fleet-watchdog
+  namespace: memento
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: memento-fleet-watchdog-deploys
+rules:
+- apiGroups: ["apps"]
+  resources: ["deployments"]
+  verbs: ["get", "list", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: memento-fleet-watchdog-deploys
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: memento-fleet-watchdog-deploys
 subjects:
 - kind: ServiceAccount
   name: fleet-watchdog
@@ -74,11 +102,31 @@ spec:
               token = open(SA + "/token").read().strip()
               ctx = ssl.create_default_context(cafile=SA + "/ca.crt")
 
-              def call(method, body=None, ctype="application/json"):
-                  req = urllib.request.Request(URL, method=method, data=json.dumps(body).encode() if body else None,
+              def call(method, body=None, ctype="application/json", url=URL):
+                  req = urllib.request.Request(url, method=method, data=json.dumps(body).encode() if body else None,
                                                headers={"Authorization": "Bearer " + token, "Content-Type": ctype})
                   with urllib.request.urlopen(req, context=ctx, timeout=20) as r:
                       return json.load(r)
+
+              # 手动改镜像留下的字段归属：删掉，免得 Fleet 应用时冲突
+              DEP = "https://%s:%s/apis/apps/v1/namespaces/memento/deployments" % (
+                  os.environ["KUBERNETES_SERVICE_HOST"], os.environ["KUBERNETES_SERVICE_PORT"])
+              try:
+                  for d in call("GET", url=DEP).get("items", []):
+                      mfs = d["metadata"].get("managedFields") or []
+                      bad = [(i, m["manager"]) for i, m in enumerate(mfs)
+                             if str(m.get("manager", "")).startswith("kubectl") and m.get("operation") == "Update"
+                             and '"f:image"' in json.dumps(m.get("fieldsV1") or {})]
+                      if not bad:
+                          continue
+                      ops = []
+                      for i, mgr in sorted(bad, reverse=True):
+                          ops += [{"op": "test", "path": "/metadata/managedFields/%d/manager" % i, "value": mgr},
+                                  {"op": "remove", "path": "/metadata/managedFields/%d" % i}]
+                      call("PATCH", ops, "application/json-patch+json", url=DEP + "/" + d["metadata"]["name"])
+                      print("cleared manual image ownership on deploy/%s: %s" % (d["metadata"]["name"], [m for _, m in bad]))
+              except Exception as e:
+                  print("manual-ownership check failed: %s" % e)
 
               def ts(s):
                   return datetime.strptime(s, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).timestamp()

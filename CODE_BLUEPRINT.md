@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `0ff09c46` · Updated: `2026-11-23`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `f8de4eb0` · Updated: `2026-11-24`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,7 +16,7 @@
 - 规模 (Scale): 9 个子系统 · 40 组 API 路由 / 319 个接口 · 39 个前端页面 · 41 个数据模型 · 35 个服务模块 · 255 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `7279481a` (2026-11-24): fix(studio): 演播台默认播 720P 在线观看版、播放时不再整片重复下载，分发改由 Mac 代理主动领任务
+- 最近改动 (Latest): `f8de4eb0` (2026-11-24): chore(deploy): filmkit 镜像升到 61834a796231（分发拉模式、在线观看版、停 Colab 核实释放）
 - 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 75（✅ 75 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-SELF-EVOLVE`, `R-MEDIA-VIEW`, `R-STUDIO-SMOOTH-PLAY`, `R-STUDIO-PUBLISH-PULL`, `R-PLUGIN-MARKETPLACE`, `F-BLUEPRINT`
 
 | 章节 (Section) | 行号 (Lines) |
@@ -31,7 +31,7 @@
 | 8. Development & Verification Commands | L669-L686 |
 | 9. Recent Architectural Evolutions | L688-L695 |
 | 10. Key Environment Variables & Configuration | L697-L709 |
-| 11. 业务蓝图核对 (Business Blueprint Check) | L711-L721 |
+| 11. 业务蓝图核对 (Business Blueprint Check) | L711-L720 |
 
 ## 1. Project Overview & Tech Stack
 
@@ -655,13 +655,13 @@ erDiagram
 
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
-- [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (11 commits)
-- [`deploy/k8s/studio.yaml`](deploy/k8s/studio.yaml) (9 commits)
+- [`deploy/k8s/studio.yaml`](deploy/k8s/studio.yaml) (10 commits)
+- [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (10 commits)
 - [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (8 commits)
 - [`apps/web/src/components/layout/Sidebar.tsx`](apps/web/src/components/layout/Sidebar.tsx) (8 commits)
-- [`packages/daemon/src/source-exec.ts`](packages/daemon/src/source-exec.ts) (8 commits)
 - [`apps/web/src/app/studio/page.tsx`](apps/web/src/app/studio/page.tsx) (7 commits)
 - [`packages/daemon/src/antigravity.ts`](packages/daemon/src/antigravity.ts) (7 commits)
+- [`packages/daemon/src/source-exec.ts`](packages/daemon/src/source-exec.ts) (7 commits)
 - [`packages/daemon/test/antigravity-official-cli.test.ts`](packages/daemon/test/antigravity-official-cli.test.ts) (7 commits)
 - [`apps/web/src/components/viewers/MediaInspectorPanel.tsx`](apps/web/src/components/viewers/MediaInspectorPanel.tsx) (6 commits)
 - [`apps/web/src/lib/studio-api.ts`](apps/web/src/lib/studio-api.ts) (6 commits)
@@ -687,12 +687,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `f8de4eb0` (2026-11-24): chore(deploy): filmkit 镜像升到 61834a796231（分发拉模式、在线观看版、停 Colab 核实释放）
 - `7279481a` (2026-11-24): fix(studio): 演播台默认播 720P 在线观看版、播放时不再整片重复下载，分发改由 Mac 代理主动领任务
 - `a50d872a` (2026-11-23): feat(studio): 演播台接入多平台自动分发中心、内联 Mac 代理配置与剧情确认超分门禁
 - `a7ec5649` (2026-11-23): ci: 服务端测试按 uv.lock 安装依赖，和镜像同版本
 - `3bd80145` (2026-11-23): fix(学习): memento 自己发的提示词不再算用户纠正，评测缺跑自动补，没人用的坑 30 天休眠
 - `0001ad81` (2026-11-23): perf(antigravity): 优化 ACP 通道结束收尾延迟并升级至 v1.0.155
-- `56c31f7d` (2026-11-23): fix(live-activity): 修复 Antigravity 后台任务灵动岛误报已完成并升级至 v1.0.154
 
 ## 10. Key Environment Variables & Configuration
 
@@ -718,7 +718,6 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 - `7279481a` fix(studio): 演播台默认播 720P 在线观看版、播放时不再整片重复下载，分发改由 Mac 代理主动领任务 → `R-SELF-EVOLVE`, `R-MEDIA-VIEW`, `R-STUDIO-SMOOTH-PLAY`, `R-STUDIO-PUBLISH-PULL`, `R-PLUGIN-MARKETPLACE`
 - `a50d872a` feat(studio): 演播台接入多平台自动分发中心、内联 Mac 代理配置与剧情确认超分门禁 → `R-STUDIO-PUBLISH-PULL`
 - `a7ec5649` ci: 服务端测试按 uv.lock 安装依赖，和镜像同版本 → `F-BLUEPRINT`
-- `3bd80145` fix(学习): memento 自己发的提示词不再算用户纠正，评测缺跑自动补，没人用的坑 30 天休眠 → `R-SELF-EVOLVE`
 
 ---
 _Auto-maintained by `scripts/project_blueprint.mjs` (v20261126) & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._

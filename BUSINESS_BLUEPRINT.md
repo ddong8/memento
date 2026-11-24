@@ -576,7 +576,7 @@
 
 ### R-STUDIO-PUBLISH-PULL 多平台分发由 Mac 上的代理主动领任务，结果如实回报
 - 来源: 用户 2026-11-23「演播台接入多平台自动分发」；2026-11-24「那个一键发布到社交媒体的功能是不是完全可用」
-- 说明: 账号登录态只留在 Mac 上。Mac 上的分发代理（filmkit `make_film.py publish-agent --pull`，launchd 开机自启）沿用 memento 客户端的设备令牌，经 `/api/studio/publish/agent/*` 心跳、领任务、回报进度，素材用同一令牌从 `/api/studio/assets` 拉；集群不需要能连到 Mac（原来的推模式默认地址指向容器自己，从未推成功过）。只有平台确认收下才算「已存草稿/已发布」，B站没有草稿接口时如实返回需改成发布。
+- 说明: 账号登录态只留在 Mac 上。Mac 上的分发代理（filmkit `make_film.py publish-agent --pull`，launchd 开机自启）沿用 memento 客户端的设备令牌，经 `/api/studio/publish/agent/*` 心跳、领任务、回报进度，素材用同一令牌从 `/api/studio/assets` 拉；集群不需要能连到 Mac（原来的推模式默认地址指向容器自己，从未推成功过）。只有平台确认收下才算「已存草稿/已发布」，B站没有草稿接口时如实返回需改成发布。2026-11-24「怎么推送一直没有成功」：推送中途再点推送曾把任务重排、Mac 那份回报一直被拒（409）卡死；现在执行中的任务再推原样返回，代理只领本机已登录平台的任务（没登录就留在队列里，扫码后自动开始），拉成片显示进度。
 - 代码: `server/server/api/studio.py#publish_agent_heartbeat`, `server/server/api/studio.py#publish_agent_claim`, `server/server/api/studio.py#publish_agent_report`, `server/server/api/studio.py#_require_media_user`, `apps/web/src/components/studio/StudioPublishPanel.tsx#StudioPublishPanel`
 - 测试: `server/tests/test_studio_media.py#test_pull_agent_endpoints_forward_to_filmkit`, `server/tests/test_studio_media.py#test_media_user_accepts_device_token_for_the_mac_agent`
 - 要求: `get_current_user_or_collector` @ `server/server/api/studio.py`; `publish-agent --pull` @ `apps/web/src/components/studio/StudioPublishPanel.tsx`

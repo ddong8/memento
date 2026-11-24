@@ -98,21 +98,21 @@ const CAMERA_ANGLE_OPTIONS = [
 
 const FALLBACK_PRESETS: Record<string, StudioPreset> = {
   live_action_drama: {
-    label: "真人写实短剧（国产 S+ 影视级）",
+    label: "真人写实短剧（国产 S+ 实拍级）",
     style:
-      "high-budget contemporary mainland Chinese S+ streaming television drama cinematography, authentic Chinese East Asian beauty aesthetic, refined harmonious East Asian facial bone structure, luminous smooth fair complexion, soft diffused studio butterfly beauty key lighting, clean bright cool-neutral luxury color grading, subtle natural Chinese editorial makeup, restrained authentic micro-expressions, shot on 85mm cinema prime lens, shallow depth of field, photorealistic, no harsh facial shadows, no aged gritty skin, no Western-stereotype Asian features",
+      "high-budget contemporary mainland Chinese S+ streaming television drama shot on ARRI Alexa Mini and Sony FX6 with 35mm, 50mm, and 85mm cinema prime lenses, authentic natural Chinese East Asian faces with realistic human skin micro-texture, subtle pores, fine natural expression lines, and organic skin tone variation, zero airbrushing or beauty-filter smoothing, natural unstyled hair texture and tactile real woven fabrics, lived-in realistic everyday interiors with practical props and foreground depth, story-driven natural lighting with organic shadow falloff, restrained candid micro-expressions, subtle organic 35mm film grain, true live-action cinematography, no Western-stereotype Asian features",
     subtitle_preset: "cinema_sub",
   },
   urban_romance: {
-    label: "都市情感爽剧（高端国产剧）",
+    label: "都市情感短剧（电影感实拍）",
     style:
-      "top-tier modern Shanghai urban Chinese romance television drama (Tencent/iQIYI S+ quality), attractive contemporary Chinese actors with delicate East Asian bone structure, luminous porcelain-ivory skin, soft flattering diffused key lighting, airy sleek metropolitan interiors, quiet-luxury modern Chinese styling, restrained natural micro-expressions, shallow depth of field, photorealistic, no harsh shadows, no greasy hair, no yellow documentary tint",
+      "contemporary Shanghai urban Chinese romance television drama (Tencent/iQIYI S+ live-action cinematography), shot on Sony FX6 cinema camera with 35mm and 50mm cinema primes, authentic contemporary Chinese actors with realistic human skin micro-texture, subtle pores, understated natural makeup, and organic facial planes, zero plastic gloss or beauty-filter skin smoothing, authentic lived-in metropolitan apartments and offices with real everyday props and foreground depth, story-driven natural daylight or warm practical interior lighting, restrained candid human micro-expressions, subtle 35mm film grain, true live-action footage",
     subtitle_preset: "manga_gold",
   },
   costume_drama: {
-    label: "古装仙侠短剧（东方美学实拍）",
+    label: "古装仙侠短剧（东方实拍质感）",
     style:
-      "high-budget Chinese historical costume xianxia/wuxia television drama, classical Oriental Chinese beauty aesthetic, refined fair East Asian features, soft misty natural beauty lighting, exquisite authentic silk hanfu embroidery, poetic Jiangnan/palace cinematography, shallow depth of field, photorealistic live-action, no harsh gritty shadows",
+      "high-budget Chinese historical costume xianxia/wuxia television drama shot on ARRI Alexa LF cinema camera with anamorphic prime lenses, authentic live-action East Asian actors with realistic human skin micro-texture and subtle pores, zero airbrushed CGI look, tactile real silk, linen, and hand-stitched embroidery textures, authentic weathered wood and stone architectural details, story-driven natural daylight, mist, or warm candlelight with organic shadow falloff, restrained human micro-expressions, subtle 35mm film grain, true live-action cinematography",
     subtitle_preset: "manga_gold",
   },
   suspense_anime: {

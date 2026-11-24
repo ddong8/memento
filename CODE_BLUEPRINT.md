@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `67703376` · Updated: `2026-11-24`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `ab575274` · Updated: `2026-11-24`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,7 +16,7 @@
 - 规模 (Scale): 9 个子系统 · 40 组 API 路由 / 319 个接口 · 39 个前端页面 · 41 个数据模型 · 35 个服务模块 · 256 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `67703376` (2026-11-24): test(search): 向量改半精度后相似度断言放宽到千分位
+- 最近改动 (Latest): `ab575274` (2026-11-24): chore(deploy): filmkit 镜像升到 ba97554a93a0（官方 Colab 命令行算力、局域网直连分发、重启续跑）
 - 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 75（✅ 75 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-STUDIO-PUBLISH-PULL`, `R-SELF-EVOLVE`, `R-MEDIA-VIEW`, `R-STUDIO-SMOOTH-PLAY`, `R-PLUGIN-MARKETPLACE`
 
 | 章节 (Section) | 行号 (Lines) |
@@ -655,10 +655,10 @@ erDiagram
 
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
-- [`deploy/k8s/studio.yaml`](deploy/k8s/studio.yaml) (11 commits)
+- [`deploy/k8s/studio.yaml`](deploy/k8s/studio.yaml) (12 commits)
 - [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (10 commits)
-- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (8 commits)
 - [`apps/web/src/components/layout/Sidebar.tsx`](apps/web/src/components/layout/Sidebar.tsx) (8 commits)
+- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (7 commits)
 - [`apps/web/src/app/studio/page.tsx`](apps/web/src/app/studio/page.tsx) (7 commits)
 - [`packages/daemon/src/antigravity.ts`](packages/daemon/src/antigravity.ts) (7 commits)
 - [`packages/daemon/test/antigravity-official-cli.test.ts`](packages/daemon/test/antigravity-official-cli.test.ts) (7 commits)
@@ -687,12 +687,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `ab575274` (2026-11-24): chore(deploy): filmkit 镜像升到 ba97554a93a0（官方 Colab 命令行算力、局域网直连分发、重启续跑）
 - `67703376` (2026-11-24): test(search): 向量改半精度后相似度断言放宽到千分位
 - `aa50c5c0` (2026-11-24): perf(studio): 文档向量改半精度存储、发版冲突自动清理、演播台更新期间友好提示与分发进度条
 - `dfbddb8e` (2026-11-24): chore(deploy): filmkit 镜像升到 28eb61f0eb2d（推送中途重推不再卡死，未登录平台扫码后自动开始）
 - `f8de4eb0` (2026-11-24): chore(deploy): filmkit 镜像升到 61834a796231（分发拉模式、在线观看版、停 Colab 核实释放）
 - `7279481a` (2026-11-24): fix(studio): 演播台默认播 720P 在线观看版、播放时不再整片重复下载，分发改由 Mac 代理主动领任务
-- `a50d872a` (2026-11-23): feat(studio): 演播台接入多平台自动分发中心、内联 Mac 代理配置与剧情确认超分门禁
 
 ## 10. Key Environment Variables & Configuration
 

@@ -141,6 +141,8 @@ describe("StudioComputePanel", () => {
 
     expect(container.textContent).toContain("m-s-orphan99");
     expect(container.textContent).toContain("仍有 1 台计费中的云端实例");
+    expect(container.textContent).toContain("云端计费中 (1 台未绑定)");
+    expect(container.textContent).not.toContain("已关闭 · 0 计费");
 
     const stopBtn = Array.from(container.querySelectorAll("button")).find((b) =>
       b.textContent?.includes("释放停表")

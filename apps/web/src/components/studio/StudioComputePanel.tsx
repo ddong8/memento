@@ -156,7 +156,22 @@ export function StudioComputePanel({
     stopping: { label: "释放核实中", tone: "warn" },
     error: { label: "启动异常", tone: "danger" },
   };
-  const stBadge = statusMeta[st] || statusMeta.offline;
+  const stBadge = hasOrphanCloudBilling
+    ? { label: `云端计费中 (${activeCount} 台未绑定)`, tone: "warn" as const }
+    : statusMeta[st] || statusMeta.offline;
+
+  const flatPrimaryBtnStyle = {
+    background: "var(--aurora-accent)",
+    backgroundImage: "none",
+    color: "#fff",
+    border: "1px solid transparent",
+  } as const;
+  const flatDangerBtnStyle = {
+    background: "var(--aurora-danger)",
+    backgroundImage: "none",
+    color: "#fff",
+    border: "1px solid transparent",
+  } as const;
 
   const handleSaveConfig = async () => {
     setBusy("save");
@@ -486,6 +501,7 @@ export function StudioComputePanel({
                     variant="danger"
                     icon="close"
                     className="w-full justify-center sm:w-auto"
+                    style={flatDangerBtnStyle}
                     disabled={busy === stopKey}
                     onClick={() => void handleStopCloudSession(s)}
                   >
@@ -624,12 +640,12 @@ export function StudioComputePanel({
           style={{ borderTop: "1px solid var(--aurora-border)" }}
         >
           {!isReady && !isTransitional && (
-            <Btn icon="zap" className="w-full justify-center sm:w-auto" disabled={busy !== ""} onClick={handleStart}>
+            <Btn icon="zap" className="w-full justify-center sm:w-auto" style={flatPrimaryBtnStyle} disabled={busy !== ""} onClick={handleStart}>
               {busy === "start" ? "正在申请启动…" : "一键启动云端 GPU"}
             </Btn>
           )}
           {(isReady || isTransitional) && st !== "stopping" && (
-            <Btn variant="danger" icon="close" className="w-full justify-center sm:w-auto" disabled={busy !== ""} onClick={handleStop}>
+            <Btn variant="danger" icon="close" className="w-full justify-center sm:w-auto" style={flatDangerBtnStyle} disabled={busy !== ""} onClick={handleStop}>
               {busy === "stop" ? "正在释放核实…" : "立即关闭并释放 GPU"}
             </Btn>
           )}
@@ -668,7 +684,7 @@ export function StudioComputePanel({
                 style={fieldStyle}
               />
             </div>
-            <Btn size="sm" icon="check" disabled={busy !== "" || !bindComfyUrl.trim()} onClick={handleBind}>
+            <Btn size="sm" icon="check" className="w-full justify-center sm:w-auto" style={flatPrimaryBtnStyle} disabled={busy !== "" || !bindComfyUrl.trim()} onClick={handleBind}>
               确认绑定并接管监控
             </Btn>
           </div>

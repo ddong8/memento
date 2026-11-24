@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `a3ea6d78` · Updated: `2026-11-24`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `b17639a6` · Updated: `2026-11-24`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,7 +16,7 @@
 - 规模 (Scale): 9 个子系统 · 40 组 API 路由 / 322 个接口 · 39 个前端页面 · 41 个数据模型 · 35 个服务模块 · 257 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `b3bc93ca` (2026-11-24): feat(studio): 演播台新增云算力管理面板（实时 Colab 额度、活跃实例强制停表与手机端适配）
+- 最近改动 (Latest): `b17639a6` (2026-11-24): chore(deploy): filmkit 镜像升到 0705b312fc61（实时 Colab 额度查询与单实例强制停表）
 - 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 75（✅ 75 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-STUDIO-PUBLISH-PULL`
 
 | 章节 (Section) | 行号 (Lines) |
@@ -655,7 +655,7 @@ erDiagram
 
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
-- [`deploy/k8s/studio.yaml`](deploy/k8s/studio.yaml) (13 commits)
+- [`deploy/k8s/studio.yaml`](deploy/k8s/studio.yaml) (14 commits)
 - [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (10 commits)
 - [`apps/web/src/app/studio/page.tsx`](apps/web/src/app/studio/page.tsx) (8 commits)
 - [`apps/web/src/components/layout/Sidebar.tsx`](apps/web/src/components/layout/Sidebar.tsx) (8 commits)
@@ -687,12 +687,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `b17639a6` (2026-11-24): chore(deploy): filmkit 镜像升到 0705b312fc61（实时 Colab 额度查询与单实例强制停表）
 - `b3bc93ca` (2026-11-24): feat(studio): 演播台新增云算力管理面板（实时 Colab 额度、活跃实例强制停表与手机端适配）
 - `0356afe8` (2026-11-24): chore(deploy): filmkit 镜像升到 3335d9e941b4（修复容器内 Colab CLI 持久化 Keyring、代理透传与默认卡型 G4,A100,H100）
 - `ab575274` (2026-11-24): chore(deploy): filmkit 镜像升到 ba97554a93a0（官方 Colab 命令行算力、局域网直连分发、重启续跑）
 - `67703376` (2026-11-24): test(search): 向量改半精度后相似度断言放宽到千分位
 - `aa50c5c0` (2026-11-24): perf(studio): 文档向量改半精度存储、发版冲突自动清理、演播台更新期间友好提示与分发进度条
-- `dfbddb8e` (2026-11-24): chore(deploy): filmkit 镜像升到 28eb61f0eb2d（推送中途重推不再卡死，未登录平台扫码后自动开始）
 
 ## 10. Key Environment Variables & Configuration
 

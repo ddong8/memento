@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `dfbddb8e` · Updated: `2026-11-24`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `aa50c5c0` · Updated: `2026-11-24`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,8 +16,8 @@
 - 规模 (Scale): 9 个子系统 · 40 组 API 路由 / 319 个接口 · 39 个前端页面 · 41 个数据模型 · 35 个服务模块 · 256 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `dfbddb8e` (2026-11-24): chore(deploy): filmkit 镜像升到 28eb61f0eb2d（推送中途重推不再卡死，未登录平台扫码后自动开始）
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 75（✅ 75 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-SELF-EVOLVE`, `R-MEDIA-VIEW`, `R-STUDIO-SMOOTH-PLAY`, `R-STUDIO-PUBLISH-PULL`, `R-PLUGIN-MARKETPLACE`
+- 最近改动 (Latest): `aa50c5c0` (2026-11-24): perf(studio): 文档向量改半精度存储、发版冲突自动清理、演播台更新期间友好提示与分发进度条
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 75（✅ 75 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-STUDIO-PUBLISH-PULL`, `R-SELF-EVOLVE`, `R-MEDIA-VIEW`, `R-STUDIO-SMOOTH-PLAY`, `R-PLUGIN-MARKETPLACE`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -31,7 +31,7 @@
 | 8. Development & Verification Commands | L669-L686 |
 | 9. Recent Architectural Evolutions | L688-L695 |
 | 10. Key Environment Variables & Configuration | L697-L709 |
-| 11. 业务蓝图核对 (Business Blueprint Check) | L711-L719 |
+| 11. 业务蓝图核对 (Business Blueprint Check) | L711-L720 |
 
 ## 1. Project Overview & Tech Stack
 
@@ -662,9 +662,9 @@ erDiagram
 - [`apps/web/src/app/studio/page.tsx`](apps/web/src/app/studio/page.tsx) (7 commits)
 - [`packages/daemon/src/antigravity.ts`](packages/daemon/src/antigravity.ts) (7 commits)
 - [`packages/daemon/test/antigravity-official-cli.test.ts`](packages/daemon/test/antigravity-official-cli.test.ts) (7 commits)
+- [`server/server/api/studio.py`](server/server/api/studio.py) (7 commits)
 - [`apps/web/src/components/viewers/MediaInspectorPanel.tsx`](apps/web/src/components/viewers/MediaInspectorPanel.tsx) (6 commits)
 - [`apps/web/src/lib/studio-api.ts`](apps/web/src/lib/studio-api.ts) (6 commits)
-- [`packages/daemon/src/source-exec.ts`](packages/daemon/src/source-exec.ts) (6 commits)
 
 ## 8. Development & Verification Commands
 
@@ -687,12 +687,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `aa50c5c0` (2026-11-24): perf(studio): 文档向量改半精度存储、发版冲突自动清理、演播台更新期间友好提示与分发进度条
 - `dfbddb8e` (2026-11-24): chore(deploy): filmkit 镜像升到 28eb61f0eb2d（推送中途重推不再卡死，未登录平台扫码后自动开始）
 - `f8de4eb0` (2026-11-24): chore(deploy): filmkit 镜像升到 61834a796231（分发拉模式、在线观看版、停 Colab 核实释放）
 - `7279481a` (2026-11-24): fix(studio): 演播台默认播 720P 在线观看版、播放时不再整片重复下载，分发改由 Mac 代理主动领任务
 - `a50d872a` (2026-11-23): feat(studio): 演播台接入多平台自动分发中心、内联 Mac 代理配置与剧情确认超分门禁
 - `a7ec5649` (2026-11-23): ci: 服务端测试按 uv.lock 安装依赖，和镜像同版本
-- `3bd80145` (2026-11-23): fix(学习): memento 自己发的提示词不再算用户纠正，评测缺跑自动补，没人用的坑 30 天休眠
 
 ## 10. Key Environment Variables & Configuration
 
@@ -715,6 +715,7 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ### 最近提交碰到的业务条目（改动后复查它们还成不成立）
 
+- `aa50c5c0` perf(studio): 文档向量改半精度存储、发版冲突自动清理、演播台更新期间友好提示与分发进度条 → `R-STUDIO-PUBLISH-PULL`
 - `7279481a` fix(studio): 演播台默认播 720P 在线观看版、播放时不再整片重复下载，分发改由 Mac 代理主动领任务 → `R-SELF-EVOLVE`, `R-MEDIA-VIEW`, `R-STUDIO-SMOOTH-PLAY`, `R-STUDIO-PUBLISH-PULL`, `R-PLUGIN-MARKETPLACE`
 - `a50d872a` feat(studio): 演播台接入多平台自动分发中心、内联 Mac 代理配置与剧情确认超分门禁 → `R-STUDIO-PUBLISH-PULL`
 

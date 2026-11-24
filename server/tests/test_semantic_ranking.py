@@ -132,7 +132,8 @@ class SemanticDocumentHitsTests(unittest.IsolatedAsyncioTestCase):
         # The hub filled the old 4-chunks-per-document pool on its own; now every document shows up,
         # and the one-chunk answer edges out the hub's near tie.
         self.assertEqual([ids[h.document_id] for h in hits], ["answer", "hub", "far"])
-        self.assertAlmostEqual(hits[1].similarity, 0.80, places=4)
+        # 向量按半精度存储（2026-11-24 起），相似度有约万分之一的误差，排序不受影响
+        self.assertAlmostEqual(hits[1].similarity, 0.80, places=3)
         self.assertEqual(texts[hits[2].chunk_id], "far 0")
 
     async def test_no_filter_searches_every_document(self) -> None:

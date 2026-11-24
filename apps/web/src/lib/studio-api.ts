@@ -133,17 +133,74 @@ export interface StudioBgmItem {
   model?: string;
 }
 
+export interface StudioComputeLogEntry {
+  ts: number;
+  level: "info" | "warn" | "error" | string;
+  message: string;
+}
+
 export interface StudioComputeState {
   status: "offline" | "connecting" | "awaiting_gpu" | "booting" | "ready" | "stopping" | "error";
   stage: string;
+  provider?: string;
+  cli_session?: string;
   gpu: string;
   vram_total_gb: number;
   vram_free_gb: number;
+  gpu_util?: number;
+  ram_gb?: number;
+  disk_free_gb?: number;
   comfy_url: string;
+  comfy_worker_urls?: string[];
+  has_control_channel?: boolean;
+  models?: string[];
   uptime_sec: number;
   est_cu_used: number;
+  hourly_cu_rate?: number;
+  busy?: boolean;
+  auto_shutdown_min?: number;
   auto_shutdown_in_sec: number | null;
   error: string;
+  logs?: StudioComputeLogEntry[];
+}
+
+export interface ColabSessionItem {
+  name: string;
+  endpoint: string;
+  hardware: string;
+  shape: string;
+  variant: string;
+  status: string;
+  raw: string;
+}
+
+export interface StudioColabAccount {
+  cli_installed: boolean;
+  cli_authorized: boolean;
+  balance_cu: number | null;
+  usage_rate_per_hr: number | null;
+  active_assignments: number;
+  sessions: ColabSessionItem[];
+  checked_at: number;
+  error: string;
+}
+
+export interface StudioComputeConfig {
+  compute_provider: string;
+  compute_colab_gpus: string;
+  compute_colab_high_mem: boolean;
+  compute_colab_session: string;
+  compute_models: string;
+  compute_auto_shutdown_min: number;
+  compute_dual_worker: boolean;
+  compute_gdrive_cache: boolean;
+  compute_hourly_cu_rate: number;
+}
+
+export interface StudioComputeAccountResponse {
+  account: StudioColabAccount;
+  compute: StudioComputeState;
+  config: StudioComputeConfig;
 }
 
 export interface StudioHealth {
@@ -309,12 +366,24 @@ export function studioPublishBundleUrl(episodeId: string): string {
 export const studioApi = {
   health: () => studioReq<StudioHealth>("/api/studio/health"),
   computeStatus: () => studioReq<{ compute: StudioComputeState }>("/api/studio/compute/status"),
-  computeStart: (models?: string) =>
-    studioReq<{ compute: StudioComputeState }>("/api/studio/compute/start", jsonPost("POST", { models })),
+  computeAccount: (refresh = false) =>
+    studioReq<StudioComputeAccountResponse>(`/api/studio/compute/account?refresh=${refresh ? "true" : "false"}`),
+  computeStopSession: (body: { name?: string; endpoint?: string }) =>
+    studioReq<{ ok: boolean; compute: StudioComputeState; account: StudioColabAccount }>(
+      "/api/studio/compute/sessions/stop",
+      jsonPost("POST", body)
+    ),
+  computeStart: (models?: string, gpus?: string) =>
+    studioReq<{ compute: StudioComputeState }>(
+      "/api/studio/compute/start",
+      jsonPost("POST", { ...(models ? { models } : {}), ...(gpus ? { gpus } : {}) })
+    ),
   computeStop: () =>
     studioReq<{ compute: StudioComputeState }>("/api/studio/compute/stop", jsonPost("POST", {})),
   computeExtend: (minutes = 15) =>
     studioReq<{ compute: StudioComputeState }>("/api/studio/compute/extend", jsonPost("POST", { minutes })),
+  computeBind: (body: { comfy_url: string; control_url?: string; control_token?: string }) =>
+    studioReq<{ compute: StudioComputeState }>("/api/studio/compute/bind", jsonPost("POST", body)),
 
   listPresets: () => studioReq<{ presets: Record<string, StudioPreset> }>("/api/studio/presets"),
   listProjects: () => studioReq<{ projects: StudioProject[] }>("/api/studio/projects"),

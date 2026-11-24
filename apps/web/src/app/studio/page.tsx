@@ -12,6 +12,7 @@ import {
   StudioBatchState,
   StudioBgmItem,
   StudioCharacter,
+  StudioColabAccount,
   StudioComputeState,
   StudioEpisode,
   StudioEpisodeDetail,
@@ -24,12 +25,13 @@ import {
 } from "@/lib/studio-api";
 import { Icon } from "@/components/aurora/Icon";
 import { Btn, Chip, Glass, TopBar } from "@/components/aurora/primitives";
+import { StudioComputePanel } from "@/components/studio/StudioComputePanel";
 import { StudioPublishPanel } from "@/components/studio/StudioPublishPanel";
 import { VideoPlayer } from "@/components/viewers/MediaPreview";
 
-type StudioTab = "storyboard" | "cast_audio" | "screening" | "publish";
+type StudioTab = "storyboard" | "cast_audio" | "screening" | "publish" | "compute";
 
-const VALID_TABS: StudioTab[] = ["storyboard", "cast_audio", "screening", "publish"];
+const VALID_TABS: StudioTab[] = ["storyboard", "cast_audio", "screening", "publish", "compute"];
 
 const MOTION_OPTIONS = [
   { id: "zoom_in", label: "缓慢推近" },
@@ -123,6 +125,8 @@ const FALLBACK_PRESETS: Record<string, StudioPreset> = {
 
 const fieldStyle = {
   width: "100%",
+  maxWidth: "100%",
+  minWidth: 0,
   background: "var(--aurora-chip)",
   border: "1px solid var(--aurora-border)",
   borderRadius: 10,
@@ -149,6 +153,7 @@ function StudioInner() {
   const [bgmList, setBgmList] = useState<StudioBgmItem[]>([]);
   const [conversations, setConversations] = useState<AskConversationSummary[]>([]);
   const [compute, setCompute] = useState<StudioComputeState | null>(null);
+  const [colabAccount, setColabAccount] = useState<StudioColabAccount | null>(null);
 
   const [activeTab, setActiveTabState] = useState<StudioTab>(() => {
     if (VALID_TABS.includes(initialTabParam as StudioTab)) {
@@ -262,6 +267,14 @@ function StudioInner() {
         studioApi.listBgm().catch(() => ({ items: [] })),
         studioApi.listPresets().catch(() => ({ presets: FALLBACK_PRESETS })),
       ]);
+      // 非阻塞同步真实 Colab 计算单元余额与云端在线实例
+      void studioApi
+        .computeAccount(false)
+        .then((res) => {
+          setColabAccount(res.account);
+          setCompute(res.compute);
+        })
+        .catch(() => {});
       const list = projRes.projects || [];
       setProjects(list);
       setVoices(voiceRes.voices || []);
@@ -295,6 +308,18 @@ function StudioInner() {
   useEffect(() => {
     void bootstrap();
   }, [bootstrap]);
+
+  // 算力处于连接/启动/运行/关机中时自动轮询最新状态
+  useEffect(() => {
+    if (!compute || compute.status === "offline" || compute.status === "error") return;
+    const timer = setInterval(async () => {
+      try {
+        const res = await studioApi.computeStatus();
+        setCompute(res.compute);
+      } catch {}
+    }, 3500);
+    return () => clearInterval(timer);
+  }, [compute?.status]);
 
   // Poll render task if active
   useEffect(() => {
@@ -602,12 +627,16 @@ function StudioInner() {
           ? await studioApi.computeStop()
           : await studioApi.computeExtend(15);
       setCompute(res.compute);
+      void studioApi
+        .computeAccount(true)
+        .then((accRes) => setColabAccount(accRes.account))
+        .catch(() => {});
       notify(
         true,
         action === "start"
-          ? "已触发云端算力启动"
+          ? "已触发云端算力启动，可在「云算力管理」查看实时装机日志"
           : action === "stop"
-          ? "已释放云端算力，停止计费"
+          ? "已释放云端算力并核实停止计费"
           : "已延长自动关机时间 15 分钟"
       );
     } catch (e) {
@@ -827,28 +856,60 @@ function StudioInner() {
                 </div>
               )}
 
-              {/* Colab 云算力轻量状态条 */}
+              {/* Colab 云算力轻量状态条（实时额度 + 快捷启停 + 一键进入算力管理） */}
               <div
-                className="flex flex-wrap items-center justify-between gap-2 pt-2.5 text-xs"
+                className="flex flex-col gap-2 pt-2.5 text-xs sm:flex-row sm:flex-wrap sm:items-center sm:justify-between"
                 style={{ borderTop: "1px solid var(--aurora-border)", color: "var(--aurora-fg3)" }}
               >
                 <div className="flex flex-wrap items-center gap-2 min-w-0">
-                  <Icon name="server" size={14} style={{ color: computeOnline ? "#16A34A" : "var(--aurora-fg3)" }} />
-                  <span>
-                    云端 GPU 算力：
+                  <Icon
+                    name="server"
+                    size={14}
+                    style={{
+                      color:
+                        computeOnline
+                          ? "var(--aurora-success)"
+                          : (colabAccount?.active_assignments ?? 0) > 0
+                          ? "var(--aurora-warn)"
+                          : "var(--aurora-fg3)",
+                    }}
+                  />
+                  <span className="min-w-0 break-words">
+                    云端 GPU：
                     {computeOnline
                       ? `${compute?.gpu || "已就绪"} (${compute?.vram_free_gb?.toFixed(1) ?? "?"}G 可用)`
                       : computeBusy
                       ? compute?.stage || compute?.status
+                      : (colabAccount?.active_assignments ?? 0) > 0
+                      ? `云端有 ${colabAccount?.active_assignments} 台计费实例`
                       : "离线（0 消耗）"}
                   </span>
+                  {colabAccount?.balance_cu != null && (
+                    <Chip tone="accent" className="tabular-nums">
+                      余额 {colabAccount.balance_cu.toFixed(1)} CU
+                    </Chip>
+                  )}
+                  {colabAccount && (colabAccount.usage_rate_per_hr ?? 0) > 0 && (
+                    <Chip tone="warn" className="tabular-nums">
+                      {(colabAccount.usage_rate_per_hr ?? 0).toFixed(1)} CU/时
+                    </Chip>
+                  )}
                   {computeOnline && compute?.auto_shutdown_in_sec != null && (
                     <Chip>{Math.ceil(compute.auto_shutdown_in_sec / 60)} 分钟后自动释放</Chip>
                   )}
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Btn
+                    size="sm"
+                    icon="settings"
+                    variant="ghost"
+                    onClick={() => setActiveTab("compute")}
+                  >
+                    算力管理
+                  </Btn>
                   {!computeOnline ? (
                     <Btn
+                      size="sm"
                       icon="zap"
                       variant="ghost"
                       onClick={() => handleComputeAction("start")}
@@ -859,6 +920,7 @@ function StudioInner() {
                   ) : (
                     <>
                       <Btn
+                        size="sm"
                         icon="clock"
                         variant="ghost"
                         onClick={() => handleComputeAction("extend")}
@@ -867,6 +929,7 @@ function StudioInner() {
                         续期 15m
                       </Btn>
                       <Btn
+                        size="sm"
                         icon="close"
                         variant="ghost"
                         onClick={() => handleComputeAction("stop")}
@@ -881,14 +944,22 @@ function StudioInner() {
             </div>
           </Glass>
 
-          {/* 工作区 Tabs */}
-          <div className="flex flex-wrap items-center gap-2 mb-3.5">
+          {/* 工作区 Tabs（手机端自动换行，不产生横向溢出） */}
+          <div className="flex flex-wrap items-center gap-2 mb-3.5 max-w-full">
             {(
               [
                 { id: "storyboard", label: `分镜剧场 (${detail?.shots.length ?? 0})`, icon: "layers" },
                 { id: "cast_audio", label: "角色与配乐", icon: "music" },
-                { id: "screening", label: "成片放映与对话发布", icon: "film" },
+                { id: "screening", label: "成片放映", icon: "film" },
                 { id: "publish", label: "多平台分发", icon: "rocket" },
+                {
+                  id: "compute",
+                  label:
+                    colabAccount?.balance_cu != null
+                      ? `云算力 (${Math.round(colabAccount.balance_cu)} CU)`
+                      : "云算力管理",
+                  icon: "server",
+                },
               ] as const
             ).map((tab) => {
               const active = activeTab === tab.id;
@@ -1615,6 +1686,17 @@ function StudioInner() {
               episode={detail.episode}
               onNotify={notify}
               onGoScreening={() => setActiveTab("screening")}
+            />
+          )}
+
+          {/* TAB 5: 云算力管理 */}
+          {activeTab === "compute" && (
+            <StudioComputePanel
+              compute={compute}
+              account={colabAccount}
+              onComputeChange={setCompute}
+              onAccountChange={setColabAccount}
+              onNotify={notify}
             />
           )}
         </>

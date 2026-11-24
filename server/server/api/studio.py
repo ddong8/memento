@@ -150,6 +150,22 @@ async def compute_status(_user: User = Depends(_require_studio_plugin)):
     return await _proxy_json("GET", "/api/studio/compute/status", timeout=15.0)
 
 
+@router.get("/compute/account")
+async def compute_account(refresh: bool = False, _user: User = Depends(_require_studio_plugin)):
+    return await _proxy_json(
+        "GET",
+        "/api/studio/compute/account",
+        params={"refresh": "true" if refresh else "false"},
+        timeout=45.0,
+    )
+
+
+@router.post("/compute/sessions/stop")
+async def compute_stop_session(request: Request, _user: User = Depends(_require_studio_plugin)):
+    body = await request.json() if await request.body() else {}
+    return await _proxy_json("POST", "/api/studio/compute/sessions/stop", payload=body, timeout=150.0)
+
+
 @router.post("/compute/start")
 async def compute_start(request: Request, _user: User = Depends(_require_studio_plugin)):
     body = await request.json() if await request.body() else {}
@@ -166,6 +182,12 @@ async def compute_stop(_user: User = Depends(_require_studio_plugin)):
 async def compute_extend(request: Request, _user: User = Depends(_require_studio_plugin)):
     body = await request.json() if await request.body() else {}
     return await _proxy_json("POST", "/api/studio/compute/extend", payload=body, timeout=15.0)
+
+
+@router.post("/compute/bind")
+async def compute_bind(request: Request, _user: User = Depends(_require_studio_plugin)):
+    body = await request.json() if await request.body() else {}
+    return await _proxy_json("POST", "/api/studio/compute/bind", payload=body, timeout=20.0)
 
 
 # ---------- Projects, Characters, Voices & BGM ----------

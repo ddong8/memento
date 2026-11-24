@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `ab575274` · Updated: `2026-11-24`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `0356afe8` · Updated: `2026-11-24`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -13,11 +13,11 @@
 - 类型 (Type): Monorepo (Workspaces)
 - 技术栈 (Stack): TypeScript/JavaScript, Python, Shell / Bash · React, Electron, Next.js, TailwindCSS, Model Context Protocol (MCP), FastAPI, SQLAlchemy, Celery
 - 基础设施 (Infra): PostgreSQL, pgvector (Vector DB), Redis, MinIO / S3 Object Storage, Celery Task Queue
-- 规模 (Scale): 9 个子系统 · 40 组 API 路由 / 319 个接口 · 39 个前端页面 · 41 个数据模型 · 35 个服务模块 · 256 个测试文件
+- 规模 (Scale): 9 个子系统 · 40 组 API 路由 / 322 个接口 · 39 个前端页面 · 41 个数据模型 · 35 个服务模块 · 257 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `ab575274` (2026-11-24): chore(deploy): filmkit 镜像升到 ba97554a93a0（官方 Colab 命令行算力、局域网直连分发、重启续跑）
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 75（✅ 75 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-STUDIO-PUBLISH-PULL`, `R-SELF-EVOLVE`, `R-MEDIA-VIEW`, `R-STUDIO-SMOOTH-PLAY`, `R-PLUGIN-MARKETPLACE`
+- 最近改动 (Latest): `0356afe8` (2026-11-24): chore(deploy): filmkit 镜像升到 3335d9e941b4（修复容器内 Colab CLI 持久化 Keyring、代理透传与默认卡型 G4,A100,H100）
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 75（✅ 75 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-STUDIO-PUBLISH-PULL`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -31,7 +31,7 @@
 | 8. Development & Verification Commands | L669-L686 |
 | 9. Recent Architectural Evolutions | L688-L695 |
 | 10. Key Environment Variables & Configuration | L697-L709 |
-| 11. 业务蓝图核对 (Business Blueprint Check) | L711-L719 |
+| 11. 业务蓝图核对 (Business Blueprint Check) | L711-L718 |
 
 ## 1. Project Overview & Tech Stack
 
@@ -404,10 +404,10 @@ flowchart TD
 
 - `GET /api/studio/health`
 - `GET /api/studio/compute/status`
+- `GET /api/studio/compute/account`
+- `POST /api/studio/compute/sessions/stop`
 - `POST /api/studio/compute/start`
-- `POST /api/studio/compute/stop`
-- `POST /api/studio/compute/extend`
-- _... (56 more endpoints)_
+- _... (59 more endpoints)_
 
 #### `/api/tasks` (tasks.py)
 
@@ -647,7 +647,7 @@ erDiagram
 | :--- | :--- | :--- | :--- |
 | server/tests (pytest) | [`server/tests`](server/tests) | 129 | `test_agent_ids.py`, `test_agent_limits.py`, `test_agent_login.py`, `test_agent_run_states.py`, `test_ai_provider.py` |
 | packages/daemon/test (vitest / jest) | [`packages/daemon/test`](packages/daemon/test) | 63 | `agent-args.test.ts`, `agent-login.test.ts`, `agent-stream.test.ts`, `agy-background.test.ts`, `agy-models.test.ts` |
-| apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 56 | `active-runs-chip.test.tsx`, `api-client.test.ts`, `ask-performance-guards.test.tsx`, `ask-reading-and-persona-rules.test.tsx`, `ask-top-bar.test.tsx` |
+| apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 57 | `active-runs-chip.test.tsx`, `api-client.test.ts`, `ask-performance-guards.test.tsx`, `ask-reading-and-persona-rules.test.tsx`, `ask-top-bar.test.tsx` |
 | apps/desktop/test (vitest / jest) | [`apps/desktop/test`](apps/desktop/test) | 2 | `helpers.test.ts`, `updater-and-daemon.test.ts` |
 | apps/mobile/test (vitest / jest) | [`apps/mobile/test`](apps/mobile/test) | 2 | `deeplink.test.ts`, `webview-props.test.ts` |
 | packages/core/test (vitest / jest) | [`packages/core/test`](packages/core/test) | 2 | `ask-stream.test.ts`, `task-events.test.ts` |
@@ -655,14 +655,14 @@ erDiagram
 
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
-- [`deploy/k8s/studio.yaml`](deploy/k8s/studio.yaml) (12 commits)
+- [`deploy/k8s/studio.yaml`](deploy/k8s/studio.yaml) (13 commits)
 - [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (10 commits)
 - [`apps/web/src/components/layout/Sidebar.tsx`](apps/web/src/components/layout/Sidebar.tsx) (8 commits)
-- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (7 commits)
 - [`apps/web/src/app/studio/page.tsx`](apps/web/src/app/studio/page.tsx) (7 commits)
 - [`packages/daemon/src/antigravity.ts`](packages/daemon/src/antigravity.ts) (7 commits)
 - [`packages/daemon/test/antigravity-official-cli.test.ts`](packages/daemon/test/antigravity-official-cli.test.ts) (7 commits)
 - [`server/server/api/studio.py`](server/server/api/studio.py) (7 commits)
+- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (6 commits)
 - [`apps/web/src/components/viewers/MediaInspectorPanel.tsx`](apps/web/src/components/viewers/MediaInspectorPanel.tsx) (6 commits)
 - [`apps/web/src/lib/studio-api.ts`](apps/web/src/lib/studio-api.ts) (6 commits)
 
@@ -687,12 +687,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `0356afe8` (2026-11-24): chore(deploy): filmkit 镜像升到 3335d9e941b4（修复容器内 Colab CLI 持久化 Keyring、代理透传与默认卡型 G4,A100,H100）
 - `ab575274` (2026-11-24): chore(deploy): filmkit 镜像升到 ba97554a93a0（官方 Colab 命令行算力、局域网直连分发、重启续跑）
 - `67703376` (2026-11-24): test(search): 向量改半精度后相似度断言放宽到千分位
 - `aa50c5c0` (2026-11-24): perf(studio): 文档向量改半精度存储、发版冲突自动清理、演播台更新期间友好提示与分发进度条
 - `dfbddb8e` (2026-11-24): chore(deploy): filmkit 镜像升到 28eb61f0eb2d（推送中途重推不再卡死，未登录平台扫码后自动开始）
 - `f8de4eb0` (2026-11-24): chore(deploy): filmkit 镜像升到 61834a796231（分发拉模式、在线观看版、停 Colab 核实释放）
-- `7279481a` (2026-11-24): fix(studio): 演播台默认播 720P 在线观看版、播放时不再整片重复下载，分发改由 Mac 代理主动领任务
 
 ## 10. Key Environment Variables & Configuration
 
@@ -716,7 +716,6 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 ### 最近提交碰到的业务条目（改动后复查它们还成不成立）
 
 - `aa50c5c0` perf(studio): 文档向量改半精度存储、发版冲突自动清理、演播台更新期间友好提示与分发进度条 → `R-STUDIO-PUBLISH-PULL`
-- `7279481a` fix(studio): 演播台默认播 720P 在线观看版、播放时不再整片重复下载，分发改由 Mac 代理主动领任务 → `R-SELF-EVOLVE`, `R-MEDIA-VIEW`, `R-STUDIO-SMOOTH-PLAY`, `R-STUDIO-PUBLISH-PULL`, `R-PLUGIN-MARKETPLACE`
 
 ---
 _Auto-maintained by `scripts/project_blueprint.mjs` (v20261126) & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._

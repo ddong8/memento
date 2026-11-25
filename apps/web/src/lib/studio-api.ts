@@ -195,6 +195,9 @@ export interface StudioComputeConfig {
   compute_dual_worker: boolean;
   compute_gdrive_cache: boolean;
   compute_hourly_cu_rate: number;
+  h3_precision?: string;
+  h3_resolution?: string;
+  h3_steps?: number;
 }
 
 export interface StudioComputeAccountResponse {

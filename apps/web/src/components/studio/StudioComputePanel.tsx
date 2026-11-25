@@ -33,11 +33,12 @@ const fieldStyle = {
 } as const;
 
 const MODEL_PRESETS = [
-  { id: "h3,h3_ref2va,seedvr2_fp16", label: "MiniMax-H3 原生音画 + ref2va 声纹锁 + SeedVR2 7B FP16（推荐全套）" },
-  { id: "h3,h3_ref2va", label: "仅 MiniMax-H3 原生音画 + 声纹锁（先确认剧情，约省一半时间）" },
+  { id: "h3_bf16,h3_ref2va_bf16,seedvr2_fp16", label: "MiniMax-H3 BF16 高精 + ref2va BF16 + Qwen3-VL INT8 + SeedVR2 FP16（80G/96G 旗舰推荐）" },
+  { id: "h3_bf16,h3_ref2va_bf16", label: "仅 MiniMax-H3 BF16 高精 + ref2va BF16（原生 768P 先确认剧情）" },
+  { id: "h3,h3_ref2va,seedvr2_fp16", label: "MiniMax-H3 INT8 速出 + ref2va 声纹锁 + SeedVR2 7B FP16（省时/双路）" },
+  { id: "h3,h3_ref2va", label: "仅 MiniMax-H3 INT8 + 声纹锁（轻量速出剧情版）" },
   { id: "seedvr2_fp16", label: "仅 SeedVR2 7B FP16 最高画质超分（~14G，约 1.5 分钟速启）" },
-  { id: "h3,seedvr2_fp16", label: "MiniMax-H3 原生音画 + SeedVR2 7B FP16 1080P" },
-  { id: "h3,seedvr2", label: "MiniMax-H3 + SeedVR2 7B INT8（24G L4 均衡版）" },
+  { id: "h3,seedvr2", label: "MiniMax-H3 INT8 + SeedVR2 7B INT8（24G L4 均衡版）" },
   { id: "seedvr2", label: "仅 SeedVR2 7B INT8 超分（~8.2G，速启）" },
 ];
 
@@ -70,11 +71,14 @@ const DEFAULT_CONFIG: StudioComputeConfig = {
   compute_colab_gpus: "G4,A100,H100",
   compute_colab_high_mem: true,
   compute_colab_session: "filmkit",
-  compute_models: "h3,h3_ref2va,seedvr2_fp16",
+  compute_models: "h3_bf16,h3_ref2va_bf16,seedvr2_fp16",
   compute_auto_shutdown_min: 15,
   compute_dual_worker: true,
   compute_gdrive_cache: true,
   compute_hourly_cu_rate: 12,
+  h3_precision: "bf16",
+  h3_resolution: "768p",
+  h3_steps: 24,
 };
 
 export function StudioComputePanel({
@@ -185,6 +189,9 @@ export function StudioComputePanel({
         compute_auto_shutdown_min: Math.max(0, Number(config.compute_auto_shutdown_min) || 0),
         compute_dual_worker: config.compute_dual_worker,
         compute_gdrive_cache: config.compute_gdrive_cache,
+        h3_precision: config.h3_precision || "bf16",
+        h3_resolution: config.h3_resolution || "768p",
+        h3_steps: Math.max(12, Math.min(30, Number(config.h3_steps) || 24)),
       });
       onNotify(true, "算力默认配置已保存");
     } catch (e) {
@@ -205,6 +212,9 @@ export function StudioComputePanel({
         compute_auto_shutdown_min: Math.max(0, Number(config.compute_auto_shutdown_min) || 0),
         compute_dual_worker: config.compute_dual_worker,
         compute_gdrive_cache: config.compute_gdrive_cache,
+        h3_precision: config.h3_precision || "bf16",
+        h3_resolution: config.h3_resolution || "768p",
+        h3_steps: Math.max(12, Math.min(30, Number(config.h3_steps) || 24)),
       });
       const res = await studioApi.computeStart(config.compute_models, config.compute_colab_gpus);
       onComputeChange(res.compute);
@@ -612,6 +622,49 @@ export function StudioComputePanel({
               onChange={(e) => setConfig({ ...config, compute_auto_shutdown_min: Number(e.target.value) })}
               style={fieldStyle}
             />
+          </div>
+
+          <div>
+            <label className="block text-[11px] mb-1" style={{ color: "var(--aurora-fg3)" }}>
+              MiniMax-H3 权重精度
+            </label>
+            <select
+              value={config.h3_precision || "bf16"}
+              onChange={(e) => setConfig({ ...config, h3_precision: e.target.value })}
+              style={fieldStyle}
+            >
+              <option value="bf16">BF16 高精无量化（40G + Qwen3-VL INT8，推荐）</option>
+              <option value="int8">INT8 轻量提速（21G + NVFP4，24G/双路）</option>
+            </select>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="block text-[11px] mb-1" style={{ color: "var(--aurora-fg3)" }}>
+                H3 原生画质
+              </label>
+              <select
+                value={config.h3_resolution || "768p"}
+                onChange={(e) => setConfig({ ...config, h3_resolution: e.target.value })}
+                style={fieldStyle}
+              >
+                <option value="768p">768P 原生高清（768x1344）</option>
+                <option value="576p">576P 剧情速出（576x1024）</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-[11px] mb-1" style={{ color: "var(--aurora-fg3)" }}>
+                H3 采样步数（12~30）
+              </label>
+              <input
+                type="number"
+                min={12}
+                max={30}
+                value={config.h3_steps ?? 24}
+                onChange={(e) => setConfig({ ...config, h3_steps: Math.max(12, Math.min(30, Number(e.target.value) || 24)) })}
+                style={fieldStyle}
+              />
+            </div>
           </div>
         </div>
 

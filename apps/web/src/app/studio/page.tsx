@@ -97,22 +97,28 @@ const CAMERA_ANGLE_OPTIONS = [
 ];
 
 const FALLBACK_PRESETS: Record<string, StudioPreset> = {
-  live_action_drama: {
-    label: "真人写实短剧（国产 S+ 实拍级）",
+  chinese_viral_skit: {
+    label: "中国化爆梗短视频（1-2分钟高完播推荐）",
     style:
-      "high-budget contemporary mainland Chinese S+ streaming television drama shot on ARRI Alexa Mini and Sony FX6 with 35mm, 50mm, and 85mm cinema prime lenses, authentic natural Chinese East Asian faces with realistic human skin micro-texture, subtle pores, fine natural expression lines, and organic skin tone variation, zero airbrushing or beauty-filter smoothing, natural unstyled hair texture and tactile real woven fabrics, lived-in realistic everyday interiors with practical props and foreground depth, story-driven natural lighting with organic shadow falloff, restrained candid micro-expressions, subtle organic 35mm film grain, true live-action cinematography, no Western-stereotype Asian features",
+      "grounded contemporary mainland Chinese slice-of-life comedy and twist short video shot on Sony FX6 and ARRI Alexa Mini with 35mm and 50mm documentary-cinema primes, authentic everyday native mainland Han Chinese faces with natural ordinary non-influencer appearance, soft natural East Asian brow ridge and moderate nose bridge, natural monolid or inner-double eyelids, warm natural Chinese yellow-undertone skin with subtle pores and realistic age details, everyday mainland Chinese hairstyles and grounded domestic clothing, authentic lived-in mainland Chinese everyday environments with real local Chinese details and signage, zero Eurasian or mixed-race deep-set eyes, zero Korean plastic-surgery V-chin idol look, zero Westernized marble mansion or sterile European interior, realistic human skin micro-texture, subtle pores, zero airbrushing or beauty-filter smoothing, story-driven natural lighting with organic shadow falloff, candid lively relatable micro-expressions and comedic timing, subtle organic 35mm film grain, true live-action handheld photography",
+    subtitle_preset: "cinema_sub",
+  },
+  live_action_drama: {
+    label: "真人写实微故事（国产 S+ 实拍级）",
+    style:
+      "high-budget contemporary mainland Chinese S+ streaming television drama shot on ARRI Alexa Mini and Sony FX6 with 35mm, 50mm, and 85mm cinema prime lenses, authentic everyday native mainland Han Chinese faces with natural ordinary non-influencer appearance, soft natural East Asian brow ridge and moderate nose bridge, natural monolid or inner-double eyelids, warm natural Chinese yellow-undertone skin with subtle pores and realistic age details, everyday mainland Chinese hairstyles and grounded domestic clothing, authentic lived-in mainland Chinese everyday environments with real local Chinese details and signage, zero Eurasian or mixed-race deep-set eyes, zero Korean plastic-surgery V-chin idol look, zero Westernized marble mansion or sterile European interior, realistic human skin micro-texture, subtle pores, fine natural expression lines, zero airbrushing or beauty-filter smoothing, story-driven natural lighting with organic shadow falloff, restrained candid micro-expressions, subtle organic 35mm film grain, true live-action cinematography",
     subtitle_preset: "cinema_sub",
   },
   urban_romance: {
-    label: "都市情感短剧（电影感实拍）",
+    label: "都市生活情感（中国实拍质感）",
     style:
-      "contemporary Shanghai urban Chinese romance television drama (Tencent/iQIYI S+ live-action cinematography), shot on Sony FX6 cinema camera with 35mm and 50mm cinema primes, authentic contemporary Chinese actors with realistic human skin micro-texture, subtle pores, understated natural makeup, and organic facial planes, zero plastic gloss or beauty-filter skin smoothing, authentic lived-in metropolitan apartments and offices with real everyday props and foreground depth, story-driven natural daylight or warm practical interior lighting, restrained candid human micro-expressions, subtle 35mm film grain, true live-action footage",
+      "contemporary mainland Chinese urban life television cinematography (Tencent/iQIYI S+ live-action look), shot on Sony FX6 cinema camera with 35mm and 50mm cinema primes, authentic everyday native mainland Han Chinese faces with natural ordinary non-influencer appearance, soft natural East Asian brow ridge and moderate nose bridge, natural monolid or inner-double eyelids, warm natural Chinese yellow-undertone skin with subtle pores, authentic lived-in mainland Chinese apartments, tea shops, and offices, zero Eurasian or mixed-race deep-set eyes, zero Korean plastic-surgery V-chin idol look, story-driven natural daylight or warm practical interior lighting, restrained candid human micro-expressions, subtle 35mm film grain, true live-action footage",
     subtitle_preset: "manga_gold",
   },
   costume_drama: {
-    label: "古装仙侠短剧（东方实拍质感）",
+    label: "古装国风实拍（东方写实美学）",
     style:
-      "high-budget Chinese historical costume xianxia/wuxia television drama shot on ARRI Alexa LF cinema camera with anamorphic prime lenses, authentic live-action East Asian actors with realistic human skin micro-texture and subtle pores, zero airbrushed CGI look, tactile real silk, linen, and hand-stitched embroidery textures, authentic weathered wood and stone architectural details, story-driven natural daylight, mist, or warm candlelight with organic shadow falloff, restrained human micro-expressions, subtle 35mm film grain, true live-action cinematography",
+      "high-budget Chinese historical costume television drama shot on ARRI Alexa LF cinema camera with anamorphic prime lenses, authentic live-action native Han Chinese actors with natural East Asian bone structure, soft brow ridge, realistic human skin micro-texture and subtle pores, zero mixed-race features or airbrushed CGI look, tactile real silk, linen, and hand-stitched embroidery textures, authentic weathered Chinese grey-brick courtyard and wooden architectural details, story-driven natural daylight, mist, or warm candlelight with organic shadow falloff, restrained human micro-expressions, subtle 35mm film grain, true live-action cinematography",
     subtitle_preset: "manga_gold",
   },
   suspense_anime: {
@@ -182,11 +188,11 @@ function StudioInner() {
   // Project / Episode create inline state
   const [presets, setPresets] = useState<Record<string, StudioPreset>>(FALLBACK_PRESETS);
   const [showNewProject, setShowNewProject] = useState(false);
-  const [newProjPreset, setNewProjPreset] = useState("live_action_drama");
+  const [newProjPreset, setNewProjPreset] = useState("chinese_viral_skit");
   const [newProjName, setNewProjName] = useState("");
-  const [newProjStyle, setNewProjStyle] = useState(FALLBACK_PRESETS.live_action_drama.style);
+  const [newProjStyle, setNewProjStyle] = useState(FALLBACK_PRESETS.chinese_viral_skit.style);
   const [storyDraft, setStoryDraft] = useState("");
-  const [breakdownCount, setBreakdownCount] = useState(8);
+  const [breakdownCount, setBreakdownCount] = useState(14);
   const [batchState, setBatchState] = useState<StudioBatchState | null>(null);
   const [chainFrames, setChainFrames] = useState(true);
 
@@ -281,10 +287,10 @@ function StudioInner() {
       setBgmList(bgmRes.items || []);
       if (presetRes.presets && Object.keys(presetRes.presets).length > 0) {
         setPresets(presetRes.presets);
-        if (presetRes.presets.live_action_drama?.style) {
+        if (presetRes.presets.chinese_viral_skit?.style) {
           setNewProjStyle((prev) =>
-            prev === FALLBACK_PRESETS.live_action_drama.style
-              ? presetRes.presets.live_action_drama.style
+            prev === FALLBACK_PRESETS.chinese_viral_skit.style
+              ? presetRes.presets.chinese_viral_skit.style
               : prev
           );
         }

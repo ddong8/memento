@@ -813,7 +813,7 @@ html.memento-glass-tabbar .memento-scroll-main {
   padding-bottom: calc(var(--memento-tabbar-inset, 0px) + 16px) !important;
 }
 html.memento-glass-tabbar footer[data-ask-footer="true"] {
-  padding-bottom: calc(var(--memento-tabbar-inset, 0px) + 6px) !important;
+  padding-bottom: calc(var(--memento-tabbar-inset, 0px) + 2px) !important;
 }
 
 /* Mobile Ask View: Maximize width & vertical real estate for dialogue bubbles */
@@ -1019,14 +1019,14 @@ html, body {
   /* Selective mobile frosted glass: only the 2-3 fixed chrome surfaces (top bar, composer, popover)
      blur underneath scrolling content, keeping list cards blur-free for 120Hz smooth scrolling. */
   html[data-glass="on"] .memento-glass-chrome {
-    background: rgba(255, 255, 255, 0.78) !important;
-    backdrop-filter: blur(18px) saturate(175%) !important;
-    -webkit-backdrop-filter: blur(18px) saturate(175%) !important;
+    background: rgba(255, 255, 255, 0.72) !important;
+    backdrop-filter: blur(20px) saturate(185%) !important;
+    -webkit-backdrop-filter: blur(20px) saturate(185%) !important;
   }
   html[data-glass="on"][data-theme="dark"] .memento-glass-chrome {
-    background: rgba(20, 20, 30, 0.76) !important;
-    backdrop-filter: blur(18px) saturate(175%) !important;
-    -webkit-backdrop-filter: blur(18px) saturate(175%) !important;
+    background: rgba(20, 20, 30, 0.74) !important;
+    backdrop-filter: blur(20px) saturate(185%) !important;
+    -webkit-backdrop-filter: blur(20px) saturate(185%) !important;
   }
   /* 移动端关闭常驻装饰性无限动画，释放 iPhone ProMotion / Android LTPO 屏幕在静置时降频至 1Hz */
   .breathing-glow-emerald,
@@ -1132,7 +1132,7 @@ html[data-glass="off"] .memento-glass-chrome {
   white-space: pre-wrap;
 }
 .ask-composer-textarea:placeholder-shown {
-  height: 24px;
+  height: 22px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

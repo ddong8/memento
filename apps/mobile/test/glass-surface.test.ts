@@ -34,5 +34,11 @@ describe("mobile native glass surface", () => {
     expect(indexSrc).toContain("GlassSurface");
     expect(indexSrc).toContain("memento-glass-tabbar");
     expect(indexSrc).toContain("--memento-tabbar-inset");
+    // Shadow must live on an outer wrapper (not clipped by GlassSurface overflow: hidden)
+    expect(indexSrc).toContain("styles.tabBarShadow");
+    // Native iOS 26 Liquid Glass must not be washed out by an opaque 0.50 white tintColor
+    expect(glassSrc).not.toContain("rgba(255, 255, 255, 0.50)");
+    // Active tab color must follow page theme (`dark`), never OS color scheme (`t.accent`)
+    expect(indexSrc).not.toContain("isActive ? t.accent");
   });
 });

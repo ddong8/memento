@@ -789,6 +789,8 @@ function AskPageContent() {
 
   const abortRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const askPaneRef = useRef<HTMLDivElement>(null);
+  const askFooterRef = useRef<HTMLElement>(null);
   const scrollSettleTimersRef = useRef<NodeJS.Timeout[]>([]);
   const pendingScrollToBottomRef = useRef<boolean>(false);
   const lastStreamActivityRef = useRef<number>(Date.now());
@@ -802,6 +804,39 @@ function AskPageContent() {
   const userScrolledAwayRef = useRef<boolean>(false);
 
   const scrollRafRef = useRef<number>(0);
+
+  // Sync floating footer height to CSS var --ask-footer-h without React re-renders so
+  // messages scroll cleanly behind frosted/liquid glass chrome while bottom-of-chat keeps zero overlap.
+  useEffect(() => {
+    const pane = askPaneRef.current;
+    const footer = askFooterRef.current;
+    if (!pane || !footer) return;
+    let prevHeight = 0;
+    const syncHeight = (rawHeight: number) => {
+      const next = Math.max(88, Math.ceil(rawHeight));
+      if (next === prevHeight) return;
+      const delta = prevHeight > 0 ? next - prevHeight : 0;
+      prevHeight = next;
+      pane.style.setProperty("--ask-footer-h", `${next}px`);
+      if (delta > 0 && !userScrolledAwayRef.current && chatScrollRef.current) {
+        const sc = chatScrollRef.current;
+        const dist = sc.scrollHeight - sc.scrollTop - sc.clientHeight;
+        if (dist < delta + 48) {
+          sc.scrollTop += delta;
+        }
+      }
+    };
+    syncHeight(footer.getBoundingClientRect().height);
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      const h = entry.borderBoxSize?.[0]?.blockSize ?? entry.target.getBoundingClientRect().height;
+      syncHeight(h);
+    });
+    ro.observe(footer);
+    return () => ro.disconnect();
+  }, []);
 
   const scrollConversationToBottom = useCallback((instant = true, force = false) => {
     // 1. 如果用户正在手动滑动/触摸屏幕，且不是用户显式指令（如点击回到底部/发送消息），绝不抢夺滚动权
@@ -4633,20 +4668,28 @@ function AskPageContent() {
     ? (currentDev.online ?? (currentDev.last_heartbeat ? (Date.now() - new Date(currentDev.last_heartbeat).getTime()) < 180_000 : false))
     : true;
   let placeholderText = t.ask.placeholderAgent;
+  let compactPlaceholderText = isZh ? "向 AI 执事提问..." : "Ask Memento...";
   if (executionMode === "claude") {
     placeholderText = isZh ? "向 Claude Code 派发任务或提问..." : (t.ask.placeholderClaude || "Dispatch task to Claude Code...");
+    compactPlaceholderText = isZh ? "向 Claude Code 提问..." : "Ask Claude Code...";
   } else if (executionMode === "codex") {
     placeholderText = isZh ? "向 Codex 派发任务或提问..." : (t.ask.placeholderCodex || "Dispatch task to OpenAI Codex...");
+    compactPlaceholderText = isZh ? "向 Codex 提问..." : "Ask Codex...";
   } else if (executionMode === "antigravity") {
     placeholderText = isZh ? "向 Antigravity 派发任务或提问..." : (t.ask.placeholderAntigravity || "Dispatch task to Antigravity...");
+    compactPlaceholderText = isZh ? "向 Antigravity 提问..." : "Ask Antigravity...";
   } else if (executionMode === "workbuddy") {
     placeholderText = isZh ? "向 WorkBuddy 派发任务或提问..." : "Dispatch task to WorkBuddy...";
+    compactPlaceholderText = isZh ? "向 WorkBuddy 提问..." : "Ask WorkBuddy...";
   } else if (executionMode === "shell") {
     placeholderText = isZh ? "输入要在目标机执行的 Shell 命令..." : (t.ask.placeholderShell || "Execute Shell command on target device...");
+    compactPlaceholderText = isZh ? "输入 Shell 命令..." : "Run shell command...";
   } else if (selectedDevice === "ask_only") {
     placeholderText = t.ask.placeholderAskOnly;
+    compactPlaceholderText = isZh ? "向 AI 执事提问..." : "Ask Memento...";
   } else if (currentDev) {
     placeholderText = isZh ? `在 ${currentDev.name} 上执行任务或提问...` : `Run task or question on ${currentDev.name}...`;
+    compactPlaceholderText = isZh ? "向 AI 执事提问..." : "Ask Memento...";
   }
 
   // Active question waiting for user input across recent turns
@@ -5156,7 +5199,7 @@ function AskPageContent() {
       <OfflineCapsule offline={isOffline} recovered={offlineRecovered} />
 
       {/* 主对话区与输入控制台 */}
-      <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden relative bg-transparent">
+      <div ref={askPaneRef} className="flex-1 flex flex-col h-full min-w-0 overflow-hidden relative bg-transparent">
         {/* 对话区顶部 Bar */}
         <AskTopBar
           conversationCount={conversations.length}
@@ -5364,6 +5407,8 @@ function AskPageContent() {
         />
       </div>
     </div>
+    {/* 底部动态留白：与悬浮输入卡及原生液态玻璃 TabBar 等高，确保长对话可穿透底部毛玻璃且滚到底部零遮挡 */}
+    <div style={{ height: "calc(var(--ask-footer-h, 156px) + 6px)", flexShrink: 0, pointerEvents: "none" }} aria-hidden="true" />
     <div ref={bottomRef} style={{ height: 1, minHeight: 1, overflow: "hidden", pointerEvents: "none" }} />
   </div>
     {/* 回到底部悬浮快捷键 */}
@@ -5375,8 +5420,9 @@ function AskPageContent() {
           isUserInteractingRef.current = false;
           chatScrollRef.current?.scrollTo({ top: chatScrollRef.current.scrollHeight, behavior: "smooth" });
         }}
-        className="absolute bottom-4 right-5 sm:right-8 z-30 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold shadow-xl transition-all transform hover:scale-105 cursor-pointer backdrop-blur-md"
+        className="absolute right-5 sm:right-8 z-30 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold shadow-xl transition-all transform hover:scale-105 cursor-pointer backdrop-blur-md"
         style={{
+          bottom: "calc(var(--ask-footer-h, 156px) + 10px)",
           background: "var(--aurora-surface-solid)",
           border: "1px solid var(--aurora-border-strong)",
           color: "var(--aurora-accent)",
@@ -5388,41 +5434,44 @@ function AskPageContent() {
       </button>
     )}
   </div>
-    {/* 多选消息分享操作栏 */}
-    {selectTurnsMode && (
-      <MultiSelectShareBar
-        isZh={isZh}
-        selectedCount={selectedTurnIndices.length}
-        totalCount={turns.length}
-        onToggleSelectAll={() => {
-          if (selectedTurnIndices.length === turns.length) {
-            setSelectedTurnIndices([]);
-          } else {
-            setSelectedTurnIndices(turns.map((_, idx) => idx));
-          }
-        }}
-        onShareSelected={handleShareSelectedTurns}
-        onCancel={() => {
-          setSelectTurnsMode(false);
-          setSelectedTurnIndices([]);
-        }}
-      />
-    )}
 
-  {/* 中栏底部交互控制台 (作为 flex footer，全面屏安全区适配)。左右内边距和上面消息区一致，卡片和输入区左右对齐 */}
+  {/* 中栏底部悬浮交互控制台：透明外框允许对话滚动穿透至下方毛玻璃与 iOS 液态玻璃 TabBar */}
     <footer
+      ref={askFooterRef}
       data-ask-footer="true"
-      className="shrink-0 px-1 pt-1 sm:px-5 sm:pt-1.5 md:px-8 lg:pt-2 bg-transparent"
+      className="absolute bottom-0 left-0 right-0 z-20 pointer-events-none px-2 pt-1 sm:px-5 sm:pt-1.5 md:px-8 lg:pt-2 bg-transparent"
       style={{
         paddingBottom: viewportBottomOffset > 0
           ? `${viewportBottomOffset + 4}px`
-          : "max(0.625rem, calc(env(safe-area-inset-bottom, 0px) + 0.375rem))",
+          : "max(0.5rem, calc(env(safe-area-inset-bottom, 0px) + 0.25rem))",
         transition: "padding-bottom 0.15s cubic-bezier(0.16, 1, 0.3, 1)",
       }}
     >
-      <div className="max-w-3xl xl:max-w-4xl 2xl:max-w-5xl mx-auto w-full min-w-0" style={{ boxSizing: "border-box" }}>
+      {/* 多选消息分享操作栏 */}
+      {selectTurnsMode && (
+        <div className="pointer-events-auto mb-1.5">
+          <MultiSelectShareBar
+            isZh={isZh}
+            selectedCount={selectedTurnIndices.length}
+            totalCount={turns.length}
+            onToggleSelectAll={() => {
+              if (selectedTurnIndices.length === turns.length) {
+                setSelectedTurnIndices([]);
+              } else {
+                setSelectedTurnIndices(turns.map((_, idx) => idx));
+              }
+            }}
+            onShareSelected={handleShareSelectedTurns}
+            onCancel={() => {
+              setSelectTurnsMode(false);
+              setSelectedTurnIndices([]);
+            }}
+          />
+        </div>
+      )}
+      <div className="max-w-3xl xl:max-w-4xl 2xl:max-w-5xl mx-auto w-full min-w-0 pointer-events-auto" style={{ boxSizing: "border-box" }}>
         <div
-          className="ask-footer-card memento-glass-chrome px-2.5 py-2 sm:px-3.5 sm:py-2.5"
+          className="ask-footer-card memento-glass-chrome px-2 py-2 sm:px-3.5 sm:py-2.5"
           style={{
             background: isDraggingOver ? "var(--aurora-accent-soft)" : "var(--aurora-surface-solid)",
             ...(isDraggingOver
@@ -5535,7 +5584,7 @@ function AskPageContent() {
                   style={{
                     display: "flex",
                     alignItems: "center",
-                    gap: 5,
+                    gap: 4,
                     overflowX: "auto",
                     scrollbarWidth: "none",
                     WebkitOverflowScrolling: "touch",
@@ -5570,8 +5619,8 @@ function AskPageContent() {
                         style={{
                           display: "inline-flex",
                           alignItems: "center",
-                          gap: 4.5,
-                          padding: "2.5px 7.5px",
+                          gap: 4,
+                          padding: "2px 6.5px",
                           borderRadius: 6,
                           background: "var(--aurora-accent-soft)",
                           border: `1px solid color-mix(in srgb, ${currentMode.color} 35%, transparent)`,
@@ -5585,7 +5634,7 @@ function AskPageContent() {
                         title={isAgentMode ? (isZh ? "点击查看 AI 订阅与额度详情" : "Click to view AI quota details") : (isZh ? "点击展开配置或切换智能体" : "Click to expand configuration")}
                       >
                         {currentMode.brandId ? (
-                          <BrandMark id={currentMode.brandId} size={12.5} colored />
+                          <BrandMark id={currentMode.brandId} size={12} colored />
                         ) : (
                           <Icon name={currentMode.icon || "sparkles"} size={11.5} style={{ color: currentMode.color }} />
                         )}
@@ -5595,7 +5644,7 @@ function AskPageContent() {
                             style={{
                               fontSize: 10,
                               fontWeight: 600,
-                              padding: "0 4.5px",
+                              padding: "0 4px",
                               borderRadius: 4,
                               background: "var(--aurora-surface-solid)",
                               color: modeQuota.percent != null && modeQuota.percent < 30 ? "#F59E0B" : "inherit",
@@ -5612,19 +5661,19 @@ function AskPageContent() {
 
                   {/* Target Device Badge */}
                   <span
-                    className="max-w-[150px] sm:max-w-[240px]"
+                    className="min-w-[54px] shrink max-w-[104px] sm:max-w-[220px] sm:shrink-0"
                     style={{
                       display: "inline-flex",
                       alignItems: "center",
                       gap: 4,
-                      padding: "2.5px 7px",
+                      padding: "2px 6px",
                       borderRadius: 6,
                       background: !isCurrentDevOnline && selectedDevice !== "auto" && selectedDevice !== "ask_only" ? "rgba(239, 68, 68, 0.1)" : "var(--aurora-chip)",
                       color: !isCurrentDevOnline && selectedDevice !== "auto" && selectedDevice !== "ask_only" ? "#ef4444" : "var(--aurora-fg2)",
                       fontSize: 11,
                       fontWeight: 500,
                       whiteSpace: "nowrap",
-                      flexShrink: 0,
+                      overflow: "hidden",
                     }}
                   >
                     <span
@@ -5642,12 +5691,15 @@ function AskPageContent() {
                         if (selectedDevice === "ask_only") return t.ask.askOnly;
                         const rawName = currentDev?.name || selectedDevice;
                         const baseName = rawName
+                          .replace(/\s*\([^)]*\)$/, "")
                           .replace(/\.local$/i, "")
-                          .replace(/ \(\w+\)$/, "")
-                          .replace(/([a-zA-Z0-9_-]+)de(MacBook(?:-Pro|-Air)?)/i, "$1 $2")
-                          .replace(/([a-zA-Z0-9_-]+)的(MacBook(?:-Pro|-Air)?)/i, "$1 $2")
+                          .replace(/([a-zA-Z0-9_-]+)de(Mac(?:Book(?:-Pro|-Air)?|-mini|-Studio|-Pro)|iMac)/i, "$1 $2")
+                          .replace(/([a-zA-Z0-9_-]+)的(Mac(?:Book(?:-Pro|-Air)?|-mini|-Studio|-Pro)|iMac)/i, "$1 $2")
                           .replace(/MacBook-Pro/i, "MacBook Pro")
-                          .replace(/MacBook-Air/i, "MacBook Air");
+                          .replace(/MacBook-Air/i, "MacBook Air")
+                          .replace(/Mac-mini/i, "Mac mini")
+                          .replace(/Mac-Studio/i, "Mac Studio")
+                          .replace(/Mac-Pro/i, "Mac Pro");
                         const shortName = baseName || (selectedDevice.length > 8 ? selectedDevice.slice(0, 8) : selectedDevice);
                         return `${shortName}${!isCurrentDevOnline ? (isZh ? " (离线)" : " (Offline)") : ""}`;
                       })()}
@@ -5665,22 +5717,22 @@ function AskPageContent() {
                     });
                     return (
                       <span
-                        className="max-w-[150px] sm:max-w-[220px]"
+                        className="min-w-[54px] shrink max-w-[96px] sm:max-w-[200px] sm:shrink-0"
                         style={{
                           display: "inline-flex",
                           alignItems: "center",
-                          gap: 4,
-                          padding: "2.5px 7px",
+                          gap: 3.5,
+                          padding: "2px 6px",
                           borderRadius: 6,
                           background: "var(--aurora-chip)",
                           color: "var(--aurora-fg2)",
                           fontSize: 11,
                           fontWeight: 500,
                           whiteSpace: "nowrap",
-                          flexShrink: 0,
+                          overflow: "hidden",
                         }}
                       >
-                        <Icon name="code" size={11.5} style={{ color: "var(--aurora-fg3)" }} />
+                        <Icon name="code" size={11} style={{ color: "var(--aurora-fg3)", flexShrink: 0 }} />
                         <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{displayTitle}</span>
                       </span>
                     );
@@ -5691,24 +5743,23 @@ function AskPageContent() {
                     const safeFolder = resolveSafeProjectName({ cwd, isZh });
                     return (
                       <span
-                        className="max-w-[110px] sm:max-w-[190px]"
+                        className="min-w-[54px] shrink max-w-[96px] sm:max-w-[190px] sm:shrink-0"
                         style={{
                           display: "inline-flex",
                           alignItems: "center",
-                          gap: 4,
-                          padding: "2.5px 7px",
+                          gap: 3.5,
+                          padding: "2px 6px",
                           borderRadius: 6,
                           background: "var(--aurora-chip)",
                           color: "var(--aurora-fg3)",
                           fontSize: 11,
                           whiteSpace: "nowrap",
-                          flexShrink: 0,
                           overflow: "hidden",
                           textOverflow: "ellipsis",
                         }}
                         title={cwd}
                       >
-                        <Icon name="folder" size={11} style={{ color: "var(--aurora-accent)" }} />
+                        <Icon name="folder" size={11} style={{ color: "var(--aurora-accent)", flexShrink: 0 }} />
                         <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{safeFolder}</span>
                       </span>
                     );
@@ -6888,6 +6939,7 @@ function AskPageContent() {
               isRecordingVoice={isRecordingVoice}
               attachedImageCount={attachedImages.length}
               placeholderText={placeholderText}
+              compactPlaceholderText={compactPlaceholderText}
               sendLabel={t.ask.send}
               stopLabel={t.ask.stop}
               isZh={isZh}

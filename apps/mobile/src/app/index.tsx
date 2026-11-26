@@ -589,8 +589,10 @@ export default function WebShell() {
     }
   }, [origin, switchServer]);
 
-  const tabBarBottom = Math.max(insets.bottom, 10);
-  const tabBarInset = keyboardVisible ? 0 : 58 + tabBarBottom + 8;
+  // Align with native iOS 26 floating TabBar ergonomics: sit ~7pt above the 5pt home bar
+  // (20pt on Face ID iPhones instead of 34pt) so there is no dead void below or above the pill.
+  const tabBarBottom = insets.bottom > 0 ? Math.max(insets.bottom - 14, 14) : 10;
+  const tabBarInset = keyboardVisible ? 0 : 54 + tabBarBottom + 6;
 
   useEffect(() => {
     if (!initialLoaded || !web.current) return;
@@ -717,66 +719,75 @@ export default function WebShell() {
             },
           ]}
         >
-          <GlassSurface
-            enabled={glassEnabled}
-            dark={dark}
-            blurTarget={blurTargetRef}
-            variant="tabbar"
+          {/* Outer shadow wrapper without overflow: "hidden" so iOS Liquid Glass keeps its soft elevation shadow */}
+          <View
             style={[
-              styles.tabBarDock,
+              styles.tabBarShadow,
               {
-                shadowColor: dark ? "#000000" : "#16131F",
-                shadowOpacity: dark ? 0.42 : 0.14,
+                shadowColor: dark ? "#000000" : "#18142B",
+                shadowOpacity: dark ? 0.44 : 0.14,
               },
             ]}
           >
-            <View style={styles.tabBarRow}>
-              {TABS.map((tab) => {
-                const isActive = activeTab === tab.id;
-                const color = isActive ? t.accent : dark ? "#B4B1C4" : "#5A566B";
-                return (
-                  <Pressable
-                    key={tab.id}
-                    onPress={() => {
-                      void Haptics.selectionAsync();
-                      setActiveTab(tab.id);
-                      const script = `(() => {
-                        let targetPath = ${JSON.stringify(tab.path)};
-                        if (targetPath === "/ask") {
-                          if (window.location.pathname.startsWith("/ask")) {
-                            return;
+            <GlassSurface
+              enabled={glassEnabled}
+              dark={dark}
+              blurTarget={blurTargetRef}
+              variant="tabbar"
+              style={styles.tabBarDock}
+            >
+              <View style={styles.tabBarRow}>
+                {TABS.map((tab) => {
+                  const isActive = activeTab === tab.id;
+                  // Always follow the web page's active light/dark theme (`dark`), never the OS
+                  // color scheme (`t.accent`), so dark-OS + light-app never washes out active labels.
+                  const activeColor = dark ? "#C4B5FD" : "#6D28D9";
+                  const inactiveColor = dark ? "rgba(232, 229, 245, 0.74)" : "rgba(38, 34, 56, 0.68)";
+                  const color = isActive ? activeColor : inactiveColor;
+                  return (
+                    <Pressable
+                      key={tab.id}
+                      onPress={() => {
+                        void Haptics.selectionAsync();
+                        setActiveTab(tab.id);
+                        const script = `(() => {
+                          let targetPath = ${JSON.stringify(tab.path)};
+                          if (targetPath === "/ask") {
+                            if (window.location.pathname.startsWith("/ask")) {
+                              return;
+                            }
+                            const lastId = localStorage.getItem("memento_last_ask_conv_id");
+                            if (lastId) targetPath = "/ask?id=" + encodeURIComponent(lastId);
                           }
-                          const lastId = localStorage.getItem("memento_last_ask_conv_id");
-                          if (lastId) targetPath = "/ask?id=" + encodeURIComponent(lastId);
-                        }
-                        if (typeof window.__memento_client_push === "function") {
-                          window.__memento_client_push(targetPath);
-                        } else {
-                          window.location.assign(${JSON.stringify(origin)} + targetPath);
-                        }
-                      })(); true;`;
-                      web.current?.injectJavaScript(script);
-                    }}
-                    style={({ pressed }) => [
-                      styles.tabItem,
-                      isActive
-                        ? {
-                            backgroundColor: dark ? "rgba(167, 139, 250, 0.18)" : "rgba(124, 58, 237, 0.11)",
+                          if (typeof window.__memento_client_push === "function") {
+                            window.__memento_client_push(targetPath);
+                          } else {
+                            window.location.assign(${JSON.stringify(origin)} + targetPath);
                           }
-                        : null,
-                      { opacity: pressed ? 0.72 : 1, transform: [{ scale: pressed ? 0.94 : 1 }] },
-                    ]}
-                    hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-                  >
-                    <Icon name={tab.icon} size={20} color={color} strokeWidth={isActive ? 2.2 : 1.8} />
-                    <Text style={[styles.tabLabel, { color, fontWeight: isActive ? "600" : "500" }]} numberOfLines={1}>
-                      {tab.label}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-          </GlassSurface>
+                        })(); true;`;
+                        web.current?.injectJavaScript(script);
+                      }}
+                      style={({ pressed }) => [
+                        styles.tabItem,
+                        isActive
+                          ? {
+                              backgroundColor: dark ? "rgba(196, 181, 253, 0.22)" : "rgba(109, 40, 217, 0.12)",
+                            }
+                          : null,
+                        { opacity: pressed ? 0.72 : 1, transform: [{ scale: pressed ? 0.94 : 1 }] },
+                      ]}
+                      hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
+                    >
+                      <Icon name={tab.icon} size={19} color={color} strokeWidth={isActive ? 2.2 : 1.85} />
+                      <Text style={[styles.tabLabel, { color, fontWeight: isActive ? "600" : "500" }]} numberOfLines={1}>
+                        {tab.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </GlassSurface>
+          </View>
         </View>
       ) : null}
     </View>
@@ -786,35 +797,40 @@ export default function WebShell() {
 const styles = StyleSheet.create({
   tabBarDockWrap: {
     position: "absolute",
-    left: 14,
-    right: 14,
+    left: 12,
+    right: 12,
     zIndex: 40,
   },
+  tabBarShadow: {
+    borderRadius: 27,
+    backgroundColor: "transparent",
+    shadowOffset: { width: 0, height: 8 },
+    shadowRadius: 20,
+    elevation: 12,
+  },
   tabBarDock: {
-    borderRadius: 28,
-    shadowOffset: { width: 0, height: 10 },
-    shadowRadius: 24,
-    elevation: 14,
+    borderRadius: 27,
   },
   tabBarRow: {
-    height: 58,
+    height: 54,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 6,
+    paddingHorizontal: 5,
     gap: 2,
   },
   tabItem: {
     flex: 1,
-    height: 46,
+    height: 44,
     borderRadius: 22,
     alignItems: "center",
     justifyContent: "center",
     gap: 2,
-    paddingHorizontal: 4,
+    paddingHorizontal: 3,
   },
   tabLabel: {
-    fontSize: 10,
+    fontSize: 10.5,
+    lineHeight: 13,
     letterSpacing: -0.2,
   },
 });

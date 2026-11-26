@@ -9,7 +9,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.ihasy.memento",
-      "buildNumber": "13",
+      "buildNumber": "14",
       "appleTeamId": "WHNZV34GK4",
       "infoPlist": {
         "NSMicrophoneUsageDescription": "Memento 需要使用麦克风以支持语音吩咐与实时听写功能。",

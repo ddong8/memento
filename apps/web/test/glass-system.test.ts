@@ -40,4 +40,22 @@ describe("frosted glass architecture", () => {
     expect(desktopPreload).toContain("nativeGlass");
     expect(userMenu).toContain("毛玻璃质感");
   });
+
+  it("floats Ask footer over full-bleed scroll container with live --ask-footer-h clearance and mobile pill fit", () => {
+    const repoRoot = path.resolve(__dirname, "../../..");
+    const askPage = fs.readFileSync(path.join(repoRoot, "apps/web/src/app/ask/page.tsx"), "utf8");
+    const composer = fs.readFileSync(path.join(repoRoot, "apps/web/src/components/ask/AskComposer.tsx"), "utf8");
+
+    expect(askPage).toContain("--ask-footer-h");
+    expect(askPage).toContain("pointer-events-none");
+    // Strip trailing OS parenthetical before .local in Target Device Badge
+    const deviceBadgeSlice = askPage.slice(askPage.indexOf("Target Device Badge"), askPage.indexOf("Associated Project Badge"));
+    expect(deviceBadgeSlice.indexOf('.replace(/\\s*\\([^)]*\\)$/, "")')).toBeGreaterThan(-1);
+    expect(deviceBadgeSlice.indexOf('.replace(/\\s*\\([^)]*\\)$/, "")')).toBeLessThan(
+      deviceBadgeSlice.indexOf('.replace(/\\.local$/i, "")'),
+    );
+    expect(deviceBadgeSlice).toContain("Mac-mini");
+    expect(composer).toContain("compactPlaceholderText");
+    expect(composer).toContain("w-9 h-9 sm:w-10 sm:h-10");
+  });
 });

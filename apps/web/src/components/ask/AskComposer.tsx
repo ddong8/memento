@@ -49,6 +49,7 @@ export interface AskComposerProps {
   isRecordingVoice: boolean;
   attachedImageCount: number;
   placeholderText: string;
+  compactPlaceholderText?: string;
   sendLabel: string;
   stopLabel: string;
   isZh: boolean;
@@ -121,6 +122,7 @@ export const AskComposer = memo(
       isRecordingVoice,
       attachedImageCount,
       placeholderText,
+      compactPlaceholderText,
       sendLabel,
       stopLabel,
       isZh,
@@ -130,12 +132,22 @@ export const AskComposer = memo(
     const [input, setInputState] = useState<string>(initialValue);
     const inputRef = useRef<string>(initialValue);
     const [isInputFocused, setIsInputFocused] = useState<boolean>(false);
+    const [isNarrowViewport, setIsNarrowViewport] = useState<boolean>(false);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const promptHistoryIdxRef = useRef<number>(-1);
     const promptDraftRef = useRef<string>("");
     const lastHeightRef = useRef<number>(24);
     const lastLenRef = useRef<number>(initialValue.length);
     const resizeRafRef = useRef<number>(0);
+
+    useEffect(() => {
+      if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+      const mq = window.matchMedia("(max-width: 639px)");
+      const update = () => setIsNarrowViewport(mq.matches);
+      update();
+      mq.addEventListener("change", update);
+      return () => mq.removeEventListener("change", update);
+    }, []);
 
     // Debounced copy for OS-path device recommendation so regexes don't run synchronously on every key
     const [debouncedInput, setDebouncedInput] = useState<string>(initialValue);
@@ -324,7 +336,7 @@ export const AskComposer = memo(
             onClick={onOpenFilePicker}
             title={isZh ? "上传图片或截图 (支持直接粘贴 Ctrl+V / Cmd+V)" : "Upload image (supports Ctrl+V / Cmd+V)"}
             style={{
-              borderRadius: 12,
+              borderRadius: 11,
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -336,13 +348,13 @@ export const AskComposer = memo(
               flexShrink: 0,
               boxSizing: "border-box",
             }}
-            className="w-11 h-11 sm:w-10 sm:h-10 hover:text-[var(--aurora-fg1)] hover:border-[var(--aurora-border-strong)] active:scale-95 !rounded-xl"
+            className="w-9 h-9 sm:w-10 sm:h-10 hover:text-[var(--aurora-fg1)] hover:border-[var(--aurora-border-strong)] active:scale-95 !rounded-xl"
           >
-            <Icon name="image" size={17} />
+            <Icon name="image" size={16} />
           </button>
 
           <label
-            className="aurora-input !px-3 sm:!px-4 !py-2.5 sm:!py-2 !min-h-[44px] sm:!min-h-[42px] transition-colors !rounded-xl"
+            className="aurora-input !px-2.5 sm:!px-4 !py-[6px] sm:!py-2 !min-h-[36px] sm:!min-h-[42px] transition-colors !rounded-xl"
             style={{
               flex: 1,
               minWidth: 0,
@@ -350,11 +362,11 @@ export const AskComposer = memo(
               border: isInputFocused ? "1px solid var(--aurora-accent)" : "1px solid var(--aurora-border)",
               boxShadow: isInputFocused ? "0 0 0 2px var(--aurora-accent-soft)" : "none",
               boxSizing: "border-box",
-              alignItems: "flex-start",
-              borderRadius: 12,
+              alignItems: "center",
+              borderRadius: 11,
             }}
           >
-            <span className="hidden sm:inline-flex" style={{ color: "var(--aurora-fg3)", flexShrink: 0, marginTop: 3 }}>
+            <span className="hidden sm:inline-flex" style={{ color: "var(--aurora-fg3)", flexShrink: 0 }}>
               <Icon
                 name={
                   executionMode === "shell"
@@ -392,16 +404,16 @@ export const AskComposer = memo(
               placeholder={
                 streaming
                   ? isZh
-                    ? "继续追问，可以连着发几条…"
-                    : "Follow up; send as many as you like…"
-                  : placeholderText
+                    ? (isNarrowViewport ? "继续追问…" : "继续追问，可以连着发几条…")
+                    : (isNarrowViewport ? "Follow up…" : "Follow up; send as many as you like…")
+                  : (isNarrowViewport && compactPlaceholderText ? compactPlaceholderText : placeholderText)
               }
               style={{
                 minWidth: 0,
                 width: "100%",
-                minHeight: 24,
+                minHeight: 22,
                 maxHeight: 160,
-                lineHeight: "24px",
+                lineHeight: "22px",
                 padding: 0,
                 margin: 0,
                 border: "none",
@@ -421,7 +433,7 @@ export const AskComposer = memo(
             onClick={onToggleVoice}
             title={isRecordingVoice ? (isZh ? "停止倾听" : "Stop listening") : (isZh ? "语音吩咐 (按键说话)" : "Voice input")}
             style={{
-              borderRadius: 12,
+              borderRadius: 11,
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -433,9 +445,9 @@ export const AskComposer = memo(
               flexShrink: 0,
               boxSizing: "border-box",
             }}
-            className={`w-11 h-11 sm:w-10 sm:h-10 active:scale-95 !rounded-xl ${isRecordingVoice ? "animate-pulse shadow-sm" : "hover:text-[var(--aurora-fg1)]"}`}
+            className={`w-9 h-9 sm:w-10 sm:h-10 active:scale-95 !rounded-xl ${isRecordingVoice ? "animate-pulse shadow-sm" : "hover:text-[var(--aurora-fg1)]"}`}
           >
-            <Icon name="microphone" size={17} />
+            <Icon name="microphone" size={16} />
           </button>
 
           {isReconnecting && (
@@ -445,8 +457,8 @@ export const AskComposer = memo(
                 alignItems: "center",
                 gap: 6,
                 padding: "0 10px",
-                height: 44,
-                borderRadius: 12,
+                height: 36,
+                borderRadius: 11,
                 background: "rgba(245, 158, 11, 0.15)",
                 border: "1px solid rgba(245, 158, 11, 0.35)",
                 color: "#f59e0b",
@@ -467,7 +479,7 @@ export const AskComposer = memo(
               disabled={!canSend}
               icon="message"
               title={isZh ? "追问：正在运行的智能体会在下一步读到，读不了的等这轮结束后接着发" : "Follow up"}
-              className="!h-[44px] sm:!h-[42px] !w-[44px] sm:!w-auto !px-0 sm:!px-4 !justify-center !rounded-xl"
+              className="!h-[36px] sm:!h-[42px] !w-[36px] sm:!w-auto !px-0 sm:!px-4 !justify-center !rounded-xl"
               style={{ flexShrink: 0 }}
             >
               <span className="hidden sm:inline font-semibold text-sm">{isZh ? "追问" : "Follow up"}</span>
@@ -479,7 +491,7 @@ export const AskComposer = memo(
               icon="close"
               onClick={onStop}
               title={stopLabel}
-              className="!h-[44px] sm:!h-[42px] !w-[44px] sm:!w-auto !px-0 sm:!px-4 !justify-center !rounded-xl"
+              className="!h-[36px] sm:!h-[42px] !w-[36px] sm:!w-auto !px-0 sm:!px-4 !justify-center !rounded-xl"
               style={{
                 flexShrink: 0,
                 background: "rgba(239, 68, 68, 0.18)",
@@ -494,7 +506,7 @@ export const AskComposer = memo(
               onClick={handleSend}
               disabled={!canSend}
               icon={executionMode === "shell" ? "terminal" : executionMode !== "ai" ? "rocket" : selectedDevice === "ask_only" ? "search" : "rocket"}
-              className="!h-[44px] sm:!h-[42px] !px-3.5 sm:!px-4 !rounded-xl"
+              className="!h-[36px] sm:!h-[42px] !px-2.5 sm:!px-4 !gap-1 sm:!gap-1.5 !rounded-xl"
               style={{ flexShrink: 0 }}
             >
               <span className="font-semibold text-xs sm:text-sm">{sendLabel}</span>

@@ -227,6 +227,15 @@ type ShouldStartLoadRequest = Parameters<NonNullable<WebViewProps["onShouldStart
 
 const USER_AGENT_SUFFIX = `MementoMobile/${Constants.expoConfig?.version ?? "0"}`;
 
+function matchTabForPath(path: string): TabId | null {
+  const direct = TABS.find((tab) => path === tab.path || path.startsWith(tab.path + "/"));
+  if (direct) return direct.id;
+  if (path === "/skills" || path.startsWith("/skills/")) return "memory";
+  if (path === "/tasks" || path.startsWith("/tasks/")) return "inbox";
+  if (path === "/devices" || path.startsWith("/devices/")) return "profile";
+  return null;
+}
+
 function sameOrigin(url: string, origin: string): boolean {
   return url.startsWith(origin) && /^(?:[/?#]|$)/.test(url.slice(origin.length));
 }
@@ -315,8 +324,8 @@ export default function WebShell() {
       if (!target || target === "/") return;
       const fullUrl = target.startsWith("http") ? target : `${origin}${target.startsWith("/") ? "" : "/"}${target}`;
       const path = target.startsWith("http") ? new URL(target).pathname : target.split("?")[0];
-      const matched = TABS.find((tab) => path === tab.path || path.startsWith(tab.path + "/"));
-      if (matched) setActiveTab(matched.id);
+      const matched = matchTabForPath(path);
+      if (matched) setActiveTab(matched);
 
       if (web.current && initialLoaded) {
         const js = `
@@ -514,8 +523,7 @@ export default function WebShell() {
         setGlassEnabled(msg.enabled);
       } else if (msg.type === "route") {
         const path = (msg as { path?: string }).path || "";
-        const matched = TABS.find((tab) => path === tab.path || path.startsWith(tab.path + "/"));
-        setActiveTab(matched ? matched.id : null);
+        setActiveTab(matchTabForPath(path));
       } else if (msg.type === "haptic") {
         const style = (msg as { style?: string }).style || "light";
         if (style === "selection") {
@@ -589,10 +597,10 @@ export default function WebShell() {
     }
   }, [origin, switchServer]);
 
-  // Align with native iOS 26 floating TabBar ergonomics: sit ~7pt above the 5pt home bar
-  // (20pt on Face ID iPhones instead of 34pt) so there is no dead void below or above the pill.
-  const tabBarBottom = insets.bottom > 0 ? Math.max(insets.bottom - 14, 14) : 10;
-  const tabBarInset = keyboardVisible ? 0 : 54 + tabBarBottom + 6;
+  // Hug the bottom screen bezel concentrically (left/right 10pt, bottom 8pt on Face ID iPhones
+  // where iOS 26 auto-hides the home indicator), eliminating the awkward white strip under the pill.
+  const tabBarBottom = insets.bottom > 0 ? 8 : 6;
+  const tabBarInset = keyboardVisible ? 0 : 54 + tabBarBottom + 8;
 
   useEffect(() => {
     if (!initialLoaded || !web.current) return;
@@ -742,7 +750,7 @@ export default function WebShell() {
                   // Always follow the web page's active light/dark theme (`dark`), never the OS
                   // color scheme (`t.accent`), so dark-OS + light-app never washes out active labels.
                   const activeColor = dark ? "#C4B5FD" : "#6D28D9";
-                  const inactiveColor = dark ? "rgba(232, 229, 245, 0.74)" : "rgba(38, 34, 56, 0.68)";
+                  const inactiveColor = dark ? "#E4E1F4" : "#2D2940";
                   const color = isActive ? activeColor : inactiveColor;
                   return (
                     <Pressable
@@ -797,8 +805,8 @@ export default function WebShell() {
 const styles = StyleSheet.create({
   tabBarDockWrap: {
     position: "absolute",
-    left: 12,
-    right: 12,
+    left: 10,
+    right: 10,
     zIndex: 40,
   },
   tabBarShadow: {

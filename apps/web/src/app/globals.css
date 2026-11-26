@@ -812,6 +812,14 @@ html.memento-native-shell footer[data-ask-footer="true"] {
 html.memento-glass-tabbar .memento-scroll-main {
   padding-bottom: calc(var(--memento-tabbar-inset, 0px) + 16px) !important;
 }
+html.memento-glass-tabbar .memento-stage-main {
+  padding-bottom: 0 !important;
+  overflow: hidden !important;
+}
+html.memento-glass-tabbar .memento-stage-shell {
+  height: calc(100dvh - 3.5rem - var(--memento-tabbar-inset, 0px) - 8px) !important;
+  max-height: calc(100dvh - 3.5rem - var(--memento-tabbar-inset, 0px) - 8px) !important;
+}
 html.memento-glass-tabbar footer[data-ask-footer="true"] {
   padding-bottom: calc(var(--memento-tabbar-inset, 0px) + 2px) !important;
 }

@@ -40,5 +40,8 @@ describe("mobile native glass surface", () => {
     expect(glassSrc).not.toContain("rgba(255, 255, 255, 0.50)");
     // Active tab color must follow page theme (`dark`), never OS color scheme (`t.accent`)
     expect(indexSrc).not.toContain("isActive ? t.accent");
+    // Sub-tabs like /skills, /tasks, /devices map back to their parent bottom tab
+    expect(indexSrc).toContain("matchTabForPath");
+    expect(indexSrc).toContain('"/skills"');
   });
 });

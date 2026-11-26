@@ -830,7 +830,7 @@ export default function PersonaPage() {
   ];
 
   return (
-    <div className="h-[calc(100dvh-4.5rem)] sm:h-[calc(100vh-6rem)] max-h-[calc(100dvh-4.5rem)] sm:max-h-[calc(100vh-6rem)] flex flex-col gap-2 overflow-hidden">
+    <div className="memento-stage-shell h-[calc(100dvh-4.5rem)] sm:h-[calc(100vh-6rem)] max-h-[calc(100dvh-4.5rem)] sm:max-h-[calc(100vh-6rem)] flex flex-col gap-2 overflow-hidden">
       {/* ─────────────────────────────────────────────────────────────
           1. 统一顶栏 (Ultra-Refined Single-Row Cockpit Header)
           ───────────────────────────────────────────────────────────── */}

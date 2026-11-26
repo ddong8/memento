@@ -99,7 +99,7 @@ function ProfileContent() {
   ];
 
   return (
-    <div className="max-w-6xl mx-auto pb-28 sm:pb-20">
+    <div className="max-w-6xl mx-auto pb-8 sm:pb-16">
       <TopBar title={t.profile.title || "个人设置"} subtitle={t.profile.subtitle || "全天候智能执事、大模型底座、生活作息与终端运维"} />
 
       {/* Tabs navigation with frosted glass & smooth pill active style */}

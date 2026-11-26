@@ -58,4 +58,20 @@ describe("frosted glass architecture", () => {
     expect(composer).toContain("compactPlaceholderText");
     expect(composer).toContain("w-9 h-9 sm:w-10 sm:h-10");
   });
+
+  it("adapts 3D cognitive stage pages (/memory, /memory/persona, /skills) to --memento-tabbar-inset", () => {
+    const repoRoot = path.resolve(__dirname, "../../..");
+    const css = fs.readFileSync(path.join(repoRoot, "apps/web/src/app/globals.css"), "utf8");
+    const layout = fs.readFileSync(path.join(repoRoot, "apps/web/src/app/client-layout.tsx"), "utf8");
+    const memory = fs.readFileSync(path.join(repoRoot, "apps/web/src/app/memory/page.tsx"), "utf8");
+    const persona = fs.readFileSync(path.join(repoRoot, "apps/web/src/app/memory/persona/page.tsx"), "utf8");
+    const skills = fs.readFileSync(path.join(repoRoot, "apps/web/src/app/skills/page.tsx"), "utf8");
+
+    expect(css).toContain("html.memento-glass-tabbar .memento-stage-shell");
+    expect(css).toContain("html.memento-glass-tabbar .memento-stage-main");
+    expect(layout).toContain("memento-stage-main");
+    expect(memory).toContain("memento-stage-shell");
+    expect(persona).toContain("memento-stage-shell");
+    expect(skills).toContain("memento-stage-shell");
+  });
 });

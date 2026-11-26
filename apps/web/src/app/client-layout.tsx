@@ -91,6 +91,14 @@ function AppShellInner({
   const { collapsed } = useSidebar();
   const pathname = usePathname();
   const isAskRoute = Boolean(pathname && (pathname === "/ask" || pathname.startsWith("/ask/")));
+  const isStageRoute = Boolean(
+    pathname &&
+      (pathname === "/memory" ||
+        pathname === "/memory/persona" ||
+        pathname.startsWith("/memory/persona/") ||
+        pathname === "/skills" ||
+        pathname.startsWith("/skills/")),
+  );
 
   useEffect(() => {
     const handleToggle = () => setSidebarOpen((v) => !v);
@@ -107,7 +115,9 @@ function AppShellInner({
           className={
             isAskRoute
               ? "p-0 h-full overflow-hidden"
-              : "memento-scroll-main pt-14 px-3 pb-4 sm:pt-16 sm:px-5 sm:pb-5 md:pt-16 md:px-7 md:pb-6"
+              : isStageRoute
+                ? "memento-scroll-main memento-stage-main pt-14 px-3 pb-2 sm:pt-16 sm:px-5 sm:pb-5 md:pt-16 md:px-7 md:pb-6"
+                : "memento-scroll-main pt-14 px-3 pb-4 sm:pt-16 sm:px-5 sm:pb-5 md:pt-16 md:px-7 md:pb-6"
           }
         >
           <RouteKeepAlive>{children}</RouteKeepAlive>

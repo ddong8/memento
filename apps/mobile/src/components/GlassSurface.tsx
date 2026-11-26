@@ -76,14 +76,15 @@ export function GlassSurface({
 
   if (mode === "liquid-glass") {
     // Native iOS 26+ UIGlassEffect(.regular) provides its own optical Fresnel rim and
-    // adaptive translucency. Avoid painting an opaque white/dark tintColor or muddy gray
-    // border on top of it, and render drop shadows on an outer wrapper (never clipped by
-    // overflow: "hidden").
+    // adaptive refraction. Use a delicate frost tint (never opaque 0.50 white) so icons
+    // and labels stay legible even when dark cards or code blocks scroll behind the pill,
+    // while outer drop shadows render on a separate wrapper (not clipped by overflow: hidden).
     return (
       <GlassView
         glassEffectStyle="regular"
         colorScheme={dark ? "dark" : "light"}
         isInteractive={variant === "tabbar"}
+        tintColor={dark ? "rgba(18, 18, 30, 0.24)" : "rgba(255, 255, 255, 0.22)"}
         style={[styles.liquidBase, style]}
       >
         {children}

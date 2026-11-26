@@ -127,7 +127,7 @@ export function GitDiffDrawer({
     const initTarget = initialScope?.targetRef || "";
     setBaseRef(initBase);
     setTargetRef(initTarget);
-    setActiveTab("diff");
+    setActiveTab(initialScope?.tab ?? "diff");
     setConfirmRestore(initialScope?.mode === "restore" && Boolean(initBase));
     setDeliverResult(null);
     setDraftAnchor(null);

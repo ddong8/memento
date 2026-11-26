@@ -12,6 +12,8 @@ export interface OpenGitDiffEventDetail {
   checkpointId?: string;
   branch?: string;
   mode?: "diff" | "restore";
+  /** Tab to open on (keyboard: ⌘J opens the terminal) */
+  tab?: "diff" | "deliver" | "pr" | "terminal";
 }
 
 export interface InlineDiffComment {

@@ -42,12 +42,13 @@ async function connect(remote: RemoteClient) {
 const textOf = (res: unknown) => ((res as { content: { text: string }[] }).content[0]?.text ?? "");
 
 describe("memento MCP", () => {
-  it("lists the same tools as the Python server", async () => {
+  it("lists its tools (the memory ones, and running tasks on the user's devices)", async () => {
     const client = await connect(new RemoteClient("http://m", "ct-1", undefined, fakeFetch({})));
     const names = (await client.listTools()).tools.map((t) => t.name).sort();
     expect(names).toEqual(
       [
         "daily_summary",
+        "device_list",
         "memory_blueprint",
         "memory_check_rule",
         "memory_context",
@@ -62,6 +63,10 @@ describe("memento MCP", () => {
         "memory_skill",
         "memory_store",
         "mind_resonance",
+        "task_reply",
+        "task_start",
+        "task_status",
+        "task_stop",
         "todo_add",
         "todo_list",
         "todo_update",

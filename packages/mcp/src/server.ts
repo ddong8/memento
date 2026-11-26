@@ -12,7 +12,9 @@ export const INSTRUCTIONS =
   "Before deploying, releasing, migrating a database, deleting or changing data, pushing, or changing config, " +
   "call memory_check_rule: it returns the user's iron rules, pitfalls hit before on similar work, and skills to follow. " +
   "After a failure whose cause you found and fixed, call memory_pitfall. When the user says to do something later, " +
-  "call todo_add; when asked what's left, call todo_list.";
+  "call todo_add; when asked what's left, call todo_list. " +
+  "To have work done on one of the user's other machines (a coding agent in a project folder there, or a shell command), " +
+  "use device_list, task_start, then task_status with wait_seconds; answer its questions or approvals with task_reply.";
 
 const s = (v: unknown): string => (v == null ? "" : String(v));
 const arr = (v: unknown): Json[] => (Array.isArray(v) ? (v.filter((x) => x && typeof x === "object") as Json[]) : []);
@@ -803,6 +805,155 @@ export function createServer(remote: RemoteClient, version = "0.1.0"): McpServer
         return text(`Updated: ${todoLine(todo)} [${s(todo.status)}]`);
       } catch (e) {
         return failed("Todo update failed", e);
+      }
+    },
+  );
+
+  // ---- running agents on the user's devices (for outside agents: a terminal Claude Code, Codex, ChatGPT) ----
+
+  const AGENT_BINARIES: Record<string, string> = { antigravity: "agy" };
+  const TERMINAL = new Set(["succeeded", "failed", "cancelled", "timeout", "still_running"]);
+
+  async function resolveDevice(name: string): Promise<Json> {
+    const list = await remote.get<Json[]>("/api/devices");
+    const q = name.trim().toLowerCase();
+    const hits = list.filter((d) => !d.is_archived && [s(d.name), s(d.device_id), s(d.id)].some((v) => v.toLowerCase() === q || v.toLowerCase().startsWith(q)));
+    if (hits.length === 0) throw new Error(`No device matches '${name}'. Use device_list.`);
+    if (hits.length > 1 && !hits.some((d) => s(d.name).toLowerCase() === q)) throw new Error(`'${name}' matches ${hits.map((d) => s(d.name)).join(", ")}: be more specific.`);
+    return hits.find((d) => s(d.name).toLowerCase() === q) ?? hits[0]!;
+  }
+
+  /** A task as a short report: status, a question waiting for an answer, and the output's tail. */
+  function taskReport(t: Json): string {
+    const events = arr(t.events);
+    const waitingQ = [...events].reverse().find((e) => e.kind === "question" && (e.status === "waiting" || !e.status));
+    const out = s(t.stdout).trim();
+    return [
+      `Task ${s(t.id)} on ${s(obj(t.payload).binary) || s(t.action)}: ${s(t.status)}${t.exit_code != null ? ` (exit ${s(t.exit_code)})` : ""}`,
+      t.session_id ? `Session: ${s(t.session_id)}` : "",
+      waitingQ ? `WAITING FOR AN ANSWER (question_id ${s(waitingQ.id)}): ${s(waitingQ.question)}${arr(waitingQ.options).length ? `\nOptions: ${arr(waitingQ.options).map((o) => s(o.label)).join(" | ")}` : ""}\nReply with task_reply.` : "",
+      t.error ? `Error: ${s(t.error)}` : "",
+      out ? `Output (last part):\n${out.length > 4000 ? `…${out.slice(-4000)}` : out}` : "",
+    ].filter(Boolean).join("\n");
+  }
+
+  server.registerTool(
+    "device_list",
+    {
+      description: "The user's devices Memento can run agents on: name, online, and the ACP agents installed there. Use a device's name with task_start.",
+      inputSchema: {},
+    },
+    async () => {
+      try {
+        const list = (await remote.get<Json[]>("/api/devices")).filter((d) => !d.is_archived);
+        if (!list.length) return text("No devices.");
+        return text(list.map((d) => `- ${s(d.name)} — ${d.online ? "online" : "offline"} — Memento ${s(d.collector_version) || "?"}${arr(d.acp_agents).length || (Array.isArray(d.acp_agents) && d.acp_agents.length) ? ` — ACP: ${(d.acp_agents as string[]).join(", ")}` : ""}`).join("\n"));
+      } catch (e) {
+        return failed("Device list failed", e);
+      }
+    },
+  );
+
+  server.registerTool(
+    "task_start",
+    {
+      description:
+        "Run a coding agent (or a shell command) on one of the user's devices, in a project folder there. Returns the task id at once; follow it with task_status (wait_seconds to block until it ends or asks something), answer with task_reply, stop with task_stop. Doesn't create a conversation in the Memento app.",
+      inputSchema: {
+        device: z.string().describe("Device name (from device_list), or a unique prefix"),
+        agent: z
+          .enum(["claude", "codex", "antigravity", "workbuddy", "opencode", "gemini", "cursor", "kiro", "copilot", "shell"])
+          .describe("Which agent runs it; shell runs `prompt` as a command"),
+        prompt: z.string().describe("The task for the agent, or the shell command"),
+        cwd: z.string().optional().describe("Project folder on that device (absolute path); the agent's default if omitted"),
+        permission_mode: z.enum(["full", "auto_edits", "supervised", "auto"]).optional().describe("When the agent must ask before acting (default full: never). Questions show up in task_status."),
+        session_id: z.string().optional().describe("Continue this agent session (from an earlier task_status)"),
+        timeout_seconds: z.number().int().positive().optional().describe("Give up after this long (default 2 hours for agents, 60 s for shell)"),
+      },
+    },
+    async ({ device, agent, prompt, cwd, permission_mode, session_id, timeout_seconds }) => {
+      try {
+        const dev = await resolveDevice(device);
+        const isShell = agent === "shell";
+        const payload: Json = isShell
+          ? { command: prompt, ...(cwd ? { cwd } : {}) }
+          : {
+              binary: AGENT_BINARIES[agent] ?? agent,
+              prompt,
+              user_question: prompt,
+              title: prompt.split("\n")[0]!.slice(0, 60),
+              ...(cwd ? { cwd } : {}),
+              ...(permission_mode && permission_mode !== "full" ? { permission_mode } : {}),
+              ...(session_id ? { session_id } : {}),
+            };
+        const t = await remote.post<Json>(`/api/tasks/dispatch/${encodeURIComponent(s(dev.device_id) || s(dev.name))}`, {
+          action: isShell ? "shell" : "agent",
+          payload,
+          timeout_seconds: timeout_seconds ?? (isShell ? 60 : 7200),
+        });
+        return text(`Started on ${s(dev.name)}.\n${taskReport(t)}`);
+      } catch (e) {
+        return failed("Task start failed", e);
+      }
+    },
+  );
+
+  server.registerTool(
+    "task_status",
+    {
+      description: "A task's status, a question it's waiting on (answer with task_reply) and the tail of its output. wait_seconds blocks until it finishes, asks something, or that many seconds pass (max 600).",
+      inputSchema: {
+        task_id: z.string().describe("Task id from task_start"),
+        wait_seconds: z.number().int().min(0).max(600).optional().describe("Wait up to this long for it to end or ask"),
+      },
+    },
+    async ({ task_id, wait_seconds }) => {
+      try {
+        const deadline = Date.now() + (wait_seconds ?? 0) * 1000;
+        for (;;) {
+          const t = await remote.get<Json>(`/api/tasks/${encodeURIComponent(task_id)}`);
+          const asking = arr(t.events).some((e) => e.kind === "question" && (e.status === "waiting" || !e.status));
+          if (TERMINAL.has(s(t.status)) || asking || Date.now() >= deadline) return text(taskReport(t));
+          await new Promise((r) => setTimeout(r, Math.min(3000, Math.max(250, deadline - Date.now()))));
+        }
+      } catch (e) {
+        return failed("Task status failed", e);
+      }
+    },
+  );
+
+  server.registerTool(
+    "task_reply",
+    {
+      description: "Answer the question a running task is waiting on (an approval: 允许 / 本次都允许 / 拒绝, or one of its options), or send a follow-up to a running agent.",
+      inputSchema: {
+        task_id: z.string().describe("Task id"),
+        text: z.string().describe("The answer or follow-up"),
+        question_id: z.string().optional().describe("The question being answered (from task_status); the waiting one if omitted"),
+      },
+    },
+    async ({ task_id, text: reply, question_id }) => {
+      try {
+        await remote.post<Json>(`/api/tasks/${encodeURIComponent(task_id)}/input`, { input: reply, ...(question_id ? { question_id } : {}) });
+        return text("Sent.");
+      } catch (e) {
+        return failed("Task reply failed", e);
+      }
+    },
+  );
+
+  server.registerTool(
+    "task_stop",
+    {
+      description: "Stop a running task (and the agent's process tree on the device).",
+      inputSchema: { task_id: z.string().describe("Task id") },
+    },
+    async ({ task_id }) => {
+      try {
+        await remote.post<Json>(`/api/tasks/${encodeURIComponent(task_id)}/cancel`, {});
+        return text("Stopping.");
+      } catch (e) {
+        return failed("Task stop failed", e);
       }
     },
   );

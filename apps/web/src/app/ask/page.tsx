@@ -1,5 +1,6 @@
 "use client";
 
+import { ShortcutsDialog } from "@/components/ask/ShortcutsDialog";
 import { ACP_MODES, acpModesFor, isCliAgentMode } from "@/lib/ask/agent-modes";
 import { PERMISSION_MODE_OPTIONS, defaultPermissionMode, normalizePermissionMode, permissionModeLabel, rememberPermissionMode, type PermissionMode } from "@/lib/ask/permission-mode";
 import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -235,6 +236,7 @@ function AskPageContent() {
   const [selectedEffort, setSelectedEffort] = useState<string>(() => askCache?.selectedEffort ?? initSnap?.selectedEffort ?? "");
   // When the agent must ask before commands / edits (Claude Code for now); new conversations start from the last choice
   const [permissionMode, setPermissionMode] = useState<PermissionMode>(() => defaultPermissionMode());
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [capabilities, setCapabilities] = useState<AgentCapabilities | null>(
     () => askCache?.capabilities || getImmediateCapabilities(initSnap?.executionMode || "ai", initSnap?.selectedDevice)
   );
@@ -4162,6 +4164,48 @@ function AskPageContent() {
         return;
       }
 
+      // Cmd/Ctrl + J: 打开终端；Cmd/Ctrl + Shift + G: 打开代码改动（逐行 Diff / 提交 / PR）
+      if (hasModifier && !e.shiftKey && key === "j") {
+        e.preventDefault();
+        setGitDiffInit({ tab: "terminal" });
+        setGitDiffOpen(true);
+        return;
+      }
+      if (hasModifier && e.shiftKey && key === "g") {
+        e.preventDefault();
+        setGitDiffInit(null);
+        setGitDiffOpen(true);
+        return;
+      }
+
+      // Cmd/Ctrl + Shift + A: 切换权限模式（Claude Code）
+      if (hasModifier && e.shiftKey && key === "a" && executionModeRef.current === "claude") {
+        e.preventDefault();
+        setPermissionMode((prev) => {
+          const ids = PERMISSION_MODE_OPTIONS.map((o) => o.id);
+          const next = ids[(ids.indexOf(prev) + 1) % ids.length]!;
+          rememberPermissionMode(next);
+          persistCurrentConfig({ permission_mode: next });
+          showInAppToast(isZh ? "权限模式" : "Permission mode", permissionModeLabel(next, isZh));
+          return next;
+        });
+        return;
+      }
+
+      // Cmd/Ctrl + .: 停止运行（和 Esc 一样）
+      if (hasModifier && key === "." && streaming && abortRef.current) {
+        e.preventDefault();
+        stopRun();
+        return;
+      }
+
+      // Cmd/Ctrl + /: 快捷键一览
+      if (hasModifier && key === "/") {
+        e.preventDefault();
+        setShortcutsOpen((v) => !v);
+        return;
+      }
+
       // Cmd/Ctrl + K: 聚焦输入框或历史搜索框
       if (hasModifier && key === "k") {
         e.preventDefault();
@@ -4196,7 +4240,7 @@ function AskPageContent() {
       window.removeEventListener("keydown", handleGlobalKeyDown);
       window.removeEventListener("memento_fill_input", handleFillInput);
     };
-  }, [historyOpen, streaming, sendWithText, startNewChat, handleExportMarkdown, stopRun]);
+  }, [historyOpen, streaming, sendWithText, startNewChat, handleExportMarkdown, stopRun, persistCurrentConfig, isZh]);
 
   // Expose global task cancellation for Native App / Live Activity bridge
   useEffect(() => {
@@ -7084,6 +7128,7 @@ function AskPageContent() {
       />
 
       {/* Built-in Line-by-Line Diff Reviewer, Turn Checkpoint Revert & One-Click Commit/Push/PR */}
+      <ShortcutsDialog open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} isZh={isZh} />
       <GitDiffDrawer
         open={gitDiffOpen}
         onClose={() => setGitDiffOpen(false)}

@@ -23,15 +23,24 @@ interface PtyModule {
 
 let ptyModule: PtyModule | null | undefined;
 
+const PTY_PACKAGES = ["node-pty", "@lydell/node-pty"] as const;
+
 /** node-pty, or null when this build can't load it. */
 export function loadPty(): PtyModule | null {
   if (ptyModule !== undefined) return ptyModule;
-  try {
-    const req = createRequire(import.meta.url);
-    ensureSpawnHelperExecutable(req);
-    ptyModule = req("node-pty") as PtyModule;
-  } catch {
-    ptyModule = null;
+  const req = createRequire(import.meta.url);
+  ptyModule = null;
+  // Microsoft's node-pty has prebuilt binaries for macOS and Windows only; on Linux it has to compile, which a
+  // server without g++ can't do (vps3, 2026-11-26). @lydell/node-pty ships every platform's binary as its own
+  // npm package (Linux x64/arm64 too), so it's the fallback.
+  for (const name of PTY_PACKAGES) {
+    try {
+      if (name === "node-pty") ensureSpawnHelperExecutable(req);
+      ptyModule = req(name) as PtyModule;
+      break;
+    } catch {
+      // next
+    }
   }
   return ptyModule;
 }

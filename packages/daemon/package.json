@@ -41,6 +41,7 @@
     "vitest": "^3.2.4"
   },
   "optionalDependencies": {
+    "@lydell/node-pty": "1.2.0-beta.18",
     "node-pty": "^1.1.0"
   }
 }

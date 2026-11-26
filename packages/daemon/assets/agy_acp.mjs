@@ -399,6 +399,7 @@ function isTransientAgyError(message) {
 var argv = process.argv.slice(2);
 var args = {
   agy: process.env.MEMENTO_AGY_BIN || "agy",
+  appDataDir: process.env.MEMENTO_AGY_APP_DATA_DIR || "antigravity-cli",
   cwd: "",
   conversation: "",
   model: "",
@@ -410,6 +411,7 @@ var args = {
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i];
   if (a === "--agy") args.agy = argv[++i] ?? args.agy;
+  else if (a === "--app-data-dir" || a === "--app_data_dir") args.appDataDir = argv[++i] ?? args.appDataDir;
   else if (a === "-C" || a === "--cwd") args.cwd = argv[++i] ?? "";
   else if (a === "--conversation" || a === "--resume") args.conversation = argv[++i] ?? "";
   else if (a === "--model") args.model = argv[++i] ?? "";
@@ -431,7 +433,8 @@ var emit = (event) => {
 };
 var err = (msg) => process.stderr.write(msg);
 var home = process.env.HOME || process.env.USERPROFILE || homedir();
-var cliDataDir = join(home, ".gemini", "antigravity-cli");
+var safeAppDataDir = /^[\w.-]+$/.test(args.appDataDir) ? args.appDataDir : "antigravity-cli";
+var cliDataDir = join(home, ".gemini", safeAppDataDir);
 var cliBrainRoot = join(cliDataDir, "brain");
 var cliSummariesDb = join(cliDataDir, "conversation_summaries.db");
 var NO_WAKEUP_IDLE_MS = Number(process.env.MEMENTO_AGY_NO_WAKEUP_MS) || 5e3;
@@ -522,7 +525,12 @@ var JsonlTailer = class {
   }
 };
 var viaShell = process.platform === "win32" && /\.(cmd|bat)$/i.test(args.agy);
-var acpFlags = ["acp", "--stdio", "--dangerously-skip-permissions"];
+var acpFlags = [
+  "acp",
+  "--stdio",
+  "--dangerously-skip-permissions",
+  ...safeAppDataDir !== "antigravity-cli" ? ["--app-data-dir", safeAppDataDir] : []
+];
 var server = viaShell ? spawn(`"${args.agy}" ${acpFlags.join(" ")}`, { cwd: args.cwd || void 0, stdio: ["pipe", "pipe", "pipe"], windowsHide: true, shell: true }) : spawn(args.agy, acpFlags, { cwd: args.cwd || void 0, stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
 var exiting = false;
 var finished = false;

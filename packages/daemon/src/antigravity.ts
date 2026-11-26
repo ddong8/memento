@@ -1,12 +1,14 @@
 import { execFile } from "node:child_process";
 import { chmod, mkdir, readFile, readdir, realpath, rename, rmdir, stat, unlink, writeFile } from "node:fs/promises";
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, statSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { homeDir, mementoDir } from "./config.js";
 import { executionEnvironment, findExecutable } from "./exec-env.js";
 import { sqliteRows, sqliteRun } from "./sqlite.js";
+
+export type AntigravityAppDataDir = "antigravity" | "antigravity-cli";
 
 export interface AntigravitySessionInfo {
   title?: string;
@@ -75,9 +77,10 @@ function readSummariesDb(dbPath: string, map: Map<string, AntigravitySessionInfo
 }
 
 function loadSummariesMap(home = homeDir()): Map<string, AntigravitySessionInfo> {
+  // Read antigravity-cli first, then antigravity (Desktop authoritative store) so Desktop metadata wins when both have rows.
   const dbPaths = [
-    join(home, ".gemini", "antigravity", "conversation_summaries.db"),
     join(home, ".gemini", "antigravity-cli", "conversation_summaries.db"),
+    join(home, ".gemini", "antigravity", "conversation_summaries.db"),
   ];
   const map = new Map<string, AntigravitySessionInfo>();
   if (!dbPaths.some((p) => existsSync(p))) return map;
@@ -384,6 +387,241 @@ export function antigravityDesktopHasConversation(sessionId: string, home = home
   return existsSync(join(home, ".gemini", "antigravity", "brain", sessionId, ".system_generated", "logs", "transcript.jsonl"));
 }
 
+/**
+ * Whether this machine has an active Antigravity Desktop App store (~/.gemini/antigravity).
+ * Note: Memento's own `ensureAgyCliInstalled` creates `~/.gemini/antigravity/bin/` even on headless
+ * servers, so we check for genuine Desktop app store files instead of bare directory existence.
+ */
+export function antigravityDesktopStorePresent(home = homeDir()): boolean {
+  const agDir = join(home, ".gemini", "antigravity");
+  return (
+    existsSync(join(agDir, "conversation_summaries.db")) ||
+    existsSync(join(agDir, "conversations")) ||
+    existsSync(join(agDir, "antigravity_state.pbtxt")) ||
+    existsSync(join(agDir, "jetski_state.pbtxt"))
+  );
+}
+
+/**
+ * Picks which Antigravity app-data-dir (`~/.gemini/<dir>`) `agy acp --stdio --app-data-dir` should use:
+ * 1) Resuming a Desktop session -> `"antigravity"` (in-place bidirectional resume, never forks!).
+ * 2) Resuming an existing CLI session -> `"antigravity-cli"` (preserves CLI continuity).
+ * 3) New / cross-device session -> `"antigravity"` when Desktop store exists here, else `"antigravity-cli"`.
+ */
+export function selectAntigravityAppDataDir(sessionId?: string, home = homeDir()): AntigravityAppDataDir {
+  const sid = sessionId?.trim();
+  if (sid) {
+    if (antigravityDesktopHasConversation(sid, home)) return "antigravity";
+    if (antigravityCliHasConversation(sid, home)) return "antigravity-cli";
+  }
+  return antigravityDesktopStorePresent(home) ? "antigravity" : "antigravity-cli";
+}
+
+function normalizeFolderForCompare(raw: string): string {
+  let s = raw.trim();
+  if (s.startsWith("file://")) {
+    s = s.slice("file://".length);
+    try {
+      s = decodeURIComponent(s);
+    } catch {
+      // keep raw
+    }
+    if (/^\/[a-zA-Z]:/.test(s)) s = s.slice(1);
+  }
+  s = s.replace(/\\/g, "/").replace(/\/+$/, "");
+  if (process.platform === "win32" || /^[a-zA-Z]:/.test(s)) {
+    return s.toLowerCase();
+  }
+  return s;
+}
+
+function folderCandidates(dir: string): Set<string> {
+  const out = new Set<string>();
+  const resolved = resolve(dir);
+  out.add(normalizeFolderForCompare(resolved));
+  try {
+    out.add(normalizeFolderForCompare(realpathSync(resolved)));
+  } catch {
+    // non-existent or unreadable
+  }
+  return out;
+}
+
+function extractProjectFolderUris(project: Record<string, unknown>): string[] {
+  const uris: string[] = [];
+  const pr = project.projectResources;
+  const resources = pr && typeof pr === "object" && !Array.isArray(pr) ? (pr as Record<string, unknown>).resources : undefined;
+  if (Array.isArray(resources)) {
+    for (const item of resources) {
+      if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+      const obj = item as Record<string, unknown>;
+      for (const nestedKey of ["gitFolder", "localFolder", "folder", "workspace"]) {
+        const sub = obj[nestedKey];
+        if (sub && typeof sub === "object" && !Array.isArray(sub)) {
+          const u = (sub as Record<string, unknown>).folderUri ?? (sub as Record<string, unknown>).uri;
+          if (typeof u === "string" && u.trim()) uris.push(u.trim());
+        }
+      }
+      for (const directKey of ["folderUri", "workspaceUri", "uri"]) {
+        const u = obj[directKey];
+        if (typeof u === "string" && u.trim()) uris.push(u.trim());
+      }
+    }
+  }
+  return uris;
+}
+
+/**
+ * Finds the Antigravity Desktop project ID (`~/.gemini/config/projects/*.json`, falling back to
+ * `~/.gemini/antigravity/conversation_summaries.db`) matching `workDir`, so brand-new sessions
+ * created via `agy acp --app-data-dir antigravity` appear under the matching Desktop project
+ * instead of `default-cli-project`. Returns undefined for home directory or drive roots.
+ */
+export function resolveAntigravityDesktopProjectId(workDir: string, home = homeDir()): string | undefined {
+  if (!workDir?.trim()) return undefined;
+  const full = resolve(workDir);
+  if (normalizeFolderForCompare(full) === normalizeFolderForCompare(home) || dirname(full) === full) {
+    return undefined;
+  }
+  const targets = folderCandidates(full);
+
+  // 1. Authoritative project configs in ~/.gemini/config/projects/*.json
+  const projectsDir = join(home, ".gemini", "config", "projects");
+  const validProjectIds = new Set<string>();
+  if (existsSync(projectsDir)) {
+    let entries: string[] = [];
+    try {
+      entries = readdirSync(projectsDir).filter((f) => f.endsWith(".json")).sort();
+    } catch {
+      entries = [];
+    }
+    for (const file of entries) {
+      try {
+        const parsed = JSON.parse(readFileSync(join(projectsDir, file), "utf8")) as Record<string, unknown>;
+        const id = typeof parsed.id === "string" ? parsed.id.trim() : "";
+        if (!id || id === "default-cli-project" || id === "outside-of-project") continue;
+        validProjectIds.add(id);
+        for (const uri of extractProjectFolderUris(parsed)) {
+          if (targets.has(normalizeFolderForCompare(uri))) return id;
+        }
+      } catch {
+        // skip unreadable project json
+      }
+    }
+  }
+
+  // 2. Fallback: most recent Desktop conversation summary for this exact workspace
+  const dbPath = join(home, ".gemini", "antigravity", "conversation_summaries.db");
+  if (existsSync(dbPath)) {
+    const rows =
+      sqliteRows(
+        dbPath,
+        "SELECT project_id, workspace_uris FROM conversation_summaries WHERE project_id NOT IN ('', 'outside-of-project', 'default-cli-project') ORDER BY last_modified_time DESC LIMIT 2000",
+      ) ?? [];
+    for (const [pidRaw, wsRaw] of rows) {
+      const pid = String(pidRaw ?? "").trim();
+      if (!pid || (validProjectIds.size > 0 && !validProjectIds.has(pid))) continue;
+      let uris: unknown[] = [];
+      try {
+        uris = JSON.parse(String(wsRaw ?? "[]")) as unknown[];
+      } catch {
+        continue;
+      }
+      if (!Array.isArray(uris) || uris.length !== 1) continue;
+      if (typeof uris[0] === "string" && targets.has(normalizeFolderForCompare(uris[0]))) {
+        return pid;
+      }
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Replaces protobuf field 18 (`\x92\x01<varint><default-cli-project>`) in a trajectory_metadata_blob
+ * with the matching Desktop project ID. Returns null when the blob does not hold `default-cli-project`.
+ */
+export function patchTrajectoryMetadataProjectId(blob: Buffer, projectId: string): Buffer | null {
+  const pid = projectId.trim();
+  if (!pid || pid === "default-cli-project") return null;
+  const pidBytes = Buffer.from(pid, "utf8");
+  if (pidBytes.length > 127) return null; // single-byte protobuf varint length
+  const needle = Buffer.concat([Buffer.from([0x92, 0x01, 0x13]), Buffer.from("default-cli-project", "utf8")]);
+  const idx = blob.indexOf(needle);
+  if (idx === -1) return null;
+  const replacement = Buffer.concat([Buffer.from([0x92, 0x01, pidBytes.length]), pidBytes]);
+  return Buffer.concat([blob.subarray(0, idx), replacement, blob.subarray(idx + needle.length)]);
+}
+
+/**
+ * Rebinds a newly created `default-cli-project` Antigravity session to its Desktop workspace project
+ * in both `conversation_summaries.db` and `conversations/<id>.db` (`trajectory_metadata_blob`).
+ * Never overwrites a conversation that already belongs to a real Desktop project.
+ */
+export function bindAntigravitySessionProject(
+  sessionId: string,
+  projectId: string,
+  appDataDir: AntigravityAppDataDir = "antigravity",
+  home = homeDir(),
+): boolean {
+  if (!/^[\w-]+$/.test(sessionId) || !projectId?.trim() || projectId === "default-cli-project") return false;
+  const pid = projectId.trim();
+  const base = join(home, ".gemini", appDataDir);
+  let changed = false;
+
+  const summaryDb = join(base, "conversation_summaries.db");
+  if (existsSync(summaryDb)) {
+    const existing = sqliteRows(summaryDb, "SELECT project_id FROM conversation_summaries WHERE conversation_id = ? LIMIT 1", [sessionId]);
+    const currentPid = String(existing?.[0]?.[0] ?? "").trim();
+    if (!currentPid || currentPid === "default-cli-project" || currentPid === "outside-of-project") {
+      if (
+        sqliteRun(
+          summaryDb,
+          "UPDATE conversation_summaries SET project_id = ? WHERE conversation_id = ? AND project_id IN ('', 'default-cli-project', 'outside-of-project')",
+          [pid, sessionId],
+        )
+      ) {
+        changed = true;
+      }
+    } else {
+      // Already belongs to a real project; leave both DBs untouched.
+      return false;
+    }
+  }
+
+  const convDb = join(base, "conversations", `${sessionId}.db`);
+  if (existsSync(convDb)) {
+    try {
+      const sqlite = (process as unknown as { getBuiltinModule?: (id: string) => { DatabaseSync?: new (path: string) => {
+        prepare: (sql: string) => { get: (...args: unknown[]) => Record<string, unknown> | undefined; run: (...args: unknown[]) => void };
+        exec: (sql: string) => void;
+        close: () => void;
+      } } }).getBuiltinModule?.("node:sqlite");
+      if (sqlite?.DatabaseSync) {
+        const db = new sqlite.DatabaseSync(convDb);
+        try {
+          db.exec("PRAGMA busy_timeout = 1500");
+          const row = db.prepare("SELECT id, data FROM trajectory_metadata_blob LIMIT 1").get();
+          const raw = row?.data;
+          if (raw instanceof Uint8Array || Buffer.isBuffer(raw)) {
+            const patched = patchTrajectoryMetadataProjectId(Buffer.from(raw), pid);
+            if (patched) {
+              db.prepare("UPDATE trajectory_metadata_blob SET data = ? WHERE id = ?").run(patched, row?.id ?? 1);
+              changed = true;
+            }
+          }
+        } finally {
+          db.close();
+        }
+      }
+    } catch {
+      // non-fatal: summary DB already updated
+    }
+  }
+
+  if (changed) summariesCache = undefined;
+  return changed;
+}
+
 function cleanTranscriptTurnText(raw: string): string {
   let s = raw
     .replace(/<ADDITIONAL_METADATA>[\s\S]*?<\/ADDITIONAL_METADATA>/gi, "")
@@ -563,21 +801,29 @@ export function openBackgroundTasks(transcript: string, since: number): string[]
  * The background tasks a run of Google's agy CLI in conversation `conversationId` left running
  * (see openBackgroundTasks); undefined when its transcript can't be read.
  */
-export function agyCliOpenBackgroundTasks(conversationId: string, since: number, home = homeDir()): string[] | undefined {
+export function agyCliOpenBackgroundTasks(
+  conversationId: string,
+  since: number,
+  home = homeDir(),
+  appDataDir?: AntigravityAppDataDir,
+): string[] | undefined {
   if (!/^[\w-]+$/.test(conversationId)) return undefined;
-  const logs = join(home, ".gemini", "antigravity-cli", "brain", conversationId, ".system_generated", "logs");
-  for (const name of ["transcript_full.jsonl", "transcript.jsonl"]) {
-    try {
-      return openBackgroundTasks(readFileSync(join(logs, name), "utf8"), since);
-    } catch {
-      // try the next one
+  const dirs: AntigravityAppDataDir[] = appDataDir === "antigravity" ? ["antigravity", "antigravity-cli"] : ["antigravity-cli", "antigravity"];
+  for (const subdir of dirs) {
+    const logs = join(home, ".gemini", subdir, "brain", conversationId, ".system_generated", "logs");
+    for (const name of ["transcript_full.jsonl", "transcript.jsonl"]) {
+      try {
+        return openBackgroundTasks(readFileSync(join(logs, name), "utf8"), since);
+      } catch {
+        // try the next one
+      }
     }
   }
   return undefined;
 }
 
 /**
- * Incrementally tails `~/.gemini/antigravity-cli/brain/<id>/.system_generated/logs/transcript.jsonl`
+ * Incrementally tails `~/.gemini/<appDataDir>/brain/<id>/.system_generated/logs/transcript.jsonl`
  * while an official `agy` CLI process is running, reading only newly appended bytes so Memento can
  * surface backgrounded commands, thinking, blocked tool calls and completed replies live without
  * waiting for `agy --output-format stream-json`'s head-of-line-blocked stdout serializer.
@@ -585,6 +831,7 @@ export function agyCliOpenBackgroundTasks(conversationId: string, since: number,
 export class AgyCliTranscriptTailer {
   private sessionId?: string;
   private filePath?: string;
+  private activeSubdir: AntigravityAppDataDir = "antigravity-cli";
   private offset = 0;
   private remainder = "";
   private taskLogSizes = new Map<string, number>();
@@ -592,7 +839,9 @@ export class AgyCliTranscriptTailer {
   constructor(
     private readonly home = homeDir(),
     initialSessionId?: string,
+    private readonly preferredSubdir: AntigravityAppDataDir = "antigravity-cli",
   ) {
+    this.activeSubdir = preferredSubdir;
     if (initialSessionId) this.attach(initialSessionId, true);
   }
 
@@ -618,12 +867,17 @@ export class AgyCliTranscriptTailer {
   private resolvePath(): string | undefined {
     if (this.filePath && existsSync(this.filePath)) return this.filePath;
     if (!this.sessionId) return undefined;
-    const logs = join(this.home, ".gemini", "antigravity-cli", "brain", this.sessionId, ".system_generated", "logs");
-    for (const name of ["transcript.jsonl", "transcript_full.jsonl"]) {
-      const candidate = join(logs, name);
-      if (existsSync(candidate)) {
-        this.filePath = candidate;
-        return candidate;
+    const dirs: AntigravityAppDataDir[] =
+      this.preferredSubdir === "antigravity" ? ["antigravity", "antigravity-cli"] : ["antigravity-cli", "antigravity"];
+    for (const subdir of dirs) {
+      const logs = join(this.home, ".gemini", subdir, "brain", this.sessionId, ".system_generated", "logs");
+      for (const name of ["transcript.jsonl", "transcript_full.jsonl"]) {
+        const candidate = join(logs, name);
+        if (existsSync(candidate)) {
+          this.activeSubdir = subdir;
+          this.filePath = candidate;
+          return candidate;
+        }
       }
     }
     return undefined;
@@ -690,7 +944,7 @@ export class AgyCliTranscriptTailer {
   /** Returns true when any active background task's log file grew since the previous check. */
   hasBackgroundLogGrowth(shortTaskIds: Iterable<string>): boolean {
     if (!this.sessionId) return false;
-    const tasksDir = join(this.home, ".gemini", "antigravity-cli", "brain", this.sessionId, ".system_generated", "tasks");
+    const tasksDir = join(this.home, ".gemini", this.activeSubdir, "brain", this.sessionId, ".system_generated", "tasks");
     let grew = false;
     for (const shortId of shortTaskIds) {
       const p = join(tasksDir, `${shortId}.log`);

@@ -8,7 +8,7 @@
 //   - clean session/cancel on SIGINT/SIGTERM
 //
 // Usage:
-//   node agy_acp.mjs --agy BIN [-C DIR] [--conversation ID] [--model M] [--effort E] [--timeout S] [--] PROMPT
+//   node agy_acp.mjs --agy BIN [--app-data-dir DIR] [-C DIR] [--conversation ID] [--model M] [--effort E] [--timeout S] [--] PROMPT
 import { spawn } from "node:child_process";
 import { closeSync, existsSync, openSync, readSync, statSync } from "node:fs";
 import { homedir } from "node:os";
@@ -46,6 +46,7 @@ import {
 const argv = process.argv.slice(2);
 const args = {
   agy: process.env.MEMENTO_AGY_BIN || "agy",
+  appDataDir: process.env.MEMENTO_AGY_APP_DATA_DIR || "antigravity-cli",
   cwd: "",
   conversation: "",
   model: "",
@@ -58,6 +59,7 @@ const args = {
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i]!;
   if (a === "--agy") args.agy = argv[++i] ?? args.agy;
+  else if (a === "--app-data-dir" || a === "--app_data_dir") args.appDataDir = argv[++i] ?? args.appDataDir;
   else if (a === "-C" || a === "--cwd") args.cwd = argv[++i] ?? "";
   else if (a === "--conversation" || a === "--resume") args.conversation = argv[++i] ?? "";
   else if (a === "--model") args.model = argv[++i] ?? "";
@@ -80,7 +82,8 @@ const emit = (event: Json) => {
 const err = (msg: string) => process.stderr.write(msg);
 
 const home = process.env.HOME || process.env.USERPROFILE || homedir();
-const cliDataDir = join(home, ".gemini", "antigravity-cli");
+const safeAppDataDir = /^[\w.-]+$/.test(args.appDataDir) ? args.appDataDir : "antigravity-cli";
+const cliDataDir = join(home, ".gemini", safeAppDataDir);
 const cliBrainRoot = join(cliDataDir, "brain");
 const cliSummariesDb = join(cliDataDir, "conversation_summaries.db");
 
@@ -179,7 +182,12 @@ class JsonlTailer {
 }
 
 const viaShell = process.platform === "win32" && /\.(cmd|bat)$/i.test(args.agy);
-const acpFlags = ["acp", "--stdio", "--dangerously-skip-permissions"];
+const acpFlags = [
+  "acp",
+  "--stdio",
+  "--dangerously-skip-permissions",
+  ...(safeAppDataDir !== "antigravity-cli" ? ["--app-data-dir", safeAppDataDir] : []),
+];
 const server = viaShell
   ? spawn(`"${args.agy}" ${acpFlags.join(" ")}`, { cwd: args.cwd || undefined, stdio: ["pipe", "pipe", "pipe"], windowsHide: true, shell: true })
   : spawn(args.agy, acpFlags, { cwd: args.cwd || undefined, stdio: ["pipe", "pipe", "pipe"], windowsHide: true });

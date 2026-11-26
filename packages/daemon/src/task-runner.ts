@@ -22,12 +22,16 @@ import {
   antigravityDesktopHasConversation,
   antigravityDesktopTranscriptContext,
   antigravityExecutable,
+  bindAntigravitySessionProject,
   discoverAntigravityEnv,
   ensureOfficialAgyCli,
   extractUserTitleFromText,
   isAppAuthRejection,
   officialAgySupportsAcp,
+  resolveAntigravityDesktopProjectId,
+  selectAntigravityAppDataDir,
   updateAntigravitySessionTitle,
+  type AntigravityAppDataDir,
 } from "./antigravity.js";
 import { agyQuotaMessage, isExhausted, listAgyModels, nextAgyModel, noteDefaultModel, noteQuotaExhausted, quotaResetMs } from "./agy-models.js";
 import { ensureProjectBlueprint, findGitRoot } from "./blueprint-auto.js";
@@ -729,7 +733,7 @@ export class TaskRunner {
     /** Google's own agy CLI runs the task: the Antigravity app isn't running here (or 2.34+ exposes no CSRF). */
     let officialAgy = false;
     /** Set when Google's official agy CLI runs via memento's ACP runner (`agy_acp.mjs` driving `agy acp --stdio`). */
-    let agyAcp: { runner: string; agy: string } | undefined;
+    let agyAcp: { runner: string; agy: string; appDataDir: AntigravityAppDataDir } | undefined;
     /** When the task started: the background tasks Google's agy CLI started in it are the ones after this. */
     const startedAt = Date.now();
     // Structured agents (Claude, Codex) report every step through the parser.
@@ -1009,24 +1013,6 @@ export class TaskRunner {
       const toOfficialCli = async (cli: string) => {
         agyRunner = undefined;
         officialAgy = true;
-        // Official agy CLI keeps its own trajectory store (~/.gemini/antigravity-cli) separate from the
-        // Antigravity desktop app (~/.gemini/antigravity). Passing a desktop-only conversation ID to
-        // `agy --conversation` / `session/resume` fails with `trajectory not found`, so bridge its recent
-        // transcript into a fresh CLI session once; subsequent turns resume that CLI session natively.
-        if (sessionId && !antigravityCliHasConversation(sessionId) && antigravityDesktopHasConversation(sessionId)) {
-          const desktopSid = sessionId;
-          const alreadyHasHistory = prompt.includes("【前文对话历史") || prompt.includes("【前序会话核心记忆快照");
-          const ctx = alreadyHasHistory ? undefined : antigravityDesktopTranscriptContext(desktopSid);
-          if (ctx) {
-            prompt = `${ctx}\n【当前用户指令】\n${prompt}`;
-          }
-          this.log(`Task ${taskId}: session ${desktopSid} is in Antigravity desktop store only; starting bridged agy CLI session`);
-          this.notice(
-            taskId,
-            `\n⚡ [会话接续] 原会话 ${desktopSid.slice(0, 8)} 属于 Antigravity 桌面应用，官方 agy 命令行使用独立会话库；${ctx ? "已自动携带最近对话上下文" : "已自动"}在 agy 中开启续接会话，后续对话将在新会话里原样继续。\n\n`,
-          );
-          sessionId = "";
-        }
         // A model that ran out of quota in an earlier task: straight to one that has some
         if (isExhausted(model)) {
           const next = nextAgyModel(await listAgyModels(cli, env), model, effort);
@@ -1037,19 +1023,40 @@ export class TaskRunner {
         }
         const useAcp = await officialAgySupportsAcp(cli, env);
         if (useAcp) {
+          // Google's `agy acp --stdio --app-data-dir antigravity` natively reads & writes the Desktop app's
+          // store (`~/.gemini/antigravity`), so Desktop sessions resume IN-PLACE with true bidirectional sync
+          // instead of forking into a detached `antigravity-cli` trajectory!
+          const appDataDir = selectAntigravityAppDataDir(sessionId);
           const runnerScript = await agyAcpRunner();
-          agyAcp = { runner: runnerScript, agy: cli };
+          agyAcp = { runner: runnerScript, agy: cli, appDataDir };
           exe = process.execPath;
           env.ELECTRON_RUN_AS_NODE = "1";
           Object.assign(env, withExeDirOnPath(env, cli));
           if (sysAppend) env.MEMENTO_AGY_SYSTEM_APPEND = sysAppend;
           this.runnerTasks.add(taskId);
           this.noSteerTasks.delete(taskId);
-          this.log(`Task ${taskId}: using Google's agy CLI via ACP runner (${cli})`);
+          this.log(`Task ${taskId}: using Google's agy CLI via ACP runner (${cli}, appDataDir=${appDataDir})`);
           return {
             args: antigravityAcpArgs({ ...agyAcp, workDir, sessionId, model, effort, timeoutSeconds: task.timeoutSeconds, prompt }),
             parser: new UniversalStreamParser({ sessionFromStdout: false }) as AgentStreamParser,
           };
+        }
+        // Legacy non-ACP print mode (`agy -p`) cannot pass `--app-data-dir`, so it keeps its own trajectory
+        // store (`~/.gemini/antigravity-cli`) separate from the Desktop app (`~/.gemini/antigravity`).
+        // Bridge a desktop-only conversation's recent transcript into a fresh CLI session once.
+        if (sessionId && !antigravityCliHasConversation(sessionId) && antigravityDesktopHasConversation(sessionId)) {
+          const desktopSid = sessionId;
+          const alreadyHasHistory = prompt.includes("【前文对话历史") || prompt.includes("【前序会话核心记忆快照");
+          const ctx = alreadyHasHistory ? undefined : antigravityDesktopTranscriptContext(desktopSid);
+          if (ctx) {
+            prompt = `${ctx}\n【当前用户指令】\n${prompt}`;
+          }
+          this.log(`Task ${taskId}: session ${desktopSid} is in Antigravity desktop store only (non-ACP CLI); starting bridged agy CLI session`);
+          this.notice(
+            taskId,
+            `\n⚡ [会话接续] 原会话 ${desktopSid.slice(0, 8)} 属于 Antigravity 桌面应用，当前 agy 版本不支持 ACP 共享会话库；${ctx ? "已自动携带最近对话上下文" : "已自动"}在 agy 中开启续接会话，后续对话将在新会话里原样继续。\n\n`,
+          );
+          sessionId = "";
         }
         agyAcp = undefined;
         exe = cli;
@@ -1287,6 +1294,9 @@ export class TaskRunner {
             });
           }
         } else if (isAntigravity) {
+          if (agyAcp) {
+            agyAcp = { ...agyAcp, appDataDir: selectAntigravityAppDataDir(undefined) };
+          }
           if (officialAgy && sessionId && !prompt.includes("【前文对话历史") && !prompt.includes("【前序会话核心记忆快照")) {
             const ctx = antigravityDesktopTranscriptContext(sessionId);
             if (ctx) prompt = `${ctx}\n【当前用户指令】\n${prompt}`;
@@ -1323,7 +1333,7 @@ export class TaskRunner {
       const hasStillRunningTag = out.stdout.includes("STATUS_STILL_RUNNING") || fullErr.includes("STATUS_STILL_RUNNING");
       // Google's agy CLI: its conversation's transcript says which background tasks ended. Its stream and the
       // agent's words don't (2026-11-19: both tasks of a run on vps3 exited 0 and it still read as left running).
-      const agyOpen = officialAgy && parser?.sessionId ? agyCliOpenBackgroundTasks(parser.sessionId, startedAt) : undefined;
+      const agyOpen = officialAgy && parser?.sessionId ? agyCliOpenBackgroundTasks(parser.sessionId, startedAt, undefined, agyAcp?.appDataDir) : undefined;
       const isStillRunning = hasStillRunningTag
         ? true
         : agyOpen
@@ -1391,7 +1401,7 @@ export class TaskRunner {
           .catch(() => {});
       }
 
-      // Keep Google agy CLI's local conversation title aligned with Memento's conversation title (R-TITLE-CONSISTENT)
+      // Keep Google agy CLI's local conversation title & Desktop project aligned with Memento (R-TITLE-CONSISTENT, R-BIDIRECTIONAL-SYNC)
       const finalAgySid = officialAgy && effectiveExitCode === 0 ? cleanSessionId(parser?.sessionId) : undefined;
       if (finalAgySid) {
         const desiredTitle = text("title").trim() || extractUserTitleFromText(text("user_question") || prompt);
@@ -1400,6 +1410,14 @@ export class TaskRunner {
             updateAntigravitySessionTitle(finalAgySid, desiredTitle);
           } catch {
             // non-critical title sync
+          }
+        }
+        if (agyAcp?.appDataDir === "antigravity" && workDir) {
+          try {
+            const projectId = resolveAntigravityDesktopProjectId(workDir);
+            if (projectId) bindAntigravitySessionProject(finalAgySid, projectId, "antigravity");
+          } catch {
+            // non-critical Desktop project binding
           }
         }
       }

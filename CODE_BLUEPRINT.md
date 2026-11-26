@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `81f33c63` · Updated: `2026-11-26`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `632bd9ce` · Updated: `2026-11-26`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,8 +16,8 @@
 - 规模 (Scale): 9 个子系统 · 40 组 API 路由 / 324 个接口 · 39 个前端页面 · 41 个数据模型 · 35 个服务模块 · 262 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `46beb199` (2026-11-26): feat(ui): 桌面端、网页端与手机端全面接入原生毛玻璃与液态玻璃效果并升级至 v1.0.156
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 75（✅ 75 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-ENT-DEVICE-POLICY`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `R-UI-COMMERCIAL`, `R-MENU-KEEPALIVE`
+- 最近改动 (Latest): `b2eed976` (2026-11-26): feat(orchestrator): 完善 AI 编排全量 MCP 记忆工具与两层上下文压缩能力
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 75（✅ 75 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `F-ASK`, `R-ISLAND-CLEANUP`, `R-NEWCHAT-WORKS`, `R-ENT-DEVICE-POLICY`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `R-UI-COMMERCIAL`, `R-MENU-KEEPALIVE`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -31,7 +31,7 @@
 | 8. Development & Verification Commands | L669-L686 |
 | 9. Recent Architectural Evolutions | L688-L695 |
 | 10. Key Environment Variables & Configuration | L697-L709 |
-| 11. 业务蓝图核对 (Business Blueprint Check) | L711-L718 |
+| 11. 业务蓝图核对 (Business Blueprint Check) | L711-L719 |
 
 ## 1. Project Overview & Tech Stack
 
@@ -658,10 +658,10 @@ erDiagram
 - [`deploy/k8s/studio.yaml`](deploy/k8s/studio.yaml) (19 commits)
 - [`apps/web/src/app/studio/page.tsx`](apps/web/src/app/studio/page.tsx) (10 commits)
 - [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (10 commits)
+- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (8 commits)
 - [`apps/web/src/components/layout/Sidebar.tsx`](apps/web/src/components/layout/Sidebar.tsx) (8 commits)
 - [`apps/web/src/lib/studio-api.ts`](apps/web/src/lib/studio-api.ts) (8 commits)
 - [`server/server/api/studio.py`](server/server/api/studio.py) (8 commits)
-- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (7 commits)
 - [`packages/daemon/src/antigravity.ts`](packages/daemon/src/antigravity.ts) (7 commits)
 - [`packages/daemon/test/antigravity-official-cli.test.ts`](packages/daemon/test/antigravity-official-cli.test.ts) (7 commits)
 - [`apps/web/src/components/viewers/MediaInspectorPanel.tsx`](apps/web/src/components/viewers/MediaInspectorPanel.tsx) (6 commits)
@@ -687,12 +687,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `b2eed976` (2026-11-26): feat(orchestrator): 完善 AI 编排全量 MCP 记忆工具与两层上下文压缩能力
 - `46beb199` (2026-11-26): feat(ui): 桌面端、网页端与手机端全面接入原生毛玻璃与液态玻璃效果并升级至 v1.0.156
 - `e1af1b27` (2026-11-25): feat(studio): 升级 filmkit 至 8ccc710f7bcb 并将默认模板切换为 1-2 分钟中国化爆梗短视频
 - `09f12247` (2026-11-25): feat(studio): 升级 filmkit 镜像至 2e888f64b77c 并接入 H3 BF16 高精与 768P 原生画质配置
 - `0d8a8992` (2026-11-25): chore(studio): 升级 filmkit 镜像至 a73e85e227d0 并同步去 AI 感实拍预设
 - `12b21adc` (2026-11-24): chore(deploy): filmkit 镜像升到 34ecb2a62b92（修复 G4/H100 申请误带 --high-mem 被拒问题）
-- `71134630` (2026-11-24): chore(deploy): filmkit 镜像升到 9ac8c3947e44（视频号文案去短剧高敏词硬过滤与自动勾选 AI 标注）
 
 ## 10. Key Environment Variables & Configuration
 
@@ -715,6 +715,7 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ### 最近提交碰到的业务条目（改动后复查它们还成不成立）
 
+- `b2eed976` feat(orchestrator): 完善 AI 编排全量 MCP 记忆工具与两层上下文压缩能力 → `F-ASK`, `R-ISLAND-CLEANUP`, `R-NEWCHAT-WORKS`
 - `46beb199` feat(ui): 桌面端、网页端与手机端全面接入原生毛玻璃与液态玻璃效果并升级至 v1.0.156 → `R-ENT-DEVICE-POLICY`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `R-UI-COMMERCIAL`, `R-MENU-KEEPALIVE`
 
 ---

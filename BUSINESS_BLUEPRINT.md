@@ -133,12 +133,12 @@
 - 禁止: `lastCreatedProjectId` @ `packages/daemon/src/antigravity.ts`, `packages/daemon/src/agy-runner/`; `"win" in` @ `server/server/services/orchestrator.py`
 - 要求: `ANTIGRAVITY_PROJECT_ID = ` @ `packages/daemon/src/agy-runner/runner.ts`
 
-### R-AGY-APP-CSRF Antigravity 应用不给会话接口令牌时，任务改走 Google 官方 agy 命令行
-- 来源: 用户 2026-11-21 客户端对话报错「failed to fetch available models: rpc error: code = Unauthenticated desc = unauthenticated: missing CSRF token」，四个档位依次失败
-- 说明: Antigravity 2.34 起桌面应用的 language_server 以 hub 模式启动，CSRF 令牌经 host bridge 只交给应用自己启动的进程（命令行不再带 --csrf_token，页面里 csrfToken 为空），守护进程调 agentapi 一律被拒。不去绕这个限制：取不到令牌就视为应用不可用，改用 Google 官方 agy 命令行（官方文档：同一台机器上应用和命令行共用登录）；没装就用官方安装脚本自动装（30 分钟内最多试一次），~/.local/bin/agy 上 memento 自己的包装脚本给它让位。执行脚本遇到 CSRF 拒绝不再逐个档位重试；已经用应用跑起来的任务遇到它，自动换命令行重跑一次。
-- 代码: `packages/daemon/src/antigravity.ts#discoverAntigravityEnv`, `packages/daemon/src/antigravity.ts#ensureOfficialAgyCli`, `packages/daemon/src/antigravity.ts#isAppAuthRejection`, `packages/daemon/src/task-runner.ts#execute`, `packages/daemon/src/agy-runner/runner.ts`
-- 测试: `packages/daemon/test/antigravity-csrf.test.ts#tells the language server's CSRF rejection from other failures`, `packages/daemon/test/antigravity-official-cli.test.ts`
-- 要求: `if (!ls.csrf) return null;` @ `packages/daemon/src/antigravity.ts`
+### R-AGY-APP-CSRF Antigravity 应用不给会话接口令牌时，任务改走 Google 官方 agy 命令行并共用桌面会话库保持双向同步
+- 来源: 用户 2026-11-21 客户端对话报错「failed to fetch available models: rpc error: code = Unauthenticated desc = unauthenticated: missing CSRF token」，四个档位依次失败；用户 2026-11-26「现在 antigravity 怎么不是双向同步了」
+- 说明: Antigravity 2.34 起桌面应用的 language_server 以 hub 模式启动，CSRF 令牌经 host bridge 只交给应用自己启动的进程（命令行不再带 --csrf_token，页面里 csrfToken 为空），守护进程调 agentapi 一律被拒。不去绕这个限制：取不到令牌就视为应用不可用，改用 Google 官方 agy 命令行（官方文档：同一台机器上应用和命令行共用登录）；没装就用官方安装脚本自动装（30 分钟内最多试一次），~/.local/bin/agy 上 memento 自己的包装脚本给它让位。ACP 通道（`agy_acp.mjs`）必须按会话归属与本机桌面存储动态传 `--app-data-dir`：续接桌面会话或本机装有桌面版新开会话时传 `--app-data-dir antigravity`，原地读写 `~/.gemini/antigravity/`（不再把桌面会话拆成独立的 `antigravity-cli` 续接分支）并将新建会话绑定到对应桌面项目 `project_id`；续接已有 CLI 会话或无桌面版的服务器继续走 `antigravity-cli`。执行脚本遇到 CSRF 拒绝不再逐个档位重试；已经用应用跑起来的任务遇到它，自动换命令行重跑一次。
+- 代码: `packages/daemon/src/antigravity.ts#discoverAntigravityEnv`, `packages/daemon/src/antigravity.ts#ensureOfficialAgyCli`, `packages/daemon/src/antigravity.ts#isAppAuthRejection`, `packages/daemon/src/antigravity.ts#selectAntigravityAppDataDir`, `packages/daemon/src/antigravity.ts#bindAntigravitySessionProject`, `packages/daemon/src/task-runner.ts#execute`, `packages/daemon/src/agy-acp-runner/main.ts`, `packages/daemon/src/agy-runner/runner.ts`
+- 测试: `packages/daemon/test/antigravity-csrf.test.ts#tells the language server's CSRF rejection from other failures`, `packages/daemon/test/antigravity-official-cli.test.ts`, `packages/daemon/test/antigravity-acp.test.ts#resumes Antigravity Desktop sessions in-place via --app-data-dir antigravity (no forking), preserves CLI sessions, and binds new Desktop sessions to the matching project`
+- 要求: `if (!ls.csrf) return null;` @ `packages/daemon/src/antigravity.ts`; `selectAntigravityAppDataDir(` @ `packages/daemon/src/task-runner.ts`
 
 ### R-TRACK-BACKGROUND 后台任务跟踪到结束，不提前收尾
 - 来源: CLAUDE.md（memento）「后台任务要跟踪到结束，不要提前结束」；用户 2026-11-14「antigravity经常会出现任务还没完成……不能精准的判断到任务是否结束吗」；用户 2026-11-23「antigravity 的后台任务没有完整的跟踪而提前退出了。实际上任务没有完成」
@@ -673,7 +673,7 @@
 | `F-CLIENT-UPGRADE` | 客户端升级 | 3/3 | — | — | ✅ |
 | `F-BLUEPRINT` | 蓝图生成与核对 | 5/5 | — | — | ✅ |
 | `R-AGY-WORKDIR` | 选了哪个目录，Antigravity 就在那个目录干活 | 4/4 | 4/4 | 3/3 | ✅ |
-| `R-AGY-APP-CSRF` | Antigravity 应用不给会话接口令牌时，任务改走 Google 官方 agy 命令行 | 5/5 | 2/2 | 1/1 | ✅ |
+| `R-AGY-APP-CSRF` | Antigravity 应用不给会话接口令牌时，任务改走 Google 官方 agy 命令行并共用桌面会话库保持双向同步 | 8/8 | 3/3 | 2/2 | ✅ |
 | `R-TRACK-BACKGROUND` | 后台任务跟踪到结束，不提前收尾 | 6/6 | 7/7 | 4/4 | ✅ |
 | `R-STOP-ALL-AGENTS` | Antigravity、Claude Code、Codex 运行中的任务都必须能停 | 3/3 | 4/4 | 1/1 | ✅ |
 | `R-ISLAND-CLEANUP` | 任务结束必须清掉灵动岛状态 | 9/9 | 6/6 | 3/3 | ✅ |

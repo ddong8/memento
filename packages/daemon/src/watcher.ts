@@ -42,7 +42,7 @@ const isJsonl = (file: string) => extname(file).toLowerCase() === ".jsonl";
 type Log = (message: string) => void;
 
 /** Which directory of each tool holds its sessions. */
-function watchTargets(tools: Record<string, DiscoveredTool>, extraDirs: string[]): Map<string, string> {
+function watchTargets(tools: Record<string, DiscoveredTool>, extraDirs: string[], home = homeDir()): Map<string, string> {
   const targets = new Map<string, string>(); // dir -> tool id
   const add = (dir: string, tool: string) => existsSync(dir) && targets.set(dir, tool);
   for (const tool of Object.values(tools)) {
@@ -56,8 +56,8 @@ function watchTargets(tools: Record<string, DiscoveredTool>, extraDirs: string[]
         break;
       case "antigravity":
         add(join(tool.root, "brain"), "antigravity");
-        add(join(homeDir(), ".gemini", "antigravity", "brain"), "antigravity");
-        add(join(homeDir(), ".gemini", "antigravity-cli", "brain"), "antigravity");
+        add(join(home, ".gemini", "antigravity", "brain"), "antigravity");
+        add(join(home, ".gemini", "antigravity-cli", "brain"), "antigravity");
         break;
       case "workbuddy": {
         add(join(tool.root, "projects"), "workbuddy");
@@ -614,7 +614,7 @@ export class FileWatcher {
 
   async start(tools: Record<string, DiscoveredTool>): Promise<void> {
     const hadOffsets = await this.loadOffsets();
-    const targets = watchTargets(tools, this.config.extraWatchDirs);
+    const targets = watchTargets(tools, this.config.extraWatchDirs, this.home);
     this.targets = targets;
     this.markStarted();
     this.log(`Watching ${targets.size} tool data directories`);
@@ -636,9 +636,16 @@ export class FileWatcher {
       void this.scan(dir, toolId);
     }
     void healAllAntigravitySessions().catch(() => {});
-    // Catch anything missed while offline or during a watcher hiccup.
+    // Catch anything missed while offline or during a watcher hiccup, plus newly created tool dirs.
     this.rescan = setInterval(() => {
-      for (const [dir, toolId] of targets) void this.scan(dir, toolId);
+      for (const [dir, toolId] of watchTargets(tools, this.config.extraWatchDirs, this.home)) {
+        if (!this.targets.has(dir)) {
+          this.targets.set(dir, toolId);
+          this.watchDir(dir, toolId);
+          this.log(`Watching newly appeared ${toolId} directory: ${dir}`);
+        }
+      }
+      for (const [dir, toolId] of this.targets) void this.scan(dir, toolId);
       void healAllAntigravitySessions().catch(() => {});
     }, RESCAN_MS);
     this.rescan.unref?.();

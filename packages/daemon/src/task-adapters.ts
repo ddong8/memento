@@ -269,6 +269,7 @@ export function antigravityArgs(o: {
 export function antigravityAcpArgs(o: {
   runner: string;
   agy: string;
+  appDataDir?: "antigravity" | "antigravity-cli";
   workDir?: string;
   sessionId?: string;
   model?: string;
@@ -282,6 +283,7 @@ export function antigravityAcpArgs(o: {
     o.runner,
     "--agy",
     o.agy,
+    ...(o.appDataDir ? ["--app-data-dir", o.appDataDir] : []),
     ...(o.workDir ? ["-C", o.workDir] : []),
     ...(sid ? ["--conversation", sid] : []),
     ...(o.model ? ["--model", o.model] : []),

@@ -19,7 +19,15 @@ import {
   readAgyConversationState,
   resolveAcpModel,
 } from "../src/agy-acp-runner/helpers.js";
-import { sqliteRun } from "../src/sqlite.js";
+import {
+  antigravityDesktopStorePresent,
+  bindAntigravitySessionProject,
+  patchTrajectoryMetadataProjectId,
+  resolveAntigravityDesktopProjectId,
+  selectAntigravityAppDataDir,
+  agyCliOpenBackgroundTasks,
+} from "../src/antigravity.js";
+import { sqliteRows, sqliteRun } from "../src/sqlite.js";
 
 const dir = mkdtempSync(join(tmpdir(), "agy-acp-test-"));
 const fakeAgy = join(dir, "agy");
@@ -52,9 +60,12 @@ import { createInterface } from "node:readline";
 
 const args = process.argv.slice(2);
 const logFile = ${JSON.stringify(join(dir, "acp_calls.jsonl"))};
-const cliDataDir = ${JSON.stringify(join(fakeHome, ".gemini", "antigravity-cli"))};
-const brainRoot = ${JSON.stringify(join(fakeHome, ".gemini", "antigravity-cli", "brain"))};
-const dbPath = ${JSON.stringify(join(fakeHome, ".gemini", "antigravity-cli", "conversation_summaries.db"))};
+const appDataIdx = args.indexOf("--app-data-dir");
+const appDataDir = appDataIdx >= 0 && args[appDataIdx + 1] ? args[appDataIdx + 1] : "antigravity-cli";
+const activeHome = process.env.HOME || ${JSON.stringify(fakeHome)};
+const cliDataDir = join(activeHome, ".gemini", appDataDir);
+const brainRoot = join(cliDataDir, "brain");
+const dbPath = join(cliDataDir, "conversation_summaries.db");
 const CID = ${JSON.stringify(CID)};
 const SUB_CID = ${JSON.stringify(SUB_CID)};
 
@@ -108,15 +119,42 @@ createInterface({ input: process.stdin, crlfDelay: Infinity }).on("line", (line)
   record({ method: msg.method, params: msg.params });
 
   if (msg.method === "initialize") {
+    record({ initAppDataDir: appDataDir, argv: args });
     send({ jsonrpc: "2.0", id: msg.id, result: { protocolVersion: 1, agentCapabilities: { loadSession: true }, agentInfo: { name: "Fake ACP", version: "1.5.14" } } });
     return;
   }
   if (msg.method === "session/new" || msg.method === "session/resume") {
+    const activeSid = msg.method === "session/resume" && msg.params?.sessionId ? msg.params.sessionId : CID;
+    if (msg.method === "session/new" && appDataDir === "antigravity") {
+      try {
+        const sqlite = process.getBuiltinModule?.("node:sqlite");
+        if (sqlite) {
+          mkdirSync(join(cliDataDir, "conversations"), { recursive: true });
+          const sdb = new sqlite.DatabaseSync(dbPath);
+          try {
+            sdb.exec("CREATE TABLE IF NOT EXISTS conversation_summaries (conversation_id text PRIMARY KEY, title text DEFAULT '', project_id text DEFAULT '', status text NOT NULL DEFAULT '', not_fully_idle numeric NOT NULL DEFAULT 0, step_count integer NOT NULL DEFAULT 0, killed numeric NOT NULL DEFAULT 0, workspace_uris text DEFAULT '[]', last_modified_time text DEFAULT '')");
+            sdb.prepare("INSERT OR REPLACE INTO conversation_summaries (conversation_id, title, project_id, status, not_fully_idle, step_count, killed, workspace_uris, last_modified_time) VALUES (?, '', 'default-cli-project', 'CASCADE_RUN_STATUS_IDLE', 0, 1, 0, '[]', '2026-11-26 05:00:00+00:00')").run(activeSid);
+          } finally {
+            sdb.close();
+          }
+          const cdb = new sqlite.DatabaseSync(join(cliDataDir, "conversations", activeSid + ".db"));
+          try {
+            cdb.exec("CREATE TABLE IF NOT EXISTS trajectory_metadata_blob (id integer PRIMARY KEY, data blob)");
+            const blob = Buffer.concat([Buffer.from("header"), Buffer.from([0x92, 0x01, 0x13]), Buffer.from("default-cli-project", "utf8"), Buffer.from([0xc8, 0x01, 0x01])]);
+            cdb.prepare("INSERT OR REPLACE INTO trajectory_metadata_blob (id, data) VALUES (1, ?)").run(blob);
+          } finally {
+            cdb.close();
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
     send({
       jsonrpc: "2.0",
       id: msg.id,
       result: {
-        sessionId: CID,
+        sessionId: activeSid,
         models: { availableModels, currentModelId: activeModel },
         configOptions: [
           { id: "model", currentValue: "gemini-4-neon" },
@@ -560,10 +598,11 @@ async function runAcpTask(
   taskId: string,
   payload: Record<string, unknown>,
   onMessage?: (msg: Record<string, unknown>, sendToClient: (m: Record<string, unknown>) => void) => void,
+  customHome?: string,
 ) {
   const prevHome = process.env.HOME;
   const prevAcpRunner = process.env.MEMENTO_AGY_ACP_RUNNER;
-  process.env.HOME = fakeHome;
+  process.env.HOME = customHome ?? fakeHome;
   delete process.env.MEMENTO_AGY_ACP_RUNNER;
   const received: Record<string, unknown>[] = [];
   const wss = new WebSocketServer({ port: 0, host: "127.0.0.1" });
@@ -844,6 +883,138 @@ it.skipIf(process.platform === "win32")(
     expect(fastRes.chunks.join("")).toContain("即时收尾完毕。");
     // Previously waited 800ms + 2*400ms poll + 250ms shutdown (~1.2s-1.9s); now finishes well under 1s
     expect(tailLatency).toBeLessThan(950);
+  },
+  30_000,
+);
+
+it("selectAntigravityAppDataDir, Desktop project resolution, and protobuf project_id patching", () => {
+  const syncHome = join(dir, "sync-unit-home");
+  // Only bin/ exists (created by Memento wrapper): NOT a Desktop app store
+  mkdirSync(join(syncHome, ".gemini", "antigravity", "bin"), { recursive: true });
+  expect(antigravityDesktopStorePresent(syncHome)).toBe(false);
+  expect(selectAntigravityAppDataDir(undefined, syncHome)).toBe("antigravity-cli");
+
+  // Once Desktop store exists (conversation_summaries.db or conversations/), new sessions target "antigravity"
+  const desktopSid = "4ff9e5c4-d996-4f5e-b804-ea6c72eea91d";
+  const cliSid = "8bea4d8c-5bb2-4a49-ad65-c3a4d13ebabf";
+  mkdirSync(join(syncHome, ".gemini", "antigravity", "conversations"), { recursive: true });
+  writeFileSync(join(syncHome, ".gemini", "antigravity", "conversations", `${desktopSid}.db`), "sqlite");
+  mkdirSync(join(syncHome, ".gemini", "antigravity-cli", "conversations"), { recursive: true });
+  writeFileSync(join(syncHome, ".gemini", "antigravity-cli", "conversations", `${cliSid}.db`), "sqlite");
+
+  expect(antigravityDesktopStorePresent(syncHome)).toBe(true);
+  expect(selectAntigravityAppDataDir(desktopSid, syncHome)).toBe("antigravity");
+  expect(selectAntigravityAppDataDir(cliSid, syncHome)).toBe("antigravity-cli");
+  expect(selectAntigravityAppDataDir(undefined, syncHome)).toBe("antigravity");
+  expect(selectAntigravityAppDataDir("99999999-0000-4000-8000-000000000000", syncHome)).toBe("antigravity");
+
+  // Project resolution from ~/.gemini/config/projects/*.json
+  const projDir = join(dir, "demo-workspace");
+  mkdirSync(projDir, { recursive: true });
+  mkdirSync(join(syncHome, ".gemini", "config", "projects"), { recursive: true });
+  const projId = "b5cec0a5-c6ba-4b3f-b667-6125d4f651ef";
+  writeFileSync(
+    join(syncHome, ".gemini", "config", "projects", `${projId}.json`),
+    JSON.stringify({
+      id: projId,
+      name: "demo-workspace",
+      projectResources: { resources: [{ gitFolder: { folderUri: `file://${projDir}` } }] },
+    }),
+  );
+  expect(resolveAntigravityDesktopProjectId(projDir, syncHome)).toBe(projId);
+  expect(resolveAntigravityDesktopProjectId(syncHome, syncHome)).toBeUndefined();
+
+  // Protobuf project_id patching replaces default-cli-project accurately
+  const rawBlob = Buffer.concat([
+    Buffer.from("prefix"),
+    Buffer.from([0x92, 0x01, 0x13]),
+    Buffer.from("default-cli-project", "utf8"),
+    Buffer.from([0xc8, 0x01, 0x01]),
+  ]);
+  const patched = patchTrajectoryMetadataProjectId(rawBlob, projId);
+  expect(patched).not.toBeNull();
+  expect(patched!.includes(Buffer.from(projId, "utf8"))).toBe(true);
+  expect(patched!.includes(Buffer.from("default-cli-project", "utf8"))).toBe(false);
+  expect(patchTrajectoryMetadataProjectId(patched!, "other-project-id")).toBeNull();
+
+  // agyCliOpenBackgroundTasks reads Desktop store transcripts when appDataDir="antigravity"
+  const deskLogs = join(syncHome, ".gemini", "antigravity", "brain", desktopSid, ".system_generated", "logs");
+  mkdirSync(deskLogs, { recursive: true });
+  const now = new Date().toISOString().replace(/\.\d+Z$/, "Z");
+  writeFileSync(
+    join(deskLogs, "transcript.jsonl"),
+    JSON.stringify({
+      step_index: 1,
+      source: "MODEL",
+      type: "GENERIC",
+      status: "RUNNING",
+      created_at: now,
+      content: `Created At: ${now}\nTool is running as a background task with task id: ${desktopSid}/task-1`,
+    }) + "\n",
+  );
+  expect(agyCliOpenBackgroundTasks(desktopSid, Date.now() - 5000, syncHome, "antigravity")).toEqual([`${desktopSid}/task-1`]);
+});
+
+it.skipIf(process.platform === "win32")(
+  "resumes Antigravity Desktop sessions in-place via --app-data-dir antigravity (no forking), preserves CLI sessions, and binds new Desktop sessions to the matching project",
+  async () => {
+    // Reuse fakeHome (captured by executionEnvironment() cache) as the Desktop+CLI home for this final test
+    const syncHome = fakeHome;
+    const workRepo = join(dir, "memento-ws");
+    const desktopSid = "acb4c02e-913a-4f95-bac8-4f7d586f4584";
+    const cliSid = "8bea4d8c-5bb2-4a49-ad65-c3a4d13ebabf";
+    const projId = "b5cec0a5-c6ba-4b3f-b667-6125d4f651ef";
+    mkdirSync(workRepo, { recursive: true });
+    mkdirSync(join(syncHome, ".gemini", "antigravity", "conversations"), { recursive: true });
+    mkdirSync(join(syncHome, ".gemini", "antigravity-cli", "conversations"), { recursive: true });
+    mkdirSync(join(syncHome, ".gemini", "config", "projects"), { recursive: true });
+    writeFileSync(join(syncHome, ".gemini", "antigravity", "conversations", `${desktopSid}.db`), "sqlite");
+    writeFileSync(join(syncHome, ".gemini", "antigravity-cli", "conversations", `${cliSid}.db`), "sqlite");
+    writeFileSync(
+      join(syncHome, ".gemini", "config", "projects", `${projId}.json`),
+      JSON.stringify({
+        id: projId,
+        name: "memento-ws",
+        projectResources: { resources: [{ gitFolder: { folderUri: `file://${workRepo}` } }] },
+      }),
+    );
+
+    const logPath = join(dir, "acp_calls.jsonl");
+    const beforeLines = readFileSync(logPath, "utf8").trim().split("\n").length;
+
+    // 1) Resuming a Desktop session must use --app-data-dir antigravity and resume the EXACT desktopSid with NO fork notice
+    const deskRes = await runAcpTask("acp-sync-desktop", { prompt: "流式测试", cwd: workRepo, session_id: desktopSid });
+    expect(deskRes.done, `${deskRes.done.error}\n${deskRes.done.stderr}`).toMatchObject({ status: "succeeded", session_id: desktopSid });
+    expect(String(deskRes.done.stderr ?? "")).not.toContain("会话接续");
+
+    const afterDesk = readFileSync(logPath, "utf8").trim().split("\n").slice(beforeLines).map((l) => JSON.parse(l) as Record<string, unknown>);
+    expect(afterDesk).toContainEqual(expect.objectContaining({ initAppDataDir: "antigravity" }));
+    expect(afterDesk).toContainEqual(expect.objectContaining({ method: "session/resume", params: expect.objectContaining({ sessionId: desktopSid }) }));
+
+    // 2) Resuming an existing CLI session must stay on antigravity-cli
+    const beforeCli = readFileSync(logPath, "utf8").trim().split("\n").length;
+    const cliRes = await runAcpTask("acp-sync-cli", { prompt: "流式测试", cwd: workRepo, session_id: cliSid });
+    expect(cliRes.done, `${cliRes.done.error}\n${cliRes.done.stderr}`).toMatchObject({ status: "succeeded", session_id: cliSid });
+    const afterCli = readFileSync(logPath, "utf8").trim().split("\n").slice(beforeCli).map((l) => JSON.parse(l) as Record<string, unknown>);
+    expect(afterCli).toContainEqual(expect.objectContaining({ initAppDataDir: "antigravity-cli" }));
+    expect(afterCli).toContainEqual(expect.objectContaining({ method: "session/resume", params: expect.objectContaining({ sessionId: cliSid }) }));
+
+    // 3) Starting a brand-new session on a Desktop machine targets --app-data-dir antigravity and binds project_id
+    const beforeNew = readFileSync(logPath, "utf8").trim().split("\n").length;
+    const newRes = await runAcpTask("acp-sync-new", { prompt: "流式测试", cwd: workRepo });
+    expect(newRes.done, `${newRes.done.error}\n${newRes.done.stderr}`).toMatchObject({ status: "succeeded", session_id: CID });
+    const afterNew = readFileSync(logPath, "utf8").trim().split("\n").slice(beforeNew).map((l) => JSON.parse(l) as Record<string, unknown>);
+    expect(afterNew).toContainEqual(expect.objectContaining({ initAppDataDir: "antigravity" }));
+    expect(afterNew).toContainEqual(expect.objectContaining({ method: "session/new" }));
+
+    const boundRows = sqliteRows(
+      join(syncHome, ".gemini", "antigravity", "conversation_summaries.db"),
+      "SELECT project_id FROM conversation_summaries WHERE conversation_id = ?",
+      [CID],
+    );
+    expect(boundRows?.[0]?.[0]).toBe(projId);
+    // Calling bindAntigravitySessionProject again must NOT clobber the already-bound real project
+    expect(bindAntigravitySessionProject(CID, "other-project", "antigravity", syncHome)).toBe(false);
   },
   30_000,
 );

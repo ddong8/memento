@@ -4632,6 +4632,7 @@ function AskPageContent() {
               streaming={false}
               isReconnecting={false}
               prevUserCreatedAt={i > 0 && previewTurns[i - 1]?.role === "user" ? previewTurns[i - 1].created_at : undefined}
+              prevUserContent={i > 0 && previewTurns[i - 1]?.role === "user" ? previewTurns[i - 1].content : undefined}
               onSourcesClick={handleSourcesClick}
               onSmartCompactAndRetry={handleSmartCompactAndRetry}
               t={t}
@@ -4943,6 +4944,8 @@ function AskPageContent() {
         turn.role === "assistant" && i > 0 && turns[i - 1]?.role === "user"
           ? turns[i - 1].created_at
           : undefined;
+      const prevUserContent =
+        turn.role === "assistant" && i > 0 && turns[i - 1]?.role === "user" ? turns[i - 1].content : undefined;
 
       const isSelected = selectedTurnIndices.includes(i);
       const convKeyPrefix = activeConversationId || "new";
@@ -4989,6 +4992,7 @@ function AskPageContent() {
                 streaming={i === turns.length - 1 ? streaming : false}
                 isReconnecting={i === turns.length - 1 ? isReconnecting : false}
                 prevUserCreatedAt={prevUserCreatedAt}
+                prevUserContent={prevUserContent}
                 onSourcesClick={handleSourcesClick}
                 onSmartCompactAndRetry={handleSmartCompactAndRetry}
                 onRetry={i === turns.length - 1 ? handleRetryLastTurn : undefined}
@@ -5399,6 +5403,11 @@ function AskPageContent() {
               ? staticTurns[staticTurns.length - 1].created_at
               : undefined
           }
+          prevUserContent={
+            staticTurns.length > 0 && staticTurns[staticTurns.length - 1]?.role === "user"
+              ? staticTurns[staticTurns.length - 1].content
+              : undefined
+          }
           onSourcesClick={handleSourcesClick}
           onSmartCompactAndRetry={handleSmartCompactAndRetry}
           onShareTurn={handleShareAssistantTurn}
@@ -5567,8 +5576,8 @@ function AskPageContent() {
                     alignItems: "center",
                     justifyContent: "space-between",
                     gap: 6,
-                    marginBottom: 6,
-                    padding: "1px 0 6px 0",
+                    marginBottom: 5,
+                    padding: "0 0 5px 0",
                     borderBottom: "1px solid var(--aurora-border)",
                     cursor: "pointer",
                     transition: "all 0.15s ease",
@@ -5659,9 +5668,15 @@ function AskPageContent() {
                     );
                   })()}
 
-                  {/* Target Device Badge */}
+                  {/* Target Device Badge: phones keep just the online dot (the name truncated to "haix…" said nothing);
+                      an offline device still shows its name in red */}
                   <span
-                    className="min-w-[54px] shrink max-w-[104px] sm:max-w-[220px] sm:shrink-0"
+                    title={currentDev?.name || selectedDevice}
+                    className={
+                      !isCurrentDevOnline && selectedDevice !== "auto" && selectedDevice !== "ask_only"
+                        ? "min-w-[54px] shrink max-w-[104px] sm:max-w-[220px] sm:shrink-0"
+                        : "shrink-0 sm:min-w-[54px] sm:max-w-[220px]"
+                    }
                     style={{
                       display: "inline-flex",
                       alignItems: "center",
@@ -5685,7 +5700,10 @@ function AskPageContent() {
                         flexShrink: 0,
                       }}
                     />
-                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    <span
+                      className={!isCurrentDevOnline && selectedDevice !== "auto" && selectedDevice !== "ask_only" ? "" : "hidden sm:inline"}
+                      style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                    >
                       {(() => {
                         if (selectedDevice === "auto") return t.ask.autoDispatch;
                         if (selectedDevice === "ask_only") return t.ask.askOnly;
@@ -5717,7 +5735,7 @@ function AskPageContent() {
                     });
                     return (
                       <span
-                        className="min-w-[54px] shrink max-w-[96px] sm:max-w-[200px] sm:shrink-0"
+                        className="min-w-[54px] shrink max-w-[132px] sm:max-w-[200px] sm:shrink-0"
                         style={{
                           display: "inline-flex",
                           alignItems: "center",
@@ -5743,7 +5761,7 @@ function AskPageContent() {
                     const safeFolder = resolveSafeProjectName({ cwd, isZh });
                     return (
                       <span
-                        className="min-w-[54px] shrink max-w-[96px] sm:max-w-[190px] sm:shrink-0"
+                        className="min-w-[54px] shrink max-w-[132px] sm:max-w-[190px] sm:shrink-0"
                         style={{
                           display: "inline-flex",
                           alignItems: "center",
@@ -5782,15 +5800,17 @@ function AskPageContent() {
                       }}
                     >
                       <Icon name="sparkles" size={10.5} style={{ color: "var(--aurora-accent)" }} />
-                      <span>{selectedModel}</span>
+                      <span className="hidden sm:inline">{selectedModel}</span>
+                      {/* Phones: "claude-opus-5-5" -> "opus-5-5", the agent chip already says Claude */}
+                      <span className="sm:hidden">{selectedModel.replace(/^(claude|gpt|gemini)-/i, "")}</span>
                     </span>
                   )}
 
-                  {/* Reasoning Effort Badge */}
+                  {/* Reasoning Effort Badge (phones: in the config panel, the bar stays one readable line) */}
                   {selectedEffort && (
                     <span
+                      className="hidden sm:inline-flex"
                       style={{
-                        display: "inline-flex",
                         alignItems: "center",
                         gap: 3,
                         padding: "2.5px 6px",
@@ -5810,9 +5830,8 @@ function AskPageContent() {
                   {/* Resumed Session Badge */}
                   {selectedSessionId && (
                     <span
-                      className="max-w-[130px] sm:max-w-[220px]"
+                      className="hidden sm:inline-flex sm:max-w-[220px]"
                       style={{
-                        display: "inline-flex",
                         alignItems: "center",
                         gap: 4,
                         padding: "2.5px 7.5px",
@@ -5871,7 +5890,7 @@ function AskPageContent() {
                   title={isZh ? "展开完整配置面板" : "Expand configuration panel"}
                 >
                   <Icon name="chevron_down" size={11} />
-                  <span className="sm:hidden">{isZh ? "配置" : "Config"}</span>
+                  {/* Phones: the whole bar opens the settings, the arrow is enough */}
                   <span className="hidden sm:inline">{isZh ? "展开配置" : "Expand"}</span>
                 </button>
               </div>

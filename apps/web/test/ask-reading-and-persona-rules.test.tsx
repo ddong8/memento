@@ -21,6 +21,13 @@ describe("R-THINKING-FULL thinking stays spread out", () => {
     }
   });
 
+  it("shows no empty box while nothing has been thought yet, and says 思考中 only once", () => {
+    const html = renderToString(createElement(ThinkingBlock, { thinking: "", isLive: true }));
+    expect(html).not.toContain("thinking-scroll-content");
+    expect(html).not.toContain("推演中");
+    expect(html).toContain("思考中");
+  });
+
   it("uses the answer's body size for the thinking text", () => {
     const html = renderToString(createElement(ThinkingBlock, { thinking: THOUGHT, isLive: false }));
     expect(html).toMatch(/class="thinking-scroll-content"[^>]*font-size:14px/);

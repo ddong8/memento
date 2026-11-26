@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `28db505b` · Updated: `2026-11-26`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `df0f1bce` · Updated: `2026-11-26`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,7 +16,7 @@
 - 规模 (Scale): 9 个子系统 · 41 组 API 路由 / 328 个接口 · 39 个前端页面 · 41 个数据模型 · 35 个服务模块 · 266 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `28db505b` (2026-11-26): fix(web): 手机端认知大脑与技能进化全屏控制台改用不透明底色，下层页面不再透出叠在标签栏上
+- 最近改动 (Latest): `df0f1bce` (2026-11-26): chore(mobile): iOS 构建号升到 16，带上注入脚本等 <html> 就绪的修复传 TestFlight
 - 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 75（✅ 75 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `F-ASK`, `R-ISLAND-CLEANUP`, `R-MEDIA-VIEW`, `R-WECHAT-DRAFT`, `S-RUN-STATE`, `R-MENU-KEEPALIVE`, `R-LLM-IN-PROFILE`, `R-PERSONA-ONBOARD`
 
 | 章节 (Section) | 行号 (Lines) |
@@ -31,7 +31,7 @@
 | 8. Development & Verification Commands | L675-L692 |
 | 9. Recent Architectural Evolutions | L694-L701 |
 | 10. Key Environment Variables & Configuration | L703-L715 |
-| 11. 业务蓝图核对 (Business Blueprint Check) | L717-L726 |
+| 11. 业务蓝图核对 (Business Blueprint Check) | L717-L725 |
 
 ## 1. Project Overview & Tech Stack
 
@@ -693,12 +693,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `df0f1bce` (2026-11-26): chore(mobile): iOS 构建号升到 16，带上注入脚本等 <html> 就绪的修复传 TestFlight
 - `28db505b` (2026-11-26): fix(web): 手机端认知大脑与技能进化全屏控制台改用不透明底色，下层页面不再透出叠在标签栏上
 - `7ae4bb6d` (2026-11-26): fix(mobile,web): 补齐手机端悬浮底栏避让：侧边栏用户卡片、历史对话末条、媒体抽屉，全屏控制台隐藏运行中胶囊，安卓注入早于 <html> 时不再失效
 - `ca9d376d` (2026-11-26): fix(mobile,web): 适配 3D 认知大脑等 Tab 页底部悬浮栏避让并收紧 iOS 底栏底边距与玻璃对比度
 - `1cf22ac9` (2026-11-26): fix(mobile,web): 修复 iOS 液态玻璃底栏阴影与配色、支持对话穿透毛玻璃并优化手机底部按钮布局
 - `eec90a0f` (2026-11-26): fix(mobile-ui): 适配代码审阅抽屉与移交弹窗的手机端液态玻璃底栏避让及安全区
-- `67f0f784` (2026-11-26): fix(git-review): 兼容旧版客户端零升级 Diff 与提交回退、修复 Windows 标题栏遮挡并升级至 v1.0.159
 
 ## 10. Key Environment Variables & Configuration
 
@@ -723,7 +723,6 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 - `7ae4bb6d` fix(mobile,web): 补齐手机端悬浮底栏避让：侧边栏用户卡片、历史对话末条、媒体抽屉，全屏控制台隐藏运行中胶囊，安卓注入早于 <html> 时不再失 → `F-ASK`, `R-ISLAND-CLEANUP`, `R-MEDIA-VIEW`, `R-WECHAT-DRAFT`, `S-RUN-STATE`
 - `ca9d376d` fix(mobile,web): 适配 3D 认知大脑等 Tab 页底部悬浮栏避让并收紧 iOS 底栏底边距与玻璃对比度 → `R-MENU-KEEPALIVE`, `R-LLM-IN-PROFILE`, `R-PERSONA-ONBOARD`
-- `1cf22ac9` fix(mobile,web): 修复 iOS 液态玻璃底栏阴影与配色、支持对话穿透毛玻璃并优化手机底部按钮布局 → `R-REPLY-VISIBLE`
 
 ---
 _Auto-maintained by `scripts/project_blueprint.mjs` (v20261126) & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._

@@ -10,6 +10,7 @@ import {
   BackHandler,
   Keyboard,
   type KeyboardEvent,
+  LayoutAnimation,
   Linking,
   Platform,
   Pressable,
@@ -66,6 +67,36 @@ const INJECTED_CLIENT_HELPERS = `(() => {
   };
   postTheme();
   new MutationObserver(postTheme).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "data-skin", "data-glass"] });
+
+  // 1b. Scroll direction -> tab bar: reading down shrinks it to a pill at the bottom-left (iOS 26 style), scrolling
+  // up or reaching the top brings it back. Only page-sized scrollers count (not the composer, chips or popovers);
+  // the rubber-band at either end is ignored. The shell keeps the current state in window.__memento_tabbar_compact.
+  const lastScrollTops = new WeakMap();
+  let scrollRun = 0;
+  const setTabBarCompact = (compact) => {
+    if (!!window.__memento_tabbar_compact === compact) return;
+    window.__memento_tabbar_compact = compact;
+    if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type: "tabbar_compact", compact }));
+    }
+  };
+  document.addEventListener("scroll", (e) => {
+    const el = e.target === document ? (document.scrollingElement || document.documentElement) : e.target;
+    if (!el || el.nodeType !== 1) return;
+    const top = el.scrollTop;
+    const prev = lastScrollTops.has(el) ? lastScrollTops.get(el) : top;
+    lastScrollTops.set(el, top);
+    const max = el.scrollHeight - el.clientHeight;
+    if (max < 160 || el.clientHeight < window.innerHeight * 0.45) return;
+    if (top <= 24) { scrollRun = 0; setTabBarCompact(false); return; }
+    if (top >= max - 2 || top < 0) return;
+    const dy = top - prev;
+    if (!dy) return;
+    if ((dy > 0) !== (scrollRun > 0)) scrollRun = 0;
+    scrollRun += dy;
+    if (scrollRun > 36) setTabBarCompact(true);
+    else if (scrollRun < -36) setTabBarCompact(false);
+  }, { capture: true, passive: true });
 
   // 2. Apple Taptic Engine Native Haptics Bridge
   window.__memento_haptic = function(style) {
@@ -233,11 +264,25 @@ const INJECTED_CLIENT_HELPERS = `(() => {
 })();
 true;`;
 
-// Publishes the floating tab bar's height to the page (and re-marks <html> in case the document-start script ran
-// before <html> existed). Safe to run at any point of the page's life.
-function tabBarInsetScript(inset: number): string {
-  return `(function(){var h=document.documentElement;if(!h)return;h.classList.add("memento-native-shell","memento-glass-tabbar");h.style.setProperty("--memento-tabbar-inset","${inset}px");})(); true;`;
+export interface TabBarLayout {
+  /** Height the page keeps clear at the bottom (0 with the keyboard up) */
+  inset: number;
+  /** Shrunk to a pill at the bottom-left */
+  compact: boolean;
+  /** Width the pill takes from the left edge, gap included (0 when full width) */
+  side: number;
+  /** Distance of the bar from the screen bottom */
+  bottom: number;
 }
+
+// Publishes the floating tab bar's layout to the page (and re-marks <html> in case the document-start script ran
+// before <html> existed). Safe to run at any point of the page's life.
+export function tabBarInsetScript(l: TabBarLayout): string {
+  return `(function(){var h=document.documentElement;if(!h)return;h.classList.add("memento-native-shell","memento-glass-tabbar");h.classList.toggle("memento-tabbar-compact",${l.compact});h.style.setProperty("--memento-tabbar-inset","${l.inset}px");h.style.setProperty("--memento-tabbar-side","${l.side}px");h.style.setProperty("--memento-tabbar-bottom","${l.bottom}px");window.__memento_tabbar_compact=${l.compact};})(); true;`;
+}
+
+// Tab bar shrunk while reading: one round pill holding the current tab (iOS 26 minimized tab bar)
+const COMPACT_TAB_SIZE = 50;
 
 type ShouldStartLoadRequest = Parameters<NonNullable<WebViewProps["onShouldStartLoadWithRequest"]>>[0];
 
@@ -271,6 +316,11 @@ export default function WebShell() {
   const [page, setPage] = useState<{ bg: string; dark: boolean } | null>(null);
   const [glassEnabled, setGlassEnabled] = useState(true);
   const [activeTab, setActiveTab] = useState<TabId | null>("ask");
+  const [tabBarCompact, setTabBarCompactState] = useState(false);
+  const setTabBarCompact = useCallback((compact: boolean) => {
+    LayoutAnimation.configureNext(LayoutAnimation.create(260, LayoutAnimation.Types.easeInEaseOut, LayoutAnimation.Properties.opacity));
+    setTabBarCompactState(compact);
+  }, []);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [initialLoaded, setInitialLoaded] = useState(false);
@@ -537,9 +587,12 @@ export default function WebShell() {
         if (typeof msg.glass === "boolean") setGlassEnabled(msg.glass);
       } else if (msg.type === "glass" && typeof msg.enabled === "boolean") {
         setGlassEnabled(msg.enabled);
+      } else if (msg.type === "tabbar_compact") {
+        setTabBarCompact(Boolean((msg as { compact?: boolean }).compact));
       } else if (msg.type === "route") {
         const path = (msg as { path?: string }).path || "";
         setActiveTab(matchTabForPath(path));
+        setTabBarCompact(false);
       } else if (msg.type === "haptic") {
         const style = (msg as { style?: string }).style || "light";
         if (style === "selection") {
@@ -611,19 +664,26 @@ export default function WebShell() {
     } catch {
       // not ours
     }
-  }, [origin, switchServer]);
+  }, [origin, switchServer, setTabBarCompact]);
 
   // Hug the bottom screen bezel concentrically (left/right 10pt, bottom 8pt on Face ID iPhones
   // where iOS 26 auto-hides the home indicator), eliminating the awkward white strip under the pill.
   const tabBarBottom = insets.bottom > 0 ? 8 : 6;
-  const tabBarInset = keyboardVisible ? 0 : 54 + tabBarBottom + 8;
+  const compactTabBar = tabBarCompact && !keyboardVisible;
+  const tabBarLayout = useMemo<TabBarLayout>(
+    () => ({
+      inset: keyboardVisible ? 0 : (compactTabBar ? COMPACT_TAB_SIZE : 54) + tabBarBottom + 8,
+      compact: compactTabBar,
+      side: compactTabBar ? COMPACT_TAB_SIZE + 8 : 0,
+      bottom: tabBarBottom,
+    }),
+    [keyboardVisible, compactTabBar, tabBarBottom],
+  );
 
   useEffect(() => {
     if (!initialLoaded || !web.current) return;
-    web.current.injectJavaScript(
-      tabBarInsetScript(tabBarInset),
-    );
-  }, [initialLoaded, tabBarInset]);
+    web.current.injectJavaScript(tabBarInsetScript(tabBarLayout));
+  }, [initialLoaded, tabBarLayout]);
 
   if (!ready) return <View style={{ flex: 1, backgroundColor: t.bg }} />;
   if (!token || !start) return <Redirect href="/login" />;
@@ -641,7 +701,7 @@ export default function WebShell() {
           source={{ uri: start }}
           style={{ flex: 1, backgroundColor: bg }}
           applicationNameForUserAgent={USER_AGENT_SUFFIX}
-          injectedJavaScriptBeforeContentLoaded={`${INJECTED_CLIENT_HELPERS}\n${tabBarInsetScript(tabBarInset)}`}
+          injectedJavaScriptBeforeContentLoaded={`${INJECTED_CLIENT_HELPERS}\n${tabBarInsetScript(tabBarLayout)}`}
           onMessage={onMessage}
           onNavigationStateChange={onNavigation}
           onShouldStartLoadWithRequest={onShouldStart}
@@ -671,7 +731,7 @@ export default function WebShell() {
             if (loadedUrl.includes("/auth/handoff")) return;
             setInitialLoaded(true);
             web.current?.injectJavaScript(
-              tabBarInsetScript(tabBarInset),
+              tabBarInsetScript(tabBarLayout),
             );
             if (pendingUrlRef.current && web.current) {
               const fullUrl = pendingUrlRef.current;
@@ -741,6 +801,7 @@ export default function WebShell() {
             {
               bottom: tabBarBottom,
             },
+            compactTabBar ? { right: undefined, width: COMPACT_TAB_SIZE } : null,
           ]}
         >
           {/* Outer shadow wrapper without overflow: "hidden" so iOS Liquid Glass keeps its soft elevation shadow */}
@@ -758,8 +819,28 @@ export default function WebShell() {
               dark={dark}
               blurTarget={blurTargetRef}
               variant="tabbar"
-              style={styles.tabBarDock}
+              style={[styles.tabBarDock, compactTabBar ? { borderRadius: COMPACT_TAB_SIZE / 2 } : null]}
             >
+              {compactTabBar ? (
+                // Tap the pill to get the whole bar back
+                <Pressable
+                  onPress={() => {
+                    void Haptics.selectionAsync();
+                    setTabBarCompact(false);
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel="展开标签栏"
+                  style={({ pressed }) => [styles.compactTab, { opacity: pressed ? 0.72 : 1, transform: [{ scale: pressed ? 0.94 : 1 }] }]}
+                  hitSlop={8}
+                >
+                  <Icon
+                    name={(TABS.find((x) => x.id === activeTab) ?? TABS[0]).icon}
+                    size={21}
+                    color={dark ? "#C4B5FD" : "#6D28D9"}
+                    strokeWidth={2.2}
+                  />
+                </Pressable>
+              ) : (
               <View style={styles.tabBarRow}>
                 {TABS.map((tab) => {
                   const isActive = activeTab === tab.id;
@@ -810,6 +891,7 @@ export default function WebShell() {
                   );
                 })}
               </View>
+              )}
             </GlassSurface>
           </View>
         </View>
@@ -851,6 +933,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 2,
     paddingHorizontal: 3,
+  },
+  compactTab: {
+    width: COMPACT_TAB_SIZE,
+    height: COMPACT_TAB_SIZE,
+    alignItems: "center",
+    justifyContent: "center",
   },
   tabLabel: {
     fontSize: 10.5,

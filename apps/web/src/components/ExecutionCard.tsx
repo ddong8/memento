@@ -47,6 +47,8 @@ export interface ToolCallItem {
 interface ExecutionCardProps {
   call: ToolCallItem;
   parentContent?: string;
+  /** The user's message for this round: an agent card doesn't echo it back as its 提示词 */
+  userPrompt?: string;
   onSmartCompactAndRetry?: (sessionId?: string) => void;
 }
 
@@ -66,9 +68,26 @@ export function cleanPromptText(text?: string): string {
     .trim();
 }
 
+/** The agent was sent what the user typed (the bubble right above shows it): no need to print it again in the card.
+ *  An orchestrator-written brief, or a prompt that only shares a few words with the question, is still shown. */
+export function promptRepeatsUser(prompt?: string, userText?: string): boolean {
+  const norm = (v?: string) => cleanPromptText(v).replace(/\s+/g, " ").trim();
+  const p = norm(prompt);
+  const u = norm(userText);
+  if (!p || !u) return false;
+  return p === u || (p.includes(u) && u.length >= p.length * 0.6);
+}
+
+/** Last folder of a working directory, for the card header ("~/dev/memento" -> "memento"). */
+function shortDirName(pathStr: string): string {
+  const parts = pathStr.replace(/[\\/]+$/, "").split(/[\\/]/);
+  return parts[parts.length - 1] || pathStr;
+}
+
 const ExecutionCard = memo(function ExecutionCard({
   call,
   parentContent,
+  userPrompt,
   onSmartCompactAndRetry,
 }: ExecutionCardProps) {
   const { t, locale } = useI18n();
@@ -317,6 +336,11 @@ const ExecutionCard = memo(function ExecutionCard({
   const [copied, setCopied] = useState(false);
   const [showAllLogs, setShowAllLogs] = useState(false);
 
+  // Copy only appears once there's something worth copying: a shell command, or output / an error
+  const hasCopyableOutput = Boolean(
+    (!isAgent && command) || result?.stdout || nonDeviceResultMarkdown || (shouldShowStderr && cleanStderr) || result?.error,
+  );
+
   const copyText = () => {
     const parts: string[] = [];
     if (command) parts.push(isAgent ? `[prompt] ${command}` : `$ ${command}`);
@@ -427,6 +451,28 @@ const ExecutionCard = memo(function ExecutionCard({
           >
             {agentLabel}
           </span>
+
+          {/* Agents: the working folder sits in the header (full path on hover) instead of its own row */}
+          {isAgent && cwd && (
+            <span
+              title={cwd}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 3,
+                fontFamily: "var(--font-mono)",
+                fontSize: 11,
+                color: "var(--aurora-fg3)",
+                overflow: "hidden",
+                whiteSpace: "nowrap",
+                minWidth: 0,
+                flexShrink: 1,
+              }}
+            >
+              <Icon name="folder" size={11} style={{ color: "var(--aurora-accent)", flexShrink: 0 }} />
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{shortDirName(cwd)}</span>
+            </span>
+          )}
 
           {command ? (
             <span
@@ -689,7 +735,8 @@ const ExecutionCard = memo(function ExecutionCard({
             </div>
           )}
 
-          {/* Sub-bar: cwd & format toggle & copy */}
+          {/* Sub-bar: cwd (shell commands; agents show it in the header) & copy (only once there is output to copy) */}
+          {((!isAgent && cwd) || hasCopyableOutput) && (
           <div
             style={{
               display: "flex",
@@ -704,7 +751,7 @@ const ExecutionCard = memo(function ExecutionCard({
             }}
           >
             <div style={{ minWidth: 0, flex: "1 1 auto", overflow: "hidden", display: "flex", alignItems: "center" }}>
-              {cwd && (
+              {!isAgent && cwd && (
                 <span
                   style={{
                     fontFamily: "var(--font-mono)",
@@ -725,6 +772,7 @@ const ExecutionCard = memo(function ExecutionCard({
               )}
             </div>
 
+            {hasCopyableOutput && (
             <div style={{ display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
               <button
                 type="button"
@@ -761,7 +809,9 @@ const ExecutionCard = memo(function ExecutionCard({
                 <span>{copied ? (t.ask.copied || "已复制") : "复制"}</span>
               </button>
             </div>
+            )}
           </div>
+          )}
 
           {result?.events && result.events.length > 0 && (
             <TaskTimeline events={result.events} running={isRunning} taskId={result?.task_id} device={device} />
@@ -830,7 +880,7 @@ const ExecutionCard = memo(function ExecutionCard({
               {command && (
                 isAgent ? (
                   // 当外层主对话已包含用户提问气泡（hasParentContent）时，不在此卡片内重复展示提示词；仅当独立卡片且净化后非空时展示
-                  !hasParentContent && cleanPromptText(command) ? (
+                  !hasParentContent && cleanPromptText(command) && !promptRepeatsUser(command, userPrompt) ? (
                     <div
                       style={{
                         display: "flex",
@@ -859,25 +909,7 @@ const ExecutionCard = memo(function ExecutionCard({
                 )
               )}
 
-              {isRunning && !result?.stdout && !cleanStderr && !result?.error && (
-                <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--aurora-fg3)", fontStyle: "italic", padding: "10px 4px" }}>
-                  <span
-                    style={{
-                      display: "inline-block",
-                      width: 8,
-                      height: 8,
-                      borderRadius: "50%",
-                      background: agentColor,
-                      animation: "pulse 1.5s infinite ease-in-out",
-                    }}
-                  />
-                  <span>
-                    {result?.status === "queued"
-                      ? (t.ask.statusWaitingPoll || "等待设备拉取任务...")
-                      : (t.ask.statusDeviceRunning || `${agentLabel} 正在运行中...`)}
-                  </span>
-                </div>
-              )}
+              {/* No "设备运行中…" line here: the badge in the header already says it */}
 
               {name === "list_devices" && result?.devices && (
                 <div style={{ fontSize: 12.5, color: "var(--aurora-fg2)" }}>

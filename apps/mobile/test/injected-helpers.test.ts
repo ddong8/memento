@@ -65,8 +65,73 @@ describe("native shell helpers injected into the web view", () => {
     expect(observers[0].off).toBe(true);
   });
 
-  it("re-mark <html> whenever the tab bar height is pushed to the page", () => {
-    expect(src).toContain('h.classList.add("memento-native-shell","memento-glass-tabbar");h.style.setProperty("--memento-tabbar-inset"');
+  it("re-mark <html> and publish the tab bar layout whenever it changes", () => {
+    expect(src).toContain('h.classList.add("memento-native-shell","memento-glass-tabbar");h.classList.toggle("memento-tabbar-compact"');
+    expect(src).toContain('h.style.setProperty("--memento-tabbar-side"');
+    expect(src).toContain('h.style.setProperty("--memento-tabbar-bottom"');
+    expect(src).toContain("window.__memento_tabbar_compact=");
     expect(src).not.toContain('document.documentElement.style.setProperty("--memento-tabbar-inset"');
+  });
+
+  it("shrink the tab bar while reading down and bring it back on the way up", () => {
+    const listeners: Record<string, (e: { target: unknown }) => void> = {};
+    const html: Record<string, unknown> = {
+      nodeType: 1,
+      classList: { add: () => undefined },
+      getAttribute: () => null,
+      appendChild: () => undefined,
+      style: { setProperty: () => undefined },
+    };
+    const doc: Record<string, unknown> = {
+      documentElement: html,
+      head: html,
+      addEventListener: (type: string, fn: (e: { target: unknown }) => void) => (listeners[type] = fn),
+      querySelector: () => null,
+      createElement: () => ({ setAttribute: () => undefined, style: {} }),
+    };
+    const posted: Array<{ type: string; compact?: boolean }> = [];
+    const win: Record<string, unknown> = {
+      innerHeight: 800,
+      navigator: {},
+      history: { pushState: () => undefined, replaceState: () => undefined },
+      location: { pathname: "/ask", search: "" },
+      addEventListener: () => undefined,
+      matchMedia: () => ({ matches: false, addEventListener: () => undefined }),
+      ReactNativeWebView: { postMessage: (m: string) => posted.push(JSON.parse(m)) },
+    };
+    class NoopObserver {
+      observe() {}
+      disconnect() {}
+    }
+    new Function(
+      "document", "window", "MutationObserver", "history", "location", "localStorage", "navigator", "setTimeout", "requestAnimationFrame",
+      helperScript(),
+    )(doc, win, NoopObserver, win.history, win.location, { getItem: () => null, setItem: () => undefined }, {}, () => 0, () => 0);
+
+    const list = { nodeType: 1, scrollTop: 0, scrollHeight: 4000, clientHeight: 700 };
+    const scrollTo = (top: number) => {
+      list.scrollTop = top;
+      listeners.scroll({ target: list });
+    };
+    const tabBarStates = () => posted.filter((m) => m.type === "tabbar_compact").map((m) => m.compact);
+
+    scrollTo(100);
+    scrollTo(160); // down 60px
+    expect(tabBarStates()).toEqual([true]);
+    scrollTo(180);
+    expect(tabBarStates()).toEqual([true]); // already shrunk: no repeat
+    scrollTo(120); // up 60px
+    expect(tabBarStates()).toEqual([true, false]);
+    scrollTo(400);
+    scrollTo(10); // back at the top
+    expect(tabBarStates()).toEqual([true, false, true, false]);
+
+    // A small scroller (the composer's textarea, a popover) never moves the tab bar
+    const textarea = { nodeType: 1, scrollTop: 0, scrollHeight: 300, clientHeight: 80 };
+    textarea.scrollTop = 50;
+    listeners.scroll({ target: textarea });
+    textarea.scrollTop = 200;
+    listeners.scroll({ target: textarea });
+    expect(tabBarStates()).toEqual([true, false, true, false]);
   });
 });

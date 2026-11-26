@@ -821,7 +821,28 @@ html.memento-glass-tabbar .memento-stage-shell {
   max-height: calc(100dvh - 3.5rem - var(--memento-tabbar-inset, 0px) - 8px) !important;
 }
 html.memento-glass-tabbar footer[data-ask-footer="true"] {
-  padding-bottom: calc(var(--memento-tabbar-inset, 0px) + 2px) !important;
+  /* Same side margins as the native tab bar (left/right 10) and a 6px gap above it (tab bar top = inset - 8px) */
+  padding-left: 10px !important;
+  padding-right: 10px !important;
+  padding-bottom: max(2px, calc(var(--memento-tabbar-inset, 0px) - 2px)) !important;
+}
+html.memento-glass-tabbar .ask-footer-card {
+  border-radius: 22px !important;
+}
+/* Messages scroll under the composer: a denser frost so the text passing behind doesn't fight the input */
+html.memento-glass-tabbar[data-glass="on"] .ask-footer-card.memento-glass-chrome {
+  background: rgba(255, 255, 255, 0.86) !important;
+}
+html.memento-glass-tabbar[data-glass="on"][data-theme="dark"] .ask-footer-card.memento-glass-chrome {
+  background: rgba(20, 20, 30, 0.86) !important;
+}
+/* Tab bar shrunk to a pill at the bottom-left while scrolling down (app 1.0.159 build 17+): the composer moves down beside it */
+html.memento-glass-tabbar.memento-tabbar-compact footer[data-ask-footer="true"] {
+  padding-left: calc(10px + var(--memento-tabbar-side, 0px)) !important;
+  padding-bottom: max(2px, var(--memento-tabbar-bottom, 0px)) !important;
+}
+html.memento-glass-tabbar footer[data-ask-footer="true"] {
+  transition: padding 0.28s cubic-bezier(0.2, 0.8, 0.2, 1) !important;
 }
 /* Phones: a full-screen panel (memory/skills console, media viewer) owns the top bar; the running-agents chip
    that normally sits there would cover the panel's back button and title. */

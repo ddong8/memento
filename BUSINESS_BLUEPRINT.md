@@ -513,7 +513,7 @@
 
 ### R-THINKING-FULL 思考过程始终铺满显示，回答正文字号统一
 - 来源: CLAUDE.md（memento）「思考过程始终铺满全屏」「回答正文字号统一」；用户 11-16「思考左侧的紫色竖线要去掉，不好看」
-- 说明: 思考块推演中和推演完都展开、宽度铺满，只有用户点胶囊才收起；思考、回答正文、段落和列表都是 14px。10-31 的 5af514f1（无关的检索改动）曾把它改回"推演完自动收拢"，11-16 改回并补测试。
+- 说明: 思考块推演中和推演完都展开、宽度铺满，只有用户点胶囊才收起（还没有思考内容时只显示标题行，不画只有「…」的空框，11-26）；思考、回答正文、段落和列表都是 14px。10-31 的 5af514f1（无关的检索改动）曾把它改回"推演完自动收拢"，11-16 改回并补测试。
 - 代码: `apps/web/src/components/ask/bubbles.tsx#ThinkingBlock`, `apps/web/src/components/ask/bubbles.tsx#AssistantBubble`, `apps/web/src/components/viewers/MarkdownViewer.tsx`
 - 测试: `apps/web/test/ask-reading-and-persona-rules.test.tsx#shows the whole thinking text after thinking is done`, `apps/web/test/ask-reading-and-persona-rules.test.tsx#paragraphs and list items of an answer are all 14px`
 - 禁止: `userToggled ? manualExpanded : Boolean(isLive)` @ `apps/web/src/components/ask/bubbles.tsx`; `borderLeft: "2.5px solid var(--aurora-accent)"` @ `apps/web/src/components/ask/bubbles.tsx`

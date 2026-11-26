@@ -9,6 +9,8 @@ import { isMemoryOrWebTool, isNonDeviceTool, isPlanTool } from "@/lib/ask/tool-m
 export interface ExecutionTabsProps {
   calls: ToolCallItem[];
   parentContent?: string;
+  /** The user's message for this round (cards don't echo it as 提示词) */
+  userPrompt?: string;
   onSmartCompactAndRetry?: (sessionId?: string) => void;
 }
 
@@ -99,7 +101,7 @@ function getCallLabel(call: ToolCallItem, defaultLabel: string, discoveryLabel: 
   return call.result?.device_name || call.device_name || (call.args?.device_id as string) || defaultLabel;
 }
 
-export default function ExecutionTabs({ calls, parentContent, onSmartCompactAndRetry }: ExecutionTabsProps) {
+export default function ExecutionTabs({ calls, parentContent, userPrompt, onSmartCompactAndRetry }: ExecutionTabsProps) {
   const { t } = useI18n();
   const [activeTab, setActiveTab] = useState<string>("all");
 
@@ -136,6 +138,7 @@ export default function ExecutionTabs({ calls, parentContent, onSmartCompactAndR
             key={call.id || idx}
             call={call}
             parentContent={parentContent}
+            userPrompt={userPrompt}
             onSmartCompactAndRetry={onSmartCompactAndRetry}
           />
         ))}
@@ -306,6 +309,7 @@ export default function ExecutionTabs({ calls, parentContent, onSmartCompactAndR
               <ExecutionCard
                 call={call}
                 parentContent={parentContent}
+                userPrompt={userPrompt}
                 onSmartCompactAndRetry={onSmartCompactAndRetry}
               />
             </div>

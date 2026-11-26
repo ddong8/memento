@@ -42,7 +42,8 @@ function ThinkingDurationMeta({ isLive, charCount }: { isLive?: boolean; charCou
   if (isLive) {
     return (
       <span style={{ fontSize: 11.5, color: "var(--aurora-fg4)", opacity: 0.9, fontVariantNumeric: "tabular-nums" }}>
-        ({durLabel ? `推演中 ${durLabel}` : "推演中"}{countLabel ? ` · ${countLabel}` : ""})
+        {/* The title already says 思考中…: just the clock (and length) here, no second "推演中" */}
+        {durLabel || countLabel ? `${durLabel}${durLabel && countLabel ? " · " : ""}${countLabel}` : ""}
       </span>
     );
   }
@@ -69,6 +70,7 @@ export function ThinkingBlock({ thinking, isLive }: { thinking: string; isLive?:
   if (!thinking && !isLive) return null;
 
   const charCount = thinking.trim().length;
+  const hasThought = charCount > 0;
 
   return (
     <>
@@ -129,7 +131,9 @@ export function ThinkingBlock({ thinking, isLive }: { thinking: string; isLive?:
             </div>
           </div>
         </button>
-        {expanded && (
+        {/* Still expanded and full width (R-THINKING-FULL), but nothing streamed yet: no empty box with "..." in it,
+            the pulsing header says it's thinking; the body appears with the first words */}
+        {expanded && hasThought && (
           <div
             ref={scrollContainerRef}
             className="thinking-scroll-content"
@@ -149,7 +153,7 @@ export function ThinkingBlock({ thinking, isLive }: { thinking: string; isLive?:
             }}
           >
             <div className="prose prose-sm max-w-none w-full" style={{ opacity: 0.95, width: "100%", maxWidth: "100%" }}>
-              <MarkdownViewer content={thinking || "..."} isStreaming={Boolean(isLive)} />
+              <MarkdownViewer content={thinking} isStreaming={Boolean(isLive)} />
             </div>
           </div>
         )}
@@ -362,6 +366,8 @@ export interface AssistantBubbleProps {
   streaming: boolean;
   isReconnecting?: boolean;
   prevUserCreatedAt?: string;
+  /** What the user asked in this round: an agent card doesn't repeat it as its 提示词 */
+  prevUserContent?: string;
   onSourcesClick: (sources: Source[]) => void;
   onSmartCompactAndRetry: (sid?: string) => void;
   onRetry?: () => void;
@@ -377,6 +383,7 @@ function areAssistantPropsEqual(prev: AssistantBubbleProps, next: AssistantBubbl
   if (prev.isReconnecting !== next.isReconnecting) return false;
   if (prev.index !== next.index) return false;
   if (prev.prevUserCreatedAt !== next.prevUserCreatedAt) return false;
+  if (prev.prevUserContent !== next.prevUserContent) return false;
   if (prev.t !== next.t) return false;
   if (prev.pendingFollowUps !== next.pendingFollowUps) return false;
   if (prev.turn !== next.turn) {
@@ -398,6 +405,7 @@ export const AssistantBubble = memo(function AssistantBubble({
   streaming,
   isReconnecting,
   prevUserCreatedAt,
+  prevUserContent,
   onSourcesClick,
   onSmartCompactAndRetry,
   onRetry,
@@ -564,6 +572,7 @@ export const AssistantBubble = memo(function AssistantBubble({
           <ExecutionTabs
             calls={turn.toolCalls!}
             parentContent={content}
+            userPrompt={prevUserContent}
             onSmartCompactAndRetry={onSmartCompactAndRetry}
           />
         </div>

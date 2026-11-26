@@ -33,6 +33,7 @@ export const ActiveStreamingTurnBubble = memo(function ActiveStreamingTurnBubble
   index,
   isReconnecting,
   prevUserCreatedAt,
+  prevUserContent,
   onSourcesClick,
   onSmartCompactAndRetry,
   onShareTurn,
@@ -43,6 +44,7 @@ export const ActiveStreamingTurnBubble = memo(function ActiveStreamingTurnBubble
   index: number;
   isReconnecting: boolean;
   prevUserCreatedAt?: string;
+  prevUserContent?: string;
   onSourcesClick: (sources: Source[]) => void;
   onSmartCompactAndRetry: (sid?: string) => void;
   onShareTurn?: (index: number) => void;
@@ -68,6 +70,7 @@ export const ActiveStreamingTurnBubble = memo(function ActiveStreamingTurnBubble
         streaming={true}
         isReconnecting={isReconnecting}
         prevUserCreatedAt={prevUserCreatedAt}
+        prevUserContent={prevUserContent}
         onSourcesClick={onSourcesClick}
         onSmartCompactAndRetry={onSmartCompactAndRetry}
         onShareTurn={onShareTurn}

@@ -2,7 +2,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import ExecutionCard, { type ToolCallItem } from "../src/components/ExecutionCard";
+import ExecutionCard, { promptRepeatsUser, type ToolCallItem } from "../src/components/ExecutionCard";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -33,6 +33,39 @@ describe("execution card output", () => {
     expect(container.querySelector("pre[style*='#080c14']")).toBeNull();
     expect(container.querySelector("h1")?.textContent).toBe("标题");
     expect(text).toContain("$ cat notes.md");
+  });
+
+  it("a running agent card says what it's doing once, and doesn't echo the user's question or a bare path row", () => {
+    const call = {
+      name: "run_on_device",
+      args: { action: "agent", binary: "claude", prompt: "目前这样适配是最优的吗", cwd: "/Users/someone/dev/memento" },
+      result: { action: "agent", status: "running", task_id: "t-run" },
+    } as unknown as ToolCallItem;
+    act(() => root.render(<ExecutionCard call={call} userPrompt="目前这样适配是最优的吗" />));
+    const text = container.textContent || "";
+    expect(text.match(/设备运行中/g)?.length).toBe(1);
+    expect(text).not.toContain("提示词");
+    // working folder sits in the header; no copy button before there's output
+    expect(text).toContain("memento");
+    expect(text).not.toContain("~/dev/memento");
+    expect([...container.querySelectorAll("button")].some((b) => b.textContent?.trim() === "复制")).toBe(false);
+  });
+
+  it("still shows a brief the orchestrator wrote for the agent", () => {
+    const call = {
+      name: "run_on_device",
+      args: { action: "agent", binary: "codex", prompt: "在 server 里给导出接口加分页，跑 pytest 并汇报" },
+      result: { action: "agent", status: "running", task_id: "t-brief" },
+    } as unknown as ToolCallItem;
+    act(() => root.render(<ExecutionCard call={call} userPrompt="导出太慢了，帮我处理一下" />));
+    expect(container.textContent).toContain("提示词");
+  });
+
+  it("knows when the agent prompt is just the user's message", () => {
+    expect(promptRepeatsUser("目前这样适配是最优的吗", "目前这样适配是最优的吗")).toBe(true);
+    expect(promptRepeatsUser("【用户上传了图片 #1】\n本地文件路径: /tmp/a.jpg\n提示: 看图\n目前这样适配是最优的吗", "目前这样适配是最优的吗")).toBe(true);
+    expect(promptRepeatsUser("在 server 里给导出接口加分页", "导出太慢了")).toBe(false);
+    expect(promptRepeatsUser("目前这样适配是最优的吗", undefined)).toBe(false);
   });
 
   const question = (status: string) => ({

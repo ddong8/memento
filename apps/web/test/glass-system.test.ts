@@ -93,5 +93,19 @@ describe("frosted glass architecture", () => {
     expect(read("components/agent/ActiveRunsMonitor.tsx")).toContain("memento-active-runs-dock");
     expect(read("app/globals.css")).toContain("body:has(.memento-fullscreen-panel) .memento-active-runs-dock");
   });
+
+  it("lines the phone composer up with the floating tab bar and keeps its summary row to one readable line", () => {
+    const repoRoot = path.resolve(__dirname, "../../..");
+    const css = fs.readFileSync(path.join(repoRoot, "apps/web/src/app/globals.css"), "utf8");
+    const ask = fs.readFileSync(path.join(repoRoot, "apps/web/src/app/ask/page.tsx"), "utf8");
+    expect(css).toContain("padding-bottom: max(2px, calc(var(--memento-tabbar-inset, 0px) - 2px))");
+    expect(css).toContain("html.memento-glass-tabbar .ask-footer-card {\n  border-radius: 22px");
+    // tab bar shrunk to a pill: the composer moves down beside it
+    expect(css).toContain("html.memento-glass-tabbar.memento-tabbar-compact footer[data-ask-footer=\"true\"]");
+    expect(css).toContain("calc(10px + var(--memento-tabbar-side, 0px))");
+    // phones: device as a dot, model without the vendor prefix, effort/session in the panel
+    expect(ask).toContain('selectedModel.replace(/^(claude|gpt|gemini)-/i, "")');
+    expect(ask).toContain('className="hidden sm:inline-flex"\n                      style={{\n                        alignItems: "center",');
+  });
 });
 

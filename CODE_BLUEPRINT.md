@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `7ae4bb6d` · Updated: `2026-11-26`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `28db505b` · Updated: `2026-11-26`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,7 +16,7 @@
 - 规模 (Scale): 9 个子系统 · 41 组 API 路由 / 328 个接口 · 39 个前端页面 · 41 个数据模型 · 35 个服务模块 · 266 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `7ae4bb6d` (2026-11-26): fix(mobile,web): 补齐手机端悬浮底栏避让：侧边栏用户卡片、历史对话末条、媒体抽屉，全屏控制台隐藏运行中胶囊，安卓注入早于 <html> 时不再失效
+- 最近改动 (Latest): `28db505b` (2026-11-26): fix(web): 手机端认知大脑与技能进化全屏控制台改用不透明底色，下层页面不再透出叠在标签栏上
 - 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 75（✅ 75 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `F-ASK`, `R-ISLAND-CLEANUP`, `R-MEDIA-VIEW`, `R-WECHAT-DRAFT`, `S-RUN-STATE`, `R-MENU-KEEPALIVE`, `R-LLM-IN-PROFILE`, `R-PERSONA-ONBOARD`
 
 | 章节 (Section) | 行号 (Lines) |
@@ -663,9 +663,9 @@ erDiagram
 
 - [`deploy/k8s/studio.yaml`](deploy/k8s/studio.yaml) (19 commits)
 - [`apps/web/src/app/studio/page.tsx`](apps/web/src/app/studio/page.tsx) (10 commits)
-- [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (10 commits)
-- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (9 commits)
 - [`apps/web/src/components/layout/Sidebar.tsx`](apps/web/src/components/layout/Sidebar.tsx) (9 commits)
+- [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (9 commits)
+- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (8 commits)
 - [`apps/web/src/app/globals.css`](apps/web/src/app/globals.css) (8 commits)
 - [`apps/web/src/lib/studio-api.ts`](apps/web/src/lib/studio-api.ts) (8 commits)
 - [`server/server/api/studio.py`](server/server/api/studio.py) (8 commits)
@@ -693,12 +693,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `28db505b` (2026-11-26): fix(web): 手机端认知大脑与技能进化全屏控制台改用不透明底色，下层页面不再透出叠在标签栏上
 - `7ae4bb6d` (2026-11-26): fix(mobile,web): 补齐手机端悬浮底栏避让：侧边栏用户卡片、历史对话末条、媒体抽屉，全屏控制台隐藏运行中胶囊，安卓注入早于 <html> 时不再失效
 - `ca9d376d` (2026-11-26): fix(mobile,web): 适配 3D 认知大脑等 Tab 页底部悬浮栏避让并收紧 iOS 底栏底边距与玻璃对比度
 - `1cf22ac9` (2026-11-26): fix(mobile,web): 修复 iOS 液态玻璃底栏阴影与配色、支持对话穿透毛玻璃并优化手机底部按钮布局
 - `eec90a0f` (2026-11-26): fix(mobile-ui): 适配代码审阅抽屉与移交弹窗的手机端液态玻璃底栏避让及安全区
 - `67f0f784` (2026-11-26): fix(git-review): 兼容旧版客户端零升级 Diff 与提交回退、修复 Windows 标题栏遮挡并升级至 v1.0.159
-- `4910b280` (2026-11-26): feat(ask): 新增隐藏回合检查点回滚、逐行 Diff 审阅与一键 PR 及跨智能体移交并升级至 v1.0.158
 
 ## 10. Key Environment Variables & Configuration
 

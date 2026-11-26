@@ -1,5 +1,6 @@
 "use client";
 
+import { PERMISSION_MODE_OPTIONS, defaultPermissionMode, normalizePermissionMode, permissionModeLabel, rememberPermissionMode, type PermissionMode } from "@/lib/ask/permission-mode";
 import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -231,6 +232,8 @@ function AskPageContent() {
   /** Device the code is on when it isn't the one running the agent ("": the executor's own folder). */
   const [codeDevice, setCodeDevice] = useState<string>(() => askCache?.codeDevice ?? initSnap?.codeDevice ?? "");
   const [selectedEffort, setSelectedEffort] = useState<string>(() => askCache?.selectedEffort ?? initSnap?.selectedEffort ?? "");
+  // When the agent must ask before commands / edits (Claude Code for now); new conversations start from the last choice
+  const [permissionMode, setPermissionMode] = useState<PermissionMode>(() => defaultPermissionMode());
   const [capabilities, setCapabilities] = useState<AgentCapabilities | null>(
     () => askCache?.capabilities || getImmediateCapabilities(initSnap?.executionMode || "ai", initSnap?.selectedDevice)
   );
@@ -1348,6 +1351,7 @@ function AskPageContent() {
       );
       setIsCustomModel(!isKnown);
       setSelectedEffort(targetEffort);
+      setPermissionMode(normalizePermissionMode(data.permission_mode ?? cfg.permission_mode));
 
       const isWorktree = Boolean(data.worktree ?? cfg.worktree ?? false);
       setWorktreeMode(isWorktree);
@@ -1562,6 +1566,9 @@ function AskPageContent() {
         if (cachedConv.config?.effort != null) {
           setSelectedEffort(cachedConv.config.effort);
         }
+        if (cachedConv.config?.permission_mode != null) {
+          setPermissionMode(normalizePermissionMode(cachedConv.config.permission_mode));
+        }
         applyCachedCascade(cascadeOf(cachedConv.config), cachedMode || executionModeRef.current);
         setHistoryOpen(false);
         setSourcesOpen(false);
@@ -1743,6 +1750,7 @@ function AskPageContent() {
     setSelectedModel("");
     setIsCustomModel(false);
     setSelectedEffort("");
+    setPermissionMode(defaultPermissionMode());
     setWorktreeMode(false);
     setCodeDevice("");
     codeDeviceRef.current = "";
@@ -3944,6 +3952,7 @@ function AskPageContent() {
           // Sent even when "": that is the choice of the CLI's own default, not "keep the last one"
           model: selectedModel,
           effort: selectedEffort,
+          permission_mode: permissionMode,
           session_id: effectiveSessionId,
           // Only retrying compacted asks for it; left out, the session goes on in place (the server starts
           // one from a snapshot only on a device the session isn't on)
@@ -3976,7 +3985,7 @@ function AskPageContent() {
     } finally {
       finishStream(ctrl);
     }
-  }, [activeConversationId, compactMode, consumeRun, cwd, executionMode, finishStream, followRun, locale, patchLast, selectedDevice, selectedEffort, selectedModel, selectedProjectId, selectedSessionId, turns, t, worktreeMode, codeDevice]);
+  }, [activeConversationId, compactMode, consumeRun, cwd, executionMode, finishStream, followRun, locale, patchLast, selectedDevice, selectedEffort, selectedModel, selectedProjectId, selectedSessionId, turns, t, worktreeMode, codeDevice, permissionMode]);
 
   // A follow-up while the reply runs: into the running agent when it reads input mid-run (it sees it at its
   // next step), else queued and sent as the next message when this reply ends. Any number, one after another.
@@ -5806,6 +5815,29 @@ function AskPageContent() {
                     </span>
                   )}
 
+                  {/* Asks before acting: worth seeing at a glance, phones too */}
+                  {executionMode === "claude" && permissionMode !== "full" && (
+                    <span
+                      title={permissionModeLabel(permissionMode, isZh)}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 3,
+                        padding: "2.5px 6px",
+                        borderRadius: 6,
+                        background: "var(--aurora-accent-soft)",
+                        color: "var(--aurora-accent)",
+                        fontSize: 11,
+                        fontWeight: 600,
+                        whiteSpace: "nowrap",
+                        flexShrink: 0,
+                      }}
+                    >
+                      <Icon name="lock" size={10.5} />
+                      <span className="hidden sm:inline">{permissionModeLabel(permissionMode, isZh)}</span>
+                    </span>
+                  )}
+
                   {/* Reasoning Effort Badge (phones: in the config panel, the bar stays one readable line) */}
                   {selectedEffort && (
                     <span
@@ -6554,6 +6586,58 @@ function AskPageContent() {
                     ).map((opt) => (
                       <option key={opt.id} value={opt.id} title={opt.desc} style={{ background: "var(--aurora-surface-solid)", color: "var(--aurora-fg1)" }}>
                         {opt.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Permission mode: when Claude Code must ask before commands / file edits (approval cards come in the reply) */}
+              {executionMode === "claude" && (
+                <div
+                  data-testid="ask-permission-mode"
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                    background: permissionMode !== "full" ? "var(--aurora-accent-soft)" : "var(--aurora-chip)",
+                    border: "1px solid",
+                    borderColor: permissionMode !== "full" ? "var(--aurora-accent)" : "var(--aurora-border)",
+                    borderRadius: 10,
+                    padding: "4px 10px",
+                    fontSize: 12,
+                    maxWidth: "100%",
+                    minWidth: 0,
+                    overflow: "hidden",
+                    boxSizing: "border-box",
+                  }}
+                  title={isZh ? "智能体运行命令、修改文件前要不要先问你" : "When the agent asks before running commands or editing files"}
+                >
+                  <Icon name="lock" size={13} style={{ color: permissionMode !== "full" ? "var(--aurora-accent)" : "var(--aurora-fg3)", flexShrink: 0 }} />
+                  <select
+                    value={permissionMode}
+                    onChange={(e) => {
+                      const next = normalizePermissionMode(e.target.value);
+                      setPermissionMode(next);
+                      rememberPermissionMode(next);
+                      persistCurrentConfig({ permission_mode: next });
+                    }}
+                    style={{
+                      background: "transparent",
+                      border: "none",
+                      outline: "none",
+                      color: "var(--aurora-fg1)",
+                      fontSize: 12,
+                      fontWeight: permissionMode !== "full" ? 600 : 500,
+                      cursor: "pointer",
+                      maxWidth: "min(200px, 46vw)",
+                      flex: "1 1 auto",
+                      minWidth: 0,
+                    }}
+                  >
+                    {PERMISSION_MODE_OPTIONS.map((opt) => (
+                      <option key={opt.id} value={opt.id} style={{ background: "var(--aurora-surface-solid)", color: "var(--aurora-fg1)" }}>
+                        {isZh ? opt.zh : opt.en}
                       </option>
                     ))}
                   </select>

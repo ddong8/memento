@@ -136,6 +136,35 @@ interface PendingAsk {
   answers: Record<string, string>;
 }
 
+/** A tool call Claude Code wants the user to approve (any permission mode but full access). */
+interface PendingApproval {
+  requestId: string;
+  tool: string;
+  input: Json;
+}
+
+/** The choices on an approval card; anything else typed is a no, sent back to the agent as feedback. */
+export const APPROVAL_ALLOW = "允许";
+export const APPROVAL_ALLOW_ALL = "本次都允许";
+export const APPROVAL_DENY = "拒绝";
+
+/** One line saying what the agent wants to do, for the approval card. */
+export function describeToolRequest(tool: string, input: Json): string {
+  const s = (v: unknown) => (typeof v === "string" ? v : "");
+  const path = s(input.file_path) || s(input.notebook_path) || s(input.path);
+  if (tool === "Bash") return `运行命令：${clip(s(input.command), 300)}`;
+  if (["Edit", "MultiEdit", "Write", "NotebookEdit"].includes(tool) && path) return `${tool === "Write" ? "写入" : "修改"}文件：${path}`;
+  if (tool === "WebFetch") return `访问网页：${s(input.url)}`;
+  if (tool === "WebSearch") return `联网搜索：${s(input.query)}`;
+  const brief = clip(JSON.stringify(input), 200);
+  return `调用 ${tool}${brief && brief !== "{}" ? `：${brief}` : ""}`;
+}
+
+const denyTool = (requestId: string, message: string): Json => ({
+  type: "control_response",
+  response: { subtype: "success", request_id: requestId, response: { behavior: "deny", message } },
+});
+
 const allowTool = (requestId: string, updatedInput: Json): Json => ({
   type: "control_response",
   response: { subtype: "success", request_id: requestId, response: { behavior: "allow", updatedInput } },
@@ -145,10 +174,20 @@ const allowTool = (requestId: string, updatedInput: Json): Json => ({
 const TASK_ENDED = new Set(["completed", "failed", "stopped", "killed", "cancelled"]);
 
 export class ClaudeStreamParser extends AgentStreamParser {
+  constructor(opts: { approvals?: boolean } = {}) {
+    super();
+    this.askApprovals = opts.approvals === true;
+  }
+
   override tracksBackgroundTasks = true;
   private result: string | undefined;
   private readonly texts: string[] = [];
   private readonly asks: PendingAsk[] = [];
+  private readonly approvals: PendingApproval[] = [];
+  /** Tools the user allowed for the rest of this run ("本次都允许") */
+  private readonly allowedTools = new Set<string>();
+  /** Tool calls go to the user for approval (permission modes other than full access) instead of being allowed */
+  private readonly askApprovals: boolean;
   private replies: Json[] = [];
   /** Set by the result event: user messages still waiting to be read. Zero means the run is done and stdin can be closed. */
   queuedTurns: number | undefined;
@@ -213,6 +252,23 @@ export class ClaudeStreamParser extends AgentStreamParser {
    * its answer, the reply to the CLI is queued for takeReplies().
    */
   answer(questionId: string | undefined, text: string): AgentEvent[] | null {
+    const approval = this.approvals.find((a) => (questionId ? `${a.requestId}:approval` === questionId : true));
+    if (approval && (questionId || this.asks.length === 0)) {
+      this.approvals.splice(this.approvals.indexOf(approval), 1);
+      const choice = text.trim();
+      let answer: string;
+      if (choice === APPROVAL_ALLOW || choice.startsWith(APPROVAL_ALLOW_ALL)) {
+        if (choice.startsWith(APPROVAL_ALLOW_ALL)) this.allowedTools.add(approval.tool);
+        this.replies.push(allowTool(approval.requestId, approval.input));
+        answer = choice.startsWith(APPROVAL_ALLOW_ALL) ? `${APPROVAL_ALLOW_ALL} ${approval.tool}` : APPROVAL_ALLOW;
+      } else {
+        // A typed reply declines with that reply as feedback to the agent
+        const feedback = choice === APPROVAL_DENY || !choice ? "用户拒绝了这个操作。" : `用户没有批准这个操作，回复：${choice}`;
+        this.replies.push(denyTool(approval.requestId, feedback));
+        answer = choice === APPROVAL_DENY || !choice ? APPROVAL_DENY : `拒绝：${clip(choice, 120)}`;
+      }
+      return [{ kind: "question", id: `${approval.requestId}:approval`, status: "answered", answer }];
+    }
     for (const ask of this.asks) {
       // Claude reads the answers keyed by question text
       const key = (i: number) => str(ask.questions[i]!.question) ?? String(i);
@@ -404,7 +460,27 @@ export class ClaudeStreamParser extends AgentStreamParser {
         const input = isObject(req.input) ? req.input : {};
         const questions = req.tool_name === "AskUserQuestion" && Array.isArray(input.questions) ? input.questions.filter(isObject) : [];
         if (!questions.length) {
-          this.replies.push(allowTool(requestId, input));
+          const tool = str(req.tool_name) ?? "工具";
+          if (!this.askApprovals || this.allowedTools.has(tool)) {
+            this.replies.push(allowTool(requestId, input));
+            break;
+          }
+          this.approvals.push({ requestId, tool, input });
+          events.push({
+            kind: "question",
+            id: `${requestId}:approval`,
+            tool,
+            header: "需要你批准",
+            question: describeToolRequest(tool, input),
+            options: [
+              { label: APPROVAL_ALLOW },
+              { label: `${APPROVAL_ALLOW_ALL} ${tool}`, description: "这次运行里同类操作不再询问" },
+              { label: APPROVAL_DENY },
+            ],
+            is_multi_select: false,
+            approval: true,
+            status: "waiting",
+          });
           break;
         }
         this.asks.push({ requestId, input, questions, answers: {} });
@@ -425,6 +501,11 @@ export class ClaudeStreamParser extends AgentStreamParser {
       }
       case "control_cancel_request": {
         const requestId = str(d.request_id);
+        const ap = this.approvals.findIndex((a) => a.requestId === requestId);
+        if (ap >= 0) {
+          this.approvals.splice(ap, 1);
+          events.push({ kind: "question", id: `${requestId}:approval`, status: "answered", answer: "（已取消）" });
+        }
         const at = this.asks.findIndex((a) => a.requestId === requestId);
         if (at >= 0) {
           const [ask] = this.asks.splice(at, 1);

@@ -100,6 +100,22 @@ async def handle_agent_tool_use(machine_id: uuid.UUID, device_name: str | None, 
         logger.exception("Failed to handle agent_tool_use")
 
 
+async def handle_waiting_question(user_id: uuid.UUID | None, task_id: str, event: dict) -> None:
+    """An agent stopped to ask (an approval below full access, or AskUserQuestion): push it to the phone, since
+    the run waits until someone answers."""
+    if not user_id or event.get("kind") != "question" or event.get("status") not in (None, "waiting"):
+        return
+    try:
+        question = str(event.get("question") or "").strip()
+        if not question:
+            return
+        title = "需要你批准" if event.get("approval") else "智能体在等你回答"
+        body = question if len(question) <= 120 else question[:119] + "…"
+        await notify_service.notify_user(user_id, "task_done", title, body, url=notify_service.task_link(task_id))
+    except Exception:
+        logger.exception("Failed to push a waiting question")
+
+
 def _task_summary(task: DeviceTask) -> str:
     payload = task.payload or {}
     text = str(payload.get("user_question") or payload.get("prompt") or payload.get("command") or "").strip()

@@ -221,6 +221,15 @@ def _can_carry_session(home, target, user: User) -> bool:
     return all(device_has_feature(m.name, "session_sync", user) for m in (home, target))
 
 
+PERMISSION_MODES = ("full", "auto_edits", "supervised", "auto")
+
+
+def normalize_permission_mode(mode: str | None) -> str:
+    """One of PERMISSION_MODES; anything else (not chosen, an unknown value) is full access, as before."""
+    m = (mode or "").strip().lower()
+    return m if m in PERMISSION_MODES else "full"
+
+
 async def _prepare_agent_args(
     db: AsyncSession,
     user: User,
@@ -242,6 +251,7 @@ async def _prepare_agent_args(
     attachments: list[dict] | None,
     worktree: bool,
     source_device_id: str | None = None,
+    permission_mode: str = "full",
 ) -> tuple[str, dict, str, str | None, str | None]:
     """The run_on_device args of a direct agent/shell ask: (action, args, command shown, session id
     the task resumes (None once compacted), session id the client asked for)."""
@@ -275,6 +285,9 @@ async def _prepare_agent_args(
         args["model"] = model
     if effort:
         args["effort"] = effort
+    if action == "agent" and permission_mode != "full":
+        # Older daemons ignore it and keep running with full access
+        args["permission_mode"] = permission_mode
     if session_id:
         args["session_id"] = session_id
     if project_id:
@@ -538,6 +551,7 @@ async def direct_agent_stream(
     images: list[str] | None = None,
     attachments: list[dict] | None = None,
     worktree: bool = False,
+    permission_mode: str = "full",
     source_device_id: str | None = None,
     checkpoint: dict | None = None,
     resume: bool = False,
@@ -585,7 +599,7 @@ async def direct_agent_stream(
         action, run_args, cmd_display, session_id, orig_session_id = await _prepare_agent_args(
             db, user, question, conv_id, conv_title, execution_mode, device_id, cwd, model, effort, session_id,
             project_id, fork, compact_mode, history, timeout_seconds, images, attachments, worktree,
-            source_device_id,
+            source_device_id, permission_mode=permission_mode,
         )
         call_id = f"direct_{uuid.uuid4().hex[:8]}"
         # Started a new session from the snapshot of this one: said in the conversation, the run card's
@@ -712,6 +726,7 @@ async def direct_agent_stream(
                 "execution_mode": execution_mode,
                 "model": model or "",
                 "effort": effort or "",
+                "permission_mode": permission_mode,
                 "project_id": project_id or "",
                 "session_id": next_session or "",
                 "device_id": persisted_dev_id or "",

@@ -644,6 +644,7 @@ async def get_conversation(
         "execution_mode": cfg.get("execution_mode", "ai"),
         "model": cfg.get("model", ""),
         "effort": cfg.get("effort", ""),
+        "permission_mode": cfg.get("permission_mode", "full"),
         "project_id": proj_id_val,
         "project_title": proj_title_val or "",
         "session_id": cfg.get("session_id", ""),
@@ -754,6 +755,7 @@ async def ensure_conversation_by_session(
             "execution_mode": cfg_final.get("execution_mode", body.execution_mode or "ai"),
             "model": cfg_final.get("model", ""),
             "effort": cfg_final.get("effort", ""),
+            "permission_mode": cfg_final.get("permission_mode", "full"),
             "project_id": proj_id_final,
             "project_title": proj_title_final or "",
             "session_id": cfg_final.get("session_id", body.session_id),
@@ -773,6 +775,7 @@ class UpdateConversationRequest(BaseModel):
     execution_mode: str | None = None
     model: str | None = None
     effort: str | None = None
+    permission_mode: str | None = None
     project_id: str | None = None
     session_id: str | None = None
     worktree: bool | None = None
@@ -818,6 +821,10 @@ async def update_conversation(
         cfg["model"] = body.model
     if body.effort is not None:
         cfg["effort"] = body.effort
+    if body.permission_mode is not None:
+        from ..services.ask_stream import normalize_permission_mode
+
+        cfg["permission_mode"] = normalize_permission_mode(body.permission_mode)
     if body.project_id is not None:
         cfg["project_id"] = body.project_id
     if body.session_id is not None:

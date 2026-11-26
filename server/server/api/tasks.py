@@ -635,6 +635,8 @@ async def device_websocket_endpoint(
                 tid = data.get("task_id")
                 if tid and isinstance(data.get("event"), dict):
                     ws_manager.push_event(tid, data["event"])
+                    if data["event"].get("kind") == "question" and data["event"].get("status") in (None, "waiting"):
+                        notify_service.spawn(task_alerts.handle_waiting_question(machine.user_id, tid, data["event"]))
                     if data["event"].get("kind") == "steer":
                         notify_service.spawn(ask_followups.note_steer(tid, data["event"]))
                     if data["event"].get("kind") == "session" and data["event"].get("session_id"):

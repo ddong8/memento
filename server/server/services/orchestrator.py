@@ -812,6 +812,9 @@ async def _tool_run_on_device(db: AsyncSession, user: User, args: dict, *, class
                 payload["model"] = args["model"]
             if args.get("effort"):
                 payload["effort"] = args["effort"]
+            if args.get("permission_mode") and args["permission_mode"] != "full":
+                # Ask before commands / edits (daemon 1.0.160+; older ones run with full access as before)
+                payload["permission_mode"] = args["permission_mode"]
             if args.get("project_id"):
                 payload["project_id"] = args["project_id"]
             if args.get("fork") is not None:

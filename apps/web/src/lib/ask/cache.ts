@@ -393,6 +393,7 @@ export interface CachedConversationConfig {
   executionMode?: ExecutionMode;
   model?: string;
   effort?: string;
+  permission_mode?: string;
   cwd?: string;
   selectedDevice?: string;
   selectedProjectId?: string;

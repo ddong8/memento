@@ -1569,6 +1569,8 @@ export interface AskConversationDetail {
   execution_mode?: string;
   model?: string;
   effort?: string;
+  /** full | auto_edits | supervised | auto (lib/ask/permission-mode) */
+  permission_mode?: string;
   project_id?: string;
   project_title?: string;
   session_id?: string;

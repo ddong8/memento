@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `e036651e` · Updated: `2026-11-26`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `ccc967a1` · Updated: `2026-11-26`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -13,10 +13,10 @@
 - 类型 (Type): Monorepo (Workspaces)
 - 技术栈 (Stack): TypeScript/JavaScript, Python, Shell / Bash · React, Electron, Next.js, TailwindCSS, Model Context Protocol (MCP), FastAPI, SQLAlchemy, Celery
 - 基础设施 (Infra): PostgreSQL, pgvector (Vector DB), Redis, MinIO / S3 Object Storage, Celery Task Queue
-- 规模 (Scale): 9 个子系统 · 41 组 API 路由 / 328 个接口 · 39 个前端页面 · 41 个数据模型 · 35 个服务模块 · 266 个测试文件
+- 规模 (Scale): 9 个子系统 · 41 组 API 路由 / 328 个接口 · 39 个前端页面 · 41 个数据模型 · 35 个服务模块 · 268 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `e036651e` (2026-11-26): feat(mobile,web): 手机端对话页精简：运行中卡片去重、输入框标签合并并对齐底栏，往下滚时底栏缩成小胶囊
+- 最近改动 (Latest): `ccc967a1` (2026-11-26): fix(mobile,web): 底栏小胶囊改用浓玻璃底色不再透出下方文字糊成一团，网页声明支持后 App 才缩成胶囊，旧缓存页面保持完整底栏；iOS 构建号升到 18
 - 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 75（✅ 75 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `F-FOLLOWUP`, `R-THINKING-FULL`, `S-MODEL-CHOICE`, `F-ASK`, `R-ISLAND-CLEANUP`, `R-MEDIA-VIEW`, `R-WECHAT-DRAFT`, `S-RUN-STATE`
 
 | 章节 (Section) | 行号 (Lines) |
@@ -31,7 +31,7 @@
 | 8. Development & Verification Commands | L675-L692 |
 | 9. Recent Architectural Evolutions | L694-L701 |
 | 10. Key Environment Variables & Configuration | L703-L715 |
-| 11. 业务蓝图核对 (Business Blueprint Check) | L717-L726 |
+| 11. 业务蓝图核对 (Business Blueprint Check) | L717-L725 |
 
 ## 1. Project Overview & Tech Stack
 
@@ -651,9 +651,9 @@ erDiagram
 
 | Suite | Directory | Files | Sample Tests |
 | :--- | :--- | :--- | :--- |
-| server/tests (pytest) | [`server/tests`](server/tests) | 132 | `test_agent_ids.py`, `test_agent_limits.py`, `test_agent_login.py`, `test_agent_run_states.py`, `test_ai_provider.py` |
+| server/tests (pytest) | [`server/tests`](server/tests) | 133 | `test_agent_ids.py`, `test_agent_limits.py`, `test_agent_login.py`, `test_agent_run_states.py`, `test_ai_provider.py` |
 | packages/daemon/test (vitest / jest) | [`packages/daemon/test`](packages/daemon/test) | 64 | `agent-args.test.ts`, `agent-login.test.ts`, `agent-stream.test.ts`, `agy-background.test.ts`, `agy-models.test.ts` |
-| apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 60 | `active-runs-chip.test.tsx`, `api-client.test.ts`, `ask-performance-guards.test.tsx`, `ask-reading-and-persona-rules.test.tsx`, `ask-top-bar.test.tsx` |
+| apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 61 | `active-runs-chip.test.tsx`, `api-client.test.ts`, `ask-performance-guards.test.tsx`, `ask-reading-and-persona-rules.test.tsx`, `ask-top-bar.test.tsx` |
 | apps/mobile/test (vitest / jest) | [`apps/mobile/test`](apps/mobile/test) | 4 | `deeplink.test.ts`, `glass-surface.test.ts`, `injected-helpers.test.ts`, `webview-props.test.ts` |
 | apps/desktop/test (vitest / jest) | [`apps/desktop/test`](apps/desktop/test) | 2 | `helpers.test.ts`, `updater-and-daemon.test.ts` |
 | packages/core/test (vitest / jest) | [`packages/core/test`](packages/core/test) | 2 | `ask-stream.test.ts`, `task-events.test.ts` |
@@ -662,15 +662,15 @@ erDiagram
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
 - [`deploy/k8s/studio.yaml`](deploy/k8s/studio.yaml) (19 commits)
+- [`apps/web/src/app/globals.css`](apps/web/src/app/globals.css) (10 commits)
 - [`apps/web/src/app/studio/page.tsx`](apps/web/src/app/studio/page.tsx) (10 commits)
 - [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (9 commits)
-- [`apps/web/src/app/globals.css`](apps/web/src/app/globals.css) (9 commits)
 - [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (9 commits)
 - [`apps/web/src/components/layout/Sidebar.tsx`](apps/web/src/components/layout/Sidebar.tsx) (8 commits)
 - [`apps/web/src/lib/studio-api.ts`](apps/web/src/lib/studio-api.ts) (8 commits)
 - [`server/server/api/studio.py`](server/server/api/studio.py) (8 commits)
-- [`packages/daemon/src/antigravity.ts`](packages/daemon/src/antigravity.ts) (7 commits)
-- [`apps/mobile/src/app/index.tsx`](apps/mobile/src/app/index.tsx) (6 commits)
+- [`apps/mobile/src/app/index.tsx`](apps/mobile/src/app/index.tsx) (7 commits)
+- [`apps/web/test/glass-system.test.ts`](apps/web/test/glass-system.test.ts) (7 commits)
 
 ## 8. Development & Verification Commands
 
@@ -693,12 +693,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `ccc967a1` (2026-11-26): fix(mobile,web): 底栏小胶囊改用浓玻璃底色不再透出下方文字糊成一团，网页声明支持后 App 才缩成胶囊，旧缓存页面保持完整底栏；iOS 构建号升到 18
 - `e036651e` (2026-11-26): feat(mobile,web): 手机端对话页精简：运行中卡片去重、输入框标签合并并对齐底栏，往下滚时底栏缩成小胶囊
 - `df0f1bce` (2026-11-26): chore(mobile): iOS 构建号升到 16，带上注入脚本等 <html> 就绪的修复传 TestFlight
 - `28db505b` (2026-11-26): fix(web): 手机端认知大脑与技能进化全屏控制台改用不透明底色，下层页面不再透出叠在标签栏上
 - `7ae4bb6d` (2026-11-26): fix(mobile,web): 补齐手机端悬浮底栏避让：侧边栏用户卡片、历史对话末条、媒体抽屉，全屏控制台隐藏运行中胶囊，安卓注入早于 <html> 时不再失效
 - `ca9d376d` (2026-11-26): fix(mobile,web): 适配 3D 认知大脑等 Tab 页底部悬浮栏避让并收紧 iOS 底栏底边距与玻璃对比度
-- `1cf22ac9` (2026-11-26): fix(mobile,web): 修复 iOS 液态玻璃底栏阴影与配色、支持对话穿透毛玻璃并优化手机底部按钮布局
 
 ## 10. Key Environment Variables & Configuration
 
@@ -723,7 +723,6 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 - `e036651e` feat(mobile,web): 手机端对话页精简：运行中卡片去重、输入框标签合并并对齐底栏，往下滚时底栏缩成小胶囊 → `F-FOLLOWUP`, `R-THINKING-FULL`, `S-MODEL-CHOICE`
 - `7ae4bb6d` fix(mobile,web): 补齐手机端悬浮底栏避让：侧边栏用户卡片、历史对话末条、媒体抽屉，全屏控制台隐藏运行中胶囊，安卓注入早于 <html> 时不再失 → `F-ASK`, `R-ISLAND-CLEANUP`, `R-MEDIA-VIEW`, `R-WECHAT-DRAFT`, `S-RUN-STATE`
-- `ca9d376d` fix(mobile,web): 适配 3D 认知大脑等 Tab 页底部悬浮栏避让并收紧 iOS 底栏底边距与玻璃对比度 → `R-MENU-KEEPALIVE`, `R-LLM-IN-PROFILE`, `R-PERSONA-ONBOARD`
 
 ---
 _Auto-maintained by `scripts/project_blueprint.mjs` (v20261126) & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._

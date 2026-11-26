@@ -132,7 +132,25 @@ export const claudeUserMessage = (text: string) => ({ type: "user", message: { r
 export const STEER_AFTER_ANSWER_MS = 30 * 60_000;
 
 /** Claude Code in print mode with stream-json in and out: every tool call is an event, the prompt goes in on stdin, and follow-ups can be written while it runs. */
-export function claudeArgs(o: { sessionId?: string; sysAppend?: string; model?: string; settingsJson?: string; sessionName?: string } = {}): string[] {
+/** When the agent must ask before acting (the server's permission_mode; anything unknown is full access, as before). */
+export type PermissionMode = "full" | "auto_edits" | "supervised" | "auto";
+
+export function normalizePermissionMode(mode: unknown): PermissionMode {
+  const m = typeof mode === "string" ? mode.trim().toLowerCase() : "";
+  return m === "auto_edits" || m === "supervised" || m === "auto" ? m : "full";
+}
+
+/** Claude Code's own --permission-mode for each of memento's modes (full access keeps skipping every prompt). */
+const CLAUDE_PERMISSION_FLAGS: Record<PermissionMode, string[]> = {
+  full: ["--dangerously-skip-permissions"],
+  auto_edits: ["--permission-mode", "acceptEdits"],
+  supervised: ["--permission-mode", "manual"],
+  auto: ["--permission-mode", "auto"],
+};
+
+export function claudeArgs(
+  o: { sessionId?: string; sysAppend?: string; model?: string; settingsJson?: string; sessionName?: string; permissionMode?: PermissionMode } = {},
+): string[] {
   return [
     "-p",
     ...(o.sessionId ? ["-r", o.sessionId] : []),
@@ -143,9 +161,10 @@ export function claudeArgs(o: { sessionId?: string; sysAppend?: string; model?: 
     "--output-format",
     "stream-json",
     "--verbose",
-    "--dangerously-skip-permissions",
+    ...CLAUDE_PERMISSION_FLAGS[o.permissionMode ?? "full"],
     // AskUserQuestion only exists when something can answer it: with this the CLI asks over stdin/stdout
-    // (control_request / control_response), and every other tool stays allowed by the flag above.
+    // (control_request / control_response). In full access every other tool is allowed by the flag above;
+    // in the other modes the tools the mode leaves open come here too, as approvals for the user.
     "--permission-prompt-tool",
     "stdio",
     ...(o.model ? ["--model", o.model] : []),

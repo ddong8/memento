@@ -34,7 +34,7 @@ from ..services.ask_runs import ask_runs
 from ..services.ask_prompt import build_messages, classify_continuation
 from ..services.ask_retrieval import retrieve, retrieve_core_memories
 from ..services.ask_store import append_conversation_turns, get_or_create_conversation, reconcile_session
-from ..services.ask_stream import SSE_HEADERS, direct_agent_stream, run_response
+from ..services.ask_stream import SSE_HEADERS, direct_agent_stream, normalize_permission_mode, run_response
 from ..services import ai_health, ask_followups
 from . import ask_conversations
 
@@ -67,6 +67,9 @@ class AskRequest(BaseModel):
     model: str | None = None
     # Reasoning effort selection (e.g. 'low', 'medium', 'high')
     effort: str | None = None
+    # When the agent must ask before running commands / editing files: 'full' (never, the default),
+    # 'auto_edits' (edits go through, commands ask), 'supervised' (everything asks), 'auto' (the agent's own review)
+    permission_mode: str | None = None
     # Project ID (to scope context or working directory)
     project_id: str | None = None
     # Session ID to resume an existing conversation
@@ -206,6 +209,7 @@ async def ask(
         # None when the client didn't say; "" is a choice: the CLI's own default
         "model": body.model,
         "effort": body.effort,
+        "permission_mode": body.permission_mode,
         # None when the client didn't say; "" is a choice too: no project, a new session
         "project_id": body.project_id,
         "session_id": body.session_id,
@@ -277,6 +281,7 @@ async def ask(
         effective_project_id = _chosen(body.project_id, "project_id")
         effective_model = _chosen(body.model, "model")
         effective_effort = _chosen(body.effort, "effort")
+        effective_permission = normalize_permission_mode(_chosen(body.permission_mode, "permission_mode"))
         effective_cwd = _chosen(body.cwd, "cwd")
         effective_session_id, routed_device = await reconcile_session(db, _user, exec_mode, device_id or None, effective_session_id)
         device_id = routed_device or ""
@@ -290,6 +295,7 @@ async def ask(
             cwd=effective_cwd,
             model=effective_model,
             effort=effective_effort,
+            permission_mode=effective_permission,
             session_id=effective_session_id,
             project_id=effective_project_id,
             fork=body.fork,

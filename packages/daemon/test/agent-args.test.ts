@@ -1,9 +1,25 @@
 import { describe, expect, it } from "vitest";
 
 import { CLAUDE_HOST_KEYS, executionEnvironment } from "../src/exec-env.js";
-import { antigravityArgs, CLAUDE_CLIENT_NAME, claudeArgs, claudeClientEnv, codexArgs, isSessionNotFound } from "../src/task-runner.js";
+import { antigravityArgs, CLAUDE_CLIENT_NAME, claudeArgs, claudeClientEnv, codexArgs, isSessionNotFound, normalizePermissionMode } from "../src/task-runner.js";
 
 describe("agent launch arguments", () => {
+  it("Claude Code runs under the permission mode the user picked, asking over stdio in all of them", () => {
+    const flags = (mode?: "full" | "auto_edits" | "supervised" | "auto") => claudeArgs({ permissionMode: mode }).join(" ");
+    expect(flags()).toContain("--dangerously-skip-permissions");
+    expect(flags("full")).toContain("--dangerously-skip-permissions");
+    expect(flags("auto_edits")).toContain("--permission-mode acceptEdits");
+    expect(flags("supervised")).toContain("--permission-mode manual");
+    expect(flags("auto")).toContain("--permission-mode auto");
+    for (const mode of ["auto_edits", "supervised", "auto"] as const) {
+      expect(flags(mode)).not.toContain("--dangerously-skip-permissions");
+      expect(flags(mode)).toContain("--permission-prompt-tool stdio");
+    }
+    expect(normalizePermissionMode("supervised")).toBe("supervised");
+    expect(normalizePermissionMode("bogus")).toBe("full");
+    expect(normalizePermissionMode(undefined)).toBe("full");
+  });
+
   it("Claude Code asks its questions over stdio, with every other tool still allowed", () => {
     const args = claudeArgs({ model: "opus" });
     expect(args).toContain("--dangerously-skip-permissions");

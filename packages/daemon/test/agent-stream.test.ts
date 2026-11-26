@@ -262,6 +262,48 @@ describe("Background task detection", () => {
   });
 });
 
+describe("Approvals below full access", () => {
+  const ask = (parser: ClaudeStreamParser, id: string, tool: string, input: Record<string, unknown>) =>
+    parser.feed(JSON.stringify({ type: "control_request", request_id: id, request: { subtype: "can_use_tool", tool_name: tool, input } }))!;
+  const behavior = (parser: ClaudeStreamParser) =>
+    parser.takeReplies().map((r) => (r as { response: { response: { behavior: string; message?: string } } }).response.response);
+
+  it("full access allows tool calls without asking", () => {
+    const parser = new ClaudeStreamParser();
+    expect(ask(parser, "r1", "Bash", { command: "rm -rf build" })).toEqual([]);
+    expect(behavior(parser)).toEqual([expect.objectContaining({ behavior: "allow" })]);
+  });
+
+  it("other modes turn a tool call into an approval card, and the user's choice goes back to Claude", () => {
+    const parser = new ClaudeStreamParser({ approvals: true });
+    const card = ask(parser, "r1", "Bash", { command: "npm publish" });
+    expect(card).toEqual([
+      expect.objectContaining({ kind: "question", id: "r1:approval", tool: "Bash", header: "需要你批准", question: "运行命令：npm publish", approval: true, status: "waiting" }),
+    ]);
+    expect(parser.takeReplies()).toEqual([]);
+    expect(parser.answer("r1:approval", "允许")).toEqual([{ kind: "question", id: "r1:approval", status: "answered", answer: "允许" }]);
+    expect(behavior(parser)).toEqual([expect.objectContaining({ behavior: "allow" })]);
+
+    // a typed reply is a no, passed to the agent as feedback
+    ask(parser, "r2", "Write", { file_path: "/repo/.env", content: "x" });
+    expect(parser.answer(undefined, "别动 .env")).toEqual([{ kind: "question", id: "r2:approval", status: "answered", answer: "拒绝：别动 .env" }]);
+    expect(behavior(parser)).toEqual([{ behavior: "deny", message: "用户没有批准这个操作，回复：别动 .env" }]);
+
+    // "allow all" stops asking about that tool for the rest of the run
+    ask(parser, "r3", "Edit", { file_path: "/repo/a.ts" });
+    parser.answer("r3:approval", "本次都允许 Edit");
+    behavior(parser);
+    expect(ask(parser, "r4", "Edit", { file_path: "/repo/b.ts" })).toEqual([]);
+    expect(behavior(parser)).toEqual([expect.objectContaining({ behavior: "allow" })]);
+    expect(ask(parser, "r5", "Bash", { command: "ls" })).toHaveLength(1);
+
+    // the CLI withdrawing the request closes the card
+    expect(parser.feed(JSON.stringify({ type: "control_cancel_request", request_id: "r5" }))).toEqual([
+      { kind: "question", id: "r5:approval", status: "answered", answer: "（已取消）" },
+    ]);
+  });
+});
+
 describe("Interactive questions", () => {
   it("Claude AskUserQuestion: asks over the control channel and gets the answers back in updatedInput", () => {
     const parser = new ClaudeStreamParser();

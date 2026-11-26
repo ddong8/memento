@@ -84,6 +84,7 @@ import {
   claudeClientEnv,
   claudeSessionName,
   claudeUserMessage,
+  normalizePermissionMode,
   codexArgs,
   antigravityArgs,
   antigravityAcpArgs,
@@ -759,6 +760,7 @@ export class TaskRunner {
     this.taskSessions.set(taskId, { binary, sessionId: sessionId || undefined });
     let model = text("model");
     const effort = text("effort");
+    const permissionMode = normalizePermissionMode(text("permission_mode"));
     const rawSysAppend = text("system_prompt_append");
     const offlineMind = !rawSysAppend ? await getOfflineMindSnapshot() : null;
     let sysAppend = rawSysAppend || offlineMind || "";
@@ -938,8 +940,8 @@ export class TaskRunner {
           }
         }
         const sessionName = claudeSessionName(text("title"), text("user_question"), prompt);
-        args = claudeArgs({ sessionId, sysAppend, model, settingsJson: claudeSettings, sessionName });
-        parser = new ClaudeStreamParser();
+        args = claudeArgs({ sessionId, sysAppend, model, settingsJson: claudeSettings, sessionName, permissionMode });
+        parser = new ClaudeStreamParser({ approvals: permissionMode !== "full" });
         stdinPrompt = prompt;
         this.claudeTasks.add(taskId);
       } else if (binary.includes("codex")) {
@@ -980,7 +982,7 @@ export class TaskRunner {
             "-p",
             prompt,
           ];
-          parser = new ClaudeStreamParser();
+          parser = new ClaudeStreamParser({ approvals: permissionMode !== "full" });
           this.noSteerTasks.add(taskId);
         }
       } else if (isAntigravity) {
@@ -1211,9 +1213,9 @@ export class TaskRunner {
         );
         model = next.id;
         if (limitAgent === "claude") {
-          parser = new ClaudeStreamParser();
+          parser = new ClaudeStreamParser({ approvals: permissionMode !== "full" });
           const sessionName = claudeSessionName(text("title"), text("user_question"), prompt);
-          exitCode = await run({ args: claudeArgs({ sessionId, sysAppend, model, settingsJson: claudeSettings, sessionName }), parser, stdinPrompt: prompt });
+          exitCode = await run({ args: claudeArgs({ sessionId, sysAppend, model, settingsJson: claudeSettings, sessionName, permissionMode }), parser, stdinPrompt: prompt });
         } else {
           parser = new CodexStreamParser();
           exitCode = await run({ args: codexArgs({ ...codex!, workDir, sessionId, fork: payload.fork === true, effort, model, prompt }), parser });
@@ -1266,9 +1268,9 @@ export class TaskRunner {
       if ((exitCode !== 0 || (!out.stdout.trim() && !parser?.finalText?.trim())) && action !== "shell" && sessionId && sessionNotFoundDetected) {
         this.notice(taskId, "\n⚡ [自动自愈] 本地未找到历史会话（跨设备远程调度或会话过期常见），已自动重置为全新会话重新执行...\n\n");
         if (binary.includes("claude")) {
-          parser = new ClaudeStreamParser();
+          parser = new ClaudeStreamParser({ approvals: permissionMode !== "full" });
           const sessionName = claudeSessionName(text("title"), text("user_question"), prompt);
-          exitCode = await run({ args: claudeArgs({ sysAppend, model, settingsJson: claudeSettings, sessionName }), parser, stdinPrompt: prompt });
+          exitCode = await run({ args: claudeArgs({ sysAppend, model, settingsJson: claudeSettings, sessionName, permissionMode }), parser, stdinPrompt: prompt });
         } else if (binary.includes("codex")) {
           parser = new CodexStreamParser();
           exitCode = await run({ args: codexArgs({ ...codex!, workDir, effort, model, prompt }), parser });
@@ -1287,7 +1289,7 @@ export class TaskRunner {
               parser,
             });
           } else {
-            parser = new ClaudeStreamParser();
+            parser = new ClaudeStreamParser({ approvals: permissionMode !== "full" });
             exitCode = await run({
               args: [
                 "--output-format",

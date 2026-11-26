@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `9662d243` · Updated: `2026-11-26`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `8c688c2a` · Updated: `2026-11-26`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -13,10 +13,10 @@
 - 类型 (Type): Monorepo (Workspaces)
 - 技术栈 (Stack): TypeScript/JavaScript, Python, Shell / Bash · React, Electron, Next.js, TailwindCSS, Model Context Protocol (MCP), FastAPI, SQLAlchemy, Celery
 - 基础设施 (Infra): PostgreSQL, pgvector (Vector DB), Redis, MinIO / S3 Object Storage, Celery Task Queue
-- 规模 (Scale): 9 个子系统 · 41 组 API 路由 / 333 个接口 · 39 个前端页面 · 41 个数据模型 · 35 个服务模块 · 271 个测试文件
+- 规模 (Scale): 9 个子系统 · 42 组 API 路由 / 338 个接口 · 39 个前端页面 · 41 个数据模型 · 35 个服务模块 · 274 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `9662d243` (2026-11-26): feat(git): 提交 / PR 页加「AI 写说明」：用个人设置里的大模型按仓库风格和用户的提交规则写提交说明、PR 标题与描述，去掉智能体署名尾注
+- 最近改动 (Latest): `8c688c2a` (2026-11-26): feat(git): 代码改动抽屉加「PR 与 CI」：在设备上用 gh 读取 PR 列表与详情，变基合并，盯 CI 跑完推送到手机
 - 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 77（✅ 77 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 12 · 状态 10 · 最近提交碰到 `F-ASK`, `R-ENT-DEVICE-POLICY`, `R-DEVICE-ENV-PROFILE`, `R-CLAUDE-RESUME-IN-PLACE`, `R-NEWCHAT-WORKS`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `S-MODEL-CHOICE`
 
 | 章节 (Section) | 行号 (Lines) |
@@ -24,14 +24,14 @@
 | 1. Project Overview & Tech Stack | L36-L42 |
 | 2. High-Level Architecture Topology | L44-L79 |
 | 3. Subsystem Breakdown & Responsibilities | L81-L93 |
-| 4. Key Entry Points & API Endpoints | L95-L514 |
-| 5. Core Domain Services & Background Schedules | L516-L556 |
-| 6.5. AST Call Graph, DTO Schemas & CLI Entrypoints | L558-L630 |
-| 7. CI/CD Pipelines, Code Hotspots & Test Suites | L632-L676 |
-| 8. Development & Verification Commands | L678-L695 |
-| 9. Recent Architectural Evolutions | L697-L704 |
-| 10. Key Environment Variables & Configuration | L706-L718 |
-| 11. 业务蓝图核对 (Business Blueprint Check) | L720-L728 |
+| 4. Key Entry Points & API Endpoints | L95-L522 |
+| 5. Core Domain Services & Background Schedules | L524-L564 |
+| 6.5. AST Call Graph, DTO Schemas & CLI Entrypoints | L566-L638 |
+| 7. CI/CD Pipelines, Code Hotspots & Test Suites | L640-L684 |
+| 8. Development & Verification Commands | L686-L703 |
+| 9. Recent Architectural Evolutions | L705-L712 |
+| 10. Key Environment Variables & Configuration | L714-L726 |
+| 11. 业务蓝图核对 (Business Blueprint Check) | L728-L735 |
 
 ## 1. Project Overview & Tech Stack
 
@@ -427,6 +427,14 @@ flowchart TD
 - `POST /api/tasks/{task_id}/input`
 - _... (1 more endpoints)_
 
+#### `/api/terminal` (terminal.py)
+
+- `POST /api/terminal/open`
+- `GET /api/terminal/{term_id}/stream`
+- `POST /api/terminal/{term_id}/input`
+- `POST /api/terminal/{term_id}/resize`
+- `POST /api/terminal/{term_id}/close`
+
 #### `/api/todos` (todos.py)
 
 - `GET /api/todos`
@@ -654,9 +662,9 @@ erDiagram
 
 | Suite | Directory | Files | Sample Tests |
 | :--- | :--- | :--- | :--- |
-| server/tests (pytest) | [`server/tests`](server/tests) | 135 | `test_agent_ids.py`, `test_agent_limits.py`, `test_agent_login.py`, `test_agent_run_states.py`, `test_ai_provider.py` |
-| packages/daemon/test (vitest / jest) | [`packages/daemon/test`](packages/daemon/test) | 64 | `agent-args.test.ts`, `agent-login.test.ts`, `agent-stream.test.ts`, `agy-background.test.ts`, `agy-models.test.ts` |
-| apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 62 | `active-runs-chip.test.tsx`, `api-client.test.ts`, `ask-performance-guards.test.tsx`, `ask-reading-and-persona-rules.test.tsx`, `ask-top-bar.test.tsx` |
+| server/tests (pytest) | [`server/tests`](server/tests) | 136 | `test_agent_ids.py`, `test_agent_limits.py`, `test_agent_login.py`, `test_agent_run_states.py`, `test_ai_provider.py` |
+| packages/daemon/test (vitest / jest) | [`packages/daemon/test`](packages/daemon/test) | 65 | `agent-args.test.ts`, `agent-login.test.ts`, `agent-stream.test.ts`, `agy-background.test.ts`, `agy-models.test.ts` |
+| apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 63 | `active-runs-chip.test.tsx`, `api-client.test.ts`, `ask-performance-guards.test.tsx`, `ask-reading-and-persona-rules.test.tsx`, `ask-top-bar.test.tsx` |
 | apps/mobile/test (vitest / jest) | [`apps/mobile/test`](apps/mobile/test) | 4 | `deeplink.test.ts`, `glass-surface.test.ts`, `injected-helpers.test.ts`, `webview-props.test.ts` |
 | apps/desktop/test (vitest / jest) | [`apps/desktop/test`](apps/desktop/test) | 2 | `helpers.test.ts`, `updater-and-daemon.test.ts` |
 | packages/core/test (vitest / jest) | [`packages/core/test`](packages/core/test) | 2 | `ask-stream.test.ts`, `task-events.test.ts` |
@@ -668,11 +676,11 @@ erDiagram
 - [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (10 commits)
 - [`apps/web/src/app/studio/page.tsx`](apps/web/src/app/studio/page.tsx) (10 commits)
 - [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (10 commits)
-- [`apps/web/src/app/globals.css`](apps/web/src/app/globals.css) (9 commits)
+- [`apps/web/src/app/globals.css`](apps/web/src/app/globals.css) (8 commits)
 - [`apps/web/src/lib/studio-api.ts`](apps/web/src/lib/studio-api.ts) (8 commits)
 - [`server/server/api/studio.py`](server/server/api/studio.py) (8 commits)
 - [`apps/mobile/src/app/index.tsx`](apps/mobile/src/app/index.tsx) (7 commits)
-- [`apps/web/src/components/layout/Sidebar.tsx`](apps/web/src/components/layout/Sidebar.tsx) (7 commits)
+- [`apps/web/src/lib/api-client.ts`](apps/web/src/lib/api-client.ts) (7 commits)
 - [`apps/web/test/glass-system.test.ts`](apps/web/test/glass-system.test.ts) (7 commits)
 
 ## 8. Development & Verification Commands
@@ -696,12 +704,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `8c688c2a` (2026-11-26): feat(git): 代码改动抽屉加「PR 与 CI」：在设备上用 gh 读取 PR 列表与详情，变基合并，盯 CI 跑完推送到手机
 - `9662d243` (2026-11-26): feat(git): 提交 / PR 页加「AI 写说明」：用个人设置里的大模型按仓库风格和用户的提交规则写提交说明、PR 标题与描述，去掉智能体署名尾注
 - `08e69adc` (2026-11-26): feat(ask,daemon): 权限模式与命令审批：智能体运行命令、改文件前可先问你，审批卡片推送到手机，并升级至 v1.0.160
 - `ccc967a1` (2026-11-26): fix(mobile,web): 底栏小胶囊改用浓玻璃底色不再透出下方文字糊成一团，网页声明支持后 App 才缩成胶囊，旧缓存页面保持完整底栏；iOS 构建号升到 18
 - `e036651e` (2026-11-26): feat(mobile,web): 手机端对话页精简：运行中卡片去重、输入框标签合并并对齐底栏，往下滚时底栏缩成小胶囊
 - `df0f1bce` (2026-11-26): chore(mobile): iOS 构建号升到 16，带上注入脚本等 <html> 就绪的修复传 TestFlight
-- `28db505b` (2026-11-26): fix(web): 手机端认知大脑与技能进化全屏控制台改用不透明底色，下层页面不再透出叠在标签栏上
 
 ## 10. Key Environment Variables & Configuration
 
@@ -725,7 +733,6 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 ### 最近提交碰到的业务条目（改动后复查它们还成不成立）
 
 - `08e69adc` feat(ask,daemon): 权限模式与命令审批：智能体运行命令、改文件前可先问你，审批卡片推送到手机，并升级至 v1.0.160 → `F-ASK`, `R-ENT-DEVICE-POLICY`, `R-DEVICE-ENV-PROFILE`, `R-CLAUDE-RESUME-IN-PLACE`, `R-NEWCHAT-WORKS`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `S-MODEL-CHOICE`, `S-AGENT-SESSION`
-- `e036651e` feat(mobile,web): 手机端对话页精简：运行中卡片去重、输入框标签合并并对齐底栏，往下滚时底栏缩成小胶囊 → `F-FOLLOWUP`, `R-THINKING-FULL`, `S-MODEL-CHOICE`
 
 ---
 _Auto-maintained by `scripts/project_blueprint.mjs` (v20261126) & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._

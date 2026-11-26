@@ -18,6 +18,10 @@ import {
 } from "@/lib/ask/git-review";
 import { showInAppToast } from "@/lib/native-notify";
 import { PullRequestsPanel } from "@/components/ask/PullRequestsPanel";
+import dynamic from "next/dynamic";
+
+// xterm.js only loads when the terminal tab is opened
+const TerminalPanel = dynamic(() => import("@/components/ask/TerminalPanel").then((m) => m.TerminalPanel), { ssr: false });
 
 const STATUS_BADGE: Record<string, { label: string; color: string; bg: string }> = {
   A: { label: "新增", color: "#059669", bg: "rgba(16, 185, 129, 0.14)" },
@@ -49,7 +53,7 @@ export function GitDiffDrawer({
   onSendReviewComments,
   isZh,
 }: GitDiffDrawerProps) {
-  const [activeTab, setActiveTab] = useState<"diff" | "deliver" | "pr">("diff");
+  const [activeTab, setActiveTab] = useState<"diff" | "deliver" | "pr" | "terminal">("diff");
   const [baseRef, setBaseRef] = useState<string>("");
   const [targetRef, setTargetRef] = useState<string>("");
   const [loading, setLoading] = useState(false);
@@ -416,6 +420,19 @@ export function GitDiffDrawer({
               >
                 {isZh ? "PR 与 CI" : "PRs & CI"}
               </button>
+              <button
+                type="button"
+                data-testid="git-tab-terminal"
+                onClick={() => setActiveTab("terminal")}
+                className="px-2.5 py-1 rounded-md text-[12px] font-medium transition-colors cursor-pointer"
+                style={{
+                  background: activeTab === "terminal" ? "var(--aurora-surface-solid)" : "transparent",
+                  color: activeTab === "terminal" ? "var(--aurora-fg1)" : "var(--aurora-fg3)",
+                  border: "none",
+                }}
+              >
+                {isZh ? "终端" : "Terminal"}
+              </button>
             </div>
 
             <Btn
@@ -552,7 +569,11 @@ export function GitDiffDrawer({
         )}
 
         {/* Body */}
-        {activeTab === "pr" ? (
+        {activeTab === "terminal" ? (
+          <div className="flex-1 min-h-0 flex flex-col">
+            <TerminalPanel deviceId={deviceId} cwd={effectiveCwd} isZh={isZh} />
+          </div>
+        ) : activeTab === "pr" ? (
           // Pull requests read straight from GitHub on the device: independent of the local diff loading above
           <div className="flex-1 overflow-y-auto min-h-0">
             <PullRequestsPanel deviceId={deviceId} cwd={effectiveCwd} isZh={isZh} />

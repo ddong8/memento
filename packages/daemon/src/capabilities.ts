@@ -1,3 +1,4 @@
+import { loadPty } from "./terminal.js";
 import { createReadStream, existsSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -726,7 +727,14 @@ export async function probeEnvironmentFingerprint(home = homeDir()): Promise<Rec
     workspaces: devDirs,
     // What this daemon can do beyond running agents: work on code that lives on another device (needs git),
     // sign agent CLIs in from the web page
-    features: [...(gitExe ? ["workspace_sync", "git_review"] : []), "agent_login", "session_sync", ...(gitExe ? ["source_exec", "source_commit", "source_put"] : [])],
+    features: [
+      ...(gitExe ? ["workspace_sync", "git_review"] : []),
+      "agent_login",
+      "session_sync",
+      ...(gitExe ? ["source_exec", "source_commit", "source_put"] : []),
+      // A real terminal in the web app (node-pty shipped with this build)
+      ...(loadPty() ? ["terminal"] : []),
+    ],
     probed_at: new Date().toISOString(),
   };
 }

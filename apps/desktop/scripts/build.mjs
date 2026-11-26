@@ -1,7 +1,7 @@
 // Bundles the main process, preload and daemon into dist/, so the packaged app
 // needs no node_modules. The daemon's Antigravity runner ships next to it.
 import { build } from "esbuild";
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -39,7 +39,7 @@ await build({
   entryPoints: [join(root, "src/daemon-entry.ts")],
   outfile: join(dist, "daemon.mjs"),
   format: "esm",
-  external: ["bufferutil", "utf-8-validate", "node-datachannel"],
+  external: ["bufferutil", "utf-8-validate", "node-datachannel", "node-pty"],
   banner: { js: "import { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);" },
 });
 
@@ -80,5 +80,24 @@ if (ndc) {
     const dir = name === "node-datachannel" ? ndc : packageDir(name);
     if (dir) cpSync(dir, join(dist, "node_modules", name), { recursive: true, dereference: true });
   }
+}
+// node-pty (the web app's terminal): just this platform's prebuilt binaries. npm unpacks the macOS
+// spawn-helper without its execute bit and every spawn then fails, so it's set here (the installed app may be
+// read-only). Optional: without it the daemon doesn't offer terminals.
+const pty = packageDir("node-pty");
+if (pty) {
+  const target = join(dist, "node_modules", "node-pty");
+  const plat = `${process.platform}-${process.arch}`;
+  cpSync(pty, target, {
+    recursive: true,
+    dereference: true,
+    filter: (src) => {
+      const rel = src.slice(pty.length).replace(/\\/g, "/");
+      if (rel.startsWith("/prebuilds/")) return rel === "/prebuilds" || rel.startsWith(`/prebuilds/${plat}`);
+      return !/^\/(src|deps|scripts|third_party|typings)(\/|$)/.test(rel);
+    },
+  });
+  const helper = join(target, "prebuilds", plat, "spawn-helper");
+  if (existsSync(helper)) chmodSync(helper, 0o755);
 }
 cpSync(join(root, "static"), join(dist, "static"), { recursive: true });

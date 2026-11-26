@@ -14,6 +14,8 @@
   "dependencies": {
     "@memento/core": "*",
     "@types/three": "^0.186.0",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
     "fflate": "^0.8.3",
     "highlight.js": "^11.11.1",
     "mermaid": "^12.2.0",

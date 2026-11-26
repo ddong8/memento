@@ -18,6 +18,7 @@ import { computeBackoffWithJitter, parseTaskDispatch, TaskRunner } from "./task-
 import { applyWorkspaceRequest, exportWorkspace, WorkspaceError } from "./workspace.js";
 import { flushPendingPatches, type Relay } from "./workspace-sync.js";
 import { assertPathAllowed } from "./managed-policy.js";
+import { TerminalManager } from "./terminal.js";
 
 type Log = (message: string) => void;
 
@@ -55,6 +56,8 @@ export class WsTaskClient {
   private pendingPatchTimer: NodeJS.Timeout | undefined;
   /** Agent CLI sign-ins driven from the web page (a server nobody sits at). */
   private readonly logins = new AgentLogins(() => void this.reportCapabilities(true));
+  /** Terminals the web app opened on this device */
+  readonly terminals = new TerminalManager((m) => this.sendJson(m));
 
   constructor(
     private config: CollectorConfig,
@@ -144,6 +147,7 @@ export class WsTaskClient {
     this.wakeUp?.();
     this.runner.dispose();
     this.p2p.dispose();
+    this.terminals.closeAll();
     this.logins.stopAll();
   }
 
@@ -319,6 +323,29 @@ export class WsTaskClient {
           break;
         case "git_diff_req":
           void this.handleGitDiff(data);
+          break;
+        case "term_open": {
+          const reqId = String(data.req_id ?? "");
+          const id = String(data.term_id ?? "");
+          let error: string | null;
+          try {
+            const cwd = data.cwd ? assertPathAllowed(deviceFilePath(String(data.cwd))) : "";
+            error = this.terminals.open(id, cwd, Number(data.cols), Number(data.rows));
+          } catch (e) {
+            error = e instanceof Error ? e.message : String(e);
+          }
+          if (!error) this.log(`Terminal ${id} open (${this.terminals.count} running)`);
+          this.sendJson({ type: "term_open_resp", req_id: reqId, ok: !error, ...(error ? { error } : {}) });
+          break;
+        }
+        case "term_input":
+          this.terminals.write(String(data.term_id ?? ""), String(data.data ?? ""));
+          break;
+        case "term_resize":
+          this.terminals.resize(String(data.term_id ?? ""), Number(data.cols), Number(data.rows));
+          break;
+        case "term_close":
+          this.terminals.close(String(data.term_id ?? ""));
           break;
         case "git_checkpoint_restore_req":
           void this.handleGitCheckpointRestore(data);

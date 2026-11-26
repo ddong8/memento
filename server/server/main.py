@@ -14,7 +14,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from .middleware.etag import ETagMiddleware
 from .middleware.gzip_request import GzipRequestMiddleware
 
-from .api import admin, ask, auth, collect_exclusions, conversations, daily, dashboard, data_io, devices, documents, events, git_review, health, hierarchy, ingest, install_bootstrap, learning, life_rhythm, llm, media, memory, missions, notify, plans, plugins, proactive, profile, projects, public, quotas, scim, search, share, skills, sso, studio, todos, tools, updates
+from .api import admin, ask, auth, collect_exclusions, conversations, daily, dashboard, data_io, devices, documents, events, git_review, health, hierarchy, ingest, install_bootstrap, learning, life_rhythm, llm, media, memory, missions, notify, plans, plugins, proactive, profile, projects, public, quotas, scim, search, share, skills, sso, studio, terminal, todos, tools, updates
 # Aliased: `server.api.tasks` (remote device task queue) is a different module
 # from the `server.tasks` package (Celery jobs). Importing it bare here would
 # read as the latter.
@@ -215,6 +215,7 @@ app.include_router(daily.router)
 app.include_router(search.router)
 app.include_router(device_tasks_api.router)
 app.include_router(git_review.router)
+app.include_router(terminal.router)
 app.include_router(ask.router)
 app.include_router(auth.router)
 app.include_router(sso.router)

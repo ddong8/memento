@@ -15,6 +15,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 
+import { autoPermissionOption, chosenPermissionOption, toolDetail as permToolDetail, type PermissionMode, type PermissionOption } from "../acp-runner/protocol.js";
 import {
   acpToolDetail,
   cleanToolOutput,
@@ -53,6 +54,7 @@ const args = {
   effort: "",
   timeout: 0,
   systemAppend: process.env.MEMENTO_AGY_SYSTEM_APPEND || "",
+  permission: "full" as PermissionMode,
   prompt: "",
 };
 
@@ -66,6 +68,7 @@ for (let i = 0; i < argv.length; i++) {
   else if (a === "--effort") args.effort = argv[++i] ?? "";
   else if (a === "--timeout") args.timeout = Number(argv[++i] ?? 0) || 0;
   else if (a === "--system-append") args.systemAppend = argv[++i] ?? "";
+  else if (a === "--permission") args.permission = (argv[++i] ?? "full") as PermissionMode;
   else if (a === "--") {
     args.prompt = argv.slice(i + 1).join(" ");
     break;
@@ -978,9 +981,29 @@ function onServerRequest(msg: Json): void {
   const p = isObj(msg.params) ? msg.params : {};
   if (method === "session/request_permission") {
     const opts = Array.isArray(p.options) ? p.options.filter(isObj) : [];
-    const allow = opts.find((o) => str(o.kind).startsWith("allow")) ?? opts[0];
-    const optionId = str(allow?.optionId) || "allow";
-    respond(msg.id, { outcome: { outcome: "selected", optionId } });
+    const options: PermissionOption[] = opts.map((o) => ({ optionId: str(o.optionId), name: str(o.name), kind: str(o.kind) }));
+    const tc = isObj(p.toolCall) ? p.toolCall : {};
+    const kind = str(tc.kind) || "other";
+    // Full access (memento's default) allows as before; other modes ask what the mode leaves open
+    const auto = permAllowedKinds.has(kind) ? autoPermissionOption(options, kind, "full") : autoPermissionOption(options, kind, args.permission);
+    if (auto || !options.length) {
+      const allow = opts.find((o) => str(o.kind).startsWith("allow")) ?? opts[0];
+      respond(msg.id, { outcome: { outcome: "selected", optionId: auto ?? (str(allow?.optionId) || "allow") } });
+      return;
+    }
+    const qid = `agy-perm-${String(msg.id)}`;
+    pendingPerms.set(qid, { rpcId: msg.id, options, kind });
+    emit({
+      kind: "question",
+      id: qid,
+      tool: kind,
+      header: "需要你批准",
+      question: `Antigravity 想要：${permToolDetail(tc)}`,
+      options: [{ label: "允许" }, { label: `本次都允许 ${kind}`, description: "这次运行里同类操作不再询问" }, { label: "拒绝" }],
+      is_multi_select: false,
+      approval: true,
+      status: "waiting",
+    });
     return;
   }
   server.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id: msg.id, error: { code: -32601, message: `Unsupported method: ${method}` } })}\n`);
@@ -1299,7 +1322,24 @@ function sendPrompt(text: string, isSteer = false): void {
 
 const earlyInputs: Array<{ qid?: string; text: string }> = [];
 
+/** Permission requests waiting for the user (below full access), by the question id on the card */
+const pendingPerms = new Map<string, { rpcId: unknown; options: PermissionOption[]; kind: string }>();
+const permAllowedKinds = new Set<string>();
+
+function answerPermission(qid: string | undefined, text: string): boolean {
+  const key = qid && pendingPerms.has(qid) ? qid : !qid && pendingPerms.size ? [...pendingPerms.keys()][0]! : "";
+  const w = key ? pendingPerms.get(key) : undefined;
+  if (!w) return false;
+  pendingPerms.delete(key);
+  const choice = chosenPermissionOption(w.options, text);
+  if (choice?.allowAll) permAllowedKinds.add(w.kind);
+  respond(w.rpcId, { outcome: choice ? { outcome: "selected", optionId: choice.optionId } : { outcome: "cancelled" } });
+  emit({ kind: "question", id: key, status: "answered", answer: clip(text, 200) });
+  return true;
+}
+
 function handleUserInput(qid: string | undefined, text: string): void {
+  if (answerPermission(qid, text)) return;
   if (finished || exiting) {
     emit({ kind: "steer", text, status: "late" });
     return;

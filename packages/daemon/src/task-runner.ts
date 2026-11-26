@@ -965,7 +965,7 @@ export class TaskRunner {
         codex = { runner: await codexRunner(), codex: exe };
         exe = process.execPath;
         model = this.skipLimitedModel(taskId, "codex", model, await codexModels(), effort);
-        args = codexArgs({ ...codex, workDir, sessionId, fork: payload.fork === true, effort, model, prompt });
+        args = codexArgs({ ...codex, workDir, sessionId, fork: payload.fork === true, effort, model, permissionMode, prompt });
         parser = new CodexStreamParser();
         this.runnerTasks.add(taskId);
       } else if (isWorkbuddy) {
@@ -1066,7 +1066,7 @@ export class TaskRunner {
           this.noSteerTasks.delete(taskId);
           this.log(`Task ${taskId}: using Google's agy CLI via ACP runner (${cli}, appDataDir=${appDataDir})`);
           return {
-            args: antigravityAcpArgs({ ...agyAcp, workDir, sessionId, model, effort, timeoutSeconds: task.timeoutSeconds, prompt }),
+            args: antigravityAcpArgs({ ...agyAcp, workDir, sessionId, model, effort, timeoutSeconds: task.timeoutSeconds, permissionMode, prompt }),
             parser: new UniversalStreamParser({ sessionFromStdout: false }) as AgentStreamParser,
           };
         }
@@ -1129,7 +1129,7 @@ export class TaskRunner {
       const agyRun = (o: Omit<Parameters<typeof antigravityArgs>[0], "official">) => {
         if (agyAcp) {
           parser = new UniversalStreamParser({ sessionFromStdout: false });
-          return { args: antigravityAcpArgs({ ...agyAcp, workDir, ...o }), parser };
+          return { args: antigravityAcpArgs({ ...agyAcp, workDir, permissionMode, ...o }), parser };
         }
         parser = officialAgy ? new AgyCliStreamParser() : new UniversalStreamParser({ sessionFromStdout: false });
         return { args: antigravityArgs({ ...o, official: officialAgy }), parser };
@@ -1236,7 +1236,7 @@ export class TaskRunner {
           exitCode = await run({ args: claudeArgs({ sessionId, sysAppend, model, settingsJson: claudeSettings, sessionName, permissionMode }), parser, stdinPrompt: prompt });
         } else {
           parser = new CodexStreamParser();
-          exitCode = await run({ args: codexArgs({ ...codex!, workDir, sessionId, fork: payload.fork === true, effort, model, prompt }), parser });
+          exitCode = await run({ args: codexArgs({ ...codex!, workDir, sessionId, fork: payload.fork === true, effort, model, permissionMode, prompt }), parser });
         }
       }
 
@@ -1278,7 +1278,7 @@ export class TaskRunner {
       if (exitCode !== 0 && binary.includes("codex") && sessionId && payload.fork !== true && errScan().includes("already has an active writer")) {
         this.notice(taskId, "\n⚡ [自动重试] 该会话当前正被 ChatGPT 客户端占用锁定，已自动无缝切换为 Fork 分支模式重新执行（完整继承上下文记忆）...\n\n");
         parser = new CodexStreamParser();
-        exitCode = await run({ args: codexArgs({ ...codex!, workDir, sessionId, fork: true, effort, model, prompt }), parser });
+        exitCode = await run({ args: codexArgs({ ...codex!, workDir, sessionId, fork: true, effort, model, permissionMode, prompt }), parser });
       }
 
       // Retry 2: the session to resume isn't on this device (common when dispatching across devices): start fresh.
@@ -1291,7 +1291,7 @@ export class TaskRunner {
           exitCode = await run({ args: claudeArgs({ sysAppend, model, settingsJson: claudeSettings, sessionName, permissionMode }), parser, stdinPrompt: prompt });
         } else if (binary.includes("codex")) {
           parser = new CodexStreamParser();
-          exitCode = await run({ args: codexArgs({ ...codex!, workDir, effort, model, prompt }), parser });
+          exitCode = await run({ args: codexArgs({ ...codex!, workDir, effort, model, permissionMode, prompt }), parser });
         } else if (binary.includes("workbuddy") || binary.includes("codebuddy")) {
           const isNativeCodebuddy = exe.toLowerCase().includes("codebuddy");
           if (!isNativeCodebuddy) {

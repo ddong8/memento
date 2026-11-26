@@ -225,6 +225,8 @@ export function codexArgs(o: {
   fork?: boolean;
   effort?: string;
   model?: string;
+  /** Below full access Codex runs in its workspace sandbox and asks (codex_app.mjs maps it to approvalPolicy) */
+  permissionMode?: PermissionMode;
   prompt: string;
 }): string[] {
   const sid = o.sessionId ? (UUID_RE.exec(o.sessionId)?.[0] ?? o.sessionId) : "";
@@ -236,6 +238,7 @@ export function codexArgs(o: {
     ...(sid ? ["--resume", sid, ...(o.fork ? ["--fork"] : [])] : []),
     ...(o.effort ? ["--effort", o.effort] : []),
     ...(o.model ? ["--model", o.model] : []),
+    ...(o.permissionMode && o.permissionMode !== "full" ? ["--permission", o.permissionMode] : []),
     "--",
     o.prompt,
   ];
@@ -294,6 +297,8 @@ export function antigravityAcpArgs(o: {
   model?: string;
   effort?: string;
   timeoutSeconds?: number;
+  /** Below full access the runner asks before what the mode leaves open (approval cards) */
+  permissionMode?: PermissionMode;
   prompt: string;
 }): string[] {
   const sid = o.sessionId ? (UUID_RE.exec(o.sessionId)?.[0] ?? "") : "";
@@ -308,6 +313,7 @@ export function antigravityAcpArgs(o: {
     ...(o.model ? ["--model", o.model] : []),
     ...(o.effort ? ["--effort", o.effort] : []),
     ...(timeout > 0 ? ["--timeout", String(timeout)] : []),
+    ...(o.permissionMode && o.permissionMode !== "full" ? ["--permission", o.permissionMode] : []),
     "--",
     o.prompt,
   ];

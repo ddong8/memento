@@ -9,6 +9,40 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 
+// packages/daemon/src/acp-runner/protocol.ts
+var isObj = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
+var str = (v) => typeof v === "string" ? v : "";
+var clip = (s, n) => s.length > n ? `${s.slice(0, n)}…` : s;
+var READ_ONLY_KINDS = /* @__PURE__ */ new Set(["read", "search", "think", "fetch"]);
+var EDIT_KINDS = /* @__PURE__ */ new Set(["edit", "delete", "move"]);
+function autoPermissionOption(options, toolKind, mode) {
+  const allow = options.find((o) => o.kind === "allow_once") ?? options.find((o) => o.kind === "allow_always");
+  if (!allow) return null;
+  const kind = toolKind.toLowerCase();
+  if (mode === "full") return allow.optionId;
+  if (mode === "supervised") return null;
+  if (READ_ONLY_KINDS.has(kind)) return allow.optionId;
+  if (mode === "auto_edits" && EDIT_KINDS.has(kind)) return allow.optionId;
+  return null;
+}
+function chosenPermissionOption(options, answer) {
+  const a = answer.trim();
+  const allowAll = a.startsWith("本次都允许");
+  if (a === "允许" || allowAll) {
+    const o = allowAll ? options.find((x) => x.kind === "allow_always") ?? options.find((x) => x.kind === "allow_once") : options.find((x) => x.kind === "allow_once") ?? options.find((x) => x.kind === "allow_always");
+    return o ? { optionId: o.optionId, allowAll } : null;
+  }
+  const no = options.find((x) => x.kind === "reject_once") ?? options.find((x) => x.kind === "reject_always");
+  return no ? { optionId: no.optionId, allowAll: false } : null;
+}
+function toolDetail(tc) {
+  const title = str(tc.title);
+  const loc = Array.isArray(tc.locations) && isObj(tc.locations[0]) ? str(tc.locations[0].path) : "";
+  const raw = isObj(tc.rawInput) ? tc.rawInput : {};
+  const cmd = str(raw.command) || (Array.isArray(raw.command) ? raw.command.join(" ") : "");
+  return clip(title || cmd || loc || str(tc.kind) || "tool", 300);
+}
+
 // packages/daemon/src/agy-acp-runner/helpers.ts
 import { existsSync } from "node:fs";
 
@@ -75,9 +109,9 @@ function sqliteRows(path, sql, params = [], timeout = 3e3) {
 }
 
 // packages/daemon/src/agy-acp-runner/helpers.ts
-var isObj = (v) => Boolean(v) && typeof v === "object" && !Array.isArray(v);
-var str = (v) => typeof v === "string" ? v : v == null ? "" : String(v);
-var clip = (s, max) => {
+var isObj2 = (v) => Boolean(v) && typeof v === "object" && !Array.isArray(v);
+var str2 = (v) => typeof v === "string" ? v : v == null ? "" : String(v);
+var clip2 = (s, max) => {
   const t = s.trim();
   return t.length <= max ? t : `${t.slice(0, max)}…`;
 };
@@ -194,18 +228,18 @@ function extractAcpToolOutput(rawOutput, content) {
   const parts = [];
   if (typeof rawOutput === "string" && rawOutput.trim()) {
     parts.push(rawOutput.trim());
-  } else if (isObj(rawOutput)) {
+  } else if (isObj2(rawOutput)) {
     const out = rawOutput.output ?? rawOutput.text ?? rawOutput.content ?? rawOutput.stdout;
     if (typeof out === "string" && out.trim()) parts.push(out.trim());
     const err2 = rawOutput.error;
     if (typeof err2 === "string" && err2.trim()) parts.push(err2.trim());
-    else if (isObj(err2) && typeof err2.message === "string" && err2.message.trim()) parts.push(err2.message.trim());
+    else if (isObj2(err2) && typeof err2.message === "string" && err2.message.trim()) parts.push(err2.message.trim());
   }
   if (!parts.length && Array.isArray(content)) {
     for (const item of content) {
-      if (isObj(item)) {
+      if (isObj2(item)) {
         if (typeof item.text === "string" && item.text.trim()) parts.push(item.text.trim());
-        else if (isObj(item.content) && typeof item.content.text === "string" && item.content.text.trim()) {
+        else if (isObj2(item.content) && typeof item.content.text === "string" && item.content.text.trim()) {
           parts.push(item.content.text.trim());
         }
       }
@@ -256,17 +290,17 @@ function parseAskQuestionArgs(args2) {
   const rawList = Array.isArray(args2.questions) ? args2.questions : [];
   const items = [];
   for (const q of rawList) {
-    if (!isObj(q)) continue;
-    const text = str(q.question).trim();
+    if (!isObj2(q)) continue;
+    const text = str2(q.question).trim();
     if (!text) continue;
     const opts = [];
     if (Array.isArray(q.options)) {
       for (const o of q.options) {
         if (typeof o === "string" && o.trim()) {
           opts.push({ label: o.trim() });
-        } else if (isObj(o)) {
-          const label = str(o.label || o.text || o.value).trim();
-          const description = str(o.description).trim() || void 0;
+        } else if (isObj2(o)) {
+          const label = str2(o.label || o.text || o.value).trim();
+          const description = str2(o.description).trim() || void 0;
           if (label) opts.push(description ? { label, description } : { label });
         }
       }
@@ -336,11 +370,11 @@ function unwrapTranscriptArgs(raw) {
   if (typeof raw === "string") {
     try {
       const parsed = JSON.parse(raw);
-      if (isObj(parsed)) obj = parsed;
+      if (isObj2(parsed)) obj = parsed;
     } catch {
       return {};
     }
-  } else if (isObj(raw)) {
+  } else if (isObj2(raw)) {
     obj = { ...raw };
   }
   for (const [k, v] of Object.entries(obj)) {
@@ -364,7 +398,7 @@ function readAgyConversationState(dbPath, conversationId) {
   );
   const row = rows?.[0];
   if (!row) return null;
-  const status = str(row[0]).trim();
+  const status = str2(row[0]).trim();
   const nfiRaw = row[1];
   const notFullyIdle = nfiRaw === 1 || nfiRaw === true || String(nfiRaw).toLowerCase() === "true" || String(nfiRaw) === "1";
   const stepCount = Number(row[2] ?? 0) || 0;
@@ -406,6 +440,7 @@ var args = {
   effort: "",
   timeout: 0,
   systemAppend: process.env.MEMENTO_AGY_SYSTEM_APPEND || "",
+  permission: "full",
   prompt: ""
 };
 for (let i = 0; i < argv.length; i++) {
@@ -418,6 +453,7 @@ for (let i = 0; i < argv.length; i++) {
   else if (a === "--effort") args.effort = argv[++i] ?? "";
   else if (a === "--timeout") args.timeout = Number(argv[++i] ?? 0) || 0;
   else if (a === "--system-append") args.systemAppend = argv[++i] ?? "";
+  else if (a === "--permission") args.permission = argv[++i] ?? "full";
   else if (a === "--") {
     args.prompt = argv.slice(i + 1).join(" ");
     break;
@@ -517,7 +553,7 @@ var JsonlTailer = class {
       if (!t) continue;
       try {
         const parsed = JSON.parse(t);
-        if (isObj(parsed)) rows.push(parsed);
+        if (isObj2(parsed)) rows.push(parsed);
       } catch {
       }
     }
@@ -574,7 +610,7 @@ function shutdown(code) {
   killTimer.unref();
 }
 function fail(message, code = 1) {
-  emit({ kind: "error", message: clip(message, 2e3) });
+  emit({ kind: "error", message: clip2(message, 2e3) });
   err(`${message}
 `);
   shutdown(code);
@@ -596,7 +632,7 @@ function request(method, params) {
   const payload = params === void 0 ? { jsonrpc: "2.0", id, method } : { jsonrpc: "2.0", id, method, params };
   server.stdin.write(`${JSON.stringify(payload)}
 `);
-  return new Promise((resolve, reject) => pendingRpc.set(id, { resolve: (v) => resolve(isObj(v) ? v : {}), reject }));
+  return new Promise((resolve, reject) => pendingRpc.set(id, { resolve: (v) => resolve(isObj2(v) ? v : {}), reject }));
 }
 function notify(method, params) {
   const payload = params === void 0 ? { jsonrpc: "2.0", method } : { jsonrpc: "2.0", method, params };
@@ -836,9 +872,9 @@ function registerSubagent(subCid, meta) {
     const fallbackPrefix = `子智能体 ${subCid.slice(0, 8)}`;
     const betterName = meta.name || meta.role;
     if (betterName && existing.name === fallbackPrefix) {
-      existing.name = clip(betterName, 80);
-      if (meta.role) existing.role = clip(meta.role, 60);
-      if (meta.detail) existing.detail = clip(meta.detail, 200);
+      existing.name = clip2(betterName, 80);
+      if (meta.role) existing.role = clip2(meta.role, 60);
+      if (meta.detail) existing.detail = clip2(meta.detail, 200);
       emit({
         kind: "subagent",
         id: existing.id,
@@ -853,12 +889,12 @@ function registerSubagent(subCid, meta) {
     return;
   }
   const logPath = meta.logPath || join(cliBrainRoot, subCid, ".system_generated", "logs", "transcript.jsonl");
-  const name = clip(meta.name || meta.role || `子智能体 ${subCid.slice(0, 8)}`, 80);
+  const name = clip2(meta.name || meta.role || `子智能体 ${subCid.slice(0, 8)}`, 80);
   const sub = {
     id: subCid,
     name,
-    role: meta.role ? clip(meta.role, 60) : void 0,
-    detail: meta.detail ? clip(meta.detail, 200) : void 0,
+    role: meta.role ? clip2(meta.role, 60) : void 0,
+    detail: meta.detail ? clip2(meta.detail, 200) : void 0,
     tailer: new JsonlTailer(logPath, false),
     stepTools: /* @__PURE__ */ new Map(),
     pendingTools: [],
@@ -900,15 +936,15 @@ function pollSubagents() {
     const steps = sub.tailer.poll();
     for (const step of steps) {
       activity = true;
-      const stype = str(step.type).toUpperCase();
-      const sstatus = str(step.status).toUpperCase();
-      const scontent = str(step.content);
+      const stype = str2(step.type).toUpperCase();
+      const sstatus = str2(step.status).toUpperCase();
+      const scontent = str2(step.content);
       const stepIdx = typeof step.step_index === "number" ? step.step_index : -1;
-      if (str(step.source).toUpperCase() === "MODEL" && stype === "PLANNER_RESPONSE") {
+      if (str2(step.source).toUpperCase() === "MODEL" && stype === "PLANNER_RESPONSE") {
         const calls = Array.isArray(step.tool_calls) ? step.tool_calls : [];
         for (const rawCall of calls) {
-          if (!isObj(rawCall)) continue;
-          const name = str(rawCall.name) || "tool";
+          if (!isObj2(rawCall)) continue;
+          const name = str2(rawCall.name) || "tool";
           const tcArgs = unwrapTranscriptArgs(rawCall.args);
           const tid = `agy_sub_${sub.id.slice(0, 8)}_${++sub.stepSeq}`;
           sub.pendingTools.push(tid);
@@ -995,7 +1031,7 @@ function pollParentTranscript() {
   const steps = parentTailer.poll();
   for (const step of steps) {
     const idx = typeof step.step_index === "number" ? step.step_index : -1;
-    const statusRaw = str(step.status).toUpperCase();
+    const statusRaw = str2(step.status).toUpperCase();
     const key = `${idx}:${statusRaw}`;
     if (idx >= 0 && seenParentStepKeys.has(key)) continue;
     const createdAt = typeof step.created_at === "string" ? Date.parse(step.created_at) : NaN;
@@ -1007,10 +1043,10 @@ function pollParentTranscript() {
       seenParentStepKeys.add(key);
       if (idx > maxParentStepIndex) maxParentStepIndex = idx;
     }
-    const type = str(step.type).toUpperCase();
-    const source = str(step.source).toUpperCase();
-    const content = str(step.content);
-    const isFinalPlanner = type === "PLANNER_RESPONSE" && source === "MODEL" && statusRaw === "DONE" && (!Array.isArray(step.tool_calls) || step.tool_calls.filter(isObj).length === 0);
+    const type = str2(step.type).toUpperCase();
+    const source = str2(step.source).toUpperCase();
+    const content = str2(step.content);
+    const isFinalPlanner = type === "PLANNER_RESPONSE" && source === "MODEL" && statusRaw === "DONE" && (!Array.isArray(step.tool_calls) || step.tool_calls.filter(isObj2).length === 0);
     if (!isFinalPlanner) markActivity();
     if (type === "GENERIC" && statusRaw === "RUNNING" && content.startsWith("Created At:")) {
       const bg = parseBackgroundStart(content);
@@ -1081,29 +1117,29 @@ function pollParentTranscript() {
         wakeupIdleSince = 0;
       }
     } else if (type === "ERROR_MESSAGE") {
-      const errMsg = str(step.error) || str(step.message) || content;
+      const errMsg = str2(step.error) || str2(step.message) || content;
       if (errMsg && !isTransientAgyError(errMsg) && awaitingWakeup) {
         wakeupError = errMsg;
       }
     } else if (type === "PLANNER_RESPONSE" && source === "MODEL" && statusRaw === "DONE") {
-      const calls = Array.isArray(step.tool_calls) ? step.tool_calls.filter(isObj) : [];
+      const calls = Array.isArray(step.tool_calls) ? step.tool_calls.filter(isObj2) : [];
       for (const rawCall of calls) {
-        const cname = str(rawCall.name);
+        const cname = str2(rawCall.name);
         const cargs = unwrapTranscriptArgs(rawCall.args);
         if (cname === "invoke_subagent") {
           pendingSubagentMeta.push({
-            name: str(cargs.Role) || str(cargs.TypeName) || void 0,
-            role: str(cargs.TypeName) || void 0,
-            detail: str(cargs.Prompt) || void 0
+            name: str2(cargs.Role) || str2(cargs.TypeName) || void 0,
+            role: str2(cargs.TypeName) || void 0,
+            detail: str2(cargs.Prompt) || void 0
           });
-        } else if (cname === "manage_task" && ["kill", "stop", "cancel"].includes(str(cargs.Action).toLowerCase())) {
-          removeBgTaskByTarget(str(cargs.TaskId));
+        } else if (cname === "manage_task" && ["kill", "stop", "cancel"].includes(str2(cargs.Action).toLowerCase())) {
+          removeBgTaskByTarget(str2(cargs.TaskId));
         } else if (cname === "manage_subagents") {
-          const act = str(cargs.Action).toLowerCase();
+          const act = str2(cargs.Action).toLowerCase();
           if (act === "kill_all") {
             for (const sid of [...activeSubagents.keys()]) closeSubagent(sid, "done");
           } else if (act === "kill" && Array.isArray(cargs.ConversationIds)) {
-            for (const rawSid of cargs.ConversationIds) closeSubagent(str(rawSid), "done");
+            for (const rawSid of cargs.ConversationIds) closeSubagent(str2(rawSid), "done");
           }
         }
       }
@@ -1201,24 +1237,43 @@ function evaluateWakeupCompletion() {
   }
 }
 function onServerRequest(msg) {
-  const method = str(msg.method);
-  const p = isObj(msg.params) ? msg.params : {};
+  const method = str2(msg.method);
+  const p = isObj2(msg.params) ? msg.params : {};
   if (method === "session/request_permission") {
-    const opts = Array.isArray(p.options) ? p.options.filter(isObj) : [];
-    const allow = opts.find((o) => str(o.kind).startsWith("allow")) ?? opts[0];
-    const optionId = str(allow?.optionId) || "allow";
-    respond(msg.id, { outcome: { outcome: "selected", optionId } });
+    const opts = Array.isArray(p.options) ? p.options.filter(isObj2) : [];
+    const options = opts.map((o) => ({ optionId: str2(o.optionId), name: str2(o.name), kind: str2(o.kind) }));
+    const tc = isObj2(p.toolCall) ? p.toolCall : {};
+    const kind = str2(tc.kind) || "other";
+    const auto = permAllowedKinds.has(kind) ? autoPermissionOption(options, kind, "full") : autoPermissionOption(options, kind, args.permission);
+    if (auto || !options.length) {
+      const allow = opts.find((o) => str2(o.kind).startsWith("allow")) ?? opts[0];
+      respond(msg.id, { outcome: { outcome: "selected", optionId: auto ?? (str2(allow?.optionId) || "allow") } });
+      return;
+    }
+    const qid = `agy-perm-${String(msg.id)}`;
+    pendingPerms.set(qid, { rpcId: msg.id, options, kind });
+    emit({
+      kind: "question",
+      id: qid,
+      tool: kind,
+      header: "需要你批准",
+      question: `Antigravity 想要：${toolDetail(tc)}`,
+      options: [{ label: "允许" }, { label: `本次都允许 ${kind}`, description: "这次运行里同类操作不再询问" }, { label: "拒绝" }],
+      is_multi_select: false,
+      approval: true,
+      status: "waiting"
+    });
     return;
   }
   server.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id: msg.id, error: { code: -32601, message: `Unsupported method: ${method}` } })}
 `);
 }
 function handleToolUpdate(upd) {
-  const toolCallId = str(upd.toolCallId) || `acp_tool_${Date.now()}`;
-  const name = str(upd.name) || "tool";
-  const toolArgs = isObj(upd.args) ? upd.args : isObj(upd.rawInput) ? upd.rawInput : {};
-  const title = str(upd.title);
-  const status = str(upd.status).toLowerCase();
+  const toolCallId = str2(upd.toolCallId) || `acp_tool_${Date.now()}`;
+  const name = str2(upd.name) || "tool";
+  const toolArgs = isObj2(upd.args) ? upd.args : isObj2(upd.rawInput) ? upd.rawInput : {};
+  const title = str2(upd.title);
+  const status = str2(upd.status).toLowerCase();
   const detail = acpToolDetail(name, toolArgs, title);
   if (name === "ask_question") {
     const items = parseAskQuestionArgs(toolArgs);
@@ -1319,23 +1374,23 @@ function handleToolUpdate(upd) {
     status: finalStatus,
     ...cleanedOutput ? { output: cleanedOutput } : {}
   });
-  if (name === "manage_task" && ["kill", "stop", "cancel"].includes(str(toolArgs.Action).toLowerCase())) {
-    removeBgTaskByTarget(str(toolArgs.TaskId));
+  if (name === "manage_task" && ["kill", "stop", "cancel"].includes(str2(toolArgs.Action).toLowerCase())) {
+    removeBgTaskByTarget(str2(toolArgs.TaskId));
   } else if (name === "manage_subagents") {
-    const act = str(toolArgs.Action).toLowerCase();
+    const act = str2(toolArgs.Action).toLowerCase();
     if (act === "kill_all") {
       for (const sid of [...activeSubagents.keys()]) closeSubagent(sid, "done");
     } else if (act === "kill" && Array.isArray(toolArgs.ConversationIds)) {
-      for (const rawSid of toolArgs.ConversationIds) closeSubagent(str(rawSid), "done");
+      for (const rawSid of toolArgs.ConversationIds) closeSubagent(str2(rawSid), "done");
     }
   }
   if (name === "invoke_subagent" && status === "completed") {
     const launched = parseSubagentLaunch(rawText);
     if (launched) {
       registerSubagent(launched.conversationId, {
-        name: str(toolArgs.Role) || str(toolArgs.TypeName),
-        role: str(toolArgs.TypeName) || void 0,
-        detail: str(toolArgs.Prompt) || void 0,
+        name: str2(toolArgs.Role) || str2(toolArgs.TypeName),
+        role: str2(toolArgs.TypeName) || void 0,
+        detail: str2(toolArgs.Prompt) || void 0,
         logPath: launched.logPath
       });
     } else {
@@ -1357,14 +1412,14 @@ function handleToolUpdate(upd) {
 }
 function onNotification(msg) {
   if (replayingHistory) return;
-  if (str(msg.method) !== "session/update") return;
-  const params = isObj(msg.params) ? msg.params : {};
-  const upd = isObj(params.update) ? params.update : {};
-  const kind = str(upd.sessionUpdate);
+  if (str2(msg.method) !== "session/update") return;
+  const params = isObj2(msg.params) ? msg.params : {};
+  const upd = isObj2(params.update) ? params.update : {};
+  const kind = str2(upd.sessionUpdate);
   switch (kind) {
     case "agent_thought_chunk": {
-      const content = isObj(upd.content) ? upd.content : {};
-      const text = str(content.text);
+      const content = isObj2(upd.content) ? upd.content : {};
+      const text = str2(content.text);
       if (text) {
         markActivity(true);
         emit({ kind: "thinking", text });
@@ -1378,8 +1433,8 @@ function onNotification(msg) {
       break;
     }
     case "agent_message_chunk": {
-      const content = isObj(upd.content) ? upd.content : {};
-      const text = str(content.text);
+      const content = isObj2(upd.content) ? upd.content : {};
+      const text = str2(content.text);
       if (!text) break;
       if (suppressAskFallbackText && openQuestions.length > 0) break;
       markActivity(true);
@@ -1421,7 +1476,7 @@ createInterface({ input: server.stdout, crlfDelay: Infinity }).on("line", (line)
   } catch {
     return;
   }
-  if (!isObj(msg)) return;
+  if (!isObj2(msg)) return;
   if (msg.id != null && typeof msg.method === "string") {
     onServerRequest(msg);
     return;
@@ -1429,8 +1484,8 @@ createInterface({ input: server.stdout, crlfDelay: Infinity }).on("line", (line)
   if (msg.id != null && typeof msg.id === "number" && pendingRpc.has(msg.id)) {
     const waiter = pendingRpc.get(msg.id);
     pendingRpc.delete(msg.id);
-    if (isObj(msg.error)) {
-      const em = str(msg.error.message) || JSON.stringify(msg.error);
+    if (isObj2(msg.error)) {
+      const em = str2(msg.error.message) || JSON.stringify(msg.error);
       waiter.reject(new Error(em));
     } else {
       waiter.resolve(msg.result);
@@ -1461,7 +1516,7 @@ function sendPrompt(text, isSteer = false) {
     inFlightPrompts = Math.max(0, inFlightPrompts - 1);
     turns++;
     markActivity();
-    const usage = isObj(res.usage) ? res.usage : void 0;
+    const usage = isObj2(res.usage) ? res.usage : void 0;
     if (usage) {
       if (typeof usage.inputTokens === "number") totalInputTokens += usage.inputTokens;
       if (typeof usage.cachedReadTokens === "number") totalCachedReadTokens += usage.cachedReadTokens;
@@ -1494,7 +1549,21 @@ function sendPrompt(text, isSteer = false) {
   });
 }
 var earlyInputs = [];
+var pendingPerms = /* @__PURE__ */ new Map();
+var permAllowedKinds = /* @__PURE__ */ new Set();
+function answerPermission(qid, text) {
+  const key = qid && pendingPerms.has(qid) ? qid : !qid && pendingPerms.size ? [...pendingPerms.keys()][0] : "";
+  const w = key ? pendingPerms.get(key) : void 0;
+  if (!w) return false;
+  pendingPerms.delete(key);
+  const choice = chosenPermissionOption(w.options, text);
+  if (choice?.allowAll) permAllowedKinds.add(w.kind);
+  respond(w.rpcId, { outcome: choice ? { outcome: "selected", optionId: choice.optionId } : { outcome: "cancelled" } });
+  emit({ kind: "question", id: key, status: "answered", answer: clip2(text, 200) });
+  return true;
+}
 function handleUserInput(qid, text) {
+  if (answerPermission(qid, text)) return;
   if (finished || exiting) {
     emit({ kind: "steer", text, status: "late" });
     return;
@@ -1508,7 +1577,7 @@ function handleUserInput(qid, text) {
     const [entry] = openQuestions.splice(qIdx, 1);
     if (entry) {
       entry.batch.answers[entry.index] = text;
-      emit({ kind: "question", id: entry.id, status: "answered", answer: clip(text, 200) });
+      emit({ kind: "question", id: entry.id, status: "answered", answer: clip2(text, 200) });
       if (entry.batch.answers.every((a) => a !== void 0)) {
         const reply = formatAskQuestionAnswers(
           entry.batch.items,
@@ -1529,9 +1598,9 @@ createInterface({ input: process.stdin, crlfDelay: Infinity }).on("line", (line)
   if (raw.startsWith("{")) {
     try {
       const m = JSON.parse(raw);
-      if (isObj(m) && m.type === "memento_answer") {
-        qid = str(m.question_id) || void 0;
-        text = str(m.answer);
+      if (isObj2(m) && m.type === "memento_answer") {
+        qid = str2(m.question_id) || void 0;
+        text = str2(m.answer);
       }
     } catch {
     }
@@ -1596,7 +1665,7 @@ async function main() {
   } else {
     sessionRes = await request("session/new", baseParams);
   }
-  sessionId = str(sessionRes.sessionId) || args.conversation;
+  sessionId = str2(sessionRes.sessionId) || args.conversation;
   if (!sessionId) {
     fail("Error: Antigravity ACP returned no sessionId", 1);
     return;
@@ -1607,12 +1676,12 @@ async function main() {
     const transcriptPath = join(cliBrainRoot, sessionId, ".system_generated", "logs", "transcript.jsonl");
     parentTailer = new JsonlTailer(transcriptPath, false);
   }
-  const modelsObj = isObj(sessionRes.models) ? sessionRes.models : {};
-  const availableModels = (Array.isArray(modelsObj.availableModels) ? modelsObj.availableModels : []).filter(isObj).map((m) => ({ modelId: str(m.modelId), name: str(m.name) || void 0 })).filter((m) => Boolean(m.modelId));
-  const configOptions = Array.isArray(sessionRes.configOptions) ? sessionRes.configOptions.filter(isObj) : [];
-  const cfgModel = str(configOptions.find((c) => c.id === "model")?.currentValue);
-  const cfgLevel = str(configOptions.find((c) => c.id === "thought_level")?.currentValue);
-  activeModel = str(modelsObj.currentModelId) || (cfgModel && cfgLevel ? `${cfgModel}-${cfgLevel}` : cfgModel);
+  const modelsObj = isObj2(sessionRes.models) ? sessionRes.models : {};
+  const availableModels = (Array.isArray(modelsObj.availableModels) ? modelsObj.availableModels : []).filter(isObj2).map((m) => ({ modelId: str2(m.modelId), name: str2(m.name) || void 0 })).filter((m) => Boolean(m.modelId));
+  const configOptions = Array.isArray(sessionRes.configOptions) ? sessionRes.configOptions.filter(isObj2) : [];
+  const cfgModel = str2(configOptions.find((c) => c.id === "model")?.currentValue);
+  const cfgLevel = str2(configOptions.find((c) => c.id === "thought_level")?.currentValue);
+  activeModel = str2(modelsObj.currentModelId) || (cfgModel && cfgLevel ? `${cfgModel}-${cfgLevel}` : cfgModel);
   const resolved = resolveAcpModel(args.model, args.effort, availableModels);
   if (resolved.invalidError) {
     fail(resolved.invalidError, 1);

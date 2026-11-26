@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `ad1445e5` · Updated: `2026-11-26`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `a1119cc3` · Updated: `2026-11-26`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,8 +16,8 @@
 - 规模 (Scale): 9 个子系统 · 42 组 API 路由 / 338 个接口 · 39 个前端页面 · 41 个数据模型 · 35 个服务模块 · 280 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `ad1445e5` (2026-11-26): test(web): 流式输出渲染预算：回复输出时每来一个字只允许当前这一轮重渲染，前面已完成的回答一次都不重渲染（按次数计，CI 上稳定）
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 77（✅ 77 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 12 · 状态 10 · 最近提交碰到 `F-ASK`, `F-STOP`, `R-NEWCHAT-WORKS`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `R-ENT-DEVICE-POLICY`, `R-CONFIG-LOCK`, `R-WS-EDIT-ONLY`
+- 最近改动 (Latest): `a1119cc3` (2026-11-26): fix(web): 渲染预算测试改在 effect 里挂全局钩子，修掉渲染期间改全局变量的 lint 错误（CI 因此失败、1.0.163 部署未上线）
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 77（✅ 77 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 12 · 状态 10 · 最近提交碰到 `F-ASK`, `F-STOP`, `R-NEWCHAT-WORKS`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `R-ENT-DEVICE-POLICY`, `R-CONFIG-LOCK`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -31,7 +31,7 @@
 | 8. Development & Verification Commands | L686-L703 |
 | 9. Recent Architectural Evolutions | L705-L712 |
 | 10. Key Environment Variables & Configuration | L714-L726 |
-| 11. 业务蓝图核对 (Business Blueprint Check) | L728-L737 |
+| 11. 业务蓝图核对 (Business Blueprint Check) | L728-L736 |
 
 ## 1. Project Overview & Tech Stack
 
@@ -672,7 +672,7 @@ erDiagram
 
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
-- [`deploy/k8s/studio.yaml`](deploy/k8s/studio.yaml) (18 commits)
+- [`deploy/k8s/studio.yaml`](deploy/k8s/studio.yaml) (17 commits)
 - [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (11 commits)
 - [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (11 commits)
 - [`apps/web/src/app/studio/page.tsx`](apps/web/src/app/studio/page.tsx) (9 commits)
@@ -704,12 +704,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `a1119cc3` (2026-11-26): fix(web): 渲染预算测试改在 effect 里挂全局钩子，修掉渲染期间改全局变量的 lint 错误（CI 因此失败、1.0.163 部署未上线）
 - `ad1445e5` (2026-11-26): test(web): 流式输出渲染预算：回复输出时每来一个字只允许当前这一轮重渲染，前面已完成的回答一次都不重渲染（按次数计，CI 上稳定）
 - `c09f44c6` (2026-11-26): feat(mcp,terminal): MCP 加派活工具让外部智能体在用户设备上跑任务，终端在没有编译器的 Linux 上也能用，问答页补快捷键，并升级至 v1.0.163
 - `0b1d1b84` (2026-11-26): feat(acp): 通用 ACP 适配器，接入 OpenCode、Gemini CLI、Cursor、Kiro、Copilot CLI，并升级至 v1.0.162
 - `78f4bb22` (2026-11-26): feat(terminal): 代码改动抽屉加「终端」：在设备上的项目目录里开真终端（node-pty），网页用 xterm.js 显示，并升级至 v1.0.161
 - `8c688c2a` (2026-11-26): feat(git): 代码改动抽屉加「PR 与 CI」：在设备上用 gh 读取 PR 列表与详情，变基合并，盯 CI 跑完推送到手机
-- `9662d243` (2026-11-26): feat(git): 提交 / PR 页加「AI 写说明」：用个人设置里的大模型按仓库风格和用户的提交规则写提交说明、PR 标题与描述，去掉智能体署名尾注
 
 ## 10. Key Environment Variables & Configuration
 
@@ -734,7 +734,6 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 - `c09f44c6` feat(mcp,terminal): MCP 加派活工具让外部智能体在用户设备上跑任务，终端在没有编译器的 Linux 上也能用，问答页补快捷键，并升级至 v → `F-ASK`, `F-STOP`, `R-NEWCHAT-WORKS`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`
 - `0b1d1b84` feat(acp): 通用 ACP 适配器，接入 OpenCode、Gemini CLI、Cursor、Kiro、Copilot CLI，并升级至 v1.0.1 → `F-ASK`, `R-ENT-DEVICE-POLICY`, `R-CONFIG-LOCK`, `R-NEWCHAT-WORKS`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`
-- `78f4bb22` feat(terminal): 代码改动抽屉加「终端」：在设备上的项目目录里开真终端（node-pty），网页用 xterm.js 显示，并升级至 v1.0.1 → `R-WS-EDIT-ONLY`, `R-ENT-DEVICE-POLICY`, `R-WS-EXEC-STOP`, `R-APP-NAME`, `R-DOCS-WRITE-LIGHT`, `R-ALL-TYPESCRIPT`
 
 ---
 _Auto-maintained by `scripts/project_blueprint.mjs` (v20261126) & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._

@@ -9,7 +9,7 @@ describe("keyboard shortcuts on the AI 执事 page", () => {
     // each listed combination is handled in the page's keydown handler
     expect(ask).toContain('hasModifier && !e.shiftKey && key === "j"');
     expect(ask).toContain('hasModifier && e.shiftKey && key === "g"');
-    expect(ask).toContain('hasModifier && e.shiftKey && key === "a" && executionModeRef.current === "claude"');
+    expect(ask).toContain('hasModifier && e.shiftKey && key === "a" && supportsPermissionModes(executionModeRef.current)');
     expect(ask).toContain('hasModifier && key === "." && streaming');
     expect(ask).toContain('hasModifier && key === "/"');
     expect(ask).toContain('setGitDiffInit({ tab: "terminal" })');

@@ -3,7 +3,7 @@
 // only the app server lets Codex ask the user something mid-task (request_user_input) and take follow-ups,
 // and it prints the same JSONL lines `codex exec --json` prints, so the daemon parses both alike.
 //
-//   node codex_app.mjs [--codex BIN] [-C DIR] [--resume ID [--fork]] [--model M] [--effort E] [--timeout S] [--] PROMPT
+//   node codex_app.mjs [--codex BIN] [-C DIR] [--resume ID [--fork]] [--model M] [--effort E] [--timeout S] [--permission MODE] [--] PROMPT
 //
 // stdin, one line each: {"type":"memento_answer","question_id":..,"answer":..} answers a question it printed;
 // any other text answers the oldest open question, or else is steered into the running turn.
@@ -11,7 +11,7 @@ import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 
 const argv = process.argv.slice(2);
-const args = { codex: process.env.MEMENTO_CODEX_BIN || "codex", cwd: "", resume: "", fork: false, model: "", effort: "", timeout: 0, prompt: "" };
+const args = { codex: process.env.MEMENTO_CODEX_BIN || "codex", cwd: "", resume: "", fork: false, model: "", effort: "", timeout: 0, permission: "full", prompt: "" };
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i];
   if (a === "--codex") args.codex = argv[++i] ?? args.codex;
@@ -21,6 +21,7 @@ for (let i = 0; i < argv.length; i++) {
   else if (a === "--model") args.model = argv[++i] ?? "";
   else if (a === "--effort") args.effort = argv[++i] ?? "";
   else if (a === "--timeout") args.timeout = Number(argv[++i] ?? 0) || 0;
+  else if (a === "--permission") args.permission = argv[++i] ?? "full";
   else if (a === "--") {
     args.prompt = argv.slice(i + 1).join(" ");
     break;
@@ -347,17 +348,27 @@ async function interruptAndExit(code, note) {
 process.on("SIGINT", () => void interruptAndExit(130, "\n⏹️ [收到终止信号 (SIGINT)，已主动停止 Codex 任务]\n"));
 process.on("SIGTERM", () => void interruptAndExit(130, "\n⏹️ [收到终止信号 (SIGTERM)，已主动停止 Codex 任务]\n"));
 
+function codexPermissionPolicy(mode) {
+  if (mode === "supervised") return { approvalPolicy: "untrusted", sandbox: "workspace-write" };
+  if (mode === "auto_edits" || mode === "auto") return { approvalPolicy: "on-request", sandbox: "workspace-write" };
+  return { approvalPolicy: "never", sandbox: "danger-full-access" };
+}
+
 async function main() {
   if (!args.prompt) return fail("Error: no prompt given");
   await request("initialize", { clientInfo: { name: "memento", title: "Memento", version: process.env.MEMENTO_DESKTOP_VERSION || "0.0.0" }, capabilities: null });
   notify("initialized");
 
-  // memento runs Codex unattended, as `codex exec --dangerously-bypass-approvals-and-sandbox` did
+  // Full access (the default): unattended, as `codex exec --dangerously-bypass-approvals-and-sandbox` did.
+  // The other permission modes keep Codex in its workspace sandbox and let it ask (approval cards in memento):
+  // auto-accept edits / auto -> "on-request" (edits in the workspace go through, anything beyond asks),
+  // supervised -> "untrusted" (everything but trusted read-only commands asks).
+  const policy = codexPermissionPolicy(args.permission);
   const common = {
     ...(args.cwd ? { cwd: args.cwd } : {}),
     ...(args.model ? { model: args.model } : {}),
-    approvalPolicy: "never",
-    sandbox: "danger-full-access",
+    approvalPolicy: policy.approvalPolicy,
+    sandbox: policy.sandbox,
   };
   let started;
   try {

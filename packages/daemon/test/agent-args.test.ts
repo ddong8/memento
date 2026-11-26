@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { CLAUDE_HOST_KEYS, executionEnvironment } from "../src/exec-env.js";
-import { antigravityArgs, CLAUDE_CLIENT_NAME, claudeArgs, claudeClientEnv, codexArgs, isSessionNotFound, normalizePermissionMode } from "../src/task-runner.js";
+import { antigravityAcpArgs, antigravityArgs, CLAUDE_CLIENT_NAME, claudeArgs, claudeClientEnv, codexArgs, isSessionNotFound, normalizePermissionMode } from "../src/task-runner.js";
 
 describe("agent launch arguments", () => {
   it("Claude Code runs under the permission mode the user picked, asking over stdio in all of them", () => {
@@ -18,6 +18,24 @@ describe("agent launch arguments", () => {
     expect(normalizePermissionMode("supervised")).toBe("supervised");
     expect(normalizePermissionMode("bogus")).toBe("full");
     expect(normalizePermissionMode(undefined)).toBe("full");
+  });
+
+  it("Codex and Antigravity pass the permission mode to memento's runners, nothing at full access", () => {
+    const codex = (mode?: "full" | "supervised" | "auto") => codexArgs({ runner: "/r/codex_app.mjs", codex: "/bin/codex", prompt: "hi", permissionMode: mode });
+    expect(codex()).not.toContain("--permission");
+    expect(codex("full")).not.toContain("--permission");
+    expect(codex("supervised").join(" ")).toContain("--permission supervised --");
+    const agy = antigravityAcpArgs({ runner: "/r/agy_acp.mjs", agy: "/bin/agy", prompt: "hi", permissionMode: "auto" });
+    expect(agy.join(" ")).toContain("--permission auto --");
+    expect(antigravityAcpArgs({ runner: "/r/agy_acp.mjs", agy: "/bin/agy", prompt: "hi" })).not.toContain("--permission");
+  });
+
+  it("the Codex runner maps the modes to app-server approval policies and sandboxes", async () => {
+    const { readFileSync } = await import("node:fs");
+    const src = readFileSync(new URL("../assets/codex_app.mjs", import.meta.url), "utf8");
+    expect(src).toContain('if (mode === "supervised") return { approvalPolicy: "untrusted", sandbox: "workspace-write" };');
+    expect(src).toContain('return { approvalPolicy: "on-request", sandbox: "workspace-write" };');
+    expect(src).toContain('return { approvalPolicy: "never", sandbox: "danger-full-access" };');
   });
 
   it("Claude Code asks its questions over stdio, with every other tool still allowed", () => {

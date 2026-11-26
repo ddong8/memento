@@ -10,7 +10,7 @@ export const ASK_SHORTCUTS: readonly { keys: string[]; zh: string; en: string }[
   { keys: ["Mod", "Shift", "H"], zh: "历史对话", en: "Conversation history" },
   { keys: ["Mod", "J"], zh: "打开终端", en: "Open the terminal" },
   { keys: ["Mod", "Shift", "G"], zh: "代码改动、提交与 PR", en: "Changes, commit and PRs" },
-  { keys: ["Mod", "Shift", "A"], zh: "切换权限模式（Claude Code）", en: "Cycle permission mode (Claude Code)" },
+  { keys: ["Mod", "Shift", "A"], zh: "切换权限模式", en: "Cycle permission mode" },
   { keys: ["Mod", "."], zh: "停止运行（也可以按 Esc）", en: "Stop the run (or Esc)" },
   { keys: ["Mod", "Shift", "E"], zh: "导出为 Markdown", en: "Export as Markdown" },
   { keys: ["Mod", "/"], zh: "快捷键一览", en: "Keyboard shortcuts" },

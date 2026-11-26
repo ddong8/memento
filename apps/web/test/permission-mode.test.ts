@@ -17,6 +17,6 @@ describe("permission modes", () => {
     expect(ask).toContain("permission_mode: permissionMode,");
     expect(ask).toContain("setPermissionMode(normalizePermissionMode(data.permission_mode ?? cfg.permission_mode));");
     expect(ask).toContain('data-testid="ask-permission-mode"');
-    expect(ask).toContain('executionMode === "claude" && permissionMode !== "full"');
+    expect(ask).toContain('supportsPermissionModes(executionMode) && permissionMode !== "full"');
   });
 });

@@ -2,7 +2,7 @@
 
 import { ShortcutsDialog } from "@/components/ask/ShortcutsDialog";
 import { ACP_MODES, acpModesFor, isCliAgentMode } from "@/lib/ask/agent-modes";
-import { PERMISSION_MODE_OPTIONS, defaultPermissionMode, normalizePermissionMode, permissionModeLabel, rememberPermissionMode, type PermissionMode } from "@/lib/ask/permission-mode";
+import { PERMISSION_MODE_OPTIONS, defaultPermissionMode, normalizePermissionMode, permissionModeLabel, rememberPermissionMode, supportsPermissionModes, type PermissionMode } from "@/lib/ask/permission-mode";
 import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -4179,7 +4179,7 @@ function AskPageContent() {
       }
 
       // Cmd/Ctrl + Shift + A: 切换权限模式（Claude Code）
-      if (hasModifier && e.shiftKey && key === "a" && executionModeRef.current === "claude") {
+      if (hasModifier && e.shiftKey && key === "a" && supportsPermissionModes(executionModeRef.current)) {
         e.preventDefault();
         setPermissionMode((prev) => {
           const ids = PERMISSION_MODE_OPTIONS.map((o) => o.id);
@@ -5866,7 +5866,7 @@ function AskPageContent() {
                   )}
 
                   {/* Asks before acting: worth seeing at a glance, phones too */}
-                  {executionMode === "claude" && permissionMode !== "full" && (
+                  {supportsPermissionModes(executionMode) && permissionMode !== "full" && (
                     <span
                       title={permissionModeLabel(permissionMode, isZh)}
                       style={{
@@ -6645,7 +6645,7 @@ function AskPageContent() {
               )}
 
               {/* Permission mode: when Claude Code must ask before commands / file edits (approval cards come in the reply) */}
-              {executionMode === "claude" && (
+              {supportsPermissionModes(executionMode) && (
                 <div
                   data-testid="ask-permission-mode"
                   style={{

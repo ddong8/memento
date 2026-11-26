@@ -37,3 +37,8 @@ export function rememberPermissionMode(mode: PermissionMode): void {
     // private mode: the conversation's own config still keeps it
   }
 }
+
+/** Agents whose approvals memento can bring to the user: Claude Code, Codex, Antigravity and the ACP agents. */
+export function supportsPermissionModes(mode: string): boolean {
+  return ["claude", "codex", "antigravity", "opencode", "gemini", "cursor", "kiro", "copilot"].includes(mode);
+}

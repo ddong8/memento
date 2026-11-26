@@ -13,7 +13,7 @@ export interface OpenGitDiffEventDetail {
   branch?: string;
   mode?: "diff" | "restore";
   /** Tab to open on (keyboard: ⌘J opens the terminal) */
-  tab?: "diff" | "deliver" | "pr" | "terminal";
+  tab?: "diff" | "deliver" | "pr" | "terminal" | "preview";
 }
 
 export interface InlineDiffComment {

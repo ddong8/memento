@@ -19,6 +19,7 @@ import { applyWorkspaceRequest, exportWorkspace, WorkspaceError } from "./worksp
 import { flushPendingPatches, type Relay } from "./workspace-sync.js";
 import { assertPathAllowed } from "./managed-policy.js";
 import { TerminalManager } from "./terminal.js";
+import { fetchLocal, listeningPorts, type PreviewRequest } from "./preview.js";
 
 type Log = (message: string) => void;
 
@@ -338,6 +339,12 @@ export class WsTaskClient {
           this.sendJson({ type: "term_open_resp", req_id: reqId, ok: !error, ...(error ? { error } : {}) });
           break;
         }
+        case "preview_ports_req":
+          void listeningPorts().then((ports) => this.sendJson({ type: "preview_resp", req_id: String(data.req_id ?? ""), ok: true, ports }));
+          break;
+        case "preview_http_req":
+          void fetchLocal(data as unknown as PreviewRequest).then((res) => this.sendJson({ type: "preview_resp", req_id: String(data.req_id ?? ""), ...res }));
+          break;
         case "term_input":
           this.terminals.write(String(data.term_id ?? ""), String(data.data ?? ""));
           break;

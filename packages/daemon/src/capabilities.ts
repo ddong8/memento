@@ -735,6 +735,8 @@ export async function probeEnvironmentFingerprint(home = homeDir()): Promise<Rec
       ...(gitExe ? ["source_exec", "source_commit", "source_put"] : []),
       // A real terminal in the web app (node-pty shipped with this build)
       ...(loadPty() ? ["terminal"] : []),
+      // Local web servers previewed through the server relay
+      "preview",
     ],
     probed_at: new Date().toISOString(),
   };

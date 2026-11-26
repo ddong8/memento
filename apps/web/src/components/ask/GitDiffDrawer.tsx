@@ -18,6 +18,7 @@ import {
 } from "@/lib/ask/git-review";
 import { showInAppToast } from "@/lib/native-notify";
 import { PullRequestsPanel } from "@/components/ask/PullRequestsPanel";
+import { PreviewPanel } from "@/components/ask/PreviewPanel";
 import dynamic from "next/dynamic";
 
 // xterm.js only loads when the terminal tab is opened
@@ -53,7 +54,7 @@ export function GitDiffDrawer({
   onSendReviewComments,
   isZh,
 }: GitDiffDrawerProps) {
-  const [activeTab, setActiveTab] = useState<"diff" | "deliver" | "pr" | "terminal">("diff");
+  const [activeTab, setActiveTab] = useState<"diff" | "deliver" | "pr" | "terminal" | "preview">("diff");
   const [baseRef, setBaseRef] = useState<string>("");
   const [targetRef, setTargetRef] = useState<string>("");
   const [loading, setLoading] = useState(false);
@@ -370,7 +371,7 @@ export function GitDiffDrawer({
           <div className="flex items-center gap-1.5 shrink-0 app-region-no-drag">
             {/* Segmented Tab Switcher */}
             <div
-              className="inline-flex items-center p-0.5 rounded-lg border border-[var(--aurora-border)]"
+              className="no-scrollbar inline-flex items-center p-0.5 rounded-lg border border-[var(--aurora-border)] max-w-full overflow-x-auto whitespace-nowrap min-w-0"
               style={{ background: "var(--aurora-surface-mute)" }}
             >
               <button
@@ -432,6 +433,19 @@ export function GitDiffDrawer({
                 }}
               >
                 {isZh ? "终端" : "Terminal"}
+              </button>
+              <button
+                type="button"
+                data-testid="git-tab-preview"
+                onClick={() => setActiveTab("preview")}
+                className="px-2.5 py-1 rounded-md text-[12px] font-medium transition-colors cursor-pointer"
+                style={{
+                  background: activeTab === "preview" ? "var(--aurora-surface-solid)" : "transparent",
+                  color: activeTab === "preview" ? "var(--aurora-fg1)" : "var(--aurora-fg3)",
+                  border: "none",
+                }}
+              >
+                {isZh ? "预览" : "Preview"}
               </button>
             </div>
 
@@ -569,7 +583,11 @@ export function GitDiffDrawer({
         )}
 
         {/* Body */}
-        {activeTab === "terminal" ? (
+        {activeTab === "preview" ? (
+          <div className="flex-1 min-h-0 flex flex-col overflow-y-auto">
+            <PreviewPanel deviceId={deviceId} isZh={isZh} />
+          </div>
+        ) : activeTab === "terminal" ? (
           <div className="flex-1 min-h-0 flex flex-col">
             <TerminalPanel deviceId={deviceId} cwd={effectiveCwd} isZh={isZh} />
           </div>

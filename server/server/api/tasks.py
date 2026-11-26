@@ -653,7 +653,7 @@ async def device_websocket_endpoint(
                 tid = str(data.get("term_id") or "")
                 if tid.startswith("term-"):
                     ws_manager.push_event(tid, {"kind": "term_exit", "exit_code": data.get("exit_code")})
-            elif msg_type in ("file_stat_resp", "file_chunk_resp", "p2p_answer", "workspace_resp", "agent_login_resp", "git_resp", "term_open_resp"):
+            elif msg_type in ("file_stat_resp", "file_chunk_resp", "p2p_answer", "workspace_resp", "agent_login_resp", "git_resp", "term_open_resp", "preview_resp"):
                 ws_manager.handle_file_response(data)
             elif msg_type == "running_tasks":
                 notify_service.spawn(_settle_lost_tasks(real_device_id, data))

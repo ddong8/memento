@@ -1,9 +1,9 @@
-version: 1.0.158
+version: 1.0.159
 files:
-  - url: Memento-1.0.158-linux-x86_64.AppImage
-    sha512: wQOXufHnhTlByMjxAiGJqTx8wzipa4dyBcwgrLh2q25rtko3Lhj/hhaCZiukvNaKKyEllhznm9md7R05TOEIhQ==
-    size: 139075097
-    blockMapSize: 146989
-path: Memento-1.0.158-linux-x86_64.AppImage
-sha512: wQOXufHnhTlByMjxAiGJqTx8wzipa4dyBcwgrLh2q25rtko3Lhj/hhaCZiukvNaKKyEllhznm9md7R05TOEIhQ==
-releaseDate: '2026-11-26T10:15:57.906Z'
+  - url: Memento-1.0.159-linux-x86_64.AppImage
+    sha512: o/CXMU9n5YWiE/utcUmwRYPINgz1BwG5Pki9805roai/BYYkUR6IEm5UqZn/iFRs/Bh0CWUDgWUvqlce1PK/yw==
+    size: 139075165
+    blockMapSize: 147057
+path: Memento-1.0.159-linux-x86_64.AppImage
+sha512: o/CXMU9n5YWiE/utcUmwRYPINgz1BwG5Pki9805roai/BYYkUR6IEm5UqZn/iFRs/Bh0CWUDgWUvqlce1PK/yw==
+releaseDate: '2026-11-26T10:53:39.520Z'

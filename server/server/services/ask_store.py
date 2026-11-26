@@ -564,7 +564,7 @@ async def append_conversation_turns(
             # into Document + ConversationMessage so RAG retrieval, daily digest, and session reviews all include them.
             cfg_now = dict(conv.config or {})
             exec_mode_now = (cfg_now.get("execution_mode") or "ai").lower()
-            has_cli_session = bool(cfg_now.get("session_id")) and exec_mode_now in ("claude", "codex", "antigravity", "workbuddy")
+            has_cli_session = bool(cfg_now.get("session_id")) and exec_mode_now in ("claude", "codex", "antigravity", "workbuddy", "opencode", "gemini", "cursor", "kiro", "copilot")
             if not has_cli_session and conv.user_id:
                 try:
                     import hashlib

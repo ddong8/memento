@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `8c688c2a` · Updated: `2026-11-26`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `78f4bb22` · Updated: `2026-11-26`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -13,11 +13,11 @@
 - 类型 (Type): Monorepo (Workspaces)
 - 技术栈 (Stack): TypeScript/JavaScript, Python, Shell / Bash · React, Electron, Next.js, TailwindCSS, Model Context Protocol (MCP), FastAPI, SQLAlchemy, Celery
 - 基础设施 (Infra): PostgreSQL, pgvector (Vector DB), Redis, MinIO / S3 Object Storage, Celery Task Queue
-- 规模 (Scale): 9 个子系统 · 42 组 API 路由 / 338 个接口 · 39 个前端页面 · 41 个数据模型 · 35 个服务模块 · 274 个测试文件
+- 规模 (Scale): 9 个子系统 · 42 组 API 路由 / 338 个接口 · 39 个前端页面 · 41 个数据模型 · 35 个服务模块 · 277 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `8c688c2a` (2026-11-26): feat(git): 代码改动抽屉加「PR 与 CI」：在设备上用 gh 读取 PR 列表与详情，变基合并，盯 CI 跑完推送到手机
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 77（✅ 77 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 12 · 状态 10 · 最近提交碰到 `F-ASK`, `R-ENT-DEVICE-POLICY`, `R-DEVICE-ENV-PROFILE`, `R-CLAUDE-RESUME-IN-PLACE`, `R-NEWCHAT-WORKS`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `S-MODEL-CHOICE`
+- 最近改动 (Latest): `78f4bb22` (2026-11-26): feat(terminal): 代码改动抽屉加「终端」：在设备上的项目目录里开真终端（node-pty），网页用 xterm.js 显示，并升级至 v1.0.161
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 77（✅ 77 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 12 · 状态 10 · 最近提交碰到 `R-WS-EDIT-ONLY`, `R-ENT-DEVICE-POLICY`, `R-WS-EXEC-STOP`, `R-APP-NAME`, `R-DOCS-WRITE-LIGHT`, `R-ALL-TYPESCRIPT`, `F-ASK`, `R-DEVICE-ENV-PROFILE`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -31,7 +31,7 @@
 | 8. Development & Verification Commands | L686-L703 |
 | 9. Recent Architectural Evolutions | L705-L712 |
 | 10. Key Environment Variables & Configuration | L714-L726 |
-| 11. 业务蓝图核对 (Business Blueprint Check) | L728-L735 |
+| 11. 业务蓝图核对 (Business Blueprint Check) | L728-L736 |
 
 ## 1. Project Overview & Tech Stack
 
@@ -662,9 +662,9 @@ erDiagram
 
 | Suite | Directory | Files | Sample Tests |
 | :--- | :--- | :--- | :--- |
-| server/tests (pytest) | [`server/tests`](server/tests) | 136 | `test_agent_ids.py`, `test_agent_limits.py`, `test_agent_login.py`, `test_agent_run_states.py`, `test_ai_provider.py` |
-| packages/daemon/test (vitest / jest) | [`packages/daemon/test`](packages/daemon/test) | 65 | `agent-args.test.ts`, `agent-login.test.ts`, `agent-stream.test.ts`, `agy-background.test.ts`, `agy-models.test.ts` |
-| apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 63 | `active-runs-chip.test.tsx`, `api-client.test.ts`, `ask-performance-guards.test.tsx`, `ask-reading-and-persona-rules.test.tsx`, `ask-top-bar.test.tsx` |
+| server/tests (pytest) | [`server/tests`](server/tests) | 137 | `test_acp_modes.py`, `test_agent_ids.py`, `test_agent_limits.py`, `test_agent_login.py`, `test_agent_run_states.py` |
+| packages/daemon/test (vitest / jest) | [`packages/daemon/test`](packages/daemon/test) | 66 | `acp-runner.test.ts`, `agent-args.test.ts`, `agent-login.test.ts`, `agent-stream.test.ts`, `agy-background.test.ts` |
+| apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 64 | `active-runs-chip.test.tsx`, `agent-modes.test.ts`, `api-client.test.ts`, `ask-performance-guards.test.tsx`, `ask-reading-and-persona-rules.test.tsx` |
 | apps/mobile/test (vitest / jest) | [`apps/mobile/test`](apps/mobile/test) | 4 | `deeplink.test.ts`, `glass-surface.test.ts`, `injected-helpers.test.ts`, `webview-props.test.ts` |
 | apps/desktop/test (vitest / jest) | [`apps/desktop/test`](apps/desktop/test) | 2 | `helpers.test.ts`, `updater-and-daemon.test.ts` |
 | packages/core/test (vitest / jest) | [`packages/core/test`](packages/core/test) | 2 | `ask-stream.test.ts`, `task-events.test.ts` |
@@ -676,10 +676,10 @@ erDiagram
 - [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (10 commits)
 - [`apps/web/src/app/studio/page.tsx`](apps/web/src/app/studio/page.tsx) (10 commits)
 - [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (10 commits)
-- [`apps/web/src/app/globals.css`](apps/web/src/app/globals.css) (8 commits)
 - [`apps/web/src/lib/studio-api.ts`](apps/web/src/lib/studio-api.ts) (8 commits)
 - [`server/server/api/studio.py`](server/server/api/studio.py) (8 commits)
 - [`apps/mobile/src/app/index.tsx`](apps/mobile/src/app/index.tsx) (7 commits)
+- [`apps/web/src/app/globals.css`](apps/web/src/app/globals.css) (7 commits)
 - [`apps/web/src/lib/api-client.ts`](apps/web/src/lib/api-client.ts) (7 commits)
 - [`apps/web/test/glass-system.test.ts`](apps/web/test/glass-system.test.ts) (7 commits)
 
@@ -704,12 +704,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `78f4bb22` (2026-11-26): feat(terminal): 代码改动抽屉加「终端」：在设备上的项目目录里开真终端（node-pty），网页用 xterm.js 显示，并升级至 v1.0.161
 - `8c688c2a` (2026-11-26): feat(git): 代码改动抽屉加「PR 与 CI」：在设备上用 gh 读取 PR 列表与详情，变基合并，盯 CI 跑完推送到手机
 - `9662d243` (2026-11-26): feat(git): 提交 / PR 页加「AI 写说明」：用个人设置里的大模型按仓库风格和用户的提交规则写提交说明、PR 标题与描述，去掉智能体署名尾注
 - `08e69adc` (2026-11-26): feat(ask,daemon): 权限模式与命令审批：智能体运行命令、改文件前可先问你，审批卡片推送到手机，并升级至 v1.0.160
 - `ccc967a1` (2026-11-26): fix(mobile,web): 底栏小胶囊改用浓玻璃底色不再透出下方文字糊成一团，网页声明支持后 App 才缩成胶囊，旧缓存页面保持完整底栏；iOS 构建号升到 18
 - `e036651e` (2026-11-26): feat(mobile,web): 手机端对话页精简：运行中卡片去重、输入框标签合并并对齐底栏，往下滚时底栏缩成小胶囊
-- `df0f1bce` (2026-11-26): chore(mobile): iOS 构建号升到 16，带上注入脚本等 <html> 就绪的修复传 TestFlight
 
 ## 10. Key Environment Variables & Configuration
 
@@ -732,6 +732,7 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ### 最近提交碰到的业务条目（改动后复查它们还成不成立）
 
+- `78f4bb22` feat(terminal): 代码改动抽屉加「终端」：在设备上的项目目录里开真终端（node-pty），网页用 xterm.js 显示，并升级至 v1.0.1 → `R-WS-EDIT-ONLY`, `R-ENT-DEVICE-POLICY`, `R-WS-EXEC-STOP`, `R-APP-NAME`, `R-DOCS-WRITE-LIGHT`, `R-ALL-TYPESCRIPT`
 - `08e69adc` feat(ask,daemon): 权限模式与命令审批：智能体运行命令、改文件前可先问你，审批卡片推送到手机，并升级至 v1.0.160 → `F-ASK`, `R-ENT-DEVICE-POLICY`, `R-DEVICE-ENV-PROFILE`, `R-CLAUDE-RESUME-IN-PLACE`, `R-NEWCHAT-WORKS`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `S-MODEL-CHOICE`, `S-AGENT-SESSION`
 
 ---

@@ -14,6 +14,8 @@ import {
   type AgentEvent,
   type AgentStreamParser,
 } from "./agent-stream.js";
+import { acpRunnerArgs, acpRunnerScript } from "./acp.js";
+import { acpAgent } from "./acp-runner/protocol.js";
 import {
   AgyCliTranscriptTailer,
   agyAcpRunner,
@@ -750,6 +752,8 @@ export class TaskRunner {
     const env0: NodeJS.ProcessEnv = {};
     /** Set for Codex tasks: memento's runner and the Codex binary it drives. */
     let codex: { runner: string; codex: string } | undefined;
+    /** Set for ACP agents (OpenCode, Gemini CLI, ...): the agent's own executable, which memento's runner starts. */
+    let acpExe: string | undefined;
 
     const binary = (text("binary") || "claude").toLowerCase();
     let prompt = text("prompt");
@@ -851,7 +855,8 @@ export class TaskRunner {
       isAntigravity = binary.includes("agy") || binary.includes("antigravity");
       const isWorkbuddy = binary.includes("workbuddy") || binary.includes("codebuddy");
       if (isWorkbuddy) await ensureWorkbuddyCliInstalled();
-      const candidates = binary === "workbuddy" ? ["workbuddy_cli.mjs", "workbuddy.cmd", "workbuddy", "codebuddy"] : [binary];
+      const acp = acpAgent(binary);
+      const candidates = binary === "workbuddy" ? ["workbuddy_cli.mjs", "workbuddy.cmd", "workbuddy", "codebuddy"] : acp ? acp.bins : [binary];
       const resolved = isAntigravity ? await antigravityExecutable() : await findExecutable(candidates);
       if (!resolved) {
         let tip = "";
@@ -864,6 +869,8 @@ export class TaskRunner {
           tip = "\n💡 请运行 npm install -g @anthropic-ai/claude-code 安装 Claude Code CLI";
         } else if (binary.includes("codex")) {
           tip = "\n💡 请运行 npm install -g @openai/codex 或参考 Codex 官方文档安装 Codex CLI";
+        } else if (acp) {
+          tip = `\n💡 这台设备上没找到 ${acp.label}（${acp.bins.join(" / ")}），装好并登录后再试`;
         }
         this.send(
           taskFinishedMessage({ taskId, status: "failed", exitCode: 1, error: `Agent CLI executable not found on device: ${binary}${tip}` }),
@@ -944,6 +951,16 @@ export class TaskRunner {
         parser = new ClaudeStreamParser({ approvals: permissionMode !== "full" });
         stdinPrompt = prompt;
         this.claudeTasks.add(taskId);
+      } else if (acp) {
+        // Any Agent Client Protocol agent, through memento's generic runner on this process's own runtime
+        const agentExe = exe;
+        acpExe = agentExe;
+        const runner = await acpRunnerScript();
+        exe = process.execPath;
+        env0.ELECTRON_RUN_AS_NODE = "1";
+        args = acpRunnerArgs({ runner, agent: acp, agentExe, workDir, sessionId, permissionMode, prompt: sysAppend ? `${sysAppend}\n\n${prompt}` : prompt });
+        parser = new UniversalStreamParser({ sessionFromStdout: false });
+        this.runnerTasks.add(taskId);
       } else if (binary.includes("codex")) {
         codex = { runner: await codexRunner(), codex: exe };
         exe = process.execPath;
@@ -982,7 +999,8 @@ export class TaskRunner {
             "-p",
             prompt,
           ];
-          parser = new ClaudeStreamParser({ approvals: permissionMode !== "full" });
+          // -y approves everything and there's no channel back for answers: never approval cards here
+          parser = new ClaudeStreamParser();
           this.noSteerTasks.add(taskId);
         }
       } else if (isAntigravity) {
@@ -1018,7 +1036,7 @@ export class TaskRunner {
 
     try {
       // The Codex and Antigravity runners run on this process's own runtime (Electron as Node in the desktop app)
-      const env = { ...withExeDirOnPath(await executionEnvironment(), codex?.codex ?? agyRunner ?? exe), ...env0 };
+      const env = { ...withExeDirOnPath(await executionEnvironment(), codex?.codex ?? agyRunner ?? acpExe ?? exe), ...env0 };
       if (codex || agyRunner) env.ELECTRON_RUN_AS_NODE = "1";
       /** Has this task run on Google's agy CLI from here on: ACP runner when supported, else stream-json print mode. */
       const toOfficialCli = async (cli: string) => {

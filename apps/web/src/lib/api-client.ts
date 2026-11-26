@@ -378,6 +378,8 @@ export interface DeviceSummary {
   last_heartbeat: string | null;
   online?: boolean;
   document_count: number;
+  /** ACP agents installed there (opencode, gemini, cursor, kiro, copilot) */
+  acp_agents?: string[];
 }
 
 // Backlinks — knowledge-graph derived "what else discussed this?"

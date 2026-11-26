@@ -32,6 +32,12 @@ const RUNNERS = [
     outputs: [join(pkg, "assets/agy_acp.mjs")],
     committed: join(pkg, "assets/agy_acp.mjs"),
   },
+  {
+    entry: "src/acp-runner/main.ts",
+    banner: "Memento's generic ACP runner: drives any Agent Client Protocol agent over stdio (OpenCode, Gemini CLI, Cursor, Kiro, Copilot CLI) for tasks sent to this device.",
+    outputs: [join(pkg, "assets/acp_runner.mjs")],
+    committed: join(pkg, "assets/acp_runner.mjs"),
+  },
 ];
 
 async function bundle(runner) {

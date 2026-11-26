@@ -196,6 +196,8 @@ async def list_devices(
                 "blueprint": (m.profile_status or {}).get("blueprint"),
                 # Agent CLIs can be signed in from the devices page (daemon 1.0.106+)
                 "agent_login": _has_feature(m.name, "agent_login", _user),
+                # ACP agents installed there (OpenCode, Gemini CLI, Cursor, Kiro, Copilot CLI), run by daemon 1.0.162+
+                "acp_agents": _acp_agents(m.name, _user),
                 # Each AI tool's memento-memory MCP entry: added / repaired / unchanged / error (null before v1.0.102)
                 "mcp": (m.profile_status or {}).get("mcp"),
                 # From the device's heartbeat: backlog, files failing, uploads (null before v1.0.95)
@@ -911,6 +913,15 @@ async def p2p_offer(
     if res.get("error") or not res.get("sdp"):
         raise HTTPException(status_code=502, detail=str(res.get("error") or "no answer from device"))
     return {"sdp": res["sdp"]}
+
+
+def _acp_agents(name: str | None, user) -> list[str]:
+    from ..services.device_reports import get_cached_device_capabilities
+
+    caps = get_cached_device_capabilities(name, user=user) if name else None
+    if not isinstance(caps, dict):
+        return []
+    return [k for k, v in caps.items() if isinstance(v, dict) and v.get("protocol") == "acp"]
 
 
 def _has_feature(name: str | None, feature: str, user: User) -> bool:

@@ -1,7 +1,7 @@
 import { stripTransientStatusPrefix } from "@/components/viewers/MarkdownViewer";
 import { ToolCallItem } from "@/components/ExecutionCard";
 
-export type ExecutionMode = "ai" | "claude" | "codex" | "antigravity" | "workbuddy" | "shell";
+export type ExecutionMode = "ai" | "claude" | "codex" | "antigravity" | "workbuddy" | "opencode" | "gemini" | "cursor" | "kiro" | "copilot" | "shell";
 export interface Source {
   id: string;
   title: string;

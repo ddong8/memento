@@ -1,5 +1,6 @@
 "use client";
 
+import { ACP_MODES, acpModesFor, isCliAgentMode } from "@/lib/ask/agent-modes";
 import { PERMISSION_MODE_OPTIONS, defaultPermissionMode, normalizePermissionMode, permissionModeLabel, rememberPermissionMode, type PermissionMode } from "@/lib/ask/permission-mode";
 import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
@@ -3958,9 +3959,9 @@ function AskPageContent() {
           // one from a snapshot only on a device the session isn't on)
           compact_mode: options?.forceCompact || undefined,
           project_id: selectedProjectId,
-          worktree: worktreeMode && ["codex", "claude", "antigravity", "workbuddy"].includes(executionMode) ? true : undefined,
+          worktree: worktreeMode && isCliAgentMode(executionMode) ? true : undefined,
           // "" goes too: it clears a code device the conversation had
-          source_device_id: ["codex", "claude", "antigravity", "workbuddy"].includes(executionMode) && isConcreteDevice(selectedDevice) ? codeDevice : undefined,
+          source_device_id: isCliAgentMode(executionMode) && isConcreteDevice(selectedDevice) ? codeDevice : undefined,
         }),
         signal: ctrl.signal,
       });
@@ -4411,7 +4412,7 @@ function AskPageContent() {
       codeDeviceRef.current = "";
     }
     persistCurrentConfig({ device_id: newDev, project_id: "", session_id: "", cwd: "", ...(dropCodeDev ? { source_device_id: "" } : {}) });
-    if (["codex", "claude", "antigravity", "workbuddy"].includes(executionMode)) {
+    if (isCliAgentMode(executionMode)) {
       // Choosing auto leaves the project to the user: picking one then picks its device
       loadProjectsForMode(executionMode, newDev, isConcreteDevice(newDev) ? prevTitle : undefined);
     }
@@ -4654,7 +4655,7 @@ function AskPageContent() {
 
   // Sync projects on initial load in agent mode or AI 编排 mode (so AI 编排 can scope memory/blueprints by project)
   useEffect(() => {
-    if (!activeConversationId && !isRestoringRef.current && ["ai", "codex", "claude", "antigravity", "workbuddy"].includes(executionMode)) {
+    if (!activeConversationId && !isRestoringRef.current && (executionMode === "ai" || isCliAgentMode(executionMode))) {
       if (projects.length === 0) {
         if (executionMode === "ai") {
           api.listProjects().then((list) => {
@@ -4674,6 +4675,10 @@ function AskPageContent() {
       d.name === selectedDevice ||
       d.name?.toLowerCase() === selectedDevice?.toLowerCase()
   );
+  // ACP agents to offer: the selected device's, or any online device's when the target is picked automatically
+  const selectedDeviceAcpAgents = currentDev
+    ? currentDev.acp_agents ?? []
+    : Array.from(new Set(devices.filter((d) => d.online).flatMap((d) => d.acp_agents ?? [])));
   const isCurrentDevOnline = currentDev
     ? (currentDev.online ?? (currentDev.last_heartbeat ? (Date.now() - new Date(currentDev.last_heartbeat).getTime()) < 180_000 : false))
     : true;
@@ -5619,6 +5624,7 @@ function AskPageContent() {
                       { id: "codex" as const, label: t.ask.modeCodex || "Codex", brandId: "codex" as const, color: "#10A37F" },
                       { id: "antigravity" as const, label: t.ask.modeAntigravity || "Antigravity", brandId: "antigravity" as const, color: "#3186FF" },
                       { id: "workbuddy" as const, label: "WorkBuddy", brandId: "workbuddy" as const, color: "#0EC7A8" },
+                      ...ACP_MODES.map((m) => ({ id: m.id, label: m.label, icon: "sparkles" as const, brandId: undefined, color: m.color })),
                       { id: "shell" as const, label: t.ask.modeShell || "Shell 终端", icon: "terminal" as const, color: "#38BDF8" },
                     ].find((m) => m.id === executionMode) || { id: "ai" as const, label: "AI 编排", icon: "brain" as const, color: "var(--aurora-accent)" };
 
@@ -5964,6 +5970,8 @@ function AskPageContent() {
                       { id: "codex" as const, label: t.ask.modeCodex || "Codex", brandId: "codex", color: "#10A37F" },
                       { id: "antigravity" as const, label: t.ask.modeAntigravity || "Antigravity", brandId: "antigravity", color: "#3186FF" },
                       { id: "workbuddy" as const, label: "WorkBuddy", brandId: "workbuddy", color: "#0EC7A8" },
+                      // ACP agents this device has (OpenCode, Gemini CLI, Cursor, Kiro, Copilot CLI)
+                      ...acpModesFor(selectedDeviceAcpAgents, executionMode).map((m) => ({ id: m.id, label: m.label, icon: "sparkles" as const, brandId: undefined, color: m.color })),
                       { id: "shell" as const, label: t.ask.modeShell || "Shell 终端", icon: "terminal" as const, color: "#38BDF8" },
                     ].filter((m) => !configLocked || m.id === executionMode).map((m) => {
                       const isSelected = executionMode === m.id;
@@ -6193,7 +6201,7 @@ function AskPageContent() {
               </div>
 
               {/* Where the code is: another device's folder, synced to the one running the agent and back */}
-              {["codex", "claude", "antigravity", "workbuddy"].includes(executionMode) && isConcreteDevice(selectedDevice) && devices.length > 1 && (
+              {isCliAgentMode(executionMode) && isConcreteDevice(selectedDevice) && devices.length > 1 && (
                 <div
                   title={t.ask.codeDeviceHint}
                   style={{
@@ -6353,7 +6361,7 @@ function AskPageContent() {
               )}
 
               {/* Agent Model selector */}
-              {["codex", "claude", "antigravity", "workbuddy"].includes(executionMode) && (
+              {isCliAgentMode(executionMode) && (
                 isCustomModel ? (
                   <div
                     style={{
@@ -6533,7 +6541,7 @@ function AskPageContent() {
               )}
 
               {/* Agent Reasoning Effort selector (Low / Medium / High) */}
-              {["codex", "claude", "antigravity", "workbuddy"].includes(executionMode) && (capabilities?.supports_effort || executionMode === "codex" || executionMode === "workbuddy") && (
+              {isCliAgentMode(executionMode) && (capabilities?.supports_effort || executionMode === "codex" || executionMode === "workbuddy") && (
                 <div
                   style={{
                     display: "inline-flex",
@@ -6645,7 +6653,7 @@ function AskPageContent() {
               )}
 
               {/* Own worktree and branch for the agent */}
-              {["codex", "claude", "antigravity", "workbuddy"].includes(executionMode) && (
+              {isCliAgentMode(executionMode) && (
                 <button
                   type="button"
                   onClick={() => {
@@ -6678,7 +6686,7 @@ function AskPageContent() {
               )}
 
               {/* Agent / AI 编排 Project selector */}
-              {["ai", "codex", "claude", "antigravity", "workbuddy"].includes(executionMode) && (
+              {(executionMode === "ai" || isCliAgentMode(executionMode)) && (
                 <div
                   style={{
                     display: "inline-flex",
@@ -6762,7 +6770,7 @@ function AskPageContent() {
               )}
 
               {/* Agent Historical Session selector */}
-              {["codex", "claude", "antigravity", "workbuddy"].includes(executionMode) && (
+              {isCliAgentMode(executionMode) && (
                 selectedProjectId ? (
                   <div
                     style={{

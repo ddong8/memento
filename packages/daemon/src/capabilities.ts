@@ -1,4 +1,5 @@
 import { loadPty } from "./terminal.js";
+import { ACP_AGENTS } from "./acp-runner/protocol.js";
 import { createReadStream, existsSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -765,6 +766,22 @@ export async function probeCapabilities(home = homeDir(), options?: { force?: bo
   const wb = await findExecutable(["workbuddy_cli.mjs", "workbuddy.cmd", "workbuddy", "codebuddy"]);
   if (wb && isWorkbuddyInstalled(home)) {
     caps.workbuddy = await workbuddyCapabilities(wb, home);
+  }
+  // Agent Client Protocol agents (OpenCode, Gemini CLI, Cursor, Kiro, Copilot CLI): run through memento's generic
+  // runner. They pick their own default model (ACP has no stable model switch yet).
+  const acpFound = await Promise.all(ACP_AGENTS.map(async (a) => [a, await findExecutable(a.bins)] as const));
+  for (const [a, path] of acpFound) {
+    if (!path) continue;
+    caps[a.id] = {
+      tool: a.id,
+      label: a.label,
+      protocol: "acp",
+      path,
+      models: [{ id: "", name: `默认模型（跟随 ${a.label} 配置）`, desc: "" }],
+      default_model: "",
+      supports_effort: false,
+      effort_options: [],
+    };
   }
   try {
     caps.environment = await probeEnvironmentFingerprint(home);

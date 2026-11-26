@@ -222,6 +222,9 @@ def _can_carry_session(home, target, user: User) -> bool:
 
 
 PERMISSION_MODES = ("full", "auto_edits", "supervised", "auto")
+# Agents memento runs over the Agent Client Protocol (the daemon's generic ACP runner, 1.0.162+)
+ACP_MODES = ("opencode", "gemini", "cursor", "kiro", "copilot")
+AGENT_MODES = ("claude", "codex", "antigravity", "workbuddy", *ACP_MODES)
 
 
 def normalize_permission_mode(mode: str | None) -> str:

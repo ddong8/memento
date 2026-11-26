@@ -34,7 +34,7 @@ from ..services.ask_runs import ask_runs
 from ..services.ask_prompt import build_messages, classify_continuation
 from ..services.ask_retrieval import retrieve, retrieve_core_memories
 from ..services.ask_store import append_conversation_turns, get_or_create_conversation, reconcile_session
-from ..services.ask_stream import SSE_HEADERS, direct_agent_stream, normalize_permission_mode, run_response
+from ..services.ask_stream import AGENT_MODES, SSE_HEADERS, direct_agent_stream, normalize_permission_mode, run_response
 from ..services import ai_health, ask_followups
 from . import ask_conversations
 
@@ -268,7 +268,7 @@ async def ask(
         return display_device_name(mach_lookup.name if mach_lookup else dev)
 
     exec_mode = (body.execution_mode or effective_cfg.get("execution_mode") or "ai").lower().strip()
-    if exec_mode in ("claude", "codex", "antigravity", "workbuddy", "shell"):
+    if exec_mode in (*AGENT_MODES, "shell"):
         def _chosen(sent: str | None, key: str) -> str | None:
             # Sent "" is a choice (the CLI's own default, no project, a new session, the device's own
             # folder), so it must not fall back to what the conversation used before; not sent, it does

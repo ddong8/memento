@@ -2,7 +2,7 @@
 // Performance budget for the busiest moment on the AI 执事 page: a reply streaming in. Every new token re-renders
 // the page, and the finished turns above it (each a full Markdown render) must not render again. Counted, not
 // timed, so it holds on any CI machine.
-import { act, useState } from "react";
+import { act, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
 
@@ -30,7 +30,9 @@ const finishedTurns: Turn[] = Array.from({ length: FINISHED }, (_, i) => ({ role
 
 function Page() {
   const [live, setLive] = useState("");
-  (globalThis as { __append?: (s: string) => void }).__append = (s: string) => setLive((v) => v + s);
+  useEffect(() => {
+    (globalThis as { __append?: (s: string) => void }).__append = (s: string) => setLive((v) => v + s);
+  }, []);
   return (
     <div>
       {finishedTurns.map((turn, i) => (

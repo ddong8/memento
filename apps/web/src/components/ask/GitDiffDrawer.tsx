@@ -77,6 +77,7 @@ export function GitDiffDrawer({
   const [doCreatePr, setDoCreatePr] = useState(false);
   const [prTitle, setPrTitle] = useState("");
   const [prBody, setPrBody] = useState("");
+  const [suggesting, setSuggesting] = useState(false);
   const [prBase, setPrBase] = useState("");
   const [delivering, setDelivering] = useState(false);
   const [deliverResult, setDeliverResult] = useState<GitDeliverResponse | null>(null);
@@ -965,6 +966,33 @@ export function GitDiffDrawer({
                     {isZh ? "提交信息（Commit Message）" : "Commit Message"}
                   </label>
                   <div className="flex items-center gap-1 flex-wrap">
+                    {/* The user's model writes it from the selected changes, in the repo's style and the user's commit rules */}
+                    <button
+                      type="button"
+                      data-testid="git-suggest-message"
+                      disabled={suggesting}
+                      onClick={async () => {
+                        setSuggesting(true);
+                        try {
+                          const res = await api.suggestGitMessage({
+                            device_id: deviceId,
+                            cwd: effectiveCwd,
+                            ...(selectedDeliverFiles.size > 0 ? { files: Array.from(selectedDeliverFiles) } : {}),
+                          });
+                          setCommitMessage(res.message);
+                          if (res.pr_title) setPrTitle(res.pr_title);
+                          if (res.pr_body) setPrBody(res.pr_body);
+                        } catch (e) {
+                          showInAppToast(isZh ? "没写出来" : "Couldn't write it", formatApiError(e, isZh ? "生成提交说明失败" : "Failed"));
+                        } finally {
+                          setSuggesting(false);
+                        }
+                      }}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold text-[var(--aurora-accent)] border border-[var(--aurora-accent)]/40 bg-[var(--aurora-accent-soft)] hover:border-[var(--aurora-accent)] cursor-pointer disabled:opacity-60 disabled:cursor-wait"
+                    >
+                      <Icon name="sparkles" size={11} />
+                      {suggesting ? (isZh ? "正在写…" : "Writing…") : isZh ? "AI 写说明" : "Write with AI"}
+                    </button>
                     {COMMIT_PREFIXES.map((p) => (
                       <button
                         key={p}

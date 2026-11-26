@@ -1257,6 +1257,14 @@ export const api = {
       body: JSON.stringify(body),
       skipCache: true,
     }),
+  /** The user's model writes the commit message and a PR title / description for the device's changes. */
+  suggestGitMessage: (body: { device_id: string; cwd: string; files?: string[]; base_ref?: string; target_ref?: string }) =>
+    apiFetch<{ message: string; pr_title: string; pr_body: string; branch?: string }>("/api/git/suggest-message", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      skipCache: true,
+    }),
   listAskRuns: (recentSeconds = 0) => listAskRunsShared(recentSeconds),
   /** The conversation's run; rejects on a network error, or with AbortError once `signal` aborts. */
   getAskRunStatus: (convId: string, signal?: AbortSignal) => getAskRunStatusShared(convId, signal),

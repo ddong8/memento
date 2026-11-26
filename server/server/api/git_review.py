@@ -808,3 +808,141 @@ async def git_deliver(
     if not resp.get("ok") and not resp.get("commit_sha"):
         raise HTTPException(status_code=400, detail=resp.get("error") or "Git 交付失败")
     return resp
+
+
+# ── AI-written commit message / PR description ───────────────────────────────────────────────────
+
+class GitSuggestRequest(BaseModel):
+    device_id: str = Field(..., min_length=1)
+    cwd: str = Field(..., min_length=1)
+    base_ref: str | None = None
+    target_ref: str | None = None
+    # Only these files (what the user ticked for the commit); all changed files when empty
+    files: list[str] | None = None
+
+
+_SUGGEST_DIFF_CHARS = 14_000
+_COMMIT_RULE_RE = re.compile(r"提交|commit|Commit|PR|尾注|Co-Authored|Conventional|中文")
+
+
+def diff_for_prompt(diff: dict, files: list[str] | None = None, limit: int = _SUGGEST_DIFF_CHARS) -> str:
+    """The device's structured diff back to compact unified text for the model, cut at `limit` characters
+    (whole files first; the rest only named, so a huge change still says what it touched)."""
+    wanted = {f.strip() for f in (files or []) if f and f.strip()}
+    out: list[str] = []
+    skipped: list[str] = []
+    used = 0
+    for f in diff.get("files") or []:
+        path = str(f.get("path") or "")
+        if wanted and path not in wanted:
+            continue
+        head = f"--- {f.get('status') or 'M'} {path} (+{f.get('additions', 0)} -{f.get('deletions', 0)})"
+        if f.get("binary"):
+            body = "（二进制文件）"
+        else:
+            rows: list[str] = []
+            for h in f.get("hunks") or []:
+                rows.append(str(h.get("header") or "@@"))
+                for ln in h.get("lines") or []:
+                    mark = {"add": "+", "del": "-"}.get(ln.get("type"), " ")
+                    rows.append(f"{mark}{ln.get('content', '')}")
+            body = "\n".join(rows)
+        block = f"{head}\n{body}"
+        if used + len(block) > limit:
+            skipped.append(f"{path} (+{f.get('additions', 0)} -{f.get('deletions', 0)})")
+            continue
+        out.append(block)
+        used += len(block)
+    if skipped:
+        out.append("其余改动（内容太长未列出）：" + "、".join(skipped))
+    return "\n\n".join(out)
+
+
+def commit_rules_from_guidance(guidance: str, limit: int = 2_000) -> str:
+    """Just the lines of the user's rules about commits / PRs (the full guidance is far too long for this)."""
+    lines = [ln.strip() for ln in (guidance or "").splitlines() if _COMMIT_RULE_RE.search(ln)]
+    text = "\n".join(dict.fromkeys(ln for ln in lines if ln))
+    return text[:limit]
+
+
+def parse_suggestion(raw: str) -> dict:
+    """The model's JSON ({message, pr_title, pr_body}); a reply that isn't JSON becomes the commit message."""
+    import json
+
+    text = (raw or "").strip()
+    m = re.search(r"\{[\s\S]*\}", text)
+    if m:
+        try:
+            data = json.loads(m.group(0))
+            msg = str(data.get("message") or "").strip()
+            if msg:
+                return {
+                    "message": msg,
+                    "pr_title": str(data.get("pr_title") or msg.splitlines()[0]).strip(),
+                    "pr_body": str(data.get("pr_body") or "").strip(),
+                }
+        except (ValueError, AttributeError):
+            pass
+    first = text.strip("`").strip()
+    return {"message": first, "pr_title": first.splitlines()[0] if first else "", "pr_body": ""}
+
+
+# Agent credits a model likes to add: the user's rule is no co-author trailers in their commits
+_TRAILER_RE = re.compile(r"^\s*(Co-Authored-By:.*|🤖 Generated with.*|Generated (with|by) .*)$", re.IGNORECASE | re.MULTILINE)
+
+
+def strip_agent_trailers(text: str) -> str:
+    return _TRAILER_RE.sub("", text or "").strip()
+
+
+@router.post("/suggest-message")
+async def git_suggest_message(
+    body: GitSuggestRequest,
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
+):
+    """Write the commit message (and a PR title / description) for the changes on a device with the user's own
+    model, in the repository's style and following the user's rules about commits."""
+    from ..services.ai_provider import call_plain_chat
+    from ..services.orchestrator_tools import _run_check_rules
+
+    diff = await git_diff(
+        GitDiffRequest(device_id=body.device_id, cwd=body.cwd, base_ref=body.base_ref, target_ref=body.target_ref),
+        db=db, _user=_user,
+    )
+    diff_text = diff_for_prompt(diff, body.files)
+    if not diff_text.strip():
+        raise HTTPException(status_code=400, detail="没有可描述的改动")
+
+    recent = [str(c.get("subject") or "") for c in (diff.get("recent_commits") or [])[:12] if c.get("subject")]
+    try:
+        guidance = (await _run_check_rules(db, _user, {"action_type": "git commit", "details": "写提交说明和 PR 描述"})).get("guidance", "")
+    except Exception:
+        logger.warning("Couldn't read the user's rules for a commit message", exc_info=True)
+        guidance = ""
+    rules = commit_rules_from_guidance(guidance)
+
+    system = (
+        "你是资深工程师，为一组代码改动写 git 提交说明和 PR。只输出一个 JSON 对象："
+        '{"message": "提交说明（第一行是标题，可空一行后写正文要点）", "pr_title": "PR 标题", "pr_body": "PR 描述（Markdown，改了什么、为什么、怎么验证）"}。'
+        "风格跟仓库最近的提交保持一致（语言、前缀格式、长度）；只写改动里确实有的内容，不编造；"
+        "不要加任何 Co-Authored-By、Generated with 之类的署名尾注。"
+    )
+    user_msg = (
+        (f"用户关于提交的规则：\n{rules}\n\n" if rules else "")
+        + ("仓库最近的提交标题：\n" + "\n".join(f"- {s}" for s in recent) + "\n\n" if recent else "")
+        + f"当前分支：{diff.get('branch') or '未知'}\n\n改动：\n{diff_text}"
+    )
+    raw = await call_plain_chat(
+        [{"role": "system", "content": system}, {"role": "user", "content": user_msg}],
+        temperature=0.2, max_tokens=1200, timeout=90.0, user=_user, background=False,
+    )
+    if not raw:
+        raise HTTPException(status_code=502, detail="模型没有返回内容，检查个人设置里的大模型配置")
+    out = parse_suggestion(raw)
+    return {
+        "message": strip_agent_trailers(out["message"]),
+        "pr_title": strip_agent_trailers(out["pr_title"]),
+        "pr_body": strip_agent_trailers(out["pr_body"]),
+        "branch": diff.get("branch"),
+    }

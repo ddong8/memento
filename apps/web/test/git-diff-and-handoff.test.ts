@@ -89,3 +89,16 @@ describe("git-review & cross-agent handoff helpers", () => {
     expect(handoffSrc).toContain("safe-area-inset-bottom");
   });
 });
+
+describe("AI-written commit message", () => {
+  it("the commit tab asks the user's model for the message and PR text of the ticked files", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const drawer = fs.readFileSync(path.join(__dirname, "../src/components/ask/GitDiffDrawer.tsx"), "utf8");
+    const client = fs.readFileSync(path.join(__dirname, "../src/lib/api-client.ts"), "utf8");
+    expect(drawer).toContain('data-testid="git-suggest-message"');
+    expect(drawer).toContain("files: Array.from(selectedDeliverFiles)");
+    expect(drawer).toContain("setPrBody(res.pr_body)");
+    expect(client).toContain('"/api/git/suggest-message"');
+  });
+});

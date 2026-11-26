@@ -656,7 +656,7 @@ export default function ActiveRunsMonitor() {
       {/* 2. Active Runs Floating Dock (右侧靠中间垂直居中，零功能冲突，单手大拇指舒适区) */}
       {showFloatingDock && (
         <div
-          className="fixed z-50 pointer-events-none transition-all duration-300 ease-out"
+          className="memento-active-runs-dock fixed z-50 pointer-events-none transition-all duration-300 ease-out"
           style={
             docked
               ? // Wide screens: a status row at the bottom of the sidebar, above the devices chip (it used to float

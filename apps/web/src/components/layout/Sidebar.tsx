@@ -533,7 +533,8 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
           className="p-2.5"
           style={{
             borderTop: "1px solid var(--aurora-border)",
-            paddingBottom: "max(0.625rem, env(safe-area-inset-bottom, 0.625rem))",
+            // In the mobile app the floating native tab bar covers the bottom of the drawer: lift the user card above it
+            paddingBottom: "calc(max(0.625rem, env(safe-area-inset-bottom, 0.625rem)) + var(--memento-tabbar-inset, 0px))",
           }}
         >
           {/* Online devices indicator */}

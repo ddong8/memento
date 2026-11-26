@@ -1530,6 +1530,8 @@ export const HistoryDrawer = memo(function HistoryDrawer({
             flex: 1,
             overflowY: "auto",
             padding: "10px 12px",
+            // Keep the last conversation reachable above the mobile app's floating tab bar
+            paddingBottom: "calc(10px + var(--memento-tabbar-inset, 0px))",
             display: "flex",
             flexDirection: "column",
             gap: 6,

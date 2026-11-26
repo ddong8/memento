@@ -45,7 +45,10 @@ const TABS: Array<{ id: TabId; label: string; icon: IconName; path: string }> = 
 
 // The web app is the interface, elevated with iOS/Android native haptic feedback,
 // fluid momentum scrolling, and custom micro-interactions to deliver a true native feel.
+// Android runs this from onPageStarted, sometimes before <html> exists: touching document.documentElement then
+// threw and none of the helpers (tab bar classes, haptics, theme sync) got installed. Wait for <html> first.
 const INJECTED_CLIENT_HELPERS = `(() => {
+ const __mementoInstall = () => {
   document.documentElement.classList.add("memento-native-shell", "memento-glass-tabbar");
   if (window.__memento_native_helpers_installed) return;
   window.__memento_native_helpers_installed = true;
@@ -220,8 +223,21 @@ const INJECTED_CLIENT_HELPERS = `(() => {
       }
     } catch (e) {}
   };
+ };
+ if (document.documentElement) __mementoInstall();
+ else new MutationObserver((_, observer) => {
+  if (!document.documentElement) return;
+  observer.disconnect();
+  __mementoInstall();
+ }).observe(document, { childList: true });
 })();
 true;`;
+
+// Publishes the floating tab bar's height to the page (and re-marks <html> in case the document-start script ran
+// before <html> existed). Safe to run at any point of the page's life.
+function tabBarInsetScript(inset: number): string {
+  return `(function(){var h=document.documentElement;if(!h)return;h.classList.add("memento-native-shell","memento-glass-tabbar");h.style.setProperty("--memento-tabbar-inset","${inset}px");})(); true;`;
+}
 
 type ShouldStartLoadRequest = Parameters<NonNullable<WebViewProps["onShouldStartLoadWithRequest"]>>[0];
 
@@ -605,7 +621,7 @@ export default function WebShell() {
   useEffect(() => {
     if (!initialLoaded || !web.current) return;
     web.current.injectJavaScript(
-      `document.documentElement.style.setProperty("--memento-tabbar-inset", "${tabBarInset}px"); true;`,
+      tabBarInsetScript(tabBarInset),
     );
   }, [initialLoaded, tabBarInset]);
 
@@ -625,7 +641,7 @@ export default function WebShell() {
           source={{ uri: start }}
           style={{ flex: 1, backgroundColor: bg }}
           applicationNameForUserAgent={USER_AGENT_SUFFIX}
-          injectedJavaScriptBeforeContentLoaded={`${INJECTED_CLIENT_HELPERS}\ndocument.documentElement.style.setProperty("--memento-tabbar-inset", "${tabBarInset}px"); true;`}
+          injectedJavaScriptBeforeContentLoaded={`${INJECTED_CLIENT_HELPERS}\n${tabBarInsetScript(tabBarInset)}`}
           onMessage={onMessage}
           onNavigationStateChange={onNavigation}
           onShouldStartLoadWithRequest={onShouldStart}
@@ -655,7 +671,7 @@ export default function WebShell() {
             if (loadedUrl.includes("/auth/handoff")) return;
             setInitialLoaded(true);
             web.current?.injectJavaScript(
-              `document.documentElement.style.setProperty("--memento-tabbar-inset", "${tabBarInset}px"); true;`,
+              tabBarInsetScript(tabBarInset),
             );
             if (pendingUrlRef.current && web.current) {
               const fullUrl = pendingUrlRef.current;

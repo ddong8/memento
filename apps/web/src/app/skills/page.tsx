@@ -713,7 +713,7 @@ export default function SkillsPage() {
 
         {/* ── 右翼 (7 列 / 58%): 技能列表、演进草稿与审查动态 (移动端自适应全屏抽屉，桌面端双翼分屏) ── */}
         {!isPanelCollapsed && (
-          <div className="max-lg:fixed max-lg:inset-0 max-lg:z-50 max-lg:rounded-none max-lg:border-none max-lg:pb-[var(--memento-tabbar-inset,0px)] lg:col-span-7 h-full flex flex-col min-h-0 bg-[var(--aurora-surface)] rounded-3xl border border-[var(--aurora-border)] shadow-2xl overflow-hidden animate-in fade-in max-lg:slide-in-from-bottom-6 duration-300">
+          <div className="max-lg:fixed max-lg:inset-0 max-lg:z-50 max-lg:rounded-none max-lg:border-none max-lg:pb-[var(--memento-tabbar-inset,0px)] memento-fullscreen-panel lg:col-span-7 h-full flex flex-col min-h-0 bg-[var(--aurora-surface)] rounded-3xl border border-[var(--aurora-border)] shadow-2xl overflow-hidden animate-in fade-in max-lg:slide-in-from-bottom-6 duration-300">
             {/* A. 顶部仪表盘概览与 Tab 导航区 (Sticky Header) */}
             <div className="p-3 bg-[var(--aurora-thinking-header)] border-b border-[var(--aurora-border)] shrink-0 space-y-2.5">
               {/* Mobile Back Button to 3D */}

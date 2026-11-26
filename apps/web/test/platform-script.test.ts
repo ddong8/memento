@@ -51,4 +51,22 @@ describe("platform markers before the first paint", () => {
     expect(run("Mozilla/5.0 (Linux; Android 12; HarmonyOS; NOH-AN00) AppleWebKit/537.36 Chrome/114 Mobile Safari/537.36")["data-os"]).toBe("harmony");
     expect(run("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Version/26.0 Safari/605.1.15", {}, 5)["data-os"]).toBe("ios");
   });
+
+  it("marks the floating-tab-bar shell (mobile app 1.0.156+) even when the app's own early script missed <html>", () => {
+    const classesFor = (ua: string) => {
+      const classes = new Set<string>();
+      const document = {
+        documentElement: { setAttribute: () => undefined, classList: { add: (...c: string[]) => c.forEach((x) => classes.add(x)) } },
+      };
+      new Function("document", "navigator", "window", PLATFORM_SCRIPT)(document, { userAgent: ua, maxTouchPoints: 0 }, {});
+      return [...classes].sort();
+    };
+    const android = (v: string) => `Mozilla/5.0 (Linux; Android 15) AppleWebKit/537.36 Chrome/140 Mobile Safari/537.36 MementoMobile/${v}`;
+    expect(classesFor(android("1.0.159"))).toEqual(["memento-glass-tabbar", "memento-native-shell"]);
+    expect(classesFor(android("1.0.156"))).toEqual(["memento-glass-tabbar", "memento-native-shell"]);
+    expect(classesFor(android("1.1.0"))).toEqual(["memento-glass-tabbar", "memento-native-shell"]);
+    // Older shells dock a solid tab bar below the web view: no extra bottom padding for them
+    expect(classesFor(android("1.0.155"))).toEqual([]);
+    expect(classesFor("Mozilla/5.0 (iPhone; CPU iPhone OS 26_0 like Mac OS X) AppleWebKit/605.1.15 Safari/605.1.15")).toEqual([]);
+  });
 });

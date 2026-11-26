@@ -823,6 +823,13 @@ html.memento-glass-tabbar .memento-stage-shell {
 html.memento-glass-tabbar footer[data-ask-footer="true"] {
   padding-bottom: calc(var(--memento-tabbar-inset, 0px) + 2px) !important;
 }
+/* Phones: a full-screen panel (memory/skills console, media viewer) owns the top bar; the running-agents chip
+   that normally sits there would cover the panel's back button and title. */
+@media (max-width: 1023.98px) {
+  body:has(.memento-fullscreen-panel) .memento-active-runs-dock {
+    display: none !important;
+  }
+}
 
 /* Mobile Ask View: Maximize width & vertical real estate for dialogue bubbles */
 @media (max-width: 640px) {

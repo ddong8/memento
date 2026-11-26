@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `985525be` · Updated: `2026-11-26`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `de1356df` · Updated: `2026-11-26`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -13,11 +13,11 @@
 - 类型 (Type): Monorepo (Workspaces)
 - 技术栈 (Stack): TypeScript/JavaScript, Python, Shell / Bash · React, Electron, Next.js, TailwindCSS, Model Context Protocol (MCP), FastAPI, SQLAlchemy, Celery
 - 基础设施 (Infra): PostgreSQL, pgvector (Vector DB), Redis, MinIO / S3 Object Storage, Celery Task Queue
-- 规模 (Scale): 9 个子系统 · 41 组 API 路由 / 328 个接口 · 39 个前端页面 · 41 个数据模型 · 35 个服务模块 · 265 个测试文件
+- 规模 (Scale): 9 个子系统 · 41 组 API 路由 / 328 个接口 · 39 个前端页面 · 41 个数据模型 · 35 个服务模块 · 266 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `1cf22ac9` (2026-11-26): fix(mobile,web): 修复 iOS 液态玻璃底栏阴影与配色、支持对话穿透毛玻璃并优化手机底部按钮布局
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 75（✅ 75 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-REPLY-VISIBLE`, `F-ASK`, `R-WS-EDIT-ONLY`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `S-RUN-STATE`
+- 最近改动 (Latest): `ca9d376d` (2026-11-26): fix(mobile,web): 适配 3D 认知大脑等 Tab 页底部悬浮栏避让并收紧 iOS 底栏底边距与玻璃对比度
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 75（✅ 75 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-MENU-KEEPALIVE`, `R-LLM-IN-PROFILE`, `R-PERSONA-ONBOARD`, `R-REPLY-VISIBLE`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -654,7 +654,7 @@ erDiagram
 | server/tests (pytest) | [`server/tests`](server/tests) | 132 | `test_agent_ids.py`, `test_agent_limits.py`, `test_agent_login.py`, `test_agent_run_states.py`, `test_ai_provider.py` |
 | packages/daemon/test (vitest / jest) | [`packages/daemon/test`](packages/daemon/test) | 64 | `agent-args.test.ts`, `agent-login.test.ts`, `agent-stream.test.ts`, `agy-background.test.ts`, `agy-models.test.ts` |
 | apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 60 | `active-runs-chip.test.tsx`, `api-client.test.ts`, `ask-performance-guards.test.tsx`, `ask-reading-and-persona-rules.test.tsx`, `ask-top-bar.test.tsx` |
-| apps/mobile/test (vitest / jest) | [`apps/mobile/test`](apps/mobile/test) | 3 | `deeplink.test.ts`, `glass-surface.test.ts`, `webview-props.test.ts` |
+| apps/mobile/test (vitest / jest) | [`apps/mobile/test`](apps/mobile/test) | 4 | `deeplink.test.ts`, `glass-surface.test.ts`, `injected-helpers.test.ts`, `webview-props.test.ts` |
 | apps/desktop/test (vitest / jest) | [`apps/desktop/test`](apps/desktop/test) | 2 | `helpers.test.ts`, `updater-and-daemon.test.ts` |
 | packages/core/test (vitest / jest) | [`packages/core/test`](packages/core/test) | 2 | `ask-stream.test.ts`, `task-events.test.ts` |
 | packages/mcp/test (vitest / jest) | [`packages/mcp/test`](packages/mcp/test) | 2 | `remote-and-tools.test.ts`, `server.test.ts` |
@@ -662,14 +662,14 @@ erDiagram
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
 - [`deploy/k8s/studio.yaml`](deploy/k8s/studio.yaml) (19 commits)
-- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (10 commits)
 - [`apps/web/src/app/studio/page.tsx`](apps/web/src/app/studio/page.tsx) (10 commits)
 - [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (10 commits)
+- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (9 commits)
 - [`apps/web/src/components/layout/Sidebar.tsx`](apps/web/src/components/layout/Sidebar.tsx) (8 commits)
 - [`apps/web/src/lib/studio-api.ts`](apps/web/src/lib/studio-api.ts) (8 commits)
 - [`server/server/api/studio.py`](server/server/api/studio.py) (8 commits)
+- [`apps/web/src/app/globals.css`](apps/web/src/app/globals.css) (7 commits)
 - [`packages/daemon/src/antigravity.ts`](packages/daemon/src/antigravity.ts) (7 commits)
-- [`apps/web/src/app/globals.css`](apps/web/src/app/globals.css) (6 commits)
 - [`apps/web/src/components/ask/AskTopBar.tsx`](apps/web/src/components/ask/AskTopBar.tsx) (6 commits)
 
 ## 8. Development & Verification Commands
@@ -693,12 +693,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `ca9d376d` (2026-11-26): fix(mobile,web): 适配 3D 认知大脑等 Tab 页底部悬浮栏避让并收紧 iOS 底栏底边距与玻璃对比度
 - `1cf22ac9` (2026-11-26): fix(mobile,web): 修复 iOS 液态玻璃底栏阴影与配色、支持对话穿透毛玻璃并优化手机底部按钮布局
 - `eec90a0f` (2026-11-26): fix(mobile-ui): 适配代码审阅抽屉与移交弹窗的手机端液态玻璃底栏避让及安全区
 - `67f0f784` (2026-11-26): fix(git-review): 兼容旧版客户端零升级 Diff 与提交回退、修复 Windows 标题栏遮挡并升级至 v1.0.159
 - `4910b280` (2026-11-26): feat(ask): 新增隐藏回合检查点回滚、逐行 Diff 审阅与一键 PR 及跨智能体移交并升级至 v1.0.158
 - `689604e7` (2026-11-26): fix(antigravity): 恢复 ACP 通道与桌面会话库双向同步并升级至 v1.0.157
-- `b2eed976` (2026-11-26): feat(orchestrator): 完善 AI 编排全量 MCP 记忆工具与两层上下文压缩能力
 
 ## 10. Key Environment Variables & Configuration
 
@@ -721,8 +721,8 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ### 最近提交碰到的业务条目（改动后复查它们还成不成立）
 
+- `ca9d376d` fix(mobile,web): 适配 3D 认知大脑等 Tab 页底部悬浮栏避让并收紧 iOS 底栏底边距与玻璃对比度 → `R-MENU-KEEPALIVE`, `R-LLM-IN-PROFILE`, `R-PERSONA-ONBOARD`
 - `1cf22ac9` fix(mobile,web): 修复 iOS 液态玻璃底栏阴影与配色、支持对话穿透毛玻璃并优化手机底部按钮布局 → `R-REPLY-VISIBLE`
-- `67f0f784` fix(git-review): 兼容旧版客户端零升级 Diff 与提交回退、修复 Windows 标题栏遮挡并升级至 v1.0.159 → `F-ASK`, `R-WS-EDIT-ONLY`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `S-RUN-STATE`
 
 ---
 _Auto-maintained by `scripts/project_blueprint.mjs` (v20261126) & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._

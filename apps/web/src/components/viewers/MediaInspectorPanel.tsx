@@ -320,7 +320,7 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
           ${
             isExpandedFull
               ? "fixed inset-0 z-[99999] w-screen h-[100dvh] max-w-none max-h-none p-0 m-0 rounded-none border-0 bg-black flex flex-col"
-              : "max-lg:fixed max-lg:top-0 max-lg:right-0 max-lg:bottom-0 max-lg:z-50 max-lg:flex max-lg:flex-col max-lg:w-full max-lg:sm:w-[460px] max-lg:max-w-full max-lg:shadow-2xl max-lg:bg-[var(--aurora-surface-solid)] max-lg:pt-[env(safe-area-inset-top,0px)] max-lg:pb-[env(safe-area-inset-bottom,0px)] lg:relative lg:flex lg:flex-col lg:h-full lg:shrink-0 lg:z-20"
+              : "max-lg:fixed max-lg:top-0 max-lg:right-0 max-lg:bottom-0 max-lg:z-50 max-lg:flex max-lg:flex-col max-lg:w-full max-lg:sm:w-[460px] max-lg:max-w-full max-lg:shadow-2xl max-lg:bg-[var(--aurora-surface-solid)] max-lg:pt-[env(safe-area-inset-top,0px)] max-lg:pb-[calc(env(safe-area-inset-bottom,0px)+var(--memento-tabbar-inset,0px))] memento-fullscreen-panel lg:relative lg:flex lg:flex-col lg:h-full lg:shrink-0 lg:z-20"
           }
           ${className}`}
         style={{

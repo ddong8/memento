@@ -74,4 +74,21 @@ describe("frosted glass architecture", () => {
     expect(persona).toContain("memento-stage-shell");
     expect(skills).toContain("memento-stage-shell");
   });
+
+  it("keeps drawers and full-screen panels clear of the mobile app's floating tab bar", () => {
+    const repoRoot = path.resolve(__dirname, "../../..");
+    const read = (f: string) => fs.readFileSync(path.join(repoRoot, "apps/web/src", f), "utf8");
+    // Sidebar drawer: the user card / version row sits above the tab bar
+    expect(read("components/layout/Sidebar.tsx")).toContain("env(safe-area-inset-bottom, 0.625rem)) + var(--memento-tabbar-inset, 0px))");
+    // History drawer: the last conversation can scroll above it
+    expect(read("components/ask/HistoryDrawer.tsx")).toContain('paddingBottom: "calc(10px + var(--memento-tabbar-inset, 0px))"');
+    // Media viewer drawer on phones
+    expect(read("components/viewers/MediaInspectorPanel.tsx")).toContain("max-lg:pb-[calc(env(safe-area-inset-bottom,0px)+var(--memento-tabbar-inset,0px))]");
+    // Full-screen consoles hide the running-agents chip that would cover their back button / title
+    expect(read("app/memory/page.tsx")).toContain("memento-fullscreen-panel");
+    expect(read("app/skills/page.tsx")).toContain("memento-fullscreen-panel");
+    expect(read("components/agent/ActiveRunsMonitor.tsx")).toContain("memento-active-runs-dock");
+    expect(read("app/globals.css")).toContain("body:has(.memento-fullscreen-panel) .memento-active-runs-dock");
+  });
 });
+

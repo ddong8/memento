@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `6b2573c2` · Updated: `2026-11-26`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `e5e94953` · Updated: `2026-11-27`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -13,25 +13,25 @@
 - 类型 (Type): Monorepo (Workspaces)
 - 技术栈 (Stack): TypeScript/JavaScript, Python, Shell / Bash · React, Electron, Next.js, TailwindCSS, Model Context Protocol (MCP), FastAPI, SQLAlchemy, Celery
 - 基础设施 (Infra): PostgreSQL, pgvector (Vector DB), Redis, MinIO / S3 Object Storage, Celery Task Queue
-- 规模 (Scale): 9 个子系统 · 43 组 API 路由 / 340 个接口 · 39 个前端页面 · 41 个数据模型 · 35 个服务模块 · 283 个测试文件
+- 规模 (Scale): 9 个子系统 · 44 组 API 路由 / 345 个接口 · 39 个前端页面 · 42 个数据模型 · 35 个服务模块 · 285 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `6b2573c2` (2026-11-26): feat(daemon): Codex 与 Antigravity 也支持权限模式和审批卡片，问答页对这些智能体都显示权限选择，并升级至 v1.0.164
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 77（✅ 77 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 12 · 状态 10 · 最近提交碰到 `R-AGY-APP-CSRF`, `R-ENT-DEVICE-POLICY`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `F-ASK`, `F-STOP`, `R-NEWCHAT-WORKS`
+- 最近改动 (Latest): `e5e94953` (2026-11-27): feat(preview): 代码抽屉加「预览」：列出设备上正在运行的开发服务，经服务器中转在沙箱 iframe 里打开，并升级至 v1.0.165
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 77（✅ 77 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 12 · 状态 10 · 最近提交碰到 `R-ENT-DEVICE-POLICY`, `R-WS-EXEC-STOP`, `R-APP-NAME`, `R-DOCS-WRITE-LIGHT`, `R-ALL-TYPESCRIPT`, `R-AGY-APP-CSRF`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
 | 1. Project Overview & Tech Stack | L36-L42 |
 | 2. High-Level Architecture Topology | L44-L79 |
 | 3. Subsystem Breakdown & Responsibilities | L81-L93 |
-| 4. Key Entry Points & API Endpoints | L95-L527 |
-| 5. Core Domain Services & Background Schedules | L529-L569 |
-| 6.5. AST Call Graph, DTO Schemas & CLI Entrypoints | L571-L643 |
-| 7. CI/CD Pipelines, Code Hotspots & Test Suites | L645-L689 |
-| 8. Development & Verification Commands | L691-L708 |
-| 9. Recent Architectural Evolutions | L710-L717 |
-| 10. Key Environment Variables & Configuration | L719-L731 |
-| 11. 业务蓝图核对 (Business Blueprint Check) | L733-L741 |
+| 4. Key Entry Points & API Endpoints | L95-L535 |
+| 5. Core Domain Services & Background Schedules | L537-L577 |
+| 6.5. AST Call Graph, DTO Schemas & CLI Entrypoints | L579-L651 |
+| 7. CI/CD Pipelines, Code Hotspots & Test Suites | L653-L697 |
+| 8. Development & Verification Commands | L699-L716 |
+| 9. Recent Architectural Evolutions | L718-L725 |
+| 10. Key Environment Variables & Configuration | L727-L739 |
+| 11. 业务蓝图核对 (Business Blueprint Check) | L741-L749 |
 
 ## 1. Project Overview & Tech Stack
 
@@ -378,6 +378,14 @@ flowchart TD
 - `GET /api/agent/quotas`
 - `POST /api/agent/quotas/refresh`
 
+#### `/api/scheduled-tasks` (scheduled_tasks.py)
+
+- `GET /api/scheduled-tasks`
+- `POST /api/scheduled-tasks`
+- `PATCH /api/scheduled-tasks/{sid}`
+- `DELETE /api/scheduled-tasks/{sid}`
+- `POST /api/scheduled-tasks/{sid}/run`
+
 #### `/api/scim/v2` (scim.py)
 
 - `GET /api/scim/v2/ServiceProviderConfig`
@@ -458,7 +466,7 @@ flowchart TD
 
 ### Core Database Models (`models.py`)
 
-`Base`, `Machine`, `MachineMerge`, `Tool`, `Project`, `Document`, `DocumentSearch`, `ConversationMessage`, `DailySummary`, `DocumentVersion`, `ConversationMessageRemoved`, `MessageAudit`, `DocumentPendingDelta`, `User`, `InviteCode`, `Permission`, `AccessLog`, `SyncState`, `DocumentEmbedding`, `KnowledgeEntity`, `KnowledgeRelation`, `KnowledgeObservation`, `ShareLink`, `ShareView`, `DeviceTask`, `AskConversation`, `UserMemory`, `DreamJournal`, `UserProfile`, `CorrectionTopic`, `CorrectionEvent`, `SessionReview`, `GuardEvent`, `Skill`, `Todo`, `EvalCase`, `EvalRun`, `LearningEval`, `AgentMission`, `AgentPlan`, `UserLifeRhythm`
+`Base`, `Machine`, `MachineMerge`, `Tool`, `Project`, `Document`, `DocumentSearch`, `ConversationMessage`, `DailySummary`, `DocumentVersion`, `ConversationMessageRemoved`, `MessageAudit`, `DocumentPendingDelta`, `User`, `InviteCode`, `Permission`, `AccessLog`, `SyncState`, `DocumentEmbedding`, `KnowledgeEntity`, `KnowledgeRelation`, `KnowledgeObservation`, `ShareLink`, `ShareView`, `DeviceTask`, `AskConversation`, `UserMemory`, `DreamJournal`, `UserProfile`, `CorrectionTopic`, `CorrectionEvent`, `SessionReview`, `GuardEvent`, `Skill`, `Todo`, `EvalCase`, `EvalRun`, `LearningEval`, `AgentMission`, `AgentPlan`, `UserLifeRhythm`, `ScheduledTask`
 
 #### Key Entity Relationships (Foreign Keys)
 
@@ -667,8 +675,8 @@ erDiagram
 
 | Suite | Directory | Files | Sample Tests |
 | :--- | :--- | :--- | :--- |
-| server/tests (pytest) | [`server/tests`](server/tests) | 138 | `test_acp_modes.py`, `test_agent_ids.py`, `test_agent_limits.py`, `test_agent_login.py`, `test_agent_run_states.py` |
-| apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 67 | `active-runs-chip.test.tsx`, `agent-modes.test.ts`, `api-client.test.ts`, `ask-performance-guards.test.tsx`, `ask-reading-and-persona-rules.test.tsx` |
+| server/tests (pytest) | [`server/tests`](server/tests) | 139 | `test_acp_modes.py`, `test_agent_ids.py`, `test_agent_limits.py`, `test_agent_login.py`, `test_agent_run_states.py` |
+| apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 68 | `active-runs-chip.test.tsx`, `agent-modes.test.ts`, `api-client.test.ts`, `ask-performance-guards.test.tsx`, `ask-reading-and-persona-rules.test.tsx` |
 | packages/daemon/test (vitest / jest) | [`packages/daemon/test`](packages/daemon/test) | 67 | `acp-runner.test.ts`, `agent-args.test.ts`, `agent-login.test.ts`, `agent-stream.test.ts`, `agy-background.test.ts` |
 | apps/mobile/test (vitest / jest) | [`apps/mobile/test`](apps/mobile/test) | 4 | `deeplink.test.ts`, `glass-surface.test.ts`, `injected-helpers.test.ts`, `webview-props.test.ts` |
 | packages/mcp/test (vitest / jest) | [`packages/mcp/test`](packages/mcp/test) | 3 | `remote-and-tools.test.ts`, `server.test.ts`, `task-tools.test.ts` |
@@ -681,10 +689,10 @@ erDiagram
 - [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (12 commits)
 - [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (12 commits)
 - [`apps/web/src/app/studio/page.tsx`](apps/web/src/app/studio/page.tsx) (8 commits)
+- [`apps/web/src/components/ask/GitDiffDrawer.tsx`](apps/web/src/components/ask/GitDiffDrawer.tsx) (8 commits)
 - [`apps/web/src/lib/api-client.ts`](apps/web/src/lib/api-client.ts) (8 commits)
 - [`apps/mobile/src/app/index.tsx`](apps/mobile/src/app/index.tsx) (7 commits)
 - [`apps/web/src/app/globals.css`](apps/web/src/app/globals.css) (7 commits)
-- [`apps/web/src/components/ask/GitDiffDrawer.tsx`](apps/web/src/components/ask/GitDiffDrawer.tsx) (7 commits)
 - [`apps/web/test/glass-system.test.ts`](apps/web/test/glass-system.test.ts) (7 commits)
 - [`packages/daemon/src/antigravity.ts`](packages/daemon/src/antigravity.ts) (7 commits)
 
@@ -709,12 +717,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `e5e94953` (2026-11-27): feat(preview): 代码抽屉加「预览」：列出设备上正在运行的开发服务，经服务器中转在沙箱 iframe 里打开，并升级至 v1.0.165
 - `6b2573c2` (2026-11-26): feat(daemon): Codex 与 Antigravity 也支持权限模式和审批卡片，问答页对这些智能体都显示权限选择，并升级至 v1.0.164
 - `a1119cc3` (2026-11-26): fix(web): 渲染预算测试改在 effect 里挂全局钩子，修掉渲染期间改全局变量的 lint 错误（CI 因此失败、1.0.163 部署未上线）
 - `ad1445e5` (2026-11-26): test(web): 流式输出渲染预算：回复输出时每来一个字只允许当前这一轮重渲染，前面已完成的回答一次都不重渲染（按次数计，CI 上稳定）
 - `c09f44c6` (2026-11-26): feat(mcp,terminal): MCP 加派活工具让外部智能体在用户设备上跑任务，终端在没有编译器的 Linux 上也能用，问答页补快捷键，并升级至 v1.0.163
 - `0b1d1b84` (2026-11-26): feat(acp): 通用 ACP 适配器，接入 OpenCode、Gemini CLI、Cursor、Kiro、Copilot CLI，并升级至 v1.0.162
-- `78f4bb22` (2026-11-26): feat(terminal): 代码改动抽屉加「终端」：在设备上的项目目录里开真终端（node-pty），网页用 xterm.js 显示，并升级至 v1.0.161
 
 ## 10. Key Environment Variables & Configuration
 
@@ -737,8 +745,8 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ### 最近提交碰到的业务条目（改动后复查它们还成不成立）
 
+- `e5e94953` feat(preview): 代码抽屉加「预览」：列出设备上正在运行的开发服务，经服务器中转在沙箱 iframe 里打开，并升级至 v1.0.165 → `R-ENT-DEVICE-POLICY`, `R-WS-EXEC-STOP`, `R-APP-NAME`, `R-DOCS-WRITE-LIGHT`, `R-ALL-TYPESCRIPT`
 - `6b2573c2` feat(daemon): Codex 与 Antigravity 也支持权限模式和审批卡片，问答页对这些智能体都显示权限选择，并升级至 v1.0.164 → `R-AGY-APP-CSRF`, `R-ENT-DEVICE-POLICY`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`
-- `c09f44c6` feat(mcp,terminal): MCP 加派活工具让外部智能体在用户设备上跑任务，终端在没有编译器的 Linux 上也能用，问答页补快捷键，并升级至 v → `F-ASK`, `F-STOP`, `R-NEWCHAT-WORKS`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`
 
 ---
 _Auto-maintained by `scripts/project_blueprint.mjs` (v20261126) & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._

@@ -14,7 +14,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from .middleware.etag import ETagMiddleware
 from .middleware.gzip_request import GzipRequestMiddleware
 
-from .api import admin, ask, auth, collect_exclusions, conversations, daily, dashboard, data_io, devices, documents, events, git_review, health, hierarchy, ingest, install_bootstrap, learning, life_rhythm, llm, media, memory, missions, notify, plans, plugins, proactive, profile, projects, public, quotas, scim, search, preview, share, skills, sso, studio, terminal, todos, tools, updates
+from .api import admin, ask, auth, collect_exclusions, conversations, daily, dashboard, data_io, devices, documents, events, git_review, health, hierarchy, ingest, install_bootstrap, learning, life_rhythm, llm, media, memory, missions, notify, plans, plugins, proactive, profile, projects, public, quotas, scim, search, preview, scheduled_tasks, share, skills, sso, studio, terminal, todos, tools, updates
 # Aliased: `server.api.tasks` (remote device task queue) is a different module
 # from the `server.tasks` package (Celery jobs). Importing it bare here would
 # read as the latter.
@@ -155,6 +155,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Collaborative tasks: one replica schedules their steps onto the devices
     from .services.plan_service import hand_over_plans, start_plan_runner, stop_plan_runner
     await start_plan_runner()
+    from .services.scheduled_tasks import start_scheduler, stop_scheduler
+    await start_scheduler()
     # Mind resonance scenarios learned by dreaming (in the Celery worker): loaded now and every 10 minutes
     from .services.mind_resonance_service import keep_dynamic_scenarios_fresh
     scenarios_task = asyncio.create_task(keep_dynamic_scenarios_fresh())
@@ -165,6 +167,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await ask_runs.drain(settings.shutdown_drain_seconds)
     await stop_proactive_pulse()
     await stop_plan_runner()
+    await stop_scheduler()
     compaction_task.cancel()
     scenarios_task.cancel()
     warmup_task.cancel()
@@ -217,6 +220,7 @@ app.include_router(device_tasks_api.router)
 app.include_router(git_review.router)
 app.include_router(terminal.router)
 app.include_router(preview.router)
+app.include_router(scheduled_tasks.router)
 app.include_router(ask.router)
 app.include_router(auth.router)
 app.include_router(sso.router)

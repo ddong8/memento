@@ -6,6 +6,7 @@ import { useI18n } from "@/lib/i18n";
 import { authFetch, getApiBase } from "@/lib/api-client";
 import { Btn, Chip, Glass, TopBar } from "@/components/aurora/primitives";
 import TodoPanel from "@/components/todos/TodoPanel";
+import ScheduledTasksPanel from "@/components/todos/ScheduledTasksPanel";
 
 interface InboxItem {
   token: string;
@@ -41,6 +42,7 @@ export default function InboxPage() {
     <div className="max-w-6xl mx-auto space-y-6">
       <TopBar title={t.nav.inbox || "工作待办"} />
       <TodoPanel />
+      <ScheduledTasksPanel />
 
       <div className="pt-2">
         <h3 style={{ fontSize: 15, fontWeight: 600, color: "var(--aurora-fg1)", marginBottom: 4 }}>

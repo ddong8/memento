@@ -1191,3 +1191,29 @@ class UserLifeRhythm(Base):
     __table_args__ = (
         Index("uq_life_rhythm_user_date", "user_id", "log_date", unique=True),
     )
+
+
+# ---------------------------------------------------------------------------
+# Scheduled agent tasks: an agent (or a shell command) run on one of the user's devices on a schedule; the
+# result goes into memory and to the phone (services/scheduled_tasks.py, beat every minute)
+# ---------------------------------------------------------------------------
+class ScheduledTask(Base):
+    __tablename__ = "scheduled_tasks"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    device: Mapped[str] = mapped_column(String(255), nullable=False)  # the device's name or token hash
+    agent: Mapped[str] = mapped_column(String(40), nullable=False, default="claude")  # execution mode, or "shell"
+    prompt: Mapped[str] = mapped_column(Text, nullable=False)
+    cwd: Mapped[str | None] = mapped_column(Text)
+    permission_mode: Mapped[str] = mapped_column(String(20), nullable=False, default="full", server_default="full")
+    # "hourly:MM" | "daily:HH:MM" | "weekly:D:HH:MM" (D 0=Monday), in the user's local time (tz_offset_min east of UTC)
+    schedule: Mapped[str] = mapped_column(String(40), nullable=False)
+    tz_offset_min: Mapped[int] = mapped_column(Integer, nullable=False, default=480, server_default="480")
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    next_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_task_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    last_status: Mapped[str | None] = mapped_column(String(20))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

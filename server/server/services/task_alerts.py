@@ -137,6 +137,12 @@ async def handle_task_finished(task_id: str, status: str | None, device_name: st
             task = (await db.execute(
                 select(DeviceTask).where(DeviceTask.id == uuid.UUID(task_id))
             )).scalar_one_or_none()
+        if task is not None and (task.payload or {}).get("scheduled_task_id"):
+            # A scheduled run: its result goes into memory, with its own push
+            from . import scheduled_tasks
+
+            await scheduled_tasks.on_task_finished(task)
+            return
         if task is None or task.action != "agent":
             return
         if (task.payload or {}).get("mission_id"):

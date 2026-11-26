@@ -19,6 +19,30 @@ export interface RunCursor {
   executionMode?: string;
 }
 
+export interface AiContextStats {
+  estimated_tokens: number;
+  raw_tokens?: number;
+  budget_tokens: number;
+  total_turns?: number;
+  active_turns?: number;
+  compacted_turns?: number;
+  has_checkpoint?: boolean;
+  checkpoint_summary?: string;
+  updated_at?: string | null;
+  compact_recommended?: boolean;
+  in_loop?: boolean;
+}
+
+export interface TurnCompactionNotice {
+  scope: "history" | "in_loop" | string;
+  mode: "auto" | "manual" | "overflow_recovery" | string;
+  before_tokens: number;
+  after_tokens: number;
+  saved_tokens?: number;
+  compacted_turns?: number;
+  summary?: string;
+}
+
 export interface Turn {
   role: "user" | "assistant";
   content: string;
@@ -26,6 +50,7 @@ export interface Turn {
   thinking?: string;
   sources?: Source[];
   toolCalls?: ToolCallItem[];
+  compaction?: TurnCompactionNotice;
   error?: boolean;
   created_at?: string;
   started_at?: string;

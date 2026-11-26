@@ -48,19 +48,31 @@ from .risk_policy import classify_shell_command
 from .device_dispatch import OFFLINE_ERROR, SEND_FAILED_ERROR
 from .ws_manager import ws_manager
 from .enterprise_policy import sees_all
+from .orchestrator_context import (
+    AI_CONTEXT_BUDGET_TOKENS,
+    compact_loop_messages,
+    estimate_messages_tokens,
+    is_context_overflow_error,
+)
+from .orchestrator_tools import (
+    MEMORY_AND_KNOWLEDGE_TOOL_SCHEMAS,
+    MEMORY_TOOL_NAMES,
+    PLAN_STATUS_TOOL_SCHEMA,
+    execute_memory_tool,
+)
 
 logger = logging.getLogger("server.orchestrator")
 
 # Tool-call rounds before we stop and let the model summarize. Each round is
 # one LLM call plus however long the dispatched tasks take.
-MAX_ROUNDS = int(os.environ.get("MEMENTO_MAX_ROUNDS", "8"))
+MAX_ROUNDS = int(os.environ.get("MEMENTO_MAX_ROUNDS", "12"))
 # How long to wait inline for a dispatched task: default 7200s (2 hours), max 86400s (24 hours).
 TASK_WAIT_SECONDS = int(os.environ.get("MEMENTO_TASK_WAIT_SECONDS", "7200"))
 MAX_TASK_TIMEOUT = int(os.environ.get("MEMENTO_MAX_TASK_TIMEOUT", "86400"))
 TASK_POLL_INTERVAL = 1.5
 # Trim tool output before it goes back into the prompt — a 100k-char build log
 # would blow the context and bury the signal.
-MAX_TOOL_OUTPUT = 6000
+MAX_TOOL_OUTPUT = 8000
 MAX_TASK_EVENTS = 800  # step events kept per task (tool calls, file changes, usage); api/tasks.py keeps as many
 # A device that hasn't checked in for this long is reported as likely offline,
 # so the model can pick a different machine instead of waiting on a dead one.
@@ -136,7 +148,7 @@ def is_likely_long_running_task(text: str) -> bool:
     return any(k in t for k in long_keywords)
 
 
-TOOLS = [
+DEVICE_AND_PLAN_TOOLS = [
     {
         "type": "function",
         "function": {
@@ -154,7 +166,7 @@ TOOLS = [
                 "action=shell 跑 shell 命令（适合查文件、看状态、grep）；"
                 "action=agent 跑无头编码 agent（适合需要理解代码、多步骤的活）。"
                 "只在确实需要设备上的实时信息、或需要在设备上动手时才用；"
-                "已同步到服务端的资料应优先用检索到的内容回答。"
+                "已同步到服务端的资料应优先用记忆工具（search_memory / memory_blueprint / memory_open 等）查询。"
             ),
             "parameters": {
                 "type": "object",
@@ -165,9 +177,11 @@ TOOLS = [
                     "prompt": {"type": "string", "description": "action=agent 时给 agent 的任务描述"},
                     "binary": {
                         "type": "string",
-                        "description": "action=agent 时指定的 Agent CLI：'claude' (Claude Code), 'codex' (OpenAI Codex), 'agy' (Antigravity)，默认 'claude'",
-                        "enum": ["claude", "codex", "agy"],
+                        "description": "action=agent 时指定的 Agent CLI：'claude' (Claude Code), 'codex' (OpenAI Codex), 'agy' (Antigravity), 'workbuddy' (WorkBuddy)，默认 'claude'",
+                        "enum": ["claude", "codex", "agy", "workbuddy"],
                     },
+                    "model": {"type": "string", "description": "action=agent 时可选的模型名，不填跟随设备默认配置"},
+                    "project_id": {"type": "string", "description": "可选的项目 ID，用于对齐工作目录与上下文"},
                     "cwd": {"type": "string", "description": "工作目录，可选"},
                     "timeout_seconds": {"type": "integer", "description": "执行超时时间（秒），0 表示不设上限；shell 默认 60，agent 默认 7200（大任务智能放宽至 14400）"},
                 },
@@ -183,7 +197,7 @@ TOOLS = [
                 "协作任务：把一个大任务自动拆成多个子任务，按各智能体（Claude Code / Codex / Antigravity）的特点、"
                 "模型和各设备的额度与负载，分派到多台设备并行执行，最后合并复查并汇总结果，全程在后台进行。"
                 "用户说「拆开做」「分给几个智能体一起做」，或任务明显大到要分模块多人协作时用；小任务直接用 run_on_device。"
-                "返回协作任务链接，用户可在「协作任务」页面看进度。"
+                "返回协作任务链接，用户可在「协作任务」页面看进度，也可后续用 plan_status 查询进度。"
             ),
             "parameters": {
                 "type": "object",
@@ -197,121 +211,36 @@ TOOLS = [
             },
         },
     },
-    {
-        "type": "function",
-        "function": {
-            "name": "search_memory",
-            "description": "在用户同步到服务端的历史资料（各 AI 工具的对话、笔记、计划）里检索。回答依赖过去的决定、配置、排障经过时先查。",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string", "description": "自然语言检索词"},
-                    "days": {"type": "integer", "description": "只查最近 N 天，可选"},
-                },
-                "required": ["query"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "check_rules",
-            "description": "关键操作（部署、发版、数据库迁移、删除/改数据、git push、改配置、重启服务）之前调用：返回用户的铁律、以前在这类操作上踩过的坑、可以直接照做的技能。",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "action": {"type": "string", "description": "要做的操作，如 deploy / release / db_migration / 删除数据"},
-                    "project": {"type": "string", "description": "项目名，可选"},
-                    "detail": {"type": "string", "description": "具体要做什么，可选，用于匹配相关的坑"},
-                },
-                "required": ["action"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "use_skill",
-            "description": "取出一个已发布技能的完整步骤（技能是用户环境里验证过的做法）。名称见系统提示里的技能列表，也可以用描述去匹配。",
-            "parameters": {
-                "type": "object",
-                "properties": {"name": {"type": "string", "description": "技能名（slug）或要做的事"}},
-                "required": ["name"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "remember_pitfall",
-            "description": "操作失败、查明了原因并解决之后，把这个坑记下来，以后同类操作前会提醒。没查明原因的不要记；自己这次的操作失误（命令引号写坏、猜错路径或表名、工具用法不对）也不要记。",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "title": {"type": "string", "description": "一句话概括"},
-                    "symptom": {"type": "string", "description": "报错或现象，保留关键原文"},
-                    "cause": {"type": "string", "description": "根因"},
-                    "fix": {"type": "string", "description": "怎么解决的"},
-                    "project": {"type": "string", "description": "项目名，可选"},
-                },
-                "required": ["title", "symptom", "fix"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "add_todo",
-            "description": "把用户说以后再做、要记下来的事记成待办（到期会推送提醒）。当前就要做的事不要记。",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "title": {"type": "string", "description": "动宾短语，说清做什么"},
-                    "detail": {"type": "string"},
-                    "due": {"type": "string", "description": "截止日期 YYYY-MM-DD，可选"},
-                    "project": {"type": "string"},
-                },
-                "required": ["title"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "list_todos",
-            "description": "列出用户还没做完的待办。",
-            "parameters": {
-                "type": "object",
-                "properties": {"project": {"type": "string", "description": "只看某个项目，可选"}},
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "mind_resonance",
-            "description": "心领神会：主动感知用户场景、心智模型、前置激活图谱实体、召回历史避坑防御与铁律。在面对极简指令或任务展开前调用以达成深度默契。",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string", "description": "用户当前指令或任务描述，可选"},
-                    "project": {"type": "string", "description": "项目名，可选"},
-                    "action": {"type": "string", "description": "操作类型，可选"},
-                },
-            },
-        },
-    },
+    PLAN_STATUS_TOOL_SCHEMA,
 ]
 
-MEMORY_TOOLS = {"search_memory", "check_rules", "use_skill", "remember_pitfall", "add_todo", "list_todos", "mind_resonance"}
+ASK_ONLY_TOOLS = list(MEMORY_AND_KNOWLEDGE_TOOL_SCHEMAS)
+TOOLS = DEVICE_AND_PLAN_TOOLS + MEMORY_AND_KNOWLEDGE_TOOL_SCHEMAS
+MEMORY_TOOLS = set(MEMORY_TOOL_NAMES)
 
-ORCHESTRATOR_MEMORY = """【记忆工具】（不需要设备，随时可用）
-- mind_resonance：心领神会层，随时感知用户隐式心智模型、项目铁律、图谱实体与避雷经验。
-- search_memory：答案依赖用户过去的决定、配置、排障经过时，先检索历史资料。
-- check_rules：部署、发版、数据库迁移、删除或改数据、git push、改配置、重启服务之前必须先调用，照着返回的铁律和踩坑提醒做。
-- use_skill：下面「可用技能」里有对应做法时，先取出技能按步骤执行，不要自己重新摸索。
-- remember_pitfall：操作失败、查明原因并解决后记下来。
-- add_todo / list_todos：用户说"以后再弄 / 记一下 / 明天做"时记成待办；问还有什么没做时查待办。"""
+ORCHESTRATOR_MEMORY = """【MCP 记忆、知识库与辅助工具】（不依赖在线设备，服务端直接毫秒级执行，随时可并发调用）
+- mind_resonance：心领神会层，面对简短指令或复杂任务前调用，激活用户心智模型、场景铁律、图谱实体与避坑提醒。
+- search_memory：混合语义+全文检索同步到 Memento 的历史对话、笔记、计划（支持 tool_filter / days / limit），返回 doc_id。
+- memory_recall：按类别（conversation/memory/identity/plan/learning/note）、项目名、天数或具体日期（YYYY-MM-DD）召回近期记忆清单。
+- memory_open：按 doc_id 读取文档/笔记完整正文（支持 offset_chars 分段阅读）；search_memory 只返回片段，需要细节时调用它。
+- memory_conversation：按 doc_id 逐条阅读历史对话消息（支持分页），用于精准复盘或接续过往讨论。
+- memory_blueprint：一步获取项目代码蓝图（CODE_BLUEPRINT.md）、业务蓝图（section="business"/"business:3"）或用户个人全域蓝图（project_name="me"）。
+- memory_context / memory_project_map：查看全局跨设备项目清单，或拉取某项目精选上下文文档。
+- memory_graph / memory_core：查知识图谱实体关系与观察记录，或读 Dreaming 沉淀的长期核心记忆（MEMORY.md）。
+- memory_store：将重要架构决议、环境参数或新发现持久化写入长期记忆知识图谱。
+- daily_summary：查询某天（默认今天）的跨工具活动统计与 AI 日报。
+- check_rules / use_skill / remember_pitfall：部署/发版/迁移/改数据前先查铁律与避坑；有已发布技能时直接取出按步骤做；定位并解决坑后记下来。
+- add_todo / list_todos / todo_update：记录新待办、查未完成待办、标记待办完成或更新截止日期。
+- fetch_url：安全读取用户提供的公网技术文档、网页或 GitHub Raw 内容（自动清洗 HTML）。
+- plan_status：查询协作任务的步骤进度与结论（仅设备编排模式可用）。"""
+
+ORCHESTRATOR_MEMORY_ONLY_SYSTEM = """你是 Memento 的个人记忆与知识编排助手（当前为仅记忆问答模式，不可操作任何物理设备）。
+
+规则与能力：
+1. 你可以自由、并发地调用全部 MCP 记忆与知识工具（search_memory、memory_recall、memory_open、memory_conversation、memory_blueprint、memory_context、memory_project_map、memory_graph、memory_core、memory_store、daily_summary、check_rules、use_skill、remember_pitfall、add_todo、list_todos、todo_update、mind_resonance、fetch_url）去深度检索、下钻原文、整合答案或沉淀记忆。
+2. 当首轮自带的「资料」不足或为空时，绝对不要直接说“没有检索到相关资料”就放弃——必须主动换关键词调用 search_memory、memory_recall、memory_project_map、memory_blueprint、memory_graph、memory_core、daily_summary 或 list_todos 查清事实后再作答！
+3. 回答必须基于实际检索/读取到的事实，严禁编造；需要引用命令、路径、配置或文档结论时保持原样准确。
+4. 用户用什么语言提问就用什么语言回答；涉及待办、记忆写入等写操作时执行完向用户清晰反馈结果。"""
 
 def normalize_device_name(name: str | None) -> str:
     """Strip platform suffixes like ' (Darwin)', ' (Windows)', ' (Linux)'."""
@@ -1442,114 +1371,8 @@ async def _load_alerts(task_id: str) -> list:
 
 
 async def _tool_memory(db: AsyncSession, user: User, name: str, args: dict) -> dict:
-    """The memory tools: plain reads and writes, infused with mind resonance and iron rules."""
-    from .guidance_service import guidance_for, render_guidance, score, terms_for
-    from .retrospective_service import save_pitfall
-    from .skill_service import render_skill_md
-    from .todo_service import add_todo, open_todos, parse_due, todo_out
-    from .mind_resonance_service import (
-        detect_scenario,
-        enrich_check_rules_result,
-        enrich_search_query_with_mindset,
-        enrich_skill_with_mindset,
-        enrich_todo_creation,
-        render_mind_resonance_markdown,
-        sense_resonance,
-    )
-
-    if name == "search_memory":
-        from .ask_retrieval import retrieve
-
-        raw_query = str(args.get("query") or "").strip()
-        if not raw_query:
-            return {"error": "query is required"}
-        days = args.get("days")
-
-        terms = terms_for(None, None, raw_query)
-        scen = detect_scenario(terms, raw_query)
-        expanded_query = enrich_search_query_with_mindset(raw_query, scen)
-
-        sources = await retrieve(
-            db, user, expanded_query, None,
-            int(days) if isinstance(days, (int, float)) and days > 0 else None,
-        )
-        return {
-            "query": raw_query,
-            "scenario": scen.get("name"),
-            "mindset_hint": scen.get("mindset"),
-            "results": [
-                {
-                    "title": s["title"],
-                    "tool": s["tool_id"],
-                    "path": s["relative_path"],
-                    # When it happened, not when it was uploaded: a first sync uploads months at once (#7)
-                    "happened_at": s.get("happened_at") or s["synced_at"],
-                    "excerpt": (s["excerpt"] or "")[:700],
-                }
-                for s in sources[:5]
-            ],
-        }
-    if name == "check_rules":
-        act = str(args.get("action") or "")
-        proj = args.get("project")
-        det = args.get("detail")
-        g = await guidance_for(db, user, act, proj, det)
-        base_guidance = render_guidance(g)
-        res = await sense_resonance(db, user, query=det, project=proj, action=act)
-        full_guidance = enrich_check_rules_result(base_guidance, res)
-        return {"guidance": full_guidance}
-    if name == "use_skill":
-        from ..db.models import Skill
-
-        wanted = str(args.get("name") or "").strip().lower()
-        skills = (await db.execute(
-            select(Skill).where(Skill.user_id == user.id, Skill.status == "published")
-        )).scalars().all()
-        exact = next((s for s in skills if s.slug == wanted), None)
-        if exact is None:
-            terms = terms_for(wanted)
-            ranked = sorted(skills, key=lambda s: score(f"{s.slug} {s.title} {s.description}", terms), reverse=True)
-            exact = ranked[0] if ranked and score(f"{ranked[0].slug} {ranked[0].title} {ranked[0].description}", terms) else None
-        if exact is None:
-            return {"error": "没有匹配的技能", "available": [s.slug for s in skills]}
-
-        base_skill_md = render_skill_md(exact)
-        terms = terms_for(exact.slug, None, exact.title)
-        scen = detect_scenario(terms, f"{exact.slug} {exact.title} {exact.description}")
-        enriched_skill_md = enrich_skill_with_mindset(base_skill_md, scen)
-        return {"skill": enriched_skill_md}
-    if name == "remember_pitfall":
-        mem = await save_pitfall(db, user, args, None, "agent")
-        await db.commit()
-        return {"saved": bool(mem), "note": None if mem else "信息不全、属于 AI 自己的操作失误，或已经记过"}
-    if name == "add_todo":
-        raw_title = str(args.get("title") or "")
-        raw_proj = args.get("project")
-        terms = terms_for(None, raw_proj, raw_title)
-        scen = detect_scenario(terms, raw_title)
-        clean_title, aligned_proj, hint = enrich_todo_creation(raw_title, raw_proj, scen)
-        try:
-            todo, created = await add_todo(
-                db, user, clean_title, detail=args.get("detail"), project=aligned_proj,
-                due_at=parse_due(args.get("due")), source="agent",
-            )
-        except ValueError as e:
-            return {"error": str(e)}
-        await db.commit()
-        res_payload: dict = {"todo": todo_out(todo), "created": created}
-        if hint:
-            res_payload["mindset_hint"] = hint
-        return res_payload
-    if name == "list_todos":
-        todos = await open_todos(db, user)
-        project = str(args.get("project") or "").lower()
-        if project:
-            todos = [t for t in todos if project in (t.project or "").lower()]
-        return {"todos": [todo_out(t) for t in todos[:30]]}
-    if name == "mind_resonance":
-        res = await sense_resonance(db, user, query=args.get("query"), project=args.get("project"), action=args.get("action"))
-        return {"resonance": render_mind_resonance_markdown(res)}
-    return {"error": f"unknown tool: {name}"}
+    """Delegate all MCP memory, knowledge, blueprint, todo, plan-status, and web tools."""
+    return await execute_memory_tool(db, user, name, args)
 
 
 async def agent_memory_prompt(
@@ -1640,33 +1463,94 @@ async def _tool_plan_and_run(db: AsyncSession, user: User, args: dict) -> dict:
 
 
 async def run_agent_loop(
-    db: AsyncSession, user: User, messages: list[dict], conv_id: str | None = None
+    db: AsyncSession,
+    user: User,
+    messages: list[dict],
+    conv_id: str | None = None,
+    *,
+    tools: list[dict] | None = None,
+    context_budget: int | None = None,
+    model: str | None = None,
+    max_rounds: int | None = None,
 ):
-    """Run the tool-calling loop, yielding SSE-shaped events.
+    """Run the tool-calling loop with in-loop context compaction and overflow recovery.
 
-    Yields dicts: {"type": "tool_call"|"task_progress"|"ping"|"tool_result"|"delta"|"error"}.
+    Yields dicts:
+      {"type": "tool_call"|"task_progress"|"ping"|"tool_result"|"context_compacted"|"context_stats"|"thinking"|"delta"|"error"}.
     The caller serializes them; keeping this transport-agnostic makes the loop
     testable without spinning up a request.
     """
+    active_tools = TOOLS if tools is None else tools
+    allowed_tool_names = {t["function"]["name"] for t in active_tools if isinstance(t, dict) and isinstance(t.get("function"), dict)}
+    effective_budget = context_budget or AI_CONTEXT_BUDGET_TOKENS
+    rounds_limit = max(1, int(max_rounds or MAX_ROUNDS))
     convo = list(messages)
     # Track executed command signatures and their outcomes to prevent repeat death spirals:
     # "device_id:action:cmd" -> status ("succeeded", "failed", "timeout", "still_running")
     executed_commands: dict[str, str] = {}
 
-    for round_no in range(MAX_ROUNDS):
+    for round_no in range(rounds_limit):
+        # In-loop automatic context compaction before each continuation round
+        if round_no >= 1:
+            convo, loop_compact = await compact_loop_messages(
+                convo,
+                budget_tokens=effective_budget,
+                user=user,
+            )
+            if loop_compact is not None:
+                yield loop_compact.to_sse()
+                yield {
+                    "type": "context_stats",
+                    "estimated_tokens": loop_compact.after_tokens,
+                    "budget_tokens": effective_budget,
+                    "in_loop": True,
+                }
+
         try:
             resp_data, used_provider = await call_chat_completion(
                 messages=convo,
-                tools=TOOLS,
+                tools=active_tools or None,
                 temperature=0.3,
-                max_tokens=1500,
+                max_tokens=2500,
                 timeout=120.0,
                 user=user,
+                model=model,
             )
         except Exception as e:
-            logger.exception("orchestrator LLM call failed across all providers: %s", e)
-            yield {"type": "error", "message": f"AI 调用失败: {e}"}
-            return
+            if is_context_overflow_error(e):
+                logger.warning("Context overflow on orchestrator round %d (%s); compacting aggressively and retrying", round_no, e)
+                convo, recovery_compact = await compact_loop_messages(
+                    convo,
+                    budget_tokens=effective_budget,
+                    aggressive=True,
+                    user=user,
+                )
+                if recovery_compact is not None:
+                    yield recovery_compact.to_sse()
+                    yield {
+                        "type": "context_stats",
+                        "estimated_tokens": recovery_compact.after_tokens,
+                        "budget_tokens": effective_budget,
+                        "in_loop": True,
+                    }
+                try:
+                    resp_data, used_provider = await call_chat_completion(
+                        messages=convo,
+                        tools=active_tools or None,
+                        temperature=0.3,
+                        max_tokens=2500,
+                        timeout=120.0,
+                        user=user,
+                        model=model,
+                    )
+                except Exception as retry_err:
+                    logger.exception("orchestrator LLM call failed even after overflow compaction: %s", retry_err)
+                    yield {"type": "error", "message": f"AI 调用失败（已尝试自动压缩上下文）: {retry_err}"}
+                    return
+            else:
+                logger.exception("orchestrator LLM call failed across all providers: %s", e)
+                yield {"type": "error", "message": f"AI 调用失败: {e}"}
+                return
 
         choice = (resp_data.get("choices") or [{}])[0]
         msg = choice.get("message") or {}
@@ -1682,7 +1566,7 @@ async def run_agent_loop(
         if not calls:
             if round_no == 0:
                 # Catch case where model hallucinates tool execution in plain text instead of making a tool_call
-                if any(kw in content for kw in ("run_on_device", "【在设备上调用的工具", "[系统记录", "已终止 PID", "已杀死进程")):
+                if "run_on_device" in allowed_tool_names and any(kw in content for kw in ("run_on_device", "【在设备上调用的工具", "[系统记录", "已终止 PID", "已杀死进程")):
                     logger.warning("Model produced hallucinated tool execution text in round 0; nudging to call run_on_device")
                     convo.append({"role": "assistant", "content": content})
                     convo.append({
@@ -1701,18 +1585,18 @@ async def run_agent_loop(
                     convo.append({"role": "assistant", "content": f"<think>\n{thinking}\n</think>"})
                     convo.append({
                         "role": "user",
-                        "content": "【系统提示】：你刚刚只输出了思考分析过程，尚未调用任何工具（如 run_on_device）在设备上下发指令，也尚未向用户提供最终答复！请根据你的思考，立即调用工具执行命令，或者直接给出最终回答！",
+                        "content": "【系统提示】：你刚刚只输出了思考分析过程，尚未调用任何工具，也尚未向用户提供最终答复！请根据你的思考，立即调用需要的工具，或者直接给出最终回答！",
                     })
                     continue
 
                 # Round 0 with no calls and empty content: fallback to plain chat without tools
                 logger.info("Orchestrator round 0 returned no calls and empty content; falling back to plain chat")
-                plain_content = await call_plain_chat(convo, temperature=0.3, max_tokens=1500, user=user)
+                plain_content = await call_plain_chat(convo, temperature=0.3, max_tokens=2500, user=user)
                 if plain_content and plain_content.strip():
                     yield {"type": "delta", "text": plain_content.strip()}
                     return
 
-                yield {"type": "delta", "text": "未能向设备发送操作指令。如需在设备上排查、关闭进程或修复，请告知目标设备与具体要求。"}
+                yield {"type": "delta", "text": "未能获取到有效答复，请补充说明你的目标或重试。"}
                 return
 
             # round_no > 0: Tools WERE executed in previous rounds!
@@ -1760,7 +1644,7 @@ async def run_agent_loop(
             yield call_evt
             parsed_calls.append((call, call_id, name, args))
 
-        # 2. Run all tool calls concurrently across devices
+        # 2. Run all tool calls concurrently across devices & memory stores
         event_queue: asyncio.Queue = asyncio.Queue()
         tool_results_by_id: dict[str, dict] = {}
 
@@ -1773,6 +1657,17 @@ async def run_agent_loop(
             _event_queue=event_queue,
             _tool_results_by_id=tool_results_by_id,
         ):
+            if allowed_tool_names and c_name not in allowed_tool_names:
+                denied = {"error": f"当前模式未开启工具 `{c_name}`（仅记忆问答模式不可操作设备）。"}
+                _tool_results_by_id[c_id] = denied
+                await _event_queue.put({
+                    "type": "tool_result",
+                    "tool_call_id": c_id,
+                    "name": c_name,
+                    "result": denied,
+                })
+                return
+
             sig = None
             if c_name == "run_on_device":
                 action = c_args.get("action") or ""
@@ -1857,12 +1752,22 @@ async def run_agent_loop(
                 )[:MAX_TOOL_OUTPUT],
             })
 
-    # Ran out of tool rounds. Always invoke the LLM one final time to synthesize all gathered results into a complete answer!
+    # Ran out of tool rounds (or broke out for full synthesis). Compact once more if close to budget.
+    convo, final_compact = await compact_loop_messages(convo, budget_tokens=effective_budget, user=user)
+    if final_compact is not None:
+        yield final_compact.to_sse()
+    yield {
+        "type": "context_stats",
+        "estimated_tokens": estimate_messages_tokens(convo),
+        "budget_tokens": effective_budget,
+        "in_loop": True,
+    }
+
     convo.append({
         "role": "user",
         "content": (
-            "【执行完毕总结】请根据上述所有已执行的命令输出与终端日志，"
-            "为用户提供一份完整、详尽、结构清晰的最终总结与分析（例如梳理服务/容器名称、端口映射、运行状态等，并直接解答初始提问）。"
+            "【执行完毕总结】请根据上述所有已调用工具的查询结果、记忆内容或终端输出，"
+            "为用户提供一份完整、准确、结构清晰的最终总结与分析，直接解答初始提问。"
             "无需再请求任何工具。"
         ),
     })
@@ -1871,9 +1776,10 @@ async def run_agent_loop(
         async for item in stream_chat_completion(
             messages=convo,
             temperature=0.3,
-            max_tokens=2500,
+            max_tokens=4096,
             timeout=120.0,
             user=user,
+            model=model,
         ):
             if item["type"] == "thinking":
                 yield {"type": "thinking", "text": item["text"]}

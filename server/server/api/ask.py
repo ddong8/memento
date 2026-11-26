@@ -29,7 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..db.models import Machine, User
 from ..db.session import get_db
 from ..middleware.auth import get_current_user
-from ..services.ai_provider import get_ai_providers, stream_chat_completion
+from ..services.ai_provider import get_ai_providers, stream_chat_completion  # noqa: F401
 from ..services.ask_runs import ask_runs
 from ..services.ask_prompt import build_messages, classify_continuation
 from ..services.ask_retrieval import retrieve, retrieve_core_memories
@@ -438,10 +438,20 @@ async def ask(
         _fetch_live_rules(),
     )
 
+    # Prepare cross-turn rolling compressed history for AI 编排
+    from ..services.orchestrator_context import prepare_ai_history
+
+    ai_checkpoint_summary, ai_active_history, ai_context_stats, ai_compaction_evt = await prepare_ai_history(
+        conv_id=conv_id if body.conversation_id else None,
+        client_history=body.history,
+        user=_user,
+        force_compact=bool(body.compact_mode and not body.session_id),
+    )
+
     messages = build_messages(
         question,
         sources,
-        body.history,
+        ai_active_history,
         is_continuation=is_cont,
         is_action=is_action,
         extracted_context=extracted_context,
@@ -454,13 +464,14 @@ async def ask(
         device_id=device_id or None,
         user=_user,
         live_rules=live_rules,
+        checkpoint_summary=ai_checkpoint_summary or None,
+        max_history_turns=len(ai_active_history) if ai_active_history else None,
     )
 
     is_agent = (body.agent_mode or (bool(device_id) and device_id != "ask_only")) and device_id != "ask_only"
+    ai_model_override = (body.model or effective_cfg.get("model") or "").strip() or None
 
-    # Agent mode: the model may also dispatch work to the user's devices when
-    # synced memory isn't enough, or when a device was explicitly selected.
-    # Opt-in per request — plain asks stay a single-shot RAG call with no ability to touch any machine.
+    # Agent / full orchestration mode: full device + plan + MCP memory/knowledge/web tools.
     if is_agent:
         from ..services.orchestrator import ORCHESTRATOR_SYSTEM, agent_memory_prompt, run_agent_loop
 
@@ -506,6 +517,9 @@ async def ask(
             req_start_mono = time.monotonic()
             yield f"data: {json.dumps({'type': 'conversation_id', 'id': str(conv_id), 'title': conv_title, 'user_created_at': user_created_at}, ensure_ascii=False)}\n\n"
             yield f"data: {json.dumps({'type': 'sources', 'sources': sources}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'context_stats', **ai_context_stats}, ensure_ascii=False)}\n\n"
+            if ai_compaction_evt is not None:
+                yield f"data: {json.dumps(ai_compaction_evt.to_sse(), ensure_ascii=False)}\n\n"
             accumulated_text: list[str] = []
             accumulated_thinking: list[str] = []
             tool_calls_map: dict[str, dict] = {}
@@ -519,6 +533,7 @@ async def ask(
                     return
                 saved = True
                 duration_ms_final = int((time.monotonic() - req_start_mono) * 1000)
+                assistant_created_at_final = datetime.now(timezone.utc).isoformat()
                 from ..services.mind_resonance_service import clean_guardrail_output
                 clean_reply = clean_guardrail_output("".join(accumulated_text))
                 await append_conversation_turns(
@@ -554,7 +569,9 @@ async def ask(
                             logger.debug("Failed to record online graph observation in _persist: %s", e)
 
             try:
-                async for evt in run_agent_loop(run_db, run_user, agent_messages, conv_id=str(conv_id)):
+                async for evt in run_agent_loop(
+                    run_db, run_user, agent_messages, conv_id=str(conv_id), model=ai_model_override,
+                ):
                     if evt.get("type") == "ping":
                         yield ": ping\n\n"
                         yield f"data: {json.dumps(evt, ensure_ascii=False)}\n\n"
@@ -563,6 +580,7 @@ async def ask(
                         if etype == "tool_call":
                             cid = evt.get("id") or evt.get("tool_call_id") or ""
                             tool_calls_map[cid] = {
+                                "id": cid,
                                 "name": evt.get("name"),
                                 "args": evt.get("args"),
                                 "device_name": evt.get("device_name"),
@@ -602,20 +620,43 @@ async def ask(
             body.request_id,
             agent_stream,
             execution_mode="agent",
-            model=body.model,
+            model=ai_model_override,
             device_name=resolved_device_name,
             title=conv_title,
             images=body.images,
             request_db=db,
         )
 
-    async def stream(run_user: User = _user):
+    # Pure memory Q&A mode (`ask_only` or `agent_mode=False`):
+    # Still gets full MCP memory/knowledge/blueprint/graph/todo/web tools (ZERO device execution!)
+    # while preserving the hot single-turn short-term cache fast path.
+    from ..services.orchestrator import (
+        ASK_ONLY_TOOLS,
+        ORCHESTRATOR_MEMORY_ONLY_SYSTEM,
+        agent_memory_prompt,
+        run_agent_loop,
+    )
+    mem_only_system = ORCHESTRATOR_MEMORY_ONLY_SYSTEM + "\n\n" + await agent_memory_prompt(
+        db, _user, project=body.project_id, query=question, live_rules=live_rules,
+    )
+    if core_mems:
+        core_snippets = "\n".join(
+            f"- [{m.category}/{m.key}]: {m.content}" for m in core_mems
+        )
+        mem_only_system += f"\n\n【用户长期核心记忆与工程规范 (MEMORY.md)】\n{core_snippets}"
+    memory_agent_messages = [{"role": "system", "content": mem_only_system}] + messages[1:]
+
+    async def stream(run_db: AsyncSession, run_user: User = _user):
         user_created_at = datetime.now(timezone.utc).isoformat()
         req_start_mono = time.monotonic()
         yield f"data: {json.dumps({'type': 'conversation_id', 'id': str(conv_id), 'title': conv_title, 'user_created_at': user_created_at}, ensure_ascii=False)}\n\n"
         yield f"data: {json.dumps({'type': 'sources', 'sources': sources}, ensure_ascii=False)}\n\n"
+        yield f"data: {json.dumps({'type': 'context_stats', **ai_context_stats}, ensure_ascii=False)}\n\n"
+        if ai_compaction_evt is not None:
+            yield f"data: {json.dumps(ai_compaction_evt.to_sse(), ensure_ascii=False)}\n\n"
         accumulated_text: list[str] = []
         accumulated_thinking: list[str] = []
+        tool_calls_map: dict[str, dict] = {}
         saved = False
         assistant_created_at_final: str | None = None
         duration_ms_final: int | None = None
@@ -634,7 +675,7 @@ async def ask(
                 question,
                 clean_reply,
                 sources=sources,
-                tool_calls=None,
+                tool_calls=list(tool_calls_map.values()) or None,
                 thinking="".join(accumulated_thinking).strip() or None,
                 device_id=device_id or None,
                 cwd=body.cwd,
@@ -646,15 +687,6 @@ async def ask(
                 duration_ms=duration_ms_final,
             )
 
-        if not sources and not body.images and not body.attachments:
-            empty_msg = "没有检索到相关资料。"
-            accumulated_text.append(empty_msg)
-            yield f"data: {json.dumps({'type': 'delta', 'text': empty_msg}, ensure_ascii=False)}\n\n"
-            await _persist()
-            yield f"data: {json.dumps({'type': 'done', 'assistant_created_at': assistant_created_at_final, 'duration_ms': duration_ms_final})}\n\n"
-            await asyncio.sleep(0.05)
-            return
-
         def _normalize_query_for_cache(q: str) -> str:
             import re
             return re.sub(r"[\s\?\？\!\！\.\。\,，]+$", "", q.strip().lower())
@@ -663,6 +695,7 @@ async def ask(
             not body.images
             and not body.attachments
             and not body.history
+            and not ai_active_history
             and not is_cont
             and not is_action
             and not question.startswith("__")
@@ -690,24 +723,45 @@ async def ask(
                 logger.debug("Ask cache read exception: %s", cache_read_err)
 
         try:
-            async for chunk in stream_chat_completion(
-                messages=messages,
-                temperature=0.3,
-                max_tokens=1500,
-                timeout=120.0,
-                user=run_user,
+            async for evt in run_agent_loop(
+                run_db,
+                run_user,
+                memory_agent_messages,
+                conv_id=str(conv_id),
+                tools=ASK_ONLY_TOOLS,
+                model=ai_model_override,
             ):
-                if chunk.get("type") == "thinking":
-                    accumulated_thinking.append(chunk.get("text") or "")
-                    yield f"data: {json.dumps({'type': 'thinking', 'text': chunk.get('text') or ''}, ensure_ascii=False)}\n\n"
-                else:
+                etype = evt.get("type")
+                if etype == "ping":
+                    yield ": ping\n\n"
+                    yield f"data: {json.dumps(evt, ensure_ascii=False)}\n\n"
+                    continue
+                if etype == "tool_call":
+                    cid = evt.get("id") or evt.get("tool_call_id") or ""
+                    tool_calls_map[cid] = {
+                        "id": cid,
+                        "name": evt.get("name"),
+                        "args": evt.get("args"),
+                    }
+                elif etype == "tool_result":
+                    cid = evt.get("tool_call_id") or ""
+                    if cid in tool_calls_map:
+                        tool_calls_map[cid]["result"] = evt.get("result")
+                elif etype == "thinking":
+                    accumulated_thinking.append(evt.get("text") or "")
+                elif etype == "delta":
                     from ..services.mind_resonance_service import clean_guardrail_output
-                    raw_t = chunk.get("text") or ""
+                    raw_t = evt.get("text") or ""
                     clean_t = clean_guardrail_output(raw_t)
                     accumulated_text.append(clean_t)
-                    yield f"data: {json.dumps({'type': 'delta', 'text': clean_t}, ensure_ascii=False)}\n\n"
+                    evt["text"] = clean_t
+                yield f"data: {json.dumps(evt, ensure_ascii=False)}\n\n"
 
-            if is_cacheable and cache_key and accumulated_text:
+            write_tools_used = any(
+                c.get("name") in ("memory_store", "remember_pitfall", "add_todo", "todo_update")
+                for c in tool_calls_map.values()
+            )
+            if is_cacheable and cache_key and accumulated_text and not write_tools_used:
                 try:
                     await ai_health.put_json(
                         cache_key,
@@ -730,15 +784,14 @@ async def ask(
         yield f"data: {json.dumps({'type': 'done', 'assistant_created_at': assistant_created_at_final, 'duration_ms': duration_ms_final})}\n\n"
         await asyncio.sleep(0.05)
 
-    # Plain answers need no database session of their own.
     return await run_response(
         conv_id,
         _user,
         question,
         body.request_id,
-        lambda run_db, run_user: stream(run_user),
+        stream,
         execution_mode="rag",
-        model=body.model,
+        model=ai_model_override,
         device_name=None,
         title=conv_title,
         images=body.images,

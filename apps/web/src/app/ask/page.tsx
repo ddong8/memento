@@ -33,6 +33,7 @@ import { AssistantBubble, UserBubble } from "@/components/ask/bubbles";
 import { HistoryDrawer, resolveConversationAgent } from "@/components/ask/HistoryDrawer";
 import { SourcesDrawer } from "@/components/ask/SourcesDrawer";
 import { SessionResumeBanner } from "@/components/ask/SessionResumeBanner";
+import AiContextBar from "@/components/ask/AiContextBar";
 import { OfflineCapsule } from "@/components/ask/StatusCapsules";
 import { AskTopBar } from "@/components/ask/AskTopBar";
 import { AskEmptyState } from "@/components/ask/AskEmptyState";
@@ -61,7 +62,7 @@ import { cleanProjectPath, homeDeviceOf, isConcreteDevice, isDeviceOnline, pathW
 import { isLiveConnected, onLiveEvent } from "@/lib/live-events";
 import { AGENT_TOOL_ID, type Cascade, cascadeOf, configHas, usableDevice } from "@/lib/ask/cascade";
 import { type FollowUp, nextMessage, requeue, steerableTaskId } from "@/lib/ask/followups";
-import { ExecutionMode, RunCursor, Source, Turn, compressImageToDataUrl, interruptibleSleep, mergeFinishedTurns, normalizeEpochMs, normalizeIsoTimestamp, turnsChanged } from "@/lib/ask/turns";
+import { AiContextStats, ExecutionMode, RunCursor, Source, Turn, TurnCompactionNotice, compressImageToDataUrl, interruptibleSleep, mergeFinishedTurns, normalizeEpochMs, normalizeIsoTimestamp, turnsChanged } from "@/lib/ask/turns";
 import {
   formatLiveActivityProgressStep,
   formatLiveActivityTaskEvent,
@@ -238,6 +239,9 @@ function AskPageContent() {
     () => (idParam ? (askCache?.selectedSessionId || initSnap?.selectedSessionId || "") : "")
   );
   const [compactMode, setCompactMode] = useState<boolean>(() => askCache?.compactMode || false);
+  const [aiContext, setAiContext] = useState<AiContextStats | null>(null);
+  const [isCompactingAi, setIsCompactingAi] = useState<boolean>(false);
+  const [aiCompactSavedText, setAiCompactSavedText] = useState<string | null>(null);
   /** Real context size and resume-cost hints of Claude Code sessions, by session id */
   const [sessionCosts, setSessionCosts] = useState<Record<string, SessionResumeCost>>({});
   /** Bumped when a run ends: the session has grown, so its size is read again for the banner */
@@ -1309,6 +1313,8 @@ function AskPageContent() {
       codeDeviceRef.current = restoredCodeDev;
 
       setCompactMode(false);
+      setAiContext(data.ai_context ?? null);
+      setAiCompactSavedText(null);
 
       const incomingProjTitle = data.project_title || "";
       if (incomingProjTitle && !isUuidOrHash(incomingProjTitle)) {
@@ -1675,6 +1681,8 @@ function AskPageContent() {
     setCwd("");
     setShowCwd(false);
     setCompactMode(false);
+    setAiContext(null);
+    setAiCompactSavedText(null);
     turnsRef.current = [];
     streamingTurnStoreRef.current.set(null);
     setTurns([]);
@@ -2967,6 +2975,22 @@ function AskPageContent() {
         assistant_created_at?: string;
         duration_ms?: number;
         cached?: boolean;
+        estimated_tokens?: number;
+        raw_tokens?: number;
+        budget_tokens?: number;
+        total_turns?: number;
+        active_turns?: number;
+        compacted_turns?: number;
+        has_checkpoint?: boolean;
+        checkpoint_summary?: string;
+        compact_recommended?: boolean;
+        in_loop?: boolean;
+        scope?: string;
+        mode?: string;
+        before_tokens?: number;
+        after_tokens?: number;
+        saved_tokens?: number;
+        summary?: string;
       };
       try {
         evt = JSON.parse(line.slice(6));
@@ -3042,6 +3066,37 @@ function AskPageContent() {
         }
       } else if (evt.type === "sources") {
         patchLast((x) => ({ ...x, sources: evt.sources ?? [] }));
+      } else if (evt.type === "context_stats") {
+        setAiContext((prev) => ({
+          ...(prev || { estimated_tokens: 0, budget_tokens: 64000 }),
+          estimated_tokens: typeof evt.estimated_tokens === "number" ? evt.estimated_tokens : (prev?.estimated_tokens ?? 0),
+          ...(typeof evt.raw_tokens === "number" ? { raw_tokens: evt.raw_tokens } : {}),
+          budget_tokens: typeof evt.budget_tokens === "number" ? evt.budget_tokens : (prev?.budget_tokens ?? 64000),
+          ...(typeof evt.total_turns === "number" ? { total_turns: evt.total_turns } : {}),
+          ...(typeof evt.active_turns === "number" ? { active_turns: evt.active_turns } : {}),
+          ...(typeof evt.compacted_turns === "number" ? { compacted_turns: evt.compacted_turns } : {}),
+          ...(typeof evt.has_checkpoint === "boolean" ? { has_checkpoint: evt.has_checkpoint } : {}),
+          ...(typeof evt.checkpoint_summary === "string" ? { checkpoint_summary: evt.checkpoint_summary } : {}),
+          ...(typeof evt.compact_recommended === "boolean" ? { compact_recommended: evt.compact_recommended } : {}),
+          ...(typeof evt.in_loop === "boolean" ? { in_loop: evt.in_loop } : {}),
+        }));
+      } else if (evt.type === "context_compacted") {
+        const notice: TurnCompactionNotice = {
+          scope: evt.scope || "history",
+          mode: evt.mode || "auto",
+          before_tokens: evt.before_tokens ?? 0,
+          after_tokens: evt.after_tokens ?? 0,
+          saved_tokens: evt.saved_tokens ?? 0,
+          compacted_turns: evt.compacted_turns,
+          summary: evt.summary,
+        };
+        patchLast((x) => ({ ...x, compaction: notice }));
+        setAiContext((prev) => ({
+          ...(prev || { estimated_tokens: notice.after_tokens, budget_tokens: 64000 }),
+          estimated_tokens: notice.after_tokens,
+          ...(typeof evt.compacted_turns === "number" && evt.scope === "history" ? { compacted_turns: evt.compacted_turns } : {}),
+          ...(evt.scope === "history" && evt.summary ? { has_checkpoint: true, checkpoint_summary: evt.summary } : {}),
+        }));
       } else if (evt.type === "tool_call") {
         laStepCount += 1;
         laLastStatus = "tool";
@@ -4543,11 +4598,17 @@ function AskPageContent() {
     [previewTurns, handleSourcesClick, handleSmartCompactAndRetry, t]
   );
 
-  // Sync projects on initial load if starting in agent mode (ONLY when no conversation is active/restoring)
+  // Sync projects on initial load in agent mode or AI 编排 mode (so AI 编排 can scope memory/blueprints by project)
   useEffect(() => {
-    if (!activeConversationId && !isRestoringRef.current && ["codex", "claude", "antigravity", "workbuddy"].includes(executionMode)) {
+    if (!activeConversationId && !isRestoringRef.current && ["ai", "codex", "claude", "antigravity", "workbuddy"].includes(executionMode)) {
       if (projects.length === 0) {
-        loadProjectsForMode(executionMode);
+        if (executionMode === "ai") {
+          api.listProjects().then((list) => {
+            if (Array.isArray(list) && list.length > 0) setProjects(list);
+          }).catch(() => {});
+        } else {
+          loadProjectsForMode(executionMode);
+        }
       }
     }
   }, [executionMode, activeConversationId, projects.length, loadProjectsForMode]);
@@ -4929,6 +4990,60 @@ function AskPageContent() {
   const handleFocusMobileCollapse = useCallback(() => {
     setIsConfigCollapsed(true);
   }, []);
+
+  const handleCompactAiNow = useCallback(async () => {
+    const cid = activeConversationIdRef.current;
+    if (!cid || isCompactingAi || streamingRef.current) return;
+    setIsCompactingAi(true);
+    setAiCompactSavedText(null);
+    try {
+      const res = await api.compactAskConversation(cid, 4);
+      if (res.stats) {
+        setAiContext(res.stats);
+      }
+      if (res.compacted) {
+        const beforeK = (res.before_tokens / 1000).toFixed(1);
+        const afterK = (res.after_tokens / 1000).toFixed(1);
+        setAiCompactSavedText(isZh ? `已压缩 ${beforeK}k → ${afterK}k` : `Compacted ${beforeK}k → ${afterK}k`);
+        showInAppToast(
+          isZh ? "上下文已压缩" : "Context compacted",
+          isZh ? `已提炼前 ${res.compacted_turns ?? 0} 条对话（${beforeK}k → ${afterK}k）` : `${beforeK}k → ${afterK}k tokens`,
+        );
+      } else {
+        showInAppToast(
+          isZh ? "暂无需压缩" : "No compaction needed",
+          res.reason || (isZh ? "当前上下文仍在轻量化范围内" : "Context is already compact"),
+        );
+      }
+    } catch (e: any) {
+      showInAppToast(isZh ? "压缩失败" : "Compaction failed", e?.message || String(e));
+    } finally {
+      setIsCompactingAi(false);
+    }
+  }, [isCompactingAi, isZh]);
+
+  const handleResetAiCheckpoint = useCallback(async () => {
+    const cid = activeConversationIdRef.current;
+    if (!cid || isCompactingAi || streamingRef.current) return;
+    try {
+      await api.resetAskConversationCompact(cid);
+      setAiContext((prev) =>
+        prev
+          ? {
+              ...prev,
+              has_checkpoint: false,
+              checkpoint_summary: "",
+              compacted_turns: 0,
+              estimated_tokens: prev.raw_tokens ?? prev.estimated_tokens,
+            }
+          : null,
+      );
+      setAiCompactSavedText(null);
+      showInAppToast(isZh ? "已清除压缩快照" : "Checkpoint cleared", isZh ? "后续对话将重新基于原始上下文计算" : "History context reset");
+    } catch (e: any) {
+      showInAppToast(isZh ? "操作失败" : "Failed", e?.message || String(e));
+    }
+  }, [isCompactingAi, isZh]);
 
   const handleWarmupAsk = useCallback(() => {
     if (!warmedAskRef.current) {
@@ -6259,8 +6374,8 @@ function AskPageContent() {
                 </button>
               )}
 
-              {/* Agent Project selector */}
-              {["codex", "claude", "antigravity", "workbuddy"].includes(executionMode) && (
+              {/* Agent / AI 编排 Project selector */}
+              {["ai", "codex", "claude", "antigravity", "workbuddy"].includes(executionMode) && (
                 <div
                   style={{
                     display: "inline-flex",
@@ -6575,6 +6690,21 @@ function AskPageContent() {
 
             {/* Active Waiting Question Sticky Banner */}
             <WaitingQuestionBanner activeWaitingQuestion={activeWaitingQuestion} isZh={isZh} bottomRef={bottomRef} />
+
+            {/* AI 编排 live context budget & manual compaction bar */}
+            {executionMode === "ai" && (
+              <AiContextBar
+                stats={aiContext}
+                turnCount={turns.length}
+                canCompactNow={Boolean(activeConversationId && turns.length >= 4)}
+                isCompacting={isCompactingAi}
+                streaming={streaming}
+                lastSavedText={aiCompactSavedText}
+                isZh={isZh}
+                onCompactNow={handleCompactAiNow}
+                onResetCheckpoint={activeConversationId ? handleResetAiCheckpoint : undefined}
+              />
+            )}
 
             <input
               ref={fileInputRef}

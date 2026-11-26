@@ -9,6 +9,12 @@ import type { TaskEvent } from "@memento/core";
 import TaskTimeline from "./TaskTimeline";
 import { useMediaInspector, extractMediaFromMarkdown } from "./viewers/MediaInspectorContext";
 import { deviceOfCall } from "@/lib/file-devices";
+import {
+  formatToolArgsSummary,
+  formatToolResultMarkdown,
+  getToolMeta,
+  isNonDeviceTool,
+} from "@/lib/ask/tool-meta";
 
 export interface ToolCallItem {
   id?: string;
@@ -111,6 +117,17 @@ const ExecutionCard = memo(function ExecutionCard({
   ).toLowerCase();
 
   const isAgent = action === "agent" || binary.length > 0;
+  const isNonDevice = !isAgent && action !== "shell" && isNonDeviceTool(name);
+  const toolMeta = useMemo(() => getToolMeta(name, locale === "zh-CN"), [name, locale]);
+  const nonDeviceArgSummary = useMemo(
+    () => (isNonDevice ? formatToolArgsSummary(name, args) : ""),
+    [isNonDevice, name, args],
+  );
+  const nonDeviceResultMarkdown = useMemo(
+    () => (isNonDevice && result ? formatToolResultMarkdown(name, result as Record<string, unknown>) : ""),
+    [isNonDevice, name, result],
+  );
+
   let agentLabel = action === "shell" ? "Shell" : isAgent ? "Agent" : name;
   let agentBrandId: string | null = null;
   let agentColor = "var(--aurora-accent)";
@@ -141,11 +158,17 @@ const ExecutionCard = memo(function ExecutionCard({
     agentColor = "#38BDF8";
   } else if (name === "list_devices") {
     agentLabel = t.ask.deviceDiscovery || "设备发现";
+  } else if (isNonDevice) {
+    agentLabel = toolMeta.label;
+    agentColor = toolMeta.color;
   }
 
   const callStatus = (call as any).status;
   const hasParentContent = Boolean(parentContent && parentContent.trim().length > 0);
+  const nonDeviceDone = isNonDevice && Boolean(result);
   const isTerminal =
+    nonDeviceDone ||
+    (name === "list_devices" && Boolean(result)) ||
     result?.status === "succeeded" ||
     result?.status === "failed" ||
     result?.status === "timeout" ||
@@ -229,6 +252,7 @@ const ExecutionCard = memo(function ExecutionCard({
   const isFailed = !isExit1NoMatch && !isStillRunning && (
     result?.status === "failed" ||
     callStatus === "failed" ||
+    (isNonDevice && Boolean(result?.error)) ||
     (result && typeof result.exit_code === "number" && result.exit_code !== 0)
   );
   const isSuccess = !isRunning && !isStillRunning && !isFailed && !awaitingAnswer && (
@@ -272,6 +296,7 @@ const ExecutionCard = memo(function ExecutionCard({
   const [userToggled, setUserToggled] = useState<boolean>(false);
   const [expanded, setExpanded] = useState<boolean>(() => {
     if (waitingQuestion) return true;
+    if (isNonDevice && isSuccess) return false;
     if (hasParentContent && (isSuccess || (isAgent && !isFailed))) {
       return false;
     }
@@ -284,10 +309,10 @@ const ExecutionCard = memo(function ExecutionCard({
       return;
     }
     if (userToggled) return;
-    if (hasParentContent && (isSuccess || (isAgent && !isFailed))) {
+    if ((isNonDevice && isSuccess) || (hasParentContent && (isSuccess || (isAgent && !isFailed)))) {
       setExpanded(false);
     }
-  }, [userToggled, isSuccess, hasParentContent, isAgent, isFailed, waitingQuestion]);
+  }, [userToggled, isNonDevice, isSuccess, hasParentContent, isAgent, isFailed, waitingQuestion]);
 
   const [copied, setCopied] = useState(false);
   const [showAllLogs, setShowAllLogs] = useState(false);
@@ -295,7 +320,9 @@ const ExecutionCard = memo(function ExecutionCard({
   const copyText = () => {
     const parts: string[] = [];
     if (command) parts.push(isAgent ? `[prompt] ${command}` : `$ ${command}`);
+    else if (nonDeviceArgSummary) parts.push(`[${agentLabel}] ${nonDeviceArgSummary}`);
     if (result?.stdout) parts.push(result.stdout);
+    if (nonDeviceResultMarkdown) parts.push(nonDeviceResultMarkdown);
     if (shouldShowStderr && cleanStderr) parts.push(`[stderr]\n${cleanStderr}`);
     if (result?.error) parts.push(`[error] ${result.error}`);
     if (parts.length > 0) {
@@ -357,7 +384,7 @@ const ExecutionCard = memo(function ExecutionCard({
             {agentBrandId ? (
               <BrandMark id={agentBrandId} size={14} colored={!isFailed && !isSuccess} tint={isSuccess ? "#10B981" : isFailed ? "#EF4444" : undefined} />
             ) : (
-              <Icon name={isAgent ? "sparkles" : name === "list_devices" ? "devices" : "terminal"} size={13} />
+              <Icon name={isAgent ? "sparkles" : name === "list_devices" ? "devices" : isNonDevice ? toolMeta.icon : "terminal"} size={13} />
             )}
           </div>
 
@@ -401,7 +428,7 @@ const ExecutionCard = memo(function ExecutionCard({
             {agentLabel}
           </span>
 
-          {command && (
+          {command ? (
             <span
               className={isAgent ? "hidden md:inline" : "inline"}
               style={{
@@ -418,7 +445,22 @@ const ExecutionCard = memo(function ExecutionCard({
             >
               $ {command}
             </span>
-          )}
+          ) : nonDeviceArgSummary ? (
+            <span
+              style={{
+                fontSize: 12,
+                color: "var(--aurora-fg2)",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+                maxWidth: "min(300px, 46vw)",
+                flexShrink: 2,
+                minWidth: 0,
+              }}
+            >
+              {nonDeviceArgSummary}
+            </span>
+          ) : null}
         </div>
 
         {/* Right side status badge & toggles */}
@@ -848,6 +890,27 @@ const ExecutionCard = memo(function ExecutionCard({
                           <span style={{ color: "var(--aurora-fg3)" }}>({d.device_id.slice(0, 8)})</span>
                         </div>
                       ))}
+                </div>
+              )}
+
+              {isNonDevice && nonDeviceResultMarkdown && (
+                <div style={{ fontSize: 13, lineHeight: 1.55 }}>
+                  <MarkdownViewer
+                    content={nonDeviceResultMarkdown.length > 20_000 && !showAllLogs ? nonDeviceResultMarkdown.slice(0, 20_000) : nonDeviceResultMarkdown}
+                    compactText={true}
+                  />
+                  {nonDeviceResultMarkdown.length > 20_000 && !showAllLogs && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowAllLogs(true);
+                      }}
+                      style={{ background: "transparent", border: "none", color: "var(--aurora-accent)", fontSize: 11.5, cursor: "pointer", padding: "4px 0" }}
+                    >
+                      展开全部 ({nonDeviceResultMarkdown.length.toLocaleString()} 字符)
+                    </button>
+                  )}
                 </div>
               )}
 

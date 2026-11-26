@@ -384,6 +384,7 @@ function areAssistantPropsEqual(prev: AssistantBubbleProps, next: AssistantBubbl
     if (prev.turn.thinking !== next.turn.thinking) return false;
     if (prev.turn.duration_ms !== next.turn.duration_ms) return false;
     if (prev.turn.toolCalls !== next.turn.toolCalls) return false;
+    if (prev.turn.compaction !== next.turn.compaction) return false;
     if (prev.turn.created_at !== next.turn.created_at) return false;
     if (prev.turn.cached !== next.turn.cached) return false;
   }
@@ -530,6 +531,33 @@ export const AssistantBubble = memo(function AssistantBubble({
       )}
       {(thinking || isThinkingActive) && (
         <ThinkingBlock thinking={thinking} isLive={isThinkingActive} />
+      )}
+      {turn.compaction && (
+        <div
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            marginBottom: 10,
+            padding: "4px 10px",
+            borderRadius: 8,
+            background: "var(--aurora-chip)",
+            border: "1px solid var(--aurora-border)",
+            fontSize: 11.5,
+            color: "var(--aurora-fg2)",
+            maxWidth: "100%",
+          }}
+        >
+          <Icon name="layers" size={12} style={{ color: "var(--aurora-accent)", flexShrink: 0 }} />
+          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {turn.compaction.scope === "in_loop"
+              ? (isZh ? "编排过程中已自动精简历史工具上下文" : "In-loop tool context compacted")
+              : (isZh ? "已自动压缩前序对话上下文" : "Conversation context compacted")}
+            {turn.compaction.before_tokens > 0 && turn.compaction.after_tokens >= 0
+              ? ` · ${(turn.compaction.before_tokens / 1000).toFixed(1)}k → ${(turn.compaction.after_tokens / 1000).toFixed(1)}k`
+              : ""}
+          </span>
+        </div>
       )}
       {hasTools && (
         <div style={{ marginBottom: 12 }}>

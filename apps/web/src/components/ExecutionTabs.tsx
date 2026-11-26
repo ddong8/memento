@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Icon } from "./aurora/Icon";
 import ExecutionCard, { ToolCallItem } from "./ExecutionCard";
 import { useI18n } from "@/lib/i18n";
+import { isMemoryOrWebTool, isNonDeviceTool, isPlanTool } from "@/lib/ask/tool-meta";
 
 export interface ExecutionTabsProps {
   calls: ToolCallItem[];
@@ -11,8 +12,10 @@ export interface ExecutionTabsProps {
   onSmartCompactAndRetry?: (sessionId?: string) => void;
 }
 
-function getDeviceIcon(name: string, isSystem = false): Parameters<typeof Icon>[0]["name"] {
-  if (isSystem) return "layers";
+function getDeviceIcon(name: string, groupKey = ""): Parameters<typeof Icon>[0]["name"] {
+  if (groupKey === "__memory_tools__") return "brain";
+  if (groupKey === "__plan_tools__") return "target";
+  if (groupKey === "__list_devices__") return "layers";
   const lower = name.toLowerCase();
   if (lower.includes("mac") || lower.includes("apple") || lower.includes("darwin")) return "apple";
   if (lower.includes("win") || lower.includes("pc")) return "windows";
@@ -23,6 +26,7 @@ function getDeviceIcon(name: string, isSystem = false): Parameters<typeof Icon>[
 function isCallRunning(call: ToolCallItem, hasParentContent?: boolean): boolean {
   const callStatus = (call as any).status;
   if (
+    ((isNonDeviceTool(call.name) || call.name === "list_devices") && Boolean(call.result)) ||
     call.result?.status === "succeeded" ||
     call.result?.status === "failed" ||
     call.result?.status === "timeout" ||
@@ -41,6 +45,7 @@ function isCallRunning(call: ToolCallItem, hasParentContent?: boolean): boolean 
 function isCallFailed(call: ToolCallItem): boolean {
   const callStatus = (call as any).status;
   if (call.result?.status === "failed" || callStatus === "failed") return true;
+  if (isNonDeviceTool(call.name) && Boolean(call.result?.error)) return true;
   const command = (call.args?.command as string) || (call.args?.prompt as string) || "";
   const isMatchFilter = Boolean(command && /(grep|findstr|lsof|pgrep|which)\b/i.test(command));
   const isExit1NoMatch = Boolean(
@@ -57,6 +62,7 @@ function isCallSuccess(call: ToolCallItem, hasParentContent?: boolean): boolean 
   if (isCallFailed(call)) return false;
   const callStatus = (call as any).status;
   return Boolean(
+    ((isNonDeviceTool(call.name) || call.name === "list_devices") && Boolean(call.result) && !call.result?.error) ||
     call.result?.status === "succeeded" ||
     callStatus === "executed" ||
     callStatus === "succeeded" ||
@@ -69,6 +75,12 @@ function getCallKey(call: ToolCallItem): string {
   if (call.name === "list_devices") {
     return "__list_devices__";
   }
+  if (isMemoryOrWebTool(call.name)) {
+    return "__memory_tools__";
+  }
+  if (isPlanTool(call.name)) {
+    return "__plan_tools__";
+  }
   const name = call.result?.device_name || call.device_name;
   if (name) return name.toLowerCase().trim();
   return ((call.result?.device_id || call.args?.device_id || "device") as string).toLowerCase().trim();
@@ -77,6 +89,12 @@ function getCallKey(call: ToolCallItem): string {
 function getCallLabel(call: ToolCallItem, defaultLabel: string, discoveryLabel: string): string {
   if (call.name === "list_devices") {
     return discoveryLabel;
+  }
+  if (isMemoryOrWebTool(call.name)) {
+    return "MCP 记忆工具";
+  }
+  if (isPlanTool(call.name)) {
+    return "协作任务";
   }
   return call.result?.device_name || call.device_name || (call.args?.device_id as string) || defaultLabel;
 }
@@ -139,7 +157,7 @@ export default function ExecutionTabs({ calls, parentContent, onSmartCompactAndR
   const deviceTabs = groups.map((g) => ({
     key: g.key,
     name: g.name,
-    icon: getDeviceIcon(g.name, g.isSystem),
+    icon: getDeviceIcon(g.name, g.key),
     count: g.calls.length,
     isRunning: g.calls.some((c) => isCallRunning(c, hasParent)),
     isFailed: g.calls.some(isCallFailed),

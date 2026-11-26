@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `e1af1b27` · Updated: `2026-11-25`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `81f33c63` · Updated: `2026-11-26`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -13,11 +13,11 @@
 - 类型 (Type): Monorepo (Workspaces)
 - 技术栈 (Stack): TypeScript/JavaScript, Python, Shell / Bash · React, Electron, Next.js, TailwindCSS, Model Context Protocol (MCP), FastAPI, SQLAlchemy, Celery
 - 基础设施 (Infra): PostgreSQL, pgvector (Vector DB), Redis, MinIO / S3 Object Storage, Celery Task Queue
-- 规模 (Scale): 9 个子系统 · 40 组 API 路由 / 322 个接口 · 39 个前端页面 · 41 个数据模型 · 35 个服务模块 · 259 个测试文件
+- 规模 (Scale): 9 个子系统 · 40 组 API 路由 / 324 个接口 · 39 个前端页面 · 41 个数据模型 · 35 个服务模块 · 262 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `e1af1b27` (2026-11-25): feat(studio): 升级 filmkit 至 8ccc710f7bcb 并将默认模板切换为 1-2 分钟中国化爆梗短视频
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 75（✅ 75 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
+- 最近改动 (Latest): `46beb199` (2026-11-26): feat(ui): 桌面端、网页端与手机端全面接入原生毛玻璃与液态玻璃效果并升级至 v1.0.156
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 75（✅ 75 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-ENT-DEVICE-POLICY`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `R-UI-COMMERCIAL`, `R-MENU-KEEPALIVE`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -31,7 +31,7 @@
 | 8. Development & Verification Commands | L669-L686 |
 | 9. Recent Architectural Evolutions | L688-L695 |
 | 10. Key Environment Variables & Configuration | L697-L709 |
-| 11. 业务蓝图核对 (Business Blueprint Check) | L711-L714 |
+| 11. 业务蓝图核对 (Business Blueprint Check) | L711-L718 |
 
 ## 1. Project Overview & Tech Stack
 
@@ -163,7 +163,7 @@ flowchart TD
 - `GET /ask_conversations/conversations/{conv_id}`
 - `POST /ask_conversations/conversations/ensure-by-session`
 - `PATCH /ask_conversations/conversations/{conv_id}`
-- _... (1 more endpoints)_
+- _... (3 more endpoints)_
 
 #### `/api/auth` (auth.py)
 
@@ -588,6 +588,7 @@ erDiagram
 | `FollowUpRequest` | Pydantic DTO | [`server/server/api/ask.py`](server/server/api/ask.py) | `text: str` |
 | `EnsureConversationBySessionRequest` | Pydantic DTO | [`server/server/api/ask_conversations.py`](server/server/api/ask_conversations.py) | `session_id: str`, `project_id: str \| None`, `execution_mode: str \| None`, `device_id: str \| None`, `cwd: str \| None` |
 | `UpdateConversationRequest` | Pydantic DTO | [`server/server/api/ask_conversations.py`](server/server/api/ask_conversations.py) | `title: str \| None`, `device_id: str \| None`, `cwd: str \| None`, `execution_mode: str \| None`, `model: str \| None`, `effort: str \| None` |
+| `CompactAiConversationRequest` | Pydantic DTO | [`server/server/api/ask_conversations.py`](server/server/api/ask_conversations.py) | `keep_recent: int` |
 | `RegisterRequest` | Pydantic DTO | [`server/server/api/auth.py`](server/server/api/auth.py) | `email: str`, `password: str`, `name: str \| None`, `invite_code: str \| None` |
 | `RegistrationModeResponse` | Pydantic DTO | [`server/server/api/auth.py`](server/server/api/auth.py) | `mode: str`, `has_any_user: bool`, `github_enabled: bool`, `wechat_enabled: bool`, `sso_enabled: bool`, `sso_name: str` |
 | `LoginRequest` | Pydantic DTO | [`server/server/api/auth.py`](server/server/api/auth.py) | `email: str`, `password: str` |
@@ -605,7 +606,6 @@ erDiagram
 | `ReconcileFile` | Pydantic DTO | [`server/server/api/ingest.py`](server/server/api/ingest.py) | `tool: str`, `relative_path: str`, `offset: int` |
 | `ReconcileRequest` | Pydantic DTO | [`server/server/api/ingest.py`](server/server/api/ingest.py) | `files: list[ReconcileFile]` |
 | `AcceptBody` | Pydantic DTO | [`server/server/api/learning.py`](server/server/api/learning.py) | `statement: str \| None`, `general: bool` |
-| `PitfallBody` | Pydantic DTO | [`server/server/api/learning.py`](server/server/api/learning.py) | `title: str`, `symptom: str`, `fix: str`, `cause: str \| None`, `project: str \| None` |
 
 ### CLI Binaries & Automation Entrypoints
 
@@ -645,9 +645,9 @@ erDiagram
 
 | Suite | Directory | Files | Sample Tests |
 | :--- | :--- | :--- | :--- |
-| server/tests (pytest) | [`server/tests`](server/tests) | 129 | `test_agent_ids.py`, `test_agent_limits.py`, `test_agent_login.py`, `test_agent_run_states.py`, `test_ai_provider.py` |
+| server/tests (pytest) | [`server/tests`](server/tests) | 131 | `test_agent_ids.py`, `test_agent_limits.py`, `test_agent_login.py`, `test_agent_run_states.py`, `test_ai_provider.py` |
 | packages/daemon/test (vitest / jest) | [`packages/daemon/test`](packages/daemon/test) | 63 | `agent-args.test.ts`, `agent-login.test.ts`, `agent-stream.test.ts`, `agy-background.test.ts`, `agy-models.test.ts` |
-| apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 58 | `active-runs-chip.test.tsx`, `api-client.test.ts`, `ask-performance-guards.test.tsx`, `ask-reading-and-persona-rules.test.tsx`, `ask-top-bar.test.tsx` |
+| apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 59 | `active-runs-chip.test.tsx`, `api-client.test.ts`, `ask-performance-guards.test.tsx`, `ask-reading-and-persona-rules.test.tsx`, `ask-top-bar.test.tsx` |
 | apps/mobile/test (vitest / jest) | [`apps/mobile/test`](apps/mobile/test) | 3 | `deeplink.test.ts`, `glass-surface.test.ts`, `webview-props.test.ts` |
 | apps/desktop/test (vitest / jest) | [`apps/desktop/test`](apps/desktop/test) | 2 | `helpers.test.ts`, `updater-and-daemon.test.ts` |
 | packages/core/test (vitest / jest) | [`packages/core/test`](packages/core/test) | 2 | `ask-stream.test.ts`, `task-events.test.ts` |
@@ -661,9 +661,9 @@ erDiagram
 - [`apps/web/src/components/layout/Sidebar.tsx`](apps/web/src/components/layout/Sidebar.tsx) (8 commits)
 - [`apps/web/src/lib/studio-api.ts`](apps/web/src/lib/studio-api.ts) (8 commits)
 - [`server/server/api/studio.py`](server/server/api/studio.py) (8 commits)
+- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (7 commits)
 - [`packages/daemon/src/antigravity.ts`](packages/daemon/src/antigravity.ts) (7 commits)
 - [`packages/daemon/test/antigravity-official-cli.test.ts`](packages/daemon/test/antigravity-official-cli.test.ts) (7 commits)
-- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (6 commits)
 - [`apps/web/src/components/viewers/MediaInspectorPanel.tsx`](apps/web/src/components/viewers/MediaInspectorPanel.tsx) (6 commits)
 
 ## 8. Development & Verification Commands
@@ -687,12 +687,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `46beb199` (2026-11-26): feat(ui): 桌面端、网页端与手机端全面接入原生毛玻璃与液态玻璃效果并升级至 v1.0.156
 - `e1af1b27` (2026-11-25): feat(studio): 升级 filmkit 至 8ccc710f7bcb 并将默认模板切换为 1-2 分钟中国化爆梗短视频
 - `09f12247` (2026-11-25): feat(studio): 升级 filmkit 镜像至 2e888f64b77c 并接入 H3 BF16 高精与 768P 原生画质配置
 - `0d8a8992` (2026-11-25): chore(studio): 升级 filmkit 镜像至 a73e85e227d0 并同步去 AI 感实拍预设
 - `12b21adc` (2026-11-24): chore(deploy): filmkit 镜像升到 34ecb2a62b92（修复 G4/H100 申请误带 --high-mem 被拒问题）
 - `71134630` (2026-11-24): chore(deploy): filmkit 镜像升到 9ac8c3947e44（视频号文案去短剧高敏词硬过滤与自动勾选 AI 标注）
-- `6e837d78` (2026-11-24): fix(studio): 修正孤立云端实例状态徽章并去渐变统一纯平按钮
 
 ## 10. Key Environment Variables & Configuration
 
@@ -712,6 +712,10 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 - 业务蓝图：[BUSINESS_BLUEPRINT.md](BUSINESS_BLUEPRINT.md) · 规则 75（✅ 75 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
 - 结论：✅ 没有失效或违规
+
+### 最近提交碰到的业务条目（改动后复查它们还成不成立）
+
+- `46beb199` feat(ui): 桌面端、网页端与手机端全面接入原生毛玻璃与液态玻璃效果并升级至 v1.0.156 → `R-ENT-DEVICE-POLICY`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `R-UI-COMMERCIAL`, `R-MENU-KEEPALIVE`
 
 ---
 _Auto-maintained by `scripts/project_blueprint.mjs` (v20261126) & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._

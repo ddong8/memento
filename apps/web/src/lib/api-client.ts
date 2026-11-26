@@ -1158,6 +1158,42 @@ export const api = {
     invalidateApiCache(`/api/ask/conversations`);
     return apiFetch<{ ok: boolean }>(`/api/ask/conversations/${id}`, { method: "DELETE" });
   },
+  compactAskConversation: (id: string, keepRecent = 4) => {
+    invalidateApiCache(`/api/ask/conversations/${id}`);
+    return apiFetch<{
+      ok: boolean;
+      compacted: boolean;
+      reason?: string;
+      before_tokens: number;
+      after_tokens: number;
+      saved_tokens: number;
+      compacted_turns?: number;
+      kept_turns?: number;
+      summary?: string;
+      stats?: {
+        estimated_tokens: number;
+        raw_tokens?: number;
+        budget_tokens: number;
+        total_turns?: number;
+        active_turns?: number;
+        compacted_turns?: number;
+        has_checkpoint?: boolean;
+        checkpoint_summary?: string;
+        updated_at?: string | null;
+        compact_recommended?: boolean;
+      };
+    }>(`/api/ask/conversations/${encodeURIComponent(id)}/compact`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ keep_recent: keepRecent }),
+    });
+  },
+  resetAskConversationCompact: (id: string) => {
+    invalidateApiCache(`/api/ask/conversations/${id}`);
+    return apiFetch<{ ok: boolean }>(`/api/ask/conversations/${encodeURIComponent(id)}/compact`, {
+      method: "DELETE",
+    });
+  },
   listAskRuns: (recentSeconds = 0) => listAskRunsShared(recentSeconds),
   /** The conversation's run; rejects on a network error, or with AbortError once `signal` aborts. */
   getAskRunStatus: (convId: string, signal?: AbortSignal) => getAskRunStatusShared(convId, signal),
@@ -1476,6 +1512,18 @@ export interface AskConversationDetail {
   worktree?: boolean;
   source_device_id?: string;
   compact_mode?: boolean;
+  ai_context?: {
+    estimated_tokens: number;
+    raw_tokens?: number;
+    budget_tokens: number;
+    total_turns?: number;
+    active_turns?: number;
+    compacted_turns?: number;
+    has_checkpoint?: boolean;
+    checkpoint_summary?: string;
+    updated_at?: string | null;
+    compact_recommended?: boolean;
+  };
   config?: Record<string, any>;
   created_at: string | null;
   updated_at: string | null;

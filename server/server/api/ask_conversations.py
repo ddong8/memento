@@ -625,6 +625,12 @@ async def get_conversation(
     if dev_name_val in ("memento-", "memento", ""):
         dev_name_val = None
 
+    from ..services.orchestrator_context import CHECKPOINT_CONFIG_KEY, build_ai_context_stats
+
+    ai_ctx_stats = build_ai_context_stats(raw_turns, cfg.get(CHECKPOINT_CONFIG_KEY))
+    if total_turns > len(raw_turns):
+        ai_ctx_stats["total_turns"] = total_turns
+
     return {
         "id": conv_id_str,
         "title": conv_title,
@@ -644,6 +650,7 @@ async def get_conversation(
         "worktree": bool(cfg.get("worktree", False)),
         "source_device_id": cfg.get("source_device_id") or "",
         "compact_mode": bool(cfg.get("compact_mode", False)),
+        "ai_context": ai_ctx_stats,
         "config": cfg,
         "created_at": created_at_iso,
         "updated_at": updated_at_iso,
@@ -829,6 +836,62 @@ async def update_conversation(
     await db.commit()
     await bust_conv_list(_user.id)
     return {"ok": True, "config": cfg}
+
+
+class CompactAiConversationRequest(BaseModel):
+    keep_recent: int = 4
+
+
+@router.post("/conversations/{conv_id}/compact")
+async def compact_ask_conversation(
+    conv_id: str,
+    body: CompactAiConversationRequest | None = None,
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
+):
+    """Manually compact an AI 编排 conversation's history into a rolling checkpoint."""
+    try:
+        cid = uuid.UUID(conv_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid conversation ID")
+
+    from ..services.orchestrator_context import compact_ai_conversation
+
+    keep_recent = max(2, min(int(body.keep_recent if body else 4), 12))
+    try:
+        result = await compact_ai_conversation(db, _user, cid, keep_recent=keep_recent)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    await bust_conv_list(_user.id)
+    return result
+
+
+@router.delete("/conversations/{conv_id}/compact")
+async def reset_ask_conversation_compact(
+    conv_id: str,
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
+):
+    """Clear the saved rolling checkpoint of an AI 编排 conversation."""
+    try:
+        cid = uuid.UUID(conv_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid conversation ID")
+
+    cond = (AskConversation.id == cid) & (
+        (AskConversation.user_id == _user.id) | (AskConversation.user_id.is_(None))
+    )
+    conv = (await db.execute(select(AskConversation).options(defer(AskConversation.turns)).where(cond))).scalars().first()
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    from ..services.orchestrator_context import CHECKPOINT_CONFIG_KEY
+    cfg = dict(conv.config or {})
+    cfg.pop(CHECKPOINT_CONFIG_KEY, None)
+    conv.config = cfg
+    conv.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+    await bust_conv_list(_user.id)
+    return {"ok": True}
 
 
 @router.delete("/conversations/{conv_id}")

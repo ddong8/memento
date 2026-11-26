@@ -250,6 +250,7 @@ async def call_chat_completion(
     background: bool = False,
     user: Any = None,
     custom_settings: dict | None = None,
+    model: str | None = None,
 ) -> tuple[dict, AIProviderConfig]:
     """Call chat/completions with automatic fallback across all configured providers.
 
@@ -263,6 +264,19 @@ async def call_chat_completion(
     providers = get_ai_providers(background=background, user=user, custom_settings=custom_settings)
     if not providers:
         raise RuntimeError("No AI API providers configured (missing API keys)")
+    model_override = (model or "").strip()
+    if model_override:
+        first = providers[0]
+        providers = [
+            AIProviderConfig(
+                name=first.name,
+                base_url=first.base_url,
+                api_key=first.api_key,
+                model=model_override,
+                timeout=first.timeout,
+            ),
+            *providers[1:],
+        ]
 
     kind = "background" if background else "interactive"
     errors: list[str] = []
@@ -485,11 +499,25 @@ async def stream_chat_completion(
     timeout: float = 120.0,
     user: Any = None,
     custom_settings: dict | None = None,
+    model: str | None = None,
 ) -> AsyncGenerator[dict[str, str], None]:
     """Stream text chunks (type: 'thinking' | 'content') from chat/completions with automatic fallback."""
     providers = get_ai_providers(background=False, user=user, custom_settings=custom_settings)
     if not providers:
         raise RuntimeError("No AI API providers configured (missing API keys)")
+    model_override = (model or "").strip()
+    if model_override:
+        first = providers[0]
+        providers = [
+            AIProviderConfig(
+                name=first.name,
+                base_url=first.base_url,
+                api_key=first.api_key,
+                model=model_override,
+                timeout=first.timeout,
+            ),
+            *providers[1:],
+        ]
 
     errors: list[str] = []
     failures: list[dict[str, str]] = []

@@ -36,6 +36,8 @@ export function sanitizeLiveActivityStep(
   return (safe || "正在执行...").slice(0, 85);
 }
 
+import { formatToolArgsSummary, getToolMeta, isNonDeviceTool } from "./tool-meta";
+
 export function formatLiveActivityToolStep(
   name: string,
   args?: Record<string, unknown> | null,
@@ -49,6 +51,12 @@ export function formatLiveActivityToolStep(
     }
     // Never echo user's raw prompt into currentStep: it is already in the title and may contain "完成".
     return "正在设备上执行智能体任务...";
+  }
+  if (isNonDeviceTool(toolName)) {
+    const meta = getToolMeta(toolName, true);
+    const argPreview = formatToolArgsSummary(toolName, obj).slice(0, 32);
+    const raw = argPreview ? `${meta.label}: ${argPreview}` : `正在${meta.label}...`;
+    return sanitizeLiveActivityStep(raw, "tool", "update");
   }
   const cmdRaw = String(obj.command || obj.prompt || obj.code || "").replace(/\s+/g, " ").trim();
   const raw = cmdRaw ? `调用工具: ${toolName} (${cmdRaw.slice(0, 36)})` : `调用工具: ${toolName}`;

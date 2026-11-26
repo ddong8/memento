@@ -158,32 +158,54 @@ def classify_continuation(
 def _format_tool_calls_summary(tool_calls: list[dict]) -> str:
     if not tool_calls:
         return ""
-    lines = ["[系统记录：上一轮在设备上的操作与执行结果 (只读事实参考)]:"]
+    lines = ["[系统记录：上一轮工具调用与执行结果 (只读事实参考)]:"]
     for tc in tool_calls:
         name = tc.get("name") or "run_on_device"
         args = tc.get("args") or {}
-        dev = tc.get("device_name") or args.get("device_id") or ""
-        cmd = args.get("command") or args.get("prompt") or ""
-        action = args.get("action") or ("shell" if "command" in args else "agent")
-        status = tc.get("status") or "executed"
-        exit_code = tc.get("exit_code")
-        err = tc.get("stderr") or tc.get("error") or ""
-        out = tc.get("stdout") or ""
+        res = tc.get("result") if isinstance(tc.get("result"), dict) else {}
+        if name == "run_on_device":
+            dev = tc.get("device_name") or res.get("device_name") or args.get("device_id") or ""
+            cmd = args.get("command") or args.get("prompt") or ""
+            action = args.get("action") or ("shell" if "command" in args else "agent")
+            status = tc.get("status") or res.get("status") or "executed"
+            exit_code = tc.get("exit_code") if tc.get("exit_code") is not None else res.get("exit_code")
+            err = tc.get("stderr") or tc.get("error") or res.get("stderr") or res.get("error") or ""
+            out = tc.get("stdout") or res.get("stdout") or ""
 
-        info = f"- 工具: {name} (类型: {action}"
-        if dev:
-            info += f", 目标设备: {dev}"
-        info += ")"
-        if cmd:
-            info += f"\n  执行内容: {cmd}"
-        info += f"\n  执行状态: {status}"
-        if exit_code is not None:
-            info += f" (退出码: {exit_code})"
-        if err:
-            info += f"\n  错误输出/stderr:\n```\n{err.strip()[:1500]}\n```"
-        elif out:
-            info += f"\n  终端输出/stdout:\n```\n{out.strip()[:600]}\n```"
-        lines.append(info)
+            info = f"- 工具: {name} (类型: {action}"
+            if dev:
+                info += f", 目标设备: {dev}"
+            info += ")"
+            if cmd:
+                info += f"\n  执行内容: {cmd}"
+            info += f"\n  执行状态: {status}"
+            if exit_code is not None:
+                info += f" (退出码: {exit_code})"
+            if err:
+                info += f"\n  错误输出/stderr:\n```\n{str(err).strip()[:1500]}\n```"
+            elif out:
+                info += f"\n  终端输出/stdout:\n```\n{str(out).strip()[:600]}\n```"
+            lines.append(info)
+        else:
+            brief_arg = (
+                args.get("query")
+                or args.get("project_name")
+                or args.get("entity_name")
+                or args.get("doc_id")
+                or args.get("url")
+                or args.get("action")
+                or args.get("title")
+                or args.get("plan_id")
+                or ""
+            )
+            err = res.get("error") or ""
+            preview = res.get("markdown") or res.get("guidance") or res.get("skill") or res.get("resonance") or res.get("note") or ""
+            info = f"- 工具: {name}" + (f" ({str(brief_arg)[:100]})" if brief_arg else "")
+            if err:
+                info += f"\n  错误: {str(err)[:300]}"
+            elif preview:
+                info += f"\n  返回摘要: {str(preview).strip()[:400]}"
+            lines.append(info)
     return "\n".join(lines)
 
 
@@ -203,6 +225,8 @@ def build_messages(
     device_id: str | None = None,
     user: User | None = None,
     live_rules: list[str] | None = None,
+    checkpoint_summary: str | None = None,
+    max_history_turns: int | None = None,
 ) -> list[dict]:
     context = "\n\n".join(
         f"[{i + 1}] {s['title']} ({s['tool_id']}, {s['relative_path']})\n{s['excerpt']}"
@@ -243,7 +267,14 @@ def build_messages(
             system_prompt += f"\n\n【目标设备就绪环境指纹画像】\n{env_summary}"
 
     messages = [{"role": "system", "content": system_prompt}]
-    for turn in (history or [])[-MAX_HISTORY_TURNS:]:
+    if checkpoint_summary and checkpoint_summary.strip():
+        # Injected ONCE cleanly right before recent turns — never duplicated into system and user prompt
+        messages.append({
+            "role": "assistant",
+            "content": f"【前序对话压缩记忆快照（已涵盖更早轮次，以最新进展为准）】\n{checkpoint_summary.strip()}",
+        })
+    history_slice = (history or []) if max_history_turns is not None and max_history_turns <= 0 else (history or [])[-(max_history_turns or MAX_HISTORY_TURNS):]
+    for turn in history_slice:
         role = turn.get("role")
         content = (turn.get("content") or "").strip()
         tool_calls = turn.get("tool_calls") or turn.get("toolCalls") or []

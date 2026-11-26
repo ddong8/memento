@@ -1257,6 +1257,23 @@ export const api = {
       body: JSON.stringify(body),
       skipCache: true,
     }),
+  /** Pull requests of the repo at `cwd` on the device (through its signed-in gh). */
+  listPullRequests: (body: { device_id: string; cwd: string; state?: "open" | "closed" | "merged" | "all" }) =>
+    apiFetch<{ prs: PullRequestSummary[] }>("/api/git/prs", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), skipCache: true,
+    }),
+  getPullRequest: (body: { device_id: string; cwd: string; number: number }) =>
+    apiFetch<PullRequestDetail>("/api/git/pr", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), skipCache: true,
+    }),
+  mergePullRequest: (body: { device_id: string; cwd: string; number: number; method?: "rebase" | "squash" | "merge"; delete_branch?: boolean }) =>
+    apiFetch<{ ok: boolean; method: string; output: string }>("/api/git/pr/merge", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), skipCache: true,
+    }),
+  watchPullRequestChecks: (body: { device_id: string; cwd: string; number: number }) =>
+    apiFetch<{ ok: boolean }>("/api/git/pr/watch-checks", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), skipCache: true,
+    }),
   /** The user's model writes the commit message and a PR title / description for the device's changes. */
   suggestGitMessage: (body: { device_id: string; cwd: string; files?: string[]; base_ref?: string; target_ref?: string }) =>
     apiFetch<{ message: string; pr_title: string; pr_body: string; branch?: string }>("/api/git/suggest-message", {
@@ -1552,6 +1569,42 @@ export interface AskConversationSummary {
   cwd?: string | null;
   config?: Record<string, any>;
   message_count: number;
+}
+
+export interface PullRequestChecks {
+  state: "success" | "failure" | "pending" | "none";
+  passed: number;
+  failed: number;
+  pending: number;
+  total: number;
+}
+
+export interface PullRequestSummary {
+  number: number;
+  title: string;
+  author: string;
+  headRefName: string;
+  baseRefName: string;
+  isDraft: boolean;
+  updatedAt: string;
+  url: string;
+  reviewDecision?: string;
+  additions?: number;
+  deletions?: number;
+  checks: PullRequestChecks;
+}
+
+export interface PullRequestDetail extends PullRequestSummary {
+  body: string;
+  state: string;
+  mergeable?: string;
+  mergeStateStatus?: string;
+  check_runs: { name: string; status: string; conclusion: string; url: string }[];
+  files?: { path: string; additions: number; deletions: number }[];
+  comments?: { author?: { login?: string }; body: string; createdAt?: string }[];
+  commits?: { messageHeadline?: string; oid?: string }[];
+  diff: string;
+  diff_truncated: boolean;
 }
 
 export interface AskConversationDetail {

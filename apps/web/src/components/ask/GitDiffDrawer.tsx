@@ -17,6 +17,7 @@ import {
   type OpenGitDiffEventDetail,
 } from "@/lib/ask/git-review";
 import { showInAppToast } from "@/lib/native-notify";
+import { PullRequestsPanel } from "@/components/ask/PullRequestsPanel";
 
 const STATUS_BADGE: Record<string, { label: string; color: string; bg: string }> = {
   A: { label: "新增", color: "#059669", bg: "rgba(16, 185, 129, 0.14)" },
@@ -48,7 +49,7 @@ export function GitDiffDrawer({
   onSendReviewComments,
   isZh,
 }: GitDiffDrawerProps) {
-  const [activeTab, setActiveTab] = useState<"diff" | "deliver">("diff");
+  const [activeTab, setActiveTab] = useState<"diff" | "deliver" | "pr">("diff");
   const [baseRef, setBaseRef] = useState<string>("");
   const [targetRef, setTargetRef] = useState<string>("");
   const [loading, setLoading] = useState(false);
@@ -402,6 +403,19 @@ export function GitDiffDrawer({
               >
                 {isZh ? "提交 / PR" : "Commit / PR"}
               </button>
+              <button
+                type="button"
+                data-testid="git-tab-prs"
+                onClick={() => setActiveTab("pr")}
+                className="px-2.5 py-1 rounded-md text-[12px] font-medium transition-colors cursor-pointer"
+                style={{
+                  background: activeTab === "pr" ? "var(--aurora-surface-solid)" : "transparent",
+                  color: activeTab === "pr" ? "var(--aurora-fg1)" : "var(--aurora-fg3)",
+                  border: "none",
+                }}
+              >
+                {isZh ? "PR 与 CI" : "PRs & CI"}
+              </button>
             </div>
 
             <Btn
@@ -538,7 +552,12 @@ export function GitDiffDrawer({
         )}
 
         {/* Body */}
-        {loading && !diffData ? (
+        {activeTab === "pr" ? (
+          // Pull requests read straight from GitHub on the device: independent of the local diff loading above
+          <div className="flex-1 overflow-y-auto min-h-0">
+            <PullRequestsPanel deviceId={deviceId} cwd={effectiveCwd} isZh={isZh} />
+          </div>
+        ) : loading && !diffData ? (
           <div className="flex-1 flex flex-col items-center justify-center gap-2 text-[var(--aurora-fg3)] text-[13px] p-6">
             <Icon name="refresh" size={18} className="animate-spin" style={{ color: "var(--aurora-accent)" }} />
             <span>{isZh ? "正在从设备拉取 Git Diff..." : "Fetching Git diff from device..."}</span>

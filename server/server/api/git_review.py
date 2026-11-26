@@ -946,3 +946,163 @@ async def git_suggest_message(
         "pr_body": strip_agent_trailers(out["pr_body"]),
         "branch": diff.get("branch"),
     }
+
+
+# ── Pull requests (GitHub, through the `gh` CLI signed in on the device) ────────────────────────────
+
+class GitPrListRequest(BaseModel):
+    device_id: str = Field(..., min_length=1)
+    cwd: str = Field(..., min_length=1)
+    state: str = "open"  # open | closed | merged | all
+
+
+class GitPrRequest(BaseModel):
+    device_id: str = Field(..., min_length=1)
+    cwd: str = Field(..., min_length=1)
+    number: int = Field(..., ge=1)
+
+
+class GitPrMergeRequest(GitPrRequest):
+    # rebase keeps the history linear (the user's rule); squash for a one-commit change; merge if asked
+    method: str = "rebase"
+    delete_branch: bool = True
+
+
+_PR_LIST_FIELDS = "number,title,author,headRefName,baseRefName,isDraft,updatedAt,url,reviewDecision,statusCheckRollup,additions,deletions"
+_PR_VIEW_FIELDS = (
+    "number,title,body,author,state,isDraft,headRefName,baseRefName,url,mergeable,mergeStateStatus,reviewDecision,"
+    "statusCheckRollup,files,comments,commits,additions,deletions,updatedAt"
+)
+_PR_DIFF_CHARS = 400_000
+
+
+def summarize_checks(rollup: list | None) -> dict:
+    """GitHub's statusCheckRollup (check runs and commit statuses mixed) as counts and one overall state:
+    pending while anything runs, failure once anything failed, success when all passed, none without checks."""
+    passed = failed = pending = 0
+    for c in rollup or []:
+        status = str(c.get("status") or "").upper()  # check runs: QUEUED / IN_PROGRESS / COMPLETED
+        conclusion = str(c.get("conclusion") or c.get("state") or "").upper()  # statuses carry `state`
+        if status and status != "COMPLETED":
+            pending += 1
+        elif conclusion in ("SUCCESS", "NEUTRAL", "SKIPPED"):
+            passed += 1
+        elif conclusion in ("PENDING", "EXPECTED", ""):
+            pending += 1
+        else:
+            failed += 1
+    total = passed + failed + pending
+    state = "none" if not total else "failure" if failed else "pending" if pending else "success"
+    return {"state": state, "passed": passed, "failed": failed, "pending": pending, "total": total}
+
+
+async def _gh(body_device: str, cwd: str, args: str, db: AsyncSession, user: User, *, timeout: float = 30.0) -> str:
+    """Run `gh <args>` in the repo on the device; stdout, or an HTTP error with gh's own message."""
+    _machine, candidates = await _resolve_device(db, body_device, user)
+    code, out, err, transport = await _run_ephemeral_shell(candidates, cwd.strip(), f"gh {args}", timeout=timeout)
+    if transport == "offline":
+        raise HTTPException(status_code=503, detail="目标设备当前不在线")
+    if transport == "timeout":
+        raise HTTPException(status_code=504, detail="设备上的 gh 命令超时")
+    if code != 0:
+        msg = (err or out or "").strip()
+        if "not found" in msg and "gh" in msg or "不是内部或外部命令" in msg or "is not recognized" in msg:
+            msg = "设备上没有安装 GitHub CLI（gh），装好并 gh auth login 后再试"
+        elif "auth login" in msg:
+            msg = "设备上的 gh 还没登录 GitHub，在设备上运行 gh auth login 后再试"
+        raise HTTPException(status_code=400, detail=msg[:500] or "gh 命令失败")
+    return out
+
+
+def _json_or_400(raw: str):
+    import json
+
+    try:
+        return json.loads(raw)
+    except ValueError:
+        raise HTTPException(status_code=502, detail="gh 返回的不是 JSON") from None
+
+
+@router.post("/prs")
+async def git_pr_list(body: GitPrListRequest, db: AsyncSession = Depends(get_db), _user: User = Depends(get_current_user)):
+    """The repository's pull requests with their CI state, newest activity first."""
+    state = body.state if body.state in ("open", "closed", "merged", "all") else "open"
+    rows = _json_or_400(await _gh(body.device_id, body.cwd, f"pr list --state {state} --limit 40 --json {_PR_LIST_FIELDS}", db, _user))
+    for r in rows:
+        r["checks"] = summarize_checks(r.pop("statusCheckRollup", None))
+        r["author"] = (r.get("author") or {}).get("login", "")
+    return {"prs": rows}
+
+
+@router.post("/pr")
+async def git_pr_view(body: GitPrRequest, db: AsyncSession = Depends(get_db), _user: User = Depends(get_current_user)):
+    """One pull request: description, checks, files, comments, commits and its diff."""
+    pr = _json_or_400(await _gh(body.device_id, body.cwd, f"pr view {body.number} --json {_PR_VIEW_FIELDS}", db, _user))
+    rollup = pr.pop("statusCheckRollup", None) or []
+    pr["checks"] = summarize_checks(rollup)
+    pr["check_runs"] = [
+        {"name": c.get("name") or c.get("context") or "", "status": c.get("status") or "", "conclusion": c.get("conclusion") or c.get("state") or "",
+         "url": c.get("detailsUrl") or c.get("targetUrl") or ""}
+        for c in rollup
+    ]
+    pr["author"] = (pr.get("author") or {}).get("login", "")
+    try:
+        diff = await _gh(body.device_id, body.cwd, f"pr diff {body.number}", db, _user, timeout=45.0)
+    except HTTPException:
+        diff = ""
+    pr["diff"] = diff[:_PR_DIFF_CHARS]
+    pr["diff_truncated"] = len(diff) > _PR_DIFF_CHARS
+    return pr
+
+
+@router.post("/pr/merge")
+async def git_pr_merge(body: GitPrMergeRequest, db: AsyncSession = Depends(get_db), _user: User = Depends(get_current_user)):
+    method = body.method if body.method in ("rebase", "squash", "merge") else "rebase"
+    out = await _gh(
+        body.device_id, body.cwd, f"pr merge {body.number} --{method}{' --delete-branch' if body.delete_branch else ''}", db, _user, timeout=60.0,
+    )
+    return {"ok": True, "method": method, "output": out.strip()[:2000]}
+
+
+async def _watch_pr_checks(user: User, device_id: str, cwd: str, number: int, *, interval: float = 60.0, max_wait: float = 3 * 3600) -> str:
+    """Poll the PR's checks until none is pending, then push the result to the user's phone. One per PR at a
+    time across replicas (a lock in Redis); gives up after `max_wait`."""
+    from ..db.session import async_session_factory
+    from ..services import notify_service
+    from ..services.cluster import cluster
+
+    key = f"memento:prwatch:{user.id}:{device_id}:{cwd}:{number}"
+    if not await cluster.try_lock(key, int(max_wait) + 300):
+        return "already"
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + max_wait
+    title = f"PR #{number}"
+    while loop.time() < deadline:
+        try:
+            async with async_session_factory() as db:
+                pr = _json_or_400(await _gh(device_id, cwd, f"pr view {number} --json number,title,url,statusCheckRollup", db, user))
+        except HTTPException as e:
+            if e.status_code in (503, 504):  # device asleep / slow: try again next round
+                await asyncio.sleep(interval)
+                continue
+            return "error"
+        title = f"PR #{number} {pr.get('title') or ''}".strip()
+        checks = summarize_checks(pr.get("statusCheckRollup"))
+        if checks["state"] in ("success", "failure", "none"):
+            if checks["state"] == "success":
+                await notify_service.notify_user(user.id, "task_done", "CI 通过", f"{title}：{checks['passed']} 项检查全部通过", url=pr.get("url"))
+            elif checks["state"] == "failure":
+                await notify_service.notify_user(user.id, "risky", "CI 失败", f"{title}：{checks['failed']} 项检查失败", url=pr.get("url"))
+            return checks["state"]
+        await asyncio.sleep(interval)
+    await notify_service.notify_user(user.id, "task_done", "CI 还没跑完", f"{title}：等了 {int(max_wait // 3600)} 小时，停止盯了")
+    return "timeout"
+
+
+@router.post("/pr/watch-checks")
+async def git_pr_watch_checks(body: GitPrRequest, _user: User = Depends(get_current_user)):
+    """Keep an eye on the PR's CI and push the result to the phone when it finishes."""
+    from ..services import notify_service
+
+    notify_service.spawn(_watch_pr_checks(_user, body.device_id, body.cwd, body.number))
+    return {"ok": True}

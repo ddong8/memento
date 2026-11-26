@@ -802,14 +802,16 @@ export default function WebShell() {
         />
       </BlurTargetView>
       {!keyboardVisible ? (
+        // Distinct key + mutually exclusive geometry styles so React Native Fabric/Yoga
+        // and iOS UIGlassEffect never retain a stale 46px width when expanding from the compact pill.
         <View
+          key={compactTabBar ? "tabbar-compact" : "tabbar-full"}
           pointerEvents="box-none"
           style={[
-            styles.tabBarDockWrap,
+            compactTabBar ? styles.tabBarDockWrapCompact : styles.tabBarDockWrapFull,
             {
               bottom: tabBarBottom,
             },
-            compactTabBar ? { right: undefined, width: COMPACT_TAB_SIZE } : null,
           ]}
         >
           {/* Outer shadow wrapper without overflow: "hidden" so iOS Liquid Glass keeps its soft elevation shadow */}
@@ -817,8 +819,9 @@ export default function WebShell() {
             style={[
               styles.tabBarShadow,
               {
+                borderRadius: compactTabBar ? COMPACT_TAB_SIZE / 2 : 27,
                 shadowColor: dark ? "#000000" : "#18142B",
-                shadowOpacity: dark ? 0.44 : 0.14,
+                shadowOpacity: dark ? 0.42 : 0.12,
               },
             ]}
           >
@@ -828,7 +831,7 @@ export default function WebShell() {
               blurTarget={blurTargetRef}
               variant="tabbar"
               dense={compactTabBar}
-              style={[styles.tabBarDock, compactTabBar ? { borderRadius: COMPACT_TAB_SIZE / 2 } : null]}
+              style={compactTabBar ? styles.tabBarDockCompact : styles.tabBarDock}
             >
               {compactTabBar ? (
                 // Tap the pill to get the whole bar back
@@ -844,7 +847,7 @@ export default function WebShell() {
                 >
                   <Icon
                     name={(TABS.find((x) => x.id === activeTab) ?? TABS[0]).icon}
-                    size={21}
+                    size={20}
                     color={dark ? "#C4B5FD" : "#6D28D9"}
                     strokeWidth={2.2}
                   />
@@ -910,21 +913,33 @@ export default function WebShell() {
 }
 
 const styles = StyleSheet.create({
-  tabBarDockWrap: {
+  tabBarDockWrapFull: {
     position: "absolute",
     left: 10,
     right: 10,
     zIndex: 40,
   },
+  tabBarDockWrapCompact: {
+    position: "absolute",
+    left: 10,
+    width: COMPACT_TAB_SIZE,
+    height: COMPACT_TAB_SIZE,
+    zIndex: 40,
+  },
   tabBarShadow: {
     borderRadius: 27,
     backgroundColor: "transparent",
-    shadowOffset: { width: 0, height: 8 },
-    shadowRadius: 20,
-    elevation: 12,
+    shadowOffset: { width: 0, height: 6 },
+    shadowRadius: 16,
+    elevation: 10,
   },
   tabBarDock: {
     borderRadius: 27,
+  },
+  tabBarDockCompact: {
+    width: COMPACT_TAB_SIZE,
+    height: COMPACT_TAB_SIZE,
+    borderRadius: COMPACT_TAB_SIZE / 2,
   },
   tabBarRow: {
     height: 54,

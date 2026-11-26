@@ -11,13 +11,16 @@ describe("frosted glass architecture", () => {
     expect(PLATFORM_SCRIPT).toContain("nativeGlass");
   });
 
-  it("defines partitioned desktop native vibrancy, selective mobile glass chrome, solid toggle, and floating tabbar inset", () => {
+  it("unifies desktop sidebar and main pane background and keeps Ask composer crisp solid", () => {
     const repoRoot = path.resolve(__dirname, "../../..");
     const css = fs.readFileSync(path.join(repoRoot, "apps/web/src/app/globals.css"), "utf8");
 
-    // Desktop native vibrancy / Mica makes root transparent while main pane stays crisp opaque
+    // Existing macOS clients with data-native-glass="1" still render unified opaque sidebar + main pane
     expect(css).toContain('html[data-client="desktop"][data-native-glass="1"][data-glass="on"]');
+    expect(css).toContain("background: var(--aurora-sidebar) !important;");
     expect(css).toContain(".memento-main-pane");
+    // Ask composer card stays crisp solid (never translucent over smeared chat text)
+    expect(css).toContain(".ask-footer-card {\n  background: var(--aurora-surface-solid) !important;");
     // Mobile keeps list cards blur-free while unlocking .memento-glass-chrome
     expect(css).toContain('html[data-glass="on"] .memento-glass-chrome');
     // User toggle off cleanly disables blur
@@ -27,13 +30,14 @@ describe("frosted glass architecture", () => {
     expect(css).toContain("--memento-tabbar-inset");
   });
 
-  it("wires desktop vibrancy/mica IPC and glass toggle in UserMenu", () => {
+  it("disables mismatched macOS sidebar vibrancy while keeping Windows Mica and glass toggle IPC", () => {
     const repoRoot = path.resolve(__dirname, "../../..");
     const desktopMain = fs.readFileSync(path.join(repoRoot, "apps/desktop/src/main.ts"), "utf8");
     const desktopPreload = fs.readFileSync(path.join(repoRoot, "apps/desktop/src/preload.ts"), "utf8");
     const userMenu = fs.readFileSync(path.join(repoRoot, "apps/web/src/components/UserMenu.tsx"), "utf8");
 
-    expect(desktopMain).toContain('setVibrancy("sidebar")');
+    expect(desktopMain).not.toContain('setVibrancy("sidebar")');
+    expect(desktopMain).toContain("w.setVibrancy(null)");
     expect(desktopMain).toContain('setBackgroundMaterial("mica")');
     expect(desktopMain).toContain('handle("app:set-glass"');
     expect(desktopPreload).toContain('setGlass:');
@@ -41,13 +45,13 @@ describe("frosted glass architecture", () => {
     expect(userMenu).toContain("毛玻璃质感");
   });
 
-  it("floats Ask footer over full-bleed scroll container with live --ask-footer-h clearance and mobile pill fit", () => {
+  it("keeps Ask footer in solid flex flow with clean device formatting and compact mobile composer controls", () => {
     const repoRoot = path.resolve(__dirname, "../../..");
     const askPage = fs.readFileSync(path.join(repoRoot, "apps/web/src/app/ask/page.tsx"), "utf8");
     const composer = fs.readFileSync(path.join(repoRoot, "apps/web/src/components/ask/AskComposer.tsx"), "utf8");
 
-    expect(askPage).toContain("--ask-footer-h");
-    expect(askPage).toContain("pointer-events-none");
+    expect(askPage).toContain('data-ask-footer="true"');
+    expect(askPage).not.toContain("ask-footer-card memento-glass-chrome");
     // Strip trailing OS parenthetical before .local in Target Device Badge
     const deviceBadgeSlice = askPage.slice(askPage.indexOf("Target Device Badge"), askPage.indexOf("Associated Project Badge"));
     expect(deviceBadgeSlice.indexOf('.replace(/\\s*\\([^)]*\\)$/, "")')).toBeGreaterThan(-1);

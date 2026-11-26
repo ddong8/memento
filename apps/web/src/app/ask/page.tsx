@@ -795,8 +795,6 @@ function AskPageContent() {
 
   const abortRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const askPaneRef = useRef<HTMLDivElement>(null);
-  const askFooterRef = useRef<HTMLElement>(null);
   const scrollSettleTimersRef = useRef<NodeJS.Timeout[]>([]);
   const pendingScrollToBottomRef = useRef<boolean>(false);
   const lastStreamActivityRef = useRef<number>(Date.now());
@@ -810,39 +808,6 @@ function AskPageContent() {
   const userScrolledAwayRef = useRef<boolean>(false);
 
   const scrollRafRef = useRef<number>(0);
-
-  // Sync floating footer height to CSS var --ask-footer-h without React re-renders so
-  // messages scroll cleanly behind frosted/liquid glass chrome while bottom-of-chat keeps zero overlap.
-  useEffect(() => {
-    const pane = askPaneRef.current;
-    const footer = askFooterRef.current;
-    if (!pane || !footer) return;
-    let prevHeight = 0;
-    const syncHeight = (rawHeight: number) => {
-      const next = Math.max(88, Math.ceil(rawHeight));
-      if (next === prevHeight) return;
-      const delta = prevHeight > 0 ? next - prevHeight : 0;
-      prevHeight = next;
-      pane.style.setProperty("--ask-footer-h", `${next}px`);
-      if (delta > 0 && !userScrolledAwayRef.current && chatScrollRef.current) {
-        const sc = chatScrollRef.current;
-        const dist = sc.scrollHeight - sc.scrollTop - sc.clientHeight;
-        if (dist < delta + 48) {
-          sc.scrollTop += delta;
-        }
-      }
-    };
-    syncHeight(footer.getBoundingClientRect().height);
-    if (typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver((entries) => {
-      const entry = entries[0];
-      if (!entry) return;
-      const h = entry.borderBoxSize?.[0]?.blockSize ?? entry.target.getBoundingClientRect().height;
-      syncHeight(h);
-    });
-    ro.observe(footer);
-    return () => ro.disconnect();
-  }, []);
 
   const scrollConversationToBottom = useCallback((instant = true, force = false) => {
     // 1. 如果用户正在手动滑动/触摸屏幕，且不是用户显式指令（如点击回到底部/发送消息），绝不抢夺滚动权
@@ -5256,12 +5221,12 @@ function AskPageContent() {
   );
 
   return (
-    <div className="w-full flex h-full rounded-none border-0 bg-[var(--aurora-bg)] sm:bg-[var(--aurora-surface-solid)]/82 overflow-hidden relative">
+    <div className="w-full flex h-full rounded-none border-0 bg-[var(--aurora-bg)] overflow-hidden relative">
       {/* 离线状态全局浮动感知胶囊 */}
       <OfflineCapsule offline={isOffline} recovered={offlineRecovered} />
 
       {/* 主对话区与输入控制台 */}
-      <div ref={askPaneRef} className="flex-1 flex flex-col h-full min-w-0 overflow-hidden relative bg-transparent">
+      <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden relative bg-transparent">
         {/* 对话区顶部 Bar */}
         <AskTopBar
           conversationCount={conversations.length}
@@ -5474,8 +5439,6 @@ function AskPageContent() {
         />
       </div>
     </div>
-    {/* 底部动态留白：与悬浮输入卡及原生液态玻璃 TabBar 等高，确保长对话可穿透底部毛玻璃且滚到底部零遮挡 */}
-    <div style={{ height: "calc(var(--ask-footer-h, 156px) + 6px)", flexShrink: 0, pointerEvents: "none" }} aria-hidden="true" />
     <div ref={bottomRef} style={{ height: 1, minHeight: 1, overflow: "hidden", pointerEvents: "none" }} />
   </div>
     {/* 回到底部悬浮快捷键 */}
@@ -5487,13 +5450,12 @@ function AskPageContent() {
           isUserInteractingRef.current = false;
           chatScrollRef.current?.scrollTo({ top: chatScrollRef.current.scrollHeight, behavior: "smooth" });
         }}
-        className="absolute right-5 sm:right-8 z-30 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold shadow-xl transition-all transform hover:scale-105 cursor-pointer backdrop-blur-md"
+        className="absolute bottom-4 right-5 sm:right-8 z-30 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold shadow-xl transition-all transform hover:scale-105 cursor-pointer"
         style={{
-          bottom: "calc(var(--ask-footer-h, 156px) + 10px)",
           background: "var(--aurora-surface-solid)",
           border: "1px solid var(--aurora-border-strong)",
           color: "var(--aurora-accent)",
-          boxShadow: "0 4px 16px rgba(0,0,0,0.18)",
+          boxShadow: "0 4px 16px rgba(0,0,0,0.16)",
         }}
       >
         <Icon name="arrow_down" size={13} />
@@ -5502,43 +5464,43 @@ function AskPageContent() {
     )}
   </div>
 
-  {/* 中栏底部悬浮交互控制台：透明外框允许对话滚动穿透至下方毛玻璃与 iOS 液态玻璃 TabBar */}
+  {/* 多选消息分享操作栏 */}
+  {selectTurnsMode && (
+    <div className="shrink-0 bg-[var(--aurora-bg)] px-2 pt-1 sm:px-5 md:px-8">
+      <MultiSelectShareBar
+        isZh={isZh}
+        selectedCount={selectedTurnIndices.length}
+        totalCount={turns.length}
+        onToggleSelectAll={() => {
+          if (selectedTurnIndices.length === turns.length) {
+            setSelectedTurnIndices([]);
+          } else {
+            setSelectedTurnIndices(turns.map((_, idx) => idx));
+          }
+        }}
+        onShareSelected={handleShareSelectedTurns}
+        onCancel={() => {
+          setSelectTurnsMode(false);
+          setSelectedTurnIndices([]);
+        }}
+      />
+    </div>
+  )}
+
+  {/* 中栏底部交互控制台：实体底栏（不透出下方文字），与左侧边栏和主画布背景一致 */}
     <footer
-      ref={askFooterRef}
       data-ask-footer="true"
-      className="absolute bottom-0 left-0 right-0 z-20 pointer-events-none px-2 pt-1 sm:px-5 sm:pt-1.5 md:px-8 lg:pt-2 bg-transparent"
+      className="shrink-0 px-2 pt-1.5 sm:px-5 sm:pt-2 md:px-8 bg-[var(--aurora-bg)]"
       style={{
         paddingBottom: viewportBottomOffset > 0
           ? `${viewportBottomOffset + 4}px`
-          : "max(0.5rem, calc(env(safe-area-inset-bottom, 0px) + 0.25rem))",
+          : "max(0.625rem, calc(env(safe-area-inset-bottom, 0px) + 0.375rem))",
         transition: "padding-bottom 0.15s cubic-bezier(0.16, 1, 0.3, 1)",
       }}
     >
-      {/* 多选消息分享操作栏 */}
-      {selectTurnsMode && (
-        <div className="pointer-events-auto mb-1.5">
-          <MultiSelectShareBar
-            isZh={isZh}
-            selectedCount={selectedTurnIndices.length}
-            totalCount={turns.length}
-            onToggleSelectAll={() => {
-              if (selectedTurnIndices.length === turns.length) {
-                setSelectedTurnIndices([]);
-              } else {
-                setSelectedTurnIndices(turns.map((_, idx) => idx));
-              }
-            }}
-            onShareSelected={handleShareSelectedTurns}
-            onCancel={() => {
-              setSelectTurnsMode(false);
-              setSelectedTurnIndices([]);
-            }}
-          />
-        </div>
-      )}
-      <div className="max-w-3xl xl:max-w-4xl 2xl:max-w-5xl mx-auto w-full min-w-0 pointer-events-auto" style={{ boxSizing: "border-box" }}>
+      <div className="max-w-3xl xl:max-w-4xl 2xl:max-w-5xl mx-auto w-full min-w-0" style={{ boxSizing: "border-box" }}>
         <div
-          className="ask-footer-card memento-glass-chrome px-2 py-2 sm:px-3.5 sm:py-2.5"
+          className="ask-footer-card px-2 py-2 sm:px-3.5 sm:py-2.5"
           style={{
             background: isDraggingOver ? "var(--aurora-accent-soft)" : "var(--aurora-surface-solid)",
             ...(isDraggingOver

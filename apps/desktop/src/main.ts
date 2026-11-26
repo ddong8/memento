@@ -168,7 +168,9 @@ function getWindowIcon(): Electron.NativeImage | undefined {
  */
 const MERGED_TITLE_BAR = process.platform === "win32";
 const IS_WIN11_PLUS = process.platform === "win32" && Number(osRelease().split(".")[2] ?? 0) >= 22000;
-const NATIVE_GLASS_SUPPORTED = process.platform === "darwin" || IS_WIN11_PLUS;
+// macOS sidebar vibrancy paints an OS grey tint that clashes with the light/dark main canvas (tried in 1.0.127 & 1.0.156).
+// Keep macOS unified solid matching the app theme; native window material stays opt-in for Windows 11 Mica only.
+const NATIVE_GLASS_SUPPORTED = IS_WIN11_PLUS;
 let themeListenerInstalled = false;
 
 function isGlassEnabled(): boolean {
@@ -176,7 +178,7 @@ function isGlassEnabled(): boolean {
 }
 
 function solidWindowBg(): string {
-  return nativeTheme.shouldUseDarkColors ? "#0b0b12" : "#f6f5fb";
+  return nativeTheme.shouldUseDarkColors ? "#0a0a12" : "#fafafc";
 }
 
 function applyWindowMaterial(target?: BrowserWindow): void {
@@ -185,13 +187,8 @@ function applyWindowMaterial(target?: BrowserWindow): void {
   const glass = NATIVE_GLASS_SUPPORTED && isGlassEnabled();
   if (process.platform === "darwin") {
     try {
-      if (glass) {
-        w.setBackgroundColor("#00000000");
-        w.setVibrancy("sidebar");
-      } else {
-        w.setVibrancy(null);
-        w.setBackgroundColor(solidWindowBg());
-      }
+      w.setVibrancy(null);
+      w.setBackgroundColor(solidWindowBg());
     } catch {}
     return;
   }
@@ -239,14 +236,9 @@ function createWindow(show: boolean): void {
     show,
     title: "Memento",
     icon: getWindowIcon(),
-    // Native translucent material on macOS (sidebar vibrancy) and Windows 11 (Mica); opaque fallback elsewhere or when disabled.
+    // Unified solid canvas on macOS (matches web --aurora-bg so left sidebar and right pane share one exact color);
+    // Windows 11 keeps optional Mica material when enabled.
     backgroundColor: useNativeGlass ? "#00000000" : solidWindowBg(),
-    ...(process.platform === "darwin"
-      ? {
-          vibrancy: useNativeGlass ? "sidebar" : undefined,
-          visualEffectState: "followWindow",
-        }
-      : {}),
     ...(IS_WIN11_PLUS
       ? {
           backgroundMaterial: useNativeGlass ? "mica" : "none",

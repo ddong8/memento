@@ -36,7 +36,12 @@ describe("mobile native glass surface", () => {
     expect(indexSrc).toContain("--memento-tabbar-inset");
     // Shadow must live on an outer wrapper (not clipped by GlassSurface overflow: hidden)
     expect(indexSrc).toContain("styles.tabBarShadow");
-    // Native iOS 26 Liquid Glass must not be washed out by an opaque 0.50 white tintColor
+    // Compact <-> full dock must remount with mutually exclusive styles so RN Fabric/Yoga never keeps a stale 46px width
+    expect(indexSrc).toContain('key={compactTabBar ? "tabbar-compact" : "tabbar-full"}');
+    expect(indexSrc).toContain("styles.tabBarDockWrapFull");
+    expect(indexSrc).toContain("styles.tabBarDockWrapCompact");
+    // Tab bar uses crisp high-opacity surface tint (never muddy 0.22 clear glass over raw text)
+    expect(glassSrc).not.toContain("rgba(255, 255, 255, 0.22)");
     expect(glassSrc).not.toContain("rgba(255, 255, 255, 0.50)");
     // Active tab color must follow page theme (`dark`), never OS color scheme (`t.accent`)
     expect(indexSrc).not.toContain("isActive ? t.accent");

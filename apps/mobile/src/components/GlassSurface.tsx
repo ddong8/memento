@@ -79,10 +79,9 @@ export function GlassSurface({
   }
 
   if (mode === "liquid-glass") {
-    // Native iOS 26+ UIGlassEffect(.regular) provides its own optical Fresnel rim and
-    // adaptive refraction. Use a delicate frost tint (never opaque 0.50 white) so icons
-    // and labels stay legible even when dark cards or code blocks scroll behind the pill,
-    // while outer drop shadows render on a separate wrapper (not clipped by overflow: hidden).
+    // High-clarity porcelain / obsidian surface over native iOS 26 UIGlassEffect(.regular):
+    // keeps smooth native press interaction & rounded optical edge while staying crisp and
+    // legible without muddy scrolling text bleeding through the bottom tab bar or compact pill.
     return (
       <GlassView
         glassEffectStyle="regular"
@@ -90,10 +89,10 @@ export function GlassSurface({
         isInteractive={variant === "tabbar"}
         tintColor={
           dense
-            ? (dark ? "rgba(20, 20, 30, 0.86)" : "rgba(255, 255, 255, 0.86)")
-            : (dark ? "rgba(18, 18, 30, 0.24)" : "rgba(255, 255, 255, 0.22)")
+            ? (dark ? "rgba(21, 21, 31, 0.94)" : "rgba(255, 255, 255, 0.95)")
+            : (dark ? "rgba(21, 21, 31, 0.92)" : "rgba(255, 255, 255, 0.93)")
         }
-        style={[styles.liquidBase, style]}
+        style={[styles.base, { borderColor }, style]}
       >
         {children}
       </GlassView>
@@ -113,8 +112,8 @@ export function GlassSurface({
             StyleSheet.absoluteFill,
             {
               backgroundColor: dense
-                ? (dark ? "rgba(20, 20, 30, 0.86)" : "rgba(255, 255, 255, 0.86)")
-                : (dark ? "rgba(18, 18, 28, 0.34)" : "rgba(255, 255, 255, 0.38)"),
+                ? (dark ? "rgba(21, 21, 31, 0.94)" : "rgba(255, 255, 255, 0.95)")
+                : (dark ? "rgba(21, 21, 31, 0.90)" : "rgba(255, 255, 255, 0.92)"),
               borderTopWidth: StyleSheet.hairlineWidth,
               borderTopColor: specularTop,
             },
@@ -140,8 +139,8 @@ export function GlassSurface({
           StyleSheet.absoluteFill,
           {
             backgroundColor: dense
-              ? (dark ? "rgba(20, 20, 30, 0.88)" : "rgba(255, 255, 255, 0.88)")
-              : (dark ? "rgba(20, 20, 30, 0.56)" : "rgba(255, 255, 255, 0.66)"),
+              ? (dark ? "rgba(21, 21, 31, 0.94)" : "rgba(255, 255, 255, 0.95)")
+              : (dark ? "rgba(21, 21, 31, 0.92)" : "rgba(255, 255, 255, 0.94)"),
             borderTopWidth: StyleSheet.hairlineWidth,
             borderTopColor: specularTop,
           },

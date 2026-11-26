@@ -1,25 +1,25 @@
 {
-  "version": "1.0.162",
-  "title": "Memento v1.0.162",
+  "version": "1.0.163",
+  "title": "Memento v1.0.163",
   "release_notes": "1. 全面安全与权限隔离加固：收紧公开分享链接文件访问签名校验、隔离多用户设备文件缓存、消除 Mermaid 与 HTML/SVG 预览 XSS 风险、拦截已停用账号实时流订阅与桌面端非白名单媒体协议\n2. 并发与稳定性优化：消除异步文件流阻塞、规范 HTTP Range 解析、收敛多副本数据库连接池与后台任务托管、独立版本化数据库迁移模块\n3. 架构瘦身与防线升级：拆分 ask/page.tsx、projects.py、task-runner.ts 与 api-client.ts 核心模块，收紧 CI 静态检查与多端测试；手机端版本号与客户端统一为 1.0.146",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.162-win-x64.zip",
-      "size": 160373608,
-      "sha256": "7a0fbf19ecbb482ec4c5b51240232b18fcb2298646ce6b2c185a33d9f861a191",
-      "sha512": "yV5qYgNznVrPLLo2lnnhfNhB4wbFx40lumqdOb84P8XjjaCgo9x6nSW3FwWZf5SrsL0zWsHKD/vXyrA4GgDJFg=="
+      "asset_name": "Memento-1.0.163-win-x64.zip",
+      "size": 160377952,
+      "sha256": "17fbaad5b953559cbe96481af177514a356c2c662c6acde7e76e7c2cd92e1bf8",
+      "sha512": "8Qx5L2ItVWjKV9q623RXVHKxoD2hNo8x5FTinkdMxQh+gGu2j+EW07geWoE+oOlEj/IyDRe6lnPFF18fnjRp6A=="
     },
     "macos": {
-      "asset_name": "Memento-1.0.162-mac-arm64.zip",
-      "size": 133069544,
-      "sha256": "329326f142ef7598669778bfcc3aff514fc3b410f1e01f18526d16101a260e2b",
-      "sha512": "4p6Jydsc83NA0eyES44mEkHNohqZqfUhCLpffjvOQRixpBnm2pxXzau8LRr2T6+QTR5VaI/Ix2fIFJYirJGciA=="
+      "asset_name": "Memento-1.0.163-mac-arm64.zip",
+      "size": 133075090,
+      "sha256": "801c58c1394dec6f344246b101626ae28b79bad8bc53d5096a188da5ff6972fa",
+      "sha512": "zUpoND5fwoP/LiU7Vi6MkCo0H4RxukStY8IIoxjlEVz67Kzkj+P/WwGkCDANS6qJpW5BT9Bbwaqwx+hvDcdYeg=="
     },
     "linux": {
-      "asset_name": "Memento-1.0.162-linux-x64.tar.gz",
-      "size": 132325766,
-      "sha256": "3d1642b9a72a8ecb4c1958970a00596448cdc8cdd42ef5a04515edd57e4a785d",
-      "sha512": "3O9B4XGA09K8faENV/Fxs/WQEJWUslfHmb68y8jpbJfwo+2ciYR3kBpnjBNp49E5pYsy6bbyNsyz8S9rgSHWbA=="
+      "asset_name": "Memento-1.0.163-linux-x64.tar.gz",
+      "size": 132332313,
+      "sha256": "c44382595c4df6bf797d27a8240f75949955ef83ad7ee02bd0391af9247d23ee",
+      "sha512": "s+VqXSnhItel54n0LNGTPDVPNFiq1Zoa9FVLEiuSfUzvq6IU4u3MSjdesqLRibdP144k3/0izSwV6Ng8LH72kw=="
     }
   }
 }

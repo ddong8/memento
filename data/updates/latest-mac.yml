@@ -1,11 +1,11 @@
-version: 1.0.162
+version: 1.0.163
 files:
-  - url: Memento-1.0.162-mac-arm64.zip
-    sha512: 4p6Jydsc83NA0eyES44mEkHNohqZqfUhCLpffjvOQRixpBnm2pxXzau8LRr2T6+QTR5VaI/Ix2fIFJYirJGciA==
-    size: 133069544
-  - url: Memento-1.0.162-mac-arm64.dmg
-    sha512: V3Bj62mzdoVwMjDdij0OHrkpJjczqYguhM3b4r1fYkXHm3D8H4yew9bf98qOxUcF0NpHCs5C0hYogjRR7YyN+Q==
-    size: 133063987
-path: Memento-1.0.162-mac-arm64.zip
-sha512: 4p6Jydsc83NA0eyES44mEkHNohqZqfUhCLpffjvOQRixpBnm2pxXzau8LRr2T6+QTR5VaI/Ix2fIFJYirJGciA==
-releaseDate: '2026-11-26T15:34:04.404Z'
+  - url: Memento-1.0.163-mac-arm64.zip
+    sha512: zUpoND5fwoP/LiU7Vi6MkCo0H4RxukStY8IIoxjlEVz67Kzkj+P/WwGkCDANS6qJpW5BT9Bbwaqwx+hvDcdYeg==
+    size: 133075090
+  - url: Memento-1.0.163-mac-arm64.dmg
+    sha512: h5qOmB0Pc+uajuPWoaFVoSpqIvLfMtuMs/Jksys1OpsjWOXT/Qivkk+IaZmGZFVH6PAv1VSuUdpBW71nPgi1aw==
+    size: 133069499
+path: Memento-1.0.163-mac-arm64.zip
+sha512: zUpoND5fwoP/LiU7Vi6MkCo0H4RxukStY8IIoxjlEVz67Kzkj+P/WwGkCDANS6qJpW5BT9Bbwaqwx+hvDcdYeg==
+releaseDate: '2026-11-26T15:49:35.198Z'

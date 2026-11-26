@@ -87,6 +87,9 @@ describe("frosted glass architecture", () => {
     // Full-screen consoles hide the running-agents chip that would cover their back button / title
     expect(read("app/memory/page.tsx")).toContain("memento-fullscreen-panel");
     expect(read("app/skills/page.tsx")).toContain("memento-fullscreen-panel");
+    // ...and are opaque on phones, so the page underneath doesn't bleed through their tabs
+    expect(read("app/memory/page.tsx")).toContain("memento-fullscreen-panel lg:col-span-7 h-full flex flex-col min-h-0 bg-[var(--aurora-surface)] max-lg:bg-[var(--aurora-surface-solid)]");
+    expect(read("app/skills/page.tsx")).toContain("max-lg:bg-[var(--aurora-surface-solid)]");
     expect(read("components/agent/ActiveRunsMonitor.tsx")).toContain("memento-active-runs-dock");
     expect(read("app/globals.css")).toContain("body:has(.memento-fullscreen-panel) .memento-active-runs-dock");
   });

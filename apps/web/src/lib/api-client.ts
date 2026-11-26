@@ -1259,6 +1259,11 @@ export const api = {
       body: JSON.stringify(body),
       skipCache: true,
     }),
+  /** Git repositories in a project folder on the device (itself first when it is one). */
+  listGitRepos: (body: { device_id: string; cwd: string }) =>
+    apiFetch<{ repos: string[] }>("/api/git/repos", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), skipCache: true,
+    }),
   /** Pull requests of the repo at `cwd` on the device (through its signed-in gh). */
   listPullRequests: (body: { device_id: string; cwd: string; state?: "open" | "closed" | "merged" | "all" }) =>
     apiFetch<{ prs: PullRequestSummary[] }>("/api/git/prs", {

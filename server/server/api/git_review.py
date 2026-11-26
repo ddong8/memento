@@ -1106,3 +1106,54 @@ async def git_pr_watch_checks(body: GitPrRequest, _user: User = Depends(get_curr
 
     notify_service.spawn(_watch_pr_checks(_user, body.device_id, body.cwd, body.number))
     return {"ok": True}
+
+
+# ── projects with several repositories ───────────────────────────────────────────────────────────
+
+class GitReposRequest(BaseModel):
+    device_id: str = Field(..., min_length=1)
+    cwd: str = Field(..., min_length=1)
+
+
+def repos_command(cwd: str, windows: bool) -> str:
+    """Lists the git repositories in `cwd` (itself, and up to two levels down), one root per line."""
+    if windows:
+        p = _ps_quote(cwd)
+        return (
+            f"$r = {p}; if (Test-Path (Join-Path $r '.git')) {{ $r }}; "
+            f"Get-ChildItem -LiteralPath $r -Directory -Recurse -Depth 2 -Force -Filter .git -ErrorAction SilentlyContinue | "
+            "Where-Object { $_.FullName -notmatch '\\\\node_modules\\\\' } | Select-Object -First 50 | ForEach-Object { $_.Parent.FullName }"
+        )
+    q = shlex.quote(cwd)
+    return f"cd {q} 2>/dev/null && find . -maxdepth 3 -name node_modules -prune -o -name .git -print 2>/dev/null | head -50"
+
+
+def parse_repo_roots(out: str, cwd: str, windows: bool) -> list[str]:
+    """Absolute repo roots from repos_command's output, `cwd` first when it is one, no duplicates."""
+    roots: list[str] = []
+    base = cwd.rstrip("/\\")
+    for line in out.splitlines():
+        s = line.strip()
+        if not s:
+            continue
+        if not windows:
+            # "./.git" -> cwd, "./web/.git" -> cwd/web
+            s = s[:-len("/.git")] if s.endswith("/.git") else s
+            s = base if s in (".", "") else f"{base}/{s[2:] if s.startswith('./') else s}"
+        if s not in roots:
+            roots.append(s)
+    roots.sort(key=lambda r: (r != base, r.lower()))
+    return roots
+
+
+@router.post("/repos")
+async def git_repos(body: GitReposRequest, db: AsyncSession = Depends(get_db), _user: User = Depends(get_current_user)):
+    """The git repositories in a project folder (a project may hold several: web, server, ...)."""
+    machine, candidates = await _resolve_device(db, body.device_id, _user)
+    windows = _is_windows_device(machine, _user, body.cwd)
+    code, out, err, transport = await _run_ephemeral_shell(candidates, body.cwd.strip(), repos_command(body.cwd.strip(), windows), timeout=20.0)
+    if transport == "offline":
+        raise HTTPException(status_code=503, detail="目标设备当前不在线")
+    if transport == "timeout":
+        raise HTTPException(status_code=504, detail="查找仓库超时")
+    return {"repos": parse_repo_roots(out, body.cwd.strip(), windows)}

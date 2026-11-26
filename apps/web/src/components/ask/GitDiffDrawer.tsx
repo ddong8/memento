@@ -89,7 +89,28 @@ export function GitDiffDrawer({
   const [deliverResult, setDeliverResult] = useState<GitDeliverResponse | null>(null);
   const [copiedSha, setCopiedSha] = useState(false);
 
-  const effectiveCwd = (initialScope?.repoRoot || cwd || "").trim();
+  // A project folder holding several repositories (web, server, ...): the one picked here
+  const [repos, setRepos] = useState<string[]>([]);
+  const [repoPick, setRepoPick] = useState("");
+  const effectiveCwd = (repoPick || initialScope?.repoRoot || cwd || "").trim();
+
+  useEffect(() => {
+    if (!open || !deviceId || !cwd || initialScope?.repoRoot) return;
+    let cancelled = false;
+    setRepoPick("");
+    api
+      .listGitRepos({ device_id: deviceId, cwd })
+      .then((r) => {
+        if (cancelled) return;
+        setRepos(r.repos);
+        // The folder isn't a repository itself but holds some: start on the first
+        if (r.repos.length && !r.repos.includes(cwd.replace(/[\\/]+$/, ""))) setRepoPick(r.repos[0]!);
+      })
+      .catch(() => setRepos([]));
+    return () => {
+      cancelled = true;
+    };
+  }, [open, deviceId, cwd, initialScope?.repoRoot]);
 
   const fetchDiff = useCallback(
     async (bRef: string, tRef: string) => {
@@ -362,9 +383,27 @@ export function GitDiffDrawer({
                   </span>
                 )}
               </div>
-              <div className="text-[11px] text-[var(--aurora-fg3)] truncate font-mono">
-                {[deviceName, diffData?.repo_root || effectiveCwd].filter(Boolean).join(" · ")}
-              </div>
+              {repos.length > 1 ? (
+                <select
+                  data-testid="git-repo-picker"
+                  value={effectiveCwd}
+                  onChange={(e) => {
+                    setRepoPick(e.target.value);
+                    setBaseRef("");
+                    setTargetRef("");
+                  }}
+                  className="max-w-full text-[11px] font-mono text-[var(--aurora-fg2)] bg-transparent border border-[var(--aurora-border)] rounded-md px-1.5 py-0.5 outline-none cursor-pointer"
+                  title={isZh ? "这个项目有多个仓库，选一个" : "This project has several repositories"}
+                >
+                  {repos.map((r) => (
+                    <option key={r} value={r}>{r.replace(cwd.replace(/[\\/]+$/, ""), "") || (isZh ? "（项目根目录）" : "(project root)")}</option>
+                  ))}
+                </select>
+              ) : (
+                <div className="text-[11px] text-[var(--aurora-fg3)] truncate font-mono">
+                  {[deviceName, diffData?.repo_root || effectiveCwd].filter(Boolean).join(" · ")}
+                </div>
+              )}
             </div>
           </div>
 

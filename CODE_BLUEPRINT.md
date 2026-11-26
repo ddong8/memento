@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `e5e94953` · Updated: `2026-11-27`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `5cbf02b5` · Updated: `2026-11-27`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -13,11 +13,11 @@
 - 类型 (Type): Monorepo (Workspaces)
 - 技术栈 (Stack): TypeScript/JavaScript, Python, Shell / Bash · React, Electron, Next.js, TailwindCSS, Model Context Protocol (MCP), FastAPI, SQLAlchemy, Celery
 - 基础设施 (Infra): PostgreSQL, pgvector (Vector DB), Redis, MinIO / S3 Object Storage, Celery Task Queue
-- 规模 (Scale): 9 个子系统 · 44 组 API 路由 / 345 个接口 · 39 个前端页面 · 42 个数据模型 · 35 个服务模块 · 285 个测试文件
+- 规模 (Scale): 9 个子系统 · 44 组 API 路由 / 346 个接口 · 39 个前端页面 · 42 个数据模型 · 35 个服务模块 · 285 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `e5e94953` (2026-11-27): feat(preview): 代码抽屉加「预览」：列出设备上正在运行的开发服务，经服务器中转在沙箱 iframe 里打开，并升级至 v1.0.165
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 77（✅ 77 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 12 · 状态 10 · 最近提交碰到 `R-ENT-DEVICE-POLICY`, `R-WS-EXEC-STOP`, `R-APP-NAME`, `R-DOCS-WRITE-LIGHT`, `R-ALL-TYPESCRIPT`, `R-AGY-APP-CSRF`
+- 最近改动 (Latest): `5cbf02b5` (2026-11-27): feat(schedule): 工作待办加「定时任务」：智能体按每小时/每天/每周在指定设备上运行，结果记进记忆并推送到手机
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 77（✅ 77 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 12 · 状态 10 · 最近提交碰到 `R-DOCS-WRITE-LIGHT`, `R-ENT-DEVICE-POLICY`, `R-WS-EXEC-STOP`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `R-AGY-APP-CSRF`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -31,7 +31,7 @@
 | 8. Development & Verification Commands | L699-L716 |
 | 9. Recent Architectural Evolutions | L718-L725 |
 | 10. Key Environment Variables & Configuration | L727-L739 |
-| 11. 业务蓝图核对 (Business Blueprint Check) | L741-L749 |
+| 11. 业务蓝图核对 (Business Blueprint Check) | L741-L750 |
 
 ## 1. Project Overview & Tech Stack
 
@@ -233,7 +233,7 @@ flowchart TD
 - `POST /api/git/deliver`
 - `POST /api/git/suggest-message`
 - `POST /api/git/prs`
-- _... (3 more endpoints)_
+- _... (4 more endpoints)_
 
 #### `/api/health` (health.py)
 
@@ -685,7 +685,7 @@ erDiagram
 
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
-- [`deploy/k8s/studio.yaml`](deploy/k8s/studio.yaml) (16 commits)
+- [`deploy/k8s/studio.yaml`](deploy/k8s/studio.yaml) (15 commits)
 - [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (12 commits)
 - [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (12 commits)
 - [`apps/web/src/app/studio/page.tsx`](apps/web/src/app/studio/page.tsx) (8 commits)
@@ -717,12 +717,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `5cbf02b5` (2026-11-27): feat(schedule): 工作待办加「定时任务」：智能体按每小时/每天/每周在指定设备上运行，结果记进记忆并推送到手机
 - `e5e94953` (2026-11-27): feat(preview): 代码抽屉加「预览」：列出设备上正在运行的开发服务，经服务器中转在沙箱 iframe 里打开，并升级至 v1.0.165
 - `6b2573c2` (2026-11-26): feat(daemon): Codex 与 Antigravity 也支持权限模式和审批卡片，问答页对这些智能体都显示权限选择，并升级至 v1.0.164
 - `a1119cc3` (2026-11-26): fix(web): 渲染预算测试改在 effect 里挂全局钩子，修掉渲染期间改全局变量的 lint 错误（CI 因此失败、1.0.163 部署未上线）
 - `ad1445e5` (2026-11-26): test(web): 流式输出渲染预算：回复输出时每来一个字只允许当前这一轮重渲染，前面已完成的回答一次都不重渲染（按次数计，CI 上稳定）
 - `c09f44c6` (2026-11-26): feat(mcp,terminal): MCP 加派活工具让外部智能体在用户设备上跑任务，终端在没有编译器的 Linux 上也能用，问答页补快捷键，并升级至 v1.0.163
-- `0b1d1b84` (2026-11-26): feat(acp): 通用 ACP 适配器，接入 OpenCode、Gemini CLI、Cursor、Kiro、Copilot CLI，并升级至 v1.0.162
 
 ## 10. Key Environment Variables & Configuration
 
@@ -745,6 +745,7 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ### 最近提交碰到的业务条目（改动后复查它们还成不成立）
 
+- `5cbf02b5` feat(schedule): 工作待办加「定时任务」：智能体按每小时/每天/每周在指定设备上运行，结果记进记忆并推送到手机 → `R-DOCS-WRITE-LIGHT`
 - `e5e94953` feat(preview): 代码抽屉加「预览」：列出设备上正在运行的开发服务，经服务器中转在沙箱 iframe 里打开，并升级至 v1.0.165 → `R-ENT-DEVICE-POLICY`, `R-WS-EXEC-STOP`, `R-APP-NAME`, `R-DOCS-WRITE-LIGHT`, `R-ALL-TYPESCRIPT`
 - `6b2573c2` feat(daemon): Codex 与 Antigravity 也支持权限模式和审批卡片，问答页对这些智能体都显示权限选择，并升级至 v1.0.164 → `R-AGY-APP-CSRF`, `R-ENT-DEVICE-POLICY`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`
 

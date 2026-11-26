@@ -82,3 +82,13 @@ def test_the_ci_watcher_waits_out_pending_checks_then_pushes_once():
     assert pushed.await_count == 1
     assert pushed.await_args.args[2] == "CI 通过"
     assert "PR #9 加权限模式" in pushed.await_args.args[3]
+
+
+def test_repos_in_a_project_folder_cwd_first_node_modules_skipped():
+    out = "./.git\n./web/.git\n./server/.git\n./web/.git\n"
+    assert git_review.parse_repo_roots(out, "/w/proj/", False) == ["/w/proj", "/w/proj/server", "/w/proj/web"]
+    assert git_review.parse_repo_roots("./api/.git\n", "/w/mono", False) == ["/w/mono/api"]
+    cmd = git_review.repos_command("/w/my proj", False)
+    assert "'/w/my proj'" in cmd and "node_modules -prune" in cmd and "-maxdepth 3" in cmd
+    win = git_review.parse_repo_roots("C:\\code\\proj\nC:\\code\\proj\\web\n", "C:\\code\\proj", True)
+    assert win == ["C:\\code\\proj", "C:\\code\\proj\\web"]

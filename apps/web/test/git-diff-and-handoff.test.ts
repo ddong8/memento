@@ -102,3 +102,14 @@ describe("AI-written commit message", () => {
     expect(client).toContain('"/api/git/suggest-message"');
   });
 });
+
+describe("projects with several repositories", () => {
+  it("the code drawer offers a repository picker and works on the one picked", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const drawer = fs.readFileSync(path.join(__dirname, "../src/components/ask/GitDiffDrawer.tsx"), "utf8");
+    expect(drawer).toContain('data-testid="git-repo-picker"');
+    expect(drawer).toContain('const effectiveCwd = (repoPick || initialScope?.repoRoot || cwd || "").trim();');
+    expect(drawer).toContain("api\n      .listGitRepos({ device_id: deviceId, cwd })".replace("\\n", "\n"));
+  });
+});

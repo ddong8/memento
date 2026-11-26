@@ -103,6 +103,8 @@ describe("frosted glass architecture", () => {
     // tab bar shrunk to a pill: the composer moves down beside it
     expect(css).toContain("html.memento-glass-tabbar.memento-tabbar-compact footer[data-ask-footer=\"true\"]");
     expect(css).toContain("calc(10px + var(--memento-tabbar-side, 0px))");
+    // the app only shrinks the bar on pages that declare they can make room for the pill
+    expect(css).toContain("--memento-tabbar-compact-ok: 1;");
     // phones: device as a dot, model without the vendor prefix, effort/session in the panel
     expect(ask).toContain('selectedModel.replace(/^(claude|gpt|gemini)-/i, "")');
     expect(ask).toContain('className="hidden sm:inline-flex"\n                      style={{\n                        alignItems: "center",');

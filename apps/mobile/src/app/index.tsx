@@ -73,7 +73,15 @@ const INJECTED_CLIENT_HELPERS = `(() => {
   // the rubber-band at either end is ignored. The shell keeps the current state in window.__memento_tabbar_compact.
   const lastScrollTops = new WeakMap();
   let scrollRun = 0;
+  const pageMakesRoomForPill = () => {
+    try {
+      return getComputedStyle(document.documentElement).getPropertyValue("--memento-tabbar-compact-ok").trim() === "1";
+    } catch (e) {
+      return false;
+    }
+  };
   const setTabBarCompact = (compact) => {
+    if (compact && !pageMakesRoomForPill()) return;
     if (!!window.__memento_tabbar_compact === compact) return;
     window.__memento_tabbar_compact = compact;
     if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
@@ -819,6 +827,7 @@ export default function WebShell() {
               dark={dark}
               blurTarget={blurTargetRef}
               variant="tabbar"
+              dense={compactTabBar}
               style={[styles.tabBarDock, compactTabBar ? { borderRadius: COMPACT_TAB_SIZE / 2 } : null]}
             >
               {compactTabBar ? (

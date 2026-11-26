@@ -836,6 +836,11 @@ html.memento-glass-tabbar[data-glass="on"] .ask-footer-card.memento-glass-chrome
 html.memento-glass-tabbar[data-glass="on"][data-theme="dark"] .ask-footer-card.memento-glass-chrome {
   background: rgba(20, 20, 30, 0.86) !important;
 }
+/* The app only shrinks its tab bar when the page says it can make room for the pill: a stale cached page or an
+   older server without the rule below keeps the full bar (otherwise the pill sat over text the composer didn't clear) */
+html.memento-glass-tabbar {
+  --memento-tabbar-compact-ok: 1;
+}
 /* Tab bar shrunk to a pill at the bottom-left while scrolling down (app 1.0.159 build 17+): the composer moves down beside it */
 html.memento-glass-tabbar.memento-tabbar-compact footer[data-ask-footer="true"] {
   padding-left: calc(10px + var(--memento-tabbar-side, 0px)) !important;

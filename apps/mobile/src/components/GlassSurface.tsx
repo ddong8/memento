@@ -41,6 +41,9 @@ export interface GlassSurfaceProps {
   dark: boolean;
   blurTarget?: RefObject<View | null>;
   variant?: "tabbar" | "card";
+  /** A small surface with text right behind it (the shrunk tab pill): a much denser tint, or the glass lens
+   *  magnifies the words underneath into the icon */
+  dense?: boolean;
   style?: StyleProp<ViewStyle>;
   children: ReactNode;
 }
@@ -50,6 +53,7 @@ export function GlassSurface({
   dark,
   blurTarget,
   variant = "tabbar",
+  dense = false,
   style,
   children,
 }: GlassSurfaceProps) {
@@ -84,7 +88,11 @@ export function GlassSurface({
         glassEffectStyle="regular"
         colorScheme={dark ? "dark" : "light"}
         isInteractive={variant === "tabbar"}
-        tintColor={dark ? "rgba(18, 18, 30, 0.24)" : "rgba(255, 255, 255, 0.22)"}
+        tintColor={
+          dense
+            ? (dark ? "rgba(20, 20, 30, 0.86)" : "rgba(255, 255, 255, 0.86)")
+            : (dark ? "rgba(18, 18, 30, 0.24)" : "rgba(255, 255, 255, 0.22)")
+        }
         style={[styles.liquidBase, style]}
       >
         {children}
@@ -104,7 +112,9 @@ export function GlassSurface({
           style={[
             StyleSheet.absoluteFill,
             {
-              backgroundColor: dark ? "rgba(18, 18, 28, 0.34)" : "rgba(255, 255, 255, 0.38)",
+              backgroundColor: dense
+                ? (dark ? "rgba(20, 20, 30, 0.86)" : "rgba(255, 255, 255, 0.86)")
+                : (dark ? "rgba(18, 18, 28, 0.34)" : "rgba(255, 255, 255, 0.38)"),
               borderTopWidth: StyleSheet.hairlineWidth,
               borderTopColor: specularTop,
             },
@@ -129,7 +139,9 @@ export function GlassSurface({
         style={[
           StyleSheet.absoluteFill,
           {
-            backgroundColor: dark ? "rgba(20, 20, 30, 0.56)" : "rgba(255, 255, 255, 0.66)",
+            backgroundColor: dense
+              ? (dark ? "rgba(20, 20, 30, 0.88)" : "rgba(255, 255, 255, 0.88)")
+              : (dark ? "rgba(20, 20, 30, 0.56)" : "rgba(255, 255, 255, 0.66)"),
             borderTopWidth: StyleSheet.hairlineWidth,
             borderTopColor: specularTop,
           },

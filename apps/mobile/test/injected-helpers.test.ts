@@ -103,10 +103,12 @@ describe("native shell helpers injected into the web view", () => {
       observe() {}
       disconnect() {}
     }
+    let pageSupportsPill = "1";
     new Function(
-      "document", "window", "MutationObserver", "history", "location", "localStorage", "navigator", "setTimeout", "requestAnimationFrame",
+      "document", "window", "MutationObserver", "history", "location", "localStorage", "navigator", "setTimeout", "requestAnimationFrame", "getComputedStyle",
       helperScript(),
-    )(doc, win, NoopObserver, win.history, win.location, { getItem: () => null, setItem: () => undefined }, {}, () => 0, () => 0);
+    )(doc, win, NoopObserver, win.history, win.location, { getItem: () => null, setItem: () => undefined }, {}, () => 0, () => 0,
+      () => ({ getPropertyValue: () => pageSupportsPill }));
 
     const list = { nodeType: 1, scrollTop: 0, scrollHeight: 4000, clientHeight: 700 };
     const scrollTo = (top: number) => {
@@ -132,6 +134,12 @@ describe("native shell helpers injected into the web view", () => {
     listeners.scroll({ target: textarea });
     textarea.scrollTop = 200;
     listeners.scroll({ target: textarea });
+    expect(tabBarStates()).toEqual([true, false, true, false]);
+
+    // A page (stale cache, older server) whose CSS can't make room for the pill keeps the full tab bar
+    pageSupportsPill = "";
+    scrollTo(100);
+    scrollTo(300);
     expect(tabBarStates()).toEqual([true, false, true, false]);
   });
 });

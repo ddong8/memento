@@ -1194,6 +1194,69 @@ export const api = {
       method: "DELETE",
     });
   },
+  handoffAskConversation: (
+    id: string,
+    body: {
+      target_execution_mode: string;
+      target_device_id?: string;
+      target_model?: string;
+      target_effort?: string;
+      instruction?: string;
+      max_recent_turns?: number;
+      title?: string;
+    },
+  ) => {
+    invalidateApiCache(`/api/ask/conversations`);
+    return apiFetch<ConversationHandoffResponse>(
+      `/api/ask/conversations/${encodeURIComponent(id)}/handoff`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      },
+    );
+  },
+  getGitDiff: (body: {
+    device_id: string;
+    cwd: string;
+    base_ref?: string;
+    target_ref?: string;
+    file_path?: string;
+  }) =>
+    apiFetch<GitDiffResponse>("/api/git/diff", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      skipCache: true,
+    }),
+  restoreGitCheckpoint: (body: {
+    device_id: string;
+    cwd: string;
+    target_ref: string;
+  }) =>
+    apiFetch<GitRestoreResponse>("/api/git/checkpoint/restore", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      skipCache: true,
+    }),
+  deliverGitChanges: (body: {
+    device_id: string;
+    cwd: string;
+    message: string;
+    files?: string[];
+    push?: boolean;
+    create_pr?: boolean;
+    pr_title?: string;
+    pr_body?: string;
+    pr_base?: string;
+  }) =>
+    apiFetch<GitDeliverResponse>("/api/git/deliver", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      skipCache: true,
+    }),
   listAskRuns: (recentSeconds = 0) => listAskRunsShared(recentSeconds),
   /** The conversation's run; rejects on a network error, or with AbortError once `signal` aborts. */
   getAskRunStatus: (convId: string, signal?: AbortSignal) => getAskRunStatusShared(convId, signal),
@@ -1657,4 +1720,103 @@ export interface LLMTestResponse {
   error?: string;
   provider?: string;
   model?: string;
+}
+
+export interface GitDiffLine {
+  type: "context" | "add" | "del";
+  old_line: number | null;
+  new_line: number | null;
+  content: string;
+}
+
+export interface GitDiffHunk {
+  header: string;
+  old_start: number;
+  old_lines: number;
+  new_start: number;
+  new_lines: number;
+  lines: GitDiffLine[];
+}
+
+export interface GitDiffFile {
+  path: string;
+  old_path?: string;
+  status: string;
+  additions: number;
+  deletions: number;
+  binary: boolean;
+  truncated?: boolean;
+  hunks: GitDiffHunk[];
+}
+
+export interface GitCheckpointSummary {
+  id: string;
+  before_ref: string;
+  after_ref: string;
+  created_at?: string;
+}
+
+export interface GitDiffResponse {
+  ok: boolean;
+  error?: string;
+  repo_root?: string;
+  branch?: string;
+  head_sha?: string;
+  is_dirty?: boolean;
+  base_ref?: string;
+  target_ref?: string;
+  total_files?: number;
+  total_additions?: number;
+  total_deletions?: number;
+  truncated?: boolean;
+  files?: GitDiffFile[];
+  checkpoints?: GitCheckpointSummary[];
+}
+
+export interface GitRestoreResponse {
+  ok: boolean;
+  error?: string;
+  repo_root?: string;
+  branch?: string;
+  restored_ref?: string;
+  backup_ref?: string;
+  files_restored?: number;
+  files_removed?: number;
+}
+
+export interface GitDeliverResponse {
+  ok: boolean;
+  error?: string;
+  repo_root?: string;
+  branch?: string;
+  commit_sha?: string;
+  pushed?: boolean;
+  push_output?: string;
+  pr_url?: string;
+  pr_error?: string;
+  summary?: string;
+}
+
+export interface ConversationHandoffOrigin {
+  conversation_id: string;
+  title?: string;
+  execution_mode?: string;
+  session_id?: string;
+  handed_off_at?: string;
+  checkpoint?: {
+    id?: string;
+    repo_root?: string;
+    branch?: string;
+    before_ref?: string;
+    after_ref?: string;
+    files_changed?: number;
+    insertions?: number;
+    deletions?: number;
+  };
+}
+
+export interface ConversationHandoffResponse {
+  conversation: AskConversationDetail;
+  handoff_prompt: string;
+  latest_checkpoint?: ConversationHandoffOrigin["checkpoint"] | null;
 }

@@ -70,6 +70,7 @@ import { IdleCompactor, matchingBuild } from "./claude-cache.js";
 import { fetchClaudeSession, findClaudeSession } from "./session-sync.js";
 import { executorDenyReason, executorOnlyEdits, SourceExecBridge, sourceExecHint } from "./source-exec.js";
 import { TaskWorktree } from "./worktree.js";
+import { TurnCheckpoint } from "./git-checkpoint.js";
 import { managedPolicy, pathAllowed, taskRefusal } from "./managed-policy.js";
 import { finishWorkspace, parseWorkspaceSpec, prepareWorkspace, toSourcePaths, type Relay, type WorkspaceRun } from "./workspace-sync.js";
 
@@ -742,6 +743,8 @@ export class TaskRunner {
     let claudeSettings: string | undefined;
     let consoleEncoding: string | null | undefined;
     let worktree: TaskWorktree | undefined;
+    let turnCheckpoint: TurnCheckpoint | null = null;
+    let checkpointFinished = false;
     /** Added to the agent's environment (the WorkBuddy gateway to use). */
     const env0: NodeJS.ProcessEnv = {};
     /** Set for Codex tasks: memento's runner and the Codex binary it drives. */
@@ -884,6 +887,12 @@ export class TaskRunner {
         } else {
           this.emitEvent(taskId, { kind: "worktree", status: "skipped", reason: made.reason });
         }
+      }
+
+      // Capture a hidden Git ref snapshot (`refs/memento/checkpoints/<id>/before`) before the agent runs
+      // so every code-editing turn gets an isolated diff and safe one-click revert without touching HEAD.
+      if (workDir && !wsRun) {
+        turnCheckpoint = await TurnCheckpoint.start(workDir, taskId, await executionEnvironment()).catch(() => null);
       }
 
       if (binary.includes("claude")) {
@@ -1355,6 +1364,16 @@ export class TaskRunner {
           reportedSid ??
           cleanSessionId(/thread[_-]id:\s*([0-9a-fA-F-]+)/i.exec(fullOut)?.[1]));
 
+      if (turnCheckpoint && !checkpointFinished) {
+        checkpointFinished = true;
+        try {
+          const cp = await turnCheckpoint.finish(await executionEnvironment());
+          if (cp) this.emitEvent(taskId, cp as unknown as AgentEvent);
+        } catch (e) {
+          this.log(`Turn checkpoint wrap-up failed for ${taskId}: ${e instanceof Error ? e.message : e}`);
+        }
+      }
+
       if (worktree) {
         try {
           const done = await worktree.finish(await executionEnvironment());
@@ -1470,6 +1489,13 @@ export class TaskRunner {
       this.taskSessions.delete(taskId);
       // Its idle time starts now.
       if (gatewayFile) void touchWorkbuddyGateway(gatewayFile).catch(() => {});
+      if (turnCheckpoint && !checkpointFinished) {
+        checkpointFinished = true;
+        const cp = turnCheckpoint;
+        void executionEnvironment()
+          .then((env) => cp.finish(env))
+          .catch(() => {});
+      }
       if (wsRun) {
         // Stopped or broke off before the wrap-up: whatever it changed is still kept on the source
         const run = wsRun;

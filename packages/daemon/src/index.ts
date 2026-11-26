@@ -8,6 +8,7 @@ export { Daemon, type DaemonStatus } from "./daemon.js";
 export * from "./discovery.js";
 export * from "./exec-env.js";
 export * from "./file-path.js";
+export * from "./git-checkpoint.js";
 export * from "./ingest.js";
 export * from "./local-api.js";
 export * from "./mcp-register.js";

@@ -32,8 +32,11 @@ export const AskTopBar = memo(function AskTopBar({
   quotasData,
   modelQuota,
   selecting,
+  canReviewGit,
   onOpenHistory,
   onOpenQuota,
+  onOpenGitDiff,
+  onOpenHandoff,
   onNewChat,
   onToggleSelectTurns,
   onExportMarkdown,
@@ -52,8 +55,12 @@ export const AskTopBar = memo(function AskTopBar({
   modelQuota?: ModelQuota;
   /** Picking turns to share or export */
   selecting: boolean;
+  /** Whether a concrete device + working directory are active for Git diff review */
+  canReviewGit?: boolean;
   onOpenHistory: () => void;
   onOpenQuota: () => void;
+  onOpenGitDiff?: () => void;
+  onOpenHandoff?: () => void;
   onNewChat: () => void;
   onToggleSelectTurns: () => void;
   onExportMarkdown: () => void;
@@ -98,9 +105,17 @@ export const AskTopBar = memo(function AskTopBar({
       items.push({ type: "separator" });
     }
     if (activeConversationId) {
+      if (canReviewGit && onOpenGitDiff) {
+        items.push({ id: "git_diff", label: isZh ? "代码审阅与 Git 交付" : "Diff Review & Git" });
+      }
+      if (turnCount > 0 && onOpenHandoff) {
+        items.push({ id: "handoff", label: isZh ? "跨智能体移交任务" : "Handoff to Another Agent" });
+      }
       items.push({ id: "select", label: isZh ? "批量多选消息" : "Select messages", checked: selecting });
       items.push({ id: "export", label: isZh ? "导出 Markdown" : "Export Markdown" });
       items.push({ id: "share", label: isZh ? "分享完整会话" : "Share conversation" });
+    } else if (canReviewGit && onOpenGitDiff) {
+      items.push({ id: "git_diff", label: isZh ? "代码审阅与 Git 交付" : "Diff Review & Git" });
     }
     if (!items.some((it) => !("type" in it))) return;
     const id = await popupNativeMenu(items, moreRef.current);
@@ -112,6 +127,8 @@ export const AskTopBar = memo(function AskTopBar({
     else if (id === "studio") openStudio();
     else if (id === "quota") onOpenQuota();
     else if (id === "theme") toggleTheme();
+    else if (id === "git_diff") onOpenGitDiff?.();
+    else if (id === "handoff") onOpenHandoff?.();
     else if (id === "select") onToggleSelectTurns();
     else if (id === "export") onExportMarkdown();
     else if (id === "share") onShare();
@@ -225,6 +242,40 @@ export const AskTopBar = memo(function AskTopBar({
             >
               <span className={inspector?.isOpen ? "hidden 2xl:inline font-medium" : "hidden xl:inline font-medium"}>
                 {isZh ? "演播台" : "Studio"}
+              </span>
+            </Btn>
+          </div>
+        )}
+
+        {/* 代码审阅与 Git 交付入口（桌面端常驻，移动端收拢至更多菜单） */}
+        {canReviewGit && onOpenGitDiff && (
+          <div className="hidden md:inline-flex shrink-0">
+            <Btn
+              variant="glass"
+              size="sm"
+              icon="code"
+              onClick={onOpenGitDiff}
+              aria-label={isZh ? "代码审阅与 Git 交付" : "Diff Review & Git"}
+            >
+              <span className={inspector?.isOpen ? "hidden 2xl:inline font-medium" : "hidden xl:inline font-medium"}>
+                {isZh ? "代码审阅" : "Diff"}
+              </span>
+            </Btn>
+          </div>
+        )}
+
+        {/* 跨智能体移交入口（有对话轮次后出现，桌面端展示，移动端收拢至更多菜单） */}
+        {activeConversationId && turnCount > 0 && onOpenHandoff && (
+          <div className="hidden md:inline-flex shrink-0">
+            <Btn
+              variant="glass"
+              size="sm"
+              icon="arrow_right"
+              onClick={onOpenHandoff}
+              aria-label={isZh ? "跨智能体移交任务" : "Handoff to another agent"}
+            >
+              <span className="hidden 2xl:inline font-medium">
+                {isZh ? "移交" : "Handoff"}
               </span>
             </Btn>
           </div>
@@ -476,6 +527,34 @@ export const AskTopBar = memo(function AskTopBar({
                 </button>
 
                 <div className="my-1 border-t border-[var(--aurora-border)] sm:hidden" />
+
+                {canReviewGit && onOpenGitDiff && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMoreMenuOpen(false);
+                      onOpenGitDiff();
+                    }}
+                    className="px-3 py-2 text-xs flex items-center gap-2.5 text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)] transition-colors text-left md:hidden"
+                  >
+                    <Icon name="code" size={14} className="text-[var(--aurora-accent)]" />
+                    <span>{isZh ? "代码审阅与 Git 交付" : "Diff Review & Git"}</span>
+                  </button>
+                )}
+
+                {activeConversationId && turnCount > 0 && onOpenHandoff && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMoreMenuOpen(false);
+                      onOpenHandoff();
+                    }}
+                    className="px-3 py-2 text-xs flex items-center gap-2.5 text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)] transition-colors text-left md:hidden"
+                  >
+                    <Icon name="arrow_right" size={14} className="text-[var(--aurora-accent)]" />
+                    <span>{isZh ? "跨智能体移交任务" : "Handoff to Another Agent"}</span>
+                  </button>
+                )}
 
                 {activeConversationId && (
                   <>

@@ -58,6 +58,20 @@ export type TaskEvent = { at?: string } & (
       file_count?: number;
       reason?: string;
     }
+  /** Hidden Git ref snapshot (`refs/memento/checkpoints/<id>/...`) captured around a turn for diff & revert. */
+  | {
+      kind: "checkpoint";
+      id: string;
+      status: "created" | "unchanged";
+      repo_root?: string;
+      branch?: string;
+      before_ref?: string;
+      after_ref?: string;
+      files_changed?: number;
+      insertions?: number;
+      deletions?: number;
+      files?: Array<{ path: string; status?: string; additions?: number; deletions?: number }>;
+    }
   /**
    * The code is on another device: synced from it before the run (`syncing` → `synced`), what the
    * agent changed sent back after it (`applied` into its working tree, `conflict` → kept on `branch`,

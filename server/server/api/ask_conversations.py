@@ -894,6 +894,248 @@ async def reset_ask_conversation_compact(
     return {"ok": True}
 
 
+_HANDOFF_MODES = {
+    "ai": "AI 编排",
+    "claude": "Claude Code",
+    "codex": "Codex",
+    "antigravity": "Antigravity",
+    "workbuddy": "WorkBuddy",
+}
+
+
+class HandoffConversationRequest(BaseModel):
+    target_execution_mode: str
+    target_device_id: str | None = None
+    target_model: str | None = None
+    target_effort: str | None = None
+    instruction: str | None = None
+    max_recent_turns: int = 6
+    title: str | None = None
+
+
+def _extract_latest_checkpoint(turns: list[dict]) -> dict | None:
+    """Find the most recent hidden Git checkpoint emitted during a conversation."""
+    for turn in reversed(turns):
+        if not isinstance(turn, dict):
+            continue
+        event_lists: list[list] = []
+        for key in ("events", "task_events"):
+            evs = turn.get(key)
+            if isinstance(evs, list):
+                event_lists.append(evs)
+        for tc in turn.get("tool_calls") or []:
+            if isinstance(tc, dict):
+                res = tc.get("result")
+                if isinstance(res, dict) and isinstance(res.get("events"), list):
+                    event_lists.append(res["events"])
+        for evs in reversed(event_lists):
+            for ev in reversed(evs):
+                if isinstance(ev, dict) and ev.get("kind") == "checkpoint" and ev.get("status") == "created":
+                    return {
+                        "id": ev.get("id", ""),
+                        "repo_root": ev.get("repo_root", ""),
+                        "branch": ev.get("branch", ""),
+                        "before_ref": ev.get("before_ref", ""),
+                        "after_ref": ev.get("after_ref", ""),
+                        "files_changed": int(ev.get("files_changed") or 0),
+                        "insertions": int(ev.get("insertions") or 0),
+                        "deletions": int(ev.get("deletions") or 0),
+                        "files": (ev.get("files") or [])[:25],
+                    }
+    return None
+
+
+def _clip_handoff_text(raw: str, limit: int) -> str:
+    s = (raw or "").strip()
+    if len(s) <= limit:
+        return s
+    return f"{s[:limit]}…（已截断，原文共 {len(s)} 字）"
+
+
+def _build_handoff_prompt(
+    *,
+    src_title: str,
+    src_mode: str,
+    cwd: str,
+    turns: list[dict],
+    latest_checkpoint: dict | None,
+    instruction: str | None,
+    max_recent_turns: int,
+) -> str:
+    lines: list[str] = [
+        "【跨智能体任务移交】",
+        f"1) 来源会话：《{src_title or '未命名对话'}》（原执行模式：{_HANDOFF_MODES.get(src_mode, src_mode)}）",
+    ]
+    if cwd:
+        lines.append(f"2) 工作目录：{cwd}")
+    if latest_checkpoint:
+        cp_files = [str(f.get("path", "")) for f in (latest_checkpoint.get("files") or []) if isinstance(f, dict) and f.get("path")]
+        file_preview = "、".join(cp_files[:12]) + (f" 等 {len(cp_files)} 个文件" if len(cp_files) > 12 else "")
+        lines.append(
+            f"3) 最近代码检查点：分支 {latest_checkpoint.get('branch') or 'HEAD'} · "
+            f"{latest_checkpoint.get('files_changed', 0)} 个文件 "
+            f"(+{latest_checkpoint.get('insertions', 0)} -{latest_checkpoint.get('deletions', 0)})"
+            + (f"；改动文件：{file_preview}" if file_preview else "")
+        )
+        if latest_checkpoint.get("before_ref") and latest_checkpoint.get("after_ref"):
+            lines.append(
+                f"   Git 隐藏检查点引用：{latest_checkpoint['before_ref']} -> {latest_checkpoint['after_ref']}"
+            )
+
+    recent = [t for t in turns if isinstance(t, dict)][-max_recent_turns:]
+    if recent:
+        lines.append("")
+        lines.append(f"【前序对话关键脉络（最近 {len(recent)} 轮）】")
+        total_chars = 0
+        for idx, t in enumerate(recent, start=1):
+            role = str(t.get("role") or "")
+            q = str(t.get("question") or (t.get("content") if role == "user" else "") or "").strip()
+            a = str(t.get("answer") or (t.get("content") if role == "assistant" else "") or "").strip()
+            block_parts: list[str] = []
+            if q:
+                block_parts.append(f"用户：{_clip_handoff_text(q, 900)}")
+            if a:
+                block_parts.append(f"智能体：{_clip_handoff_text(a, 1400)}")
+            if not block_parts:
+                continue
+            block = f"{idx}) " + "\n   ".join(block_parts)
+            if total_chars + len(block) > 9000:
+                break
+            lines.append(block)
+            total_chars += len(block)
+
+    lines.append("")
+    lines.append("【移交后的下一步指令】")
+    custom = (instruction or "").strip()
+    if custom:
+        lines.append(custom)
+    else:
+        lines.append("请先基于上述前序脉络快速核对当前工作区代码改动（可用 git status / git diff），然后无缝接续推进未完成的工作。")
+    return "\n".join(lines)
+
+
+@router.post("/conversations/{conv_id}/handoff")
+async def handoff_conversation(
+    conv_id: str,
+    body: HandoffConversationRequest,
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
+):
+    """Explicitly hand off an active conversation to another agent by creating a new linked
+    conversation with a structured context snapshot (preserves R-CONFIG-LOCK on the source thread)."""
+    try:
+        cid = uuid.UUID(conv_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid conversation ID")
+
+    target_mode = (body.target_execution_mode or "").strip().lower()
+    if target_mode not in _HANDOFF_MODES:
+        raise HTTPException(status_code=400, detail=f"不支持的移交目标模式：{target_mode}")
+
+    cond = (AskConversation.id == cid) & (
+        (AskConversation.user_id == _user.id) | (AskConversation.user_id.is_(None))
+    )
+    src = (await db.execute(select(AskConversation).where(cond))).scalars().first()
+    if not src:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    src_cfg, inferred = infer_conversation_config(src)
+    src_mode = str(src_cfg.get("execution_mode") or "ai").strip().lower()
+    src_title = (src.title or "未命名对话").strip()
+    src_turns = list(src.turns or [])
+
+    eff_cwd = (src.cwd or src_cfg.get("cwd") or inferred.get("cwd") or "").strip()
+    eff_device_id = (
+        (body.target_device_id or "").strip()
+        or (await resolve_concrete_device_for_conv(db, src, src_cfg, inferred) or "")
+        or (src.device_id or src_cfg.get("device_id") or "")
+    ).strip()
+    eff_project_id = str(src_cfg.get("project_id") or "").strip()
+    eff_source_device_id = str(src_cfg.get("source_device_id") or "").strip()
+
+    latest_checkpoint = _extract_latest_checkpoint(src_turns)
+    max_recent = max(2, min(int(body.max_recent_turns or 6), 12))
+    handoff_prompt = _build_handoff_prompt(
+        src_title=src_title,
+        src_mode=src_mode,
+        cwd=eff_cwd,
+        turns=src_turns,
+        latest_checkpoint=latest_checkpoint,
+        instruction=body.instruction,
+        max_recent_turns=max_recent,
+    )
+
+    now_utc = datetime.now(timezone.utc)
+    target_label = _HANDOFF_MODES[target_mode]
+    base_title = re.sub(r"\s*·\s*移交\s+.*$", "", src_title).strip() or src_title
+    new_title = (body.title or f"{base_title} · 移交 {target_label}").strip()[:120]
+
+    new_cfg: dict = {
+        "execution_mode": target_mode,
+        "model": (body.target_model or "").strip(),
+        "effort": (body.target_effort or "").strip(),
+        "project_id": eff_project_id,
+        "device_id": eff_device_id,
+        "cwd": eff_cwd,
+        "session_id": "",
+        "worktree": bool(src_cfg.get("worktree", False)),
+        "source_device_id": eff_source_device_id,
+        "compact_mode": False,
+        "handoff_from": {
+            "conversation_id": str(src.id),
+            "title": src_title,
+            "execution_mode": src_mode,
+            "session_id": str(src_cfg.get("session_id") or ""),
+            "handed_off_at": now_utc.isoformat(),
+            **({"checkpoint": latest_checkpoint} if latest_checkpoint else {}),
+        },
+    }
+
+    new_conv = AskConversation(
+        user_id=_user.id,
+        title=new_title,
+        device_id=eff_device_id or None,
+        cwd=eff_cwd or None,
+        config=new_cfg,
+        turns=[],
+        message_count=0,
+        created_at=now_utc,
+        updated_at=now_utc,
+    )
+    db.add(new_conv)
+    await db.commit()
+    await db.refresh(new_conv)
+    await bust_conv_list(_user.id)
+
+    proj_title_val = await lookup_project_title(db, eff_project_id)
+    return {
+        "conversation": {
+            "id": str(new_conv.id),
+            "title": new_conv.title,
+            "turns": [],
+            "total_turns": 0,
+            "has_more": False,
+            "offset": 0,
+            "device_id": new_conv.device_id,
+            "cwd": new_conv.cwd,
+            "execution_mode": target_mode,
+            "model": new_cfg["model"],
+            "effort": new_cfg["effort"],
+            "project_id": eff_project_id,
+            "project_title": proj_title_val or "",
+            "session_id": "",
+            "worktree": bool(new_cfg["worktree"]),
+            "source_device_id": eff_source_device_id,
+            "compact_mode": False,
+            "config": new_cfg,
+            "created_at": new_conv.created_at.isoformat() if new_conv.created_at else None,
+            "updated_at": new_conv.updated_at.isoformat() if new_conv.updated_at else None,
+        },
+        "handoff_prompt": handoff_prompt,
+        "latest_checkpoint": latest_checkpoint,
+    }
+
+
 @router.delete("/conversations/{conv_id}")
 async def delete_conversation(
     conv_id: str,

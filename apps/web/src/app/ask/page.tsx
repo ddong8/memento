@@ -26,9 +26,18 @@ const ShareModal = dynamic(
   () => import("@/components/ShareModal").then((m) => m.ShareModal),
   { ssr: false }
 );
+const GitDiffDrawer = dynamic(
+  () => import("@/components/ask/GitDiffDrawer").then((m) => m.GitDiffDrawer),
+  { ssr: false }
+);
+const HandoffModal = dynamic(
+  () => import("@/components/ask/HandoffModal").then((m) => m.HandoffModal),
+  { ssr: false }
+);
 
 
-import type { AgentCapabilities, SessionResumeCost } from "@/lib/api-client";
+import type { AgentCapabilities, ConversationHandoffOrigin, ConversationHandoffResponse, SessionResumeCost } from "@/lib/api-client";
+import { GIT_DIFF_OPEN_EVENT, handoffModeLabel, type OpenGitDiffEventDetail } from "@/lib/ask/git-review";
 import { AssistantBubble, UserBubble } from "@/components/ask/bubbles";
 import { HistoryDrawer, resolveConversationAgent } from "@/components/ask/HistoryDrawer";
 import { SourcesDrawer } from "@/components/ask/SourcesDrawer";
@@ -5052,6 +5061,95 @@ function AskPageContent() {
     }
   }, []);
 
+  // Git Diff Reviewer, Hidden Turn Checkpoints & Cross-Agent Handoff state
+  const [gitDiffOpen, setGitDiffOpen] = useState(false);
+  const [gitDiffInit, setGitDiffInit] = useState<OpenGitDiffEventDetail | null>(null);
+  const [handoffOpen, setHandoffOpen] = useState(false);
+
+  const effectiveGitDevice = useMemo(() => {
+    if (isConcreteDevice(codeDevice)) return codeDevice;
+    if (isConcreteDevice(selectedDevice)) return selectedDevice;
+    const convDev = activeConversation?.device_id || (activeConversation?.config?.device_id as string | undefined) || "";
+    return isConcreteDevice(convDev) ? convDev : "";
+  }, [codeDevice, selectedDevice, activeConversation]);
+
+  const effectiveGitCwd = useMemo(() => {
+    return (
+      cwd ||
+      activeConversation?.cwd ||
+      (activeConversation?.config?.cwd as string | undefined) ||
+      ""
+    ).trim();
+  }, [cwd, activeConversation]);
+
+  const effectiveGitDeviceName = useMemo(() => {
+    if (!effectiveGitDevice) return "";
+    return devices.find((d) => d.device_id === effectiveGitDevice)?.name || effectiveGitDevice;
+  }, [devices, effectiveGitDevice]);
+
+  const canReviewGit = Boolean(effectiveGitDevice && effectiveGitCwd);
+
+  const handoffOrigin = useMemo<ConversationHandoffOrigin | null>(() => {
+    const raw = activeConversation?.config?.handoff_from as ConversationHandoffOrigin | undefined;
+    return raw && raw.conversation_id ? raw : null;
+  }, [activeConversation]);
+
+  useEffect(() => {
+    const onOpenDiff = (e: Event) => {
+      const detail = (e as CustomEvent<OpenGitDiffEventDetail>).detail || null;
+      setGitDiffInit(detail);
+      setGitDiffOpen(true);
+    };
+    window.addEventListener(GIT_DIFF_OPEN_EVENT, onOpenDiff);
+    return () => window.removeEventListener(GIT_DIFF_OPEN_EVENT, onOpenDiff);
+  }, []);
+
+  const handleOpenGitDiffTopBar = useCallback(() => {
+    setGitDiffInit(null);
+    setGitDiffOpen(true);
+  }, []);
+
+  const handleOpenHandoffTopBar = useCallback(() => {
+    setHandoffOpen(true);
+  }, []);
+
+  const handleSendGitReviewComments = useCallback(
+    (prompt: string) => {
+      if (!prompt.trim()) return;
+      if (streamingRef.current) {
+        sendFollowUp(prompt, []);
+      } else {
+        void sendWithTextRef.current(prompt);
+      }
+    },
+    [sendFollowUp],
+  );
+
+  const handleHandoffCreated = useCallback(
+    async (res: ConversationHandoffResponse, autoSend: boolean) => {
+      const newConv = res.conversation;
+      if (!newConv?.id) return;
+      invalidateApiCache("/api/ask/conversations");
+      void loadConversations("all");
+      await loadConversation(newConv.id, { force: true });
+      if (autoSend && res.handoff_prompt) {
+        setTimeout(() => {
+          void sendWithTextRef.current(res.handoff_prompt);
+        }, 100);
+      } else if (res.handoff_prompt) {
+        composerRef.current?.setValue(res.handoff_prompt);
+        composerRef.current?.focus();
+      }
+      showInAppToast(
+        isZh ? "已创建跨智能体移交会话" : "Handoff conversation created",
+        isZh
+          ? `已交接至 ${handoffModeLabel(newConv.execution_mode, true)}，原对话保持完整`
+          : `Handed off to ${handoffModeLabel(newConv.execution_mode, false)}`,
+      );
+    },
+    [loadConversations, loadConversation, isZh],
+  );
+
   return (
     <div className="w-full flex h-full rounded-none border-0 bg-[var(--aurora-bg)] sm:bg-[var(--aurora-surface-solid)]/82 overflow-hidden relative">
       {/* 离线状态全局浮动感知胶囊 */}
@@ -5072,8 +5170,11 @@ function AskPageContent() {
           quotasData={quotasData}
           modelQuota={currentModelQuota}
           selecting={selectTurnsMode}
+          canReviewGit={canReviewGit}
           onOpenHistory={handleOpenHistoryTopBar}
           onOpenQuota={handleOpenQuotaTopBar}
+          onOpenGitDiff={handleOpenGitDiffTopBar}
+          onOpenHandoff={handleOpenHandoffTopBar}
           onNewChat={startNewChat}
           onToggleSelectTurns={handleToggleSelectTurnsTopBar}
           onExportMarkdown={handleExportMarkdown}
@@ -5128,6 +5229,30 @@ function AskPageContent() {
             }}
           >
           <div className="w-full max-w-3xl xl:max-w-4xl 2xl:max-w-5xl mx-auto space-y-2 sm:space-y-4 select-text" style={{ userSelect: "text", WebkitUserSelect: "text" }}>
+
+      {handoffOrigin && (
+        <div
+          className="px-3 py-2 rounded-xl border border-[var(--aurora-border)] bg-[var(--aurora-surface-mute)] flex flex-wrap items-center justify-between gap-2 text-[12px]"
+        >
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            <Icon name="arrow_right" size={13} style={{ color: "var(--aurora-accent)", flexShrink: 0 }} />
+            <span className="text-[var(--aurora-fg2)] truncate">
+              {isZh
+                ? `移交自《${handoffOrigin.title || "前序会话"}》（${handoffModeLabel(handoffOrigin.execution_mode, true)}）`
+                : `Handed off from "${handoffOrigin.title || "Previous thread"}" (${handoffModeLabel(handoffOrigin.execution_mode, false)})`}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => openFromHistory(handoffOrigin.conversation_id)}
+            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11.5px] font-semibold text-[var(--aurora-accent)] bg-[var(--aurora-accent-soft)] cursor-pointer shrink-0"
+            style={{ border: "1px solid color-mix(in srgb, var(--aurora-accent) 28%, transparent)" }}
+          >
+            <Icon name="arrow_left" size={11.5} />
+            <span>{isZh ? "返回原会话" : "Open source"}</span>
+          </button>
+        </div>
+      )}
 
       {turns.length === 0 && previewTurns.length === 0 && <AskEmptyState onPick={(q) => sendWithText(q)} />}
 
@@ -5860,6 +5985,30 @@ function AskPageContent() {
                   <Icon name="plus" size={11} />
                   {t.ask.newChat}
                 </button>
+                {activeConversationId && turns.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleOpenHandoffTopBar}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                      padding: "3px 9px",
+                      borderRadius: 8,
+                      border: "1px solid var(--aurora-border)",
+                      background: "var(--aurora-surface-solid)",
+                      color: "var(--aurora-fg1)",
+                      fontSize: 11.5,
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      whiteSpace: "nowrap",
+                      flexShrink: 0,
+                    }}
+                  >
+                    <Icon name="arrow_right" size={11} />
+                    {isZh ? "移交智能体" : "Handoff"}
+                  </button>
+                )}
               </div>
             )}
 
@@ -6769,6 +6918,32 @@ function AskPageContent() {
         title={shareTitle}
         content={shareContent}
         initialTab={shareInitialTab}
+      />
+
+      {/* Built-in Line-by-Line Diff Reviewer, Turn Checkpoint Revert & One-Click Commit/Push/PR */}
+      <GitDiffDrawer
+        open={gitDiffOpen}
+        onClose={() => setGitDiffOpen(false)}
+        deviceId={effectiveGitDevice}
+        deviceName={effectiveGitDeviceName}
+        cwd={effectiveGitCwd}
+        initialScope={gitDiffInit}
+        onSendReviewComments={handleSendGitReviewComments}
+        isZh={isZh}
+      />
+
+      {/* Explicit Cross-Agent Mid-Thread Handoff Modal */}
+      <HandoffModal
+        open={handoffOpen}
+        onClose={() => setHandoffOpen(false)}
+        conversationId={activeConversationId}
+        conversationTitle={displayConvTitle}
+        currentMode={executionMode}
+        currentDeviceId={selectedDevice}
+        cwd={effectiveGitCwd}
+        devices={devices}
+        onHandoffCreated={(res, autoSend) => void handleHandoffCreated(res, autoSend)}
+        isZh={isZh}
       />
 
       {/* History Drawer Overlay & Sidebar (Isolated with React.memo to prevent streaming re-render lag) */}

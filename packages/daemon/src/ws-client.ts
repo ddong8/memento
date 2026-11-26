@@ -7,6 +7,8 @@ import { AgentLogins, LOGIN_AGENTS, type LoginAgent } from "./agent-login.js";
 import { probeCapabilities } from "./capabilities.js";
 import type { CollectorConfig } from "./config.js";
 import { deviceFilePath } from "./file-path.js";
+import { executionEnvironment } from "./exec-env.js";
+import { deliverGitChanges, getGitDiff, restoreGitCheckpoint } from "./git-checkpoint.js";
 import { P2PHost } from "./p2p.js";
 import { probeAllQuotas } from "./quotas.js";
 import type { ServerRoute } from "./server-route.js";
@@ -314,6 +316,15 @@ export class WsTaskClient {
           break;
         case "agent_login_req":
           void this.handleAgentLogin(data);
+          break;
+        case "git_diff_req":
+          void this.handleGitDiff(data);
+          break;
+        case "git_checkpoint_restore_req":
+          void this.handleGitCheckpointRestore(data);
+          break;
+        case "git_commit_push_pr_req":
+          void this.handleGitCommitPushPr(data);
           break;
         case "task_log_resync": {
           if (data.task_id != null) {
@@ -648,6 +659,65 @@ export class WsTaskClient {
       this.sendJson({ type: "workspace_resp", req_id: reqId, ...reply });
     } catch (e) {
       this.sendJson({ type: "workspace_resp", req_id: reqId, error: e instanceof Error ? e.message : String(e), code: e instanceof WorkspaceError ? e.code : "failed" });
+    }
+  }
+
+  /** Returns structured per-file diffs (working tree or turn checkpoint) for the web Diff Reviewer. */
+  private async handleGitDiff(data: Record<string, unknown>): Promise<void> {
+    const reqId = String(data.req_id ?? "");
+    try {
+      const cwd = assertPathAllowed(deviceFilePath(String(data.cwd ?? "")));
+      const res = await getGitDiff({
+        cwd,
+        baseRef: typeof data.base_ref === "string" ? data.base_ref : undefined,
+        targetRef: typeof data.target_ref === "string" ? data.target_ref : undefined,
+        filePath: typeof data.file_path === "string" ? data.file_path : undefined,
+        env: await executionEnvironment(),
+      });
+      this.sendJson({ type: "git_resp", req_id: reqId, ...res });
+    } catch (e) {
+      this.sendJson({ type: "git_resp", req_id: reqId, ok: false, error: e instanceof Error ? e.message : String(e) });
+    }
+  }
+
+  /** Safely restores the working tree to a hidden Memento turn checkpoint ref. */
+  private async handleGitCheckpointRestore(data: Record<string, unknown>): Promise<void> {
+    const reqId = String(data.req_id ?? "");
+    try {
+      const cwd = assertPathAllowed(deviceFilePath(String(data.cwd ?? "")));
+      const targetRef = String(data.target_ref ?? "");
+      const res = await restoreGitCheckpoint({
+        cwd,
+        targetRef,
+        env: await executionEnvironment(),
+      });
+      this.log(`Git checkpoint restore in ${cwd} -> ${targetRef}: ${res.ok ? "ok" : res.error}`);
+      this.sendJson({ type: "git_resp", req_id: reqId, ...res });
+    } catch (e) {
+      this.sendJson({ type: "git_resp", req_id: reqId, ok: false, error: e instanceof Error ? e.message : String(e) });
+    }
+  }
+
+  /** One-click stage, commit, optional push, and optional GitHub PR creation on this device. */
+  private async handleGitCommitPushPr(data: Record<string, unknown>): Promise<void> {
+    const reqId = String(data.req_id ?? "");
+    try {
+      const cwd = assertPathAllowed(deviceFilePath(String(data.cwd ?? "")));
+      const res = await deliverGitChanges({
+        cwd,
+        message: String(data.message ?? ""),
+        files: Array.isArray(data.files) ? data.files.map(String) : undefined,
+        push: Boolean(data.push),
+        createPr: Boolean(data.create_pr),
+        prTitle: typeof data.pr_title === "string" ? data.pr_title : undefined,
+        prBody: typeof data.pr_body === "string" ? data.pr_body : undefined,
+        prBase: typeof data.pr_base === "string" ? data.pr_base : undefined,
+        env: await executionEnvironment(),
+      });
+      this.log(`Git deliver in ${cwd}: ${res.ok ? res.summary ?? "ok" : res.error}`);
+      this.sendJson({ type: "git_resp", req_id: reqId, ...res });
+    } catch (e) {
+      this.sendJson({ type: "git_resp", req_id: reqId, ok: false, error: e instanceof Error ? e.message : String(e) });
     }
   }
 }

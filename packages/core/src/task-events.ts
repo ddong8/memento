@@ -5,7 +5,7 @@ import type { TaskEvent } from "./events.js";
  * tool id, updated in place. Other events are appended.
  */
 export function mergeTaskEvent(events: readonly TaskEvent[], event: TaskEvent): TaskEvent[] {
-  if ((event.kind === "tool" || event.kind === "question" || event.kind === "subagent") && event.id) {
+  if ((event.kind === "tool" || event.kind === "question" || event.kind === "subagent" || event.kind === "checkpoint") && event.id) {
     const i = events.findIndex((e) => e.kind === event.kind && e.id === event.id);
     if (i >= 0) {
       const merged = { ...events[i], ...event } as TaskEvent;

@@ -8,6 +8,7 @@ import { Icon } from "./aurora/Icon";
 import { QuestionPrompt } from "./QuestionPrompt";
 import { useMediaInspector } from "./viewers/MediaInspectorContext";
 import { detectMediaType, isLocalFilePath } from "./viewers/MediaPreview";
+import { dispatchOpenGitDiff } from "@/lib/ask/git-review";
 
 type IconName = Parameters<typeof Icon>[0]["name"];
 
@@ -127,7 +128,8 @@ export default function TaskTimeline({
   const isPinnedRow = (e: TaskEvent) =>
     (e.kind === "question" && ((e as any).status === "waiting" || !(e as any).status)) ||
     (e.kind === "subagent" && ((e as any).status === "running" || !(e as any).status)) ||
-    (e.kind === "tool" && (e as any).status === "background");
+    (e.kind === "tool" && (e as any).status === "background") ||
+    e.kind === "checkpoint";
 
   // Guaranteed unhide protection: any active question or running subagent is never hidden
   const visible = useMemo(() => {
@@ -663,6 +665,152 @@ export default function TaskTimeline({
         if (ev.status === "removed") return <div key={i}>{plain("layers", tl.branchRemoved, null)}</div>;
         if (ev.status === "skipped") return <div key={i}>{plain("layers", tl.noBranch, str(ev.reason) || null, "#D97706")}</div>;
         return null;
+      case "checkpoint": {
+        if (ev.status !== "created") return null;
+        const cpFiles = Array.isArray(ev.files)
+          ? (ev.files as Array<{ path?: string; status?: string; additions?: number; deletions?: number }>).filter((f) => f && f.path)
+          : [];
+        const fileCount = Number(ev.files_changed) || cpFiles.length;
+        const ins = Number(ev.insertions) || 0;
+        const del = Number(ev.deletions) || 0;
+        const branch = str(ev.branch) || "HEAD";
+        const repoRoot = str(ev.repo_root);
+        const beforeRef = str(ev.before_ref);
+        const afterRef = str(ev.after_ref);
+        const cpId = str(ev.id);
+        return (
+          <div
+            key={cpId || i}
+            style={{
+              marginTop: 6,
+              padding: "8px 10px",
+              borderRadius: 8,
+              background: "var(--aurora-surface-solid)",
+              border: "1px solid var(--aurora-border)",
+              display: "flex",
+              flexDirection: "column",
+              gap: 6,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, flexWrap: "wrap" }}>
+                <Icon name="code" size={13} style={{ color: "var(--aurora-accent)", flexShrink: 0 }} />
+                <span style={{ fontSize: 12, fontWeight: 600, color: "var(--aurora-fg1)" }}>
+                  {isZh ? "本轮代码检查点" : "Turn Checkpoint"}
+                </span>
+                <span
+                  style={{
+                    ...mono,
+                    fontSize: 11,
+                    padding: "1px 6px",
+                    borderRadius: 999,
+                    background: "var(--aurora-chip)",
+                    color: "var(--aurora-fg2)",
+                  }}
+                >
+                  {branch}
+                </span>
+                <span style={{ ...mono, fontSize: 11.5, color: "var(--aurora-fg3)" }}>
+                  {isZh ? `${fileCount} 个文件` : `${fileCount} files`}
+                </span>
+                {ins > 0 && <span style={{ ...mono, fontSize: 11.5, color: "#10B981", fontWeight: 600 }}>+{ins}</span>}
+                {del > 0 && <span style={{ ...mono, fontSize: 11.5, color: "#EF4444", fontWeight: 600 }}>-{del}</span>}
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                <button
+                  type="button"
+                  onClick={() =>
+                    dispatchOpenGitDiff({
+                      repoRoot,
+                      baseRef: beforeRef,
+                      targetRef: afterRef,
+                      checkpointId: cpId,
+                      branch,
+                      mode: "diff",
+                    })
+                  }
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 4,
+                    padding: "3px 8px",
+                    borderRadius: 7,
+                    border: "1px solid color-mix(in srgb, var(--aurora-accent) 32%, transparent)",
+                    background: "var(--aurora-accent-soft)",
+                    color: "var(--aurora-accent)",
+                    fontSize: 11.5,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                  }}
+                >
+                  <Icon name="code" size={11} />
+                  <span>{isZh ? "查看 Diff" : "View Diff"}</span>
+                </button>
+                {beforeRef && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      dispatchOpenGitDiff({
+                        repoRoot,
+                        baseRef: beforeRef,
+                        targetRef: afterRef,
+                        checkpointId: cpId,
+                        branch,
+                        mode: "restore",
+                      })
+                    }
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                      padding: "3px 8px",
+                      borderRadius: 7,
+                      border: "1px solid rgba(217, 119, 6, 0.35)",
+                      background: "rgba(217, 119, 6, 0.1)",
+                      color: "#D97706",
+                      fontSize: 11.5,
+                      fontWeight: 600,
+                      cursor: "pointer",
+                    }}
+                  >
+                    <Icon name="refresh" size={11} />
+                    <span>{isZh ? "回滚此回合" : "Revert Turn"}</span>
+                  </button>
+                )}
+              </div>
+            </div>
+            {cpFiles.length > 0 && (
+              <div style={{ display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
+                {cpFiles.slice(0, 4).map((f) => (
+                  <span
+                    key={f.path}
+                    style={{
+                      ...mono,
+                      fontSize: 11,
+                      padding: "1px 6px",
+                      borderRadius: 6,
+                      background: "var(--aurora-surface-mute)",
+                      border: "1px solid var(--aurora-border)",
+                      color: "var(--aurora-fg2)",
+                      maxWidth: "100%",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {f.path}
+                  </span>
+                ))}
+                {cpFiles.length > 4 && (
+                  <span style={{ fontSize: 11, color: "var(--aurora-fg3)" }}>
+                    {isZh ? `等 ${cpFiles.length} 个文件` : `+${cpFiles.length - 4} more`}
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      }
       case "workspace":
         return <div key={i}>{workspaceRow(ev)}</div>;
       case "error":

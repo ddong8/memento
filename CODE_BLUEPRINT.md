@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `f4246f4a` · Updated: `2026-11-26`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `1076f4e8` · Updated: `2026-11-26`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,8 +16,8 @@
 - 规模 (Scale): 9 个子系统 · 41 组 API 路由 / 328 个接口 · 39 个前端页面 · 41 个数据模型 · 35 个服务模块 · 265 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `4910b280` (2026-11-26): feat(ask): 新增隐藏回合检查点回滚、逐行 Diff 审阅与一键 PR 及跨智能体移交并升级至 v1.0.158
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 75（✅ 75 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `F-ASK`, `F-FOLLOWUP`, `R-WS-BIG-UNTRACKED`, `R-ENT-DEVICE-POLICY`, `R-WS-EXEC-STOP`, `R-APP-NAME`, `R-DOCS-WRITE-LIGHT`, `R-ALL-TYPESCRIPT`
+- 最近改动 (Latest): `67f0f784` (2026-11-26): fix(git-review): 兼容旧版客户端零升级 Diff 与提交回退、修复 Windows 标题栏遮挡并升级至 v1.0.159
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 75（✅ 75 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `F-ASK`, `R-WS-EDIT-ONLY`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `S-RUN-STATE`, `F-FOLLOWUP`, `R-WS-BIG-UNTRACKED`, `R-ENT-DEVICE-POLICY`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -693,12 +693,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `67f0f784` (2026-11-26): fix(git-review): 兼容旧版客户端零升级 Diff 与提交回退、修复 Windows 标题栏遮挡并升级至 v1.0.159
 - `4910b280` (2026-11-26): feat(ask): 新增隐藏回合检查点回滚、逐行 Diff 审阅与一键 PR 及跨智能体移交并升级至 v1.0.158
 - `689604e7` (2026-11-26): fix(antigravity): 恢复 ACP 通道与桌面会话库双向同步并升级至 v1.0.157
 - `b2eed976` (2026-11-26): feat(orchestrator): 完善 AI 编排全量 MCP 记忆工具与两层上下文压缩能力
 - `46beb199` (2026-11-26): feat(ui): 桌面端、网页端与手机端全面接入原生毛玻璃与液态玻璃效果并升级至 v1.0.156
 - `e1af1b27` (2026-11-25): feat(studio): 升级 filmkit 至 8ccc710f7bcb 并将默认模板切换为 1-2 分钟中国化爆梗短视频
-- `09f12247` (2026-11-25): feat(studio): 升级 filmkit 镜像至 2e888f64b77c 并接入 H3 BF16 高精与 768P 原生画质配置
 
 ## 10. Key Environment Variables & Configuration
 
@@ -721,9 +721,9 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ### 最近提交碰到的业务条目（改动后复查它们还成不成立）
 
+- `67f0f784` fix(git-review): 兼容旧版客户端零升级 Diff 与提交回退、修复 Windows 标题栏遮挡并升级至 v1.0.159 → `F-ASK`, `R-WS-EDIT-ONLY`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `S-RUN-STATE`
 - `4910b280` feat(ask): 新增隐藏回合检查点回滚、逐行 Diff 审阅与一键 PR 及跨智能体移交并升级至 v1.0.158 → `F-ASK`, `F-FOLLOWUP`, `R-WS-BIG-UNTRACKED`, `R-ENT-DEVICE-POLICY`, `R-WS-EXEC-STOP`, `R-APP-NAME`, `R-DOCS-WRITE-LIGHT`, `R-ALL-TYPESCRIPT`
 - `689604e7` fix(antigravity): 恢复 ACP 通道与桌面会话库双向同步并升级至 v1.0.157 → `R-AGY-APP-CSRF`, `R-TRACK-BACKGROUND`, `R-ENT-DEVICE-POLICY`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`
-- `b2eed976` feat(orchestrator): 完善 AI 编排全量 MCP 记忆工具与两层上下文压缩能力 → `F-ASK`, `R-ISLAND-CLEANUP`, `R-NEWCHAT-WORKS`
 
 ---
 _Auto-maintained by `scripts/project_blueprint.mjs` (v20261126) & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._

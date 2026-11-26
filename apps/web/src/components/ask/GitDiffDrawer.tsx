@@ -321,10 +321,11 @@ export function GitDiffDrawer({
         className="relative z-10 w-full max-w-[1060px] h-full flex flex-col border-l border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)] shadow-2xl overflow-hidden"
         style={{ maxWidth: "min(1060px, 100vw)" }}
       >
-        {/* Top Bar (data-window-controls keeps clear of Windows frameless titlebar buttons) */}
+        {/* Top Bar (data-window-controls keeps clear of Windows frameless titlebar buttons; safe-area-inset-top clears iOS notch) */}
         <div
           data-window-controls
-          className="px-3 sm:px-5 py-2.5 min-h-12 border-b border-[var(--aurora-border)] flex flex-wrap items-center justify-between gap-2 shrink-0 bg-[var(--aurora-surface-solid)] app-region-drag"
+          className="px-3 sm:px-5 pb-2.5 min-h-12 border-b border-[var(--aurora-border)] flex flex-wrap items-center justify-between gap-2 shrink-0 bg-[var(--aurora-surface-solid)] app-region-drag"
+          style={{ paddingTop: "max(0.625rem, env(safe-area-inset-top, 0px))" }}
         >
           <div className="flex items-center gap-2 min-w-0 flex-1">
             <div
@@ -431,7 +432,7 @@ export function GitDiffDrawer({
               value={selectedScopeValue}
               onChange={(e) => handleScopeChange(e.target.value)}
               disabled={loading || activeTab === "deliver"}
-              className="text-[12px] font-medium rounded-lg px-2 py-1 border border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)] text-[var(--aurora-fg1)] outline-none max-w-full min-w-0 truncate"
+              className="text-[12px] font-medium rounded-lg px-2 py-1 border border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)] text-[var(--aurora-fg1)] outline-none w-full sm:w-auto max-w-full min-w-0 truncate"
             >
               <option value="">
                 {isZh ? "当前工作区全部改动（HEAD → 工作区）" : "Working Tree (HEAD → Working Tree)"}
@@ -706,16 +707,19 @@ export function GitDiffDrawer({
                             : "Empty file or mode-only change."}
                       </div>
                     ) : (
-                      <div className="font-mono text-[12px] leading-[1.55] pb-16">
+                      <div
+                        className="font-mono text-[12px] leading-[1.55]"
+                        style={{ paddingBottom: "calc(4.5rem + var(--memento-tabbar-inset, 0px) + env(safe-area-inset-bottom, 0px))" }}
+                      >
                         {activeFile.hunks.map((hunk, hIdx) => (
                           <div key={`${activeFile.path}-${hIdx}`} className="border-b border-[var(--aurora-border)]">
                             <div
-                              className="px-3 py-1 text-[11px] text-[var(--aurora-fg3)] border-b border-[var(--aurora-border)]/60 overflow-x-auto whitespace-nowrap"
+                              className="px-3 py-1 text-[11px] text-[var(--aurora-fg3)] border-b border-[var(--aurora-border)]/60 overflow-x-auto overscroll-x-contain whitespace-nowrap"
                               style={{ background: "var(--aurora-surface-mute)" }}
                             >
                               {hunk.header}
                             </div>
-                            <div className="overflow-x-auto">
+                            <div className="overflow-x-auto overscroll-x-contain">
                               <div className="min-w-full w-max">
                                 {hunk.lines.map((line, lIdx) => {
                                   const anchorLine = line.new_line ?? line.old_line;
@@ -755,10 +759,10 @@ export function GitDiffDrawer({
                                         className="flex items-stretch hover:brightness-95 dark:hover:brightness-110 cursor-pointer group"
                                         style={{ background: rowBg }}
                                       >
-                                        <span className="w-10 px-1.5 text-right select-none text-[11px] text-[var(--aurora-fg4)] shrink-0 border-r border-[var(--aurora-border)]/40 tabular-nums">
+                                        <span className="w-8 sm:w-10 px-1 sm:px-1.5 text-right select-none text-[11px] text-[var(--aurora-fg4)] shrink-0 border-r border-[var(--aurora-border)]/40 tabular-nums">
                                           {line.old_line ?? ""}
                                         </span>
-                                        <span className="w-10 px-1.5 text-right select-none text-[11px] text-[var(--aurora-fg4)] shrink-0 border-r border-[var(--aurora-border)]/40 tabular-nums">
+                                        <span className="w-8 sm:w-10 px-1 sm:px-1.5 text-right select-none text-[11px] text-[var(--aurora-fg4)] shrink-0 border-r border-[var(--aurora-border)]/40 tabular-nums">
                                           {line.new_line ?? ""}
                                         </span>
                                         <span
@@ -872,7 +876,10 @@ export function GitDiffDrawer({
           )
         ) : (
           /* Tab 2: One-Click Commit / Push / Create PR */
-          <div className="flex-1 overflow-y-auto p-4 sm:p-6">
+          <div
+            className="flex-1 overflow-y-auto overflow-x-hidden p-4 sm:p-6"
+            style={{ paddingBottom: "calc(2rem + var(--memento-tabbar-inset, 0px) + env(safe-area-inset-bottom, 0px))" }}
+          >
             <div className="max-w-2xl mx-auto flex flex-col gap-4">
               {/* File Checklist */}
               <div className="rounded-xl border border-[var(--aurora-border)] bg-[var(--aurora-surface-mute)]/50 overflow-hidden">
@@ -1139,9 +1146,12 @@ export function GitDiffDrawer({
           </div>
         )}
 
-        {/* Sticky Inline Review Footer */}
+        {/* Sticky Inline Review Footer (clears native mobile floating TabBar & iOS home indicator) */}
         {activeTab === "diff" && comments.length > 0 && (
-          <div className="px-3 sm:px-5 py-2.5 border-t border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)] flex flex-wrap items-center justify-between gap-2 shrink-0">
+          <div
+            className="px-3 sm:px-5 pt-2.5 border-t border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)] flex flex-wrap items-center justify-between gap-2 shrink-0"
+            style={{ paddingBottom: "calc(max(0.625rem, env(safe-area-inset-bottom, 0px)) + var(--memento-tabbar-inset, 0px))" }}
+          >
             <div className="flex items-center gap-2 text-[12.5px] text-[var(--aurora-fg1)]">
               <span
                 className="w-5 h-5 rounded-full inline-flex items-center justify-center text-[11px] font-bold text-white"

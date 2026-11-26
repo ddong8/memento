@@ -144,7 +144,10 @@ export function HandoffModal({
     >
       <div className="fixed inset-0 bg-black/45 backdrop-blur-[2px]" onClick={onClose} />
 
-      <div className="relative z-10 w-full sm:max-w-xl max-h-[92vh] flex flex-col rounded-t-2xl sm:rounded-2xl border border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)] shadow-2xl overflow-hidden">
+      <div
+        className="relative z-10 w-full sm:max-w-xl flex flex-col rounded-t-2xl sm:rounded-2xl border border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)] shadow-2xl overflow-hidden"
+        style={{ maxHeight: "calc(100dvh - env(safe-area-inset-top, 0px) - 12px)" }}
+      >
         {/* Header */}
         <div className="px-4 sm:px-5 py-3.5 border-b border-[var(--aurora-border)] flex items-center justify-between gap-2 shrink-0">
           <div className="flex items-center gap-2.5 min-w-0">
@@ -344,8 +347,11 @@ export function HandoffModal({
           </label>
         </div>
 
-        {/* Footer */}
-        <div className="px-4 sm:px-5 py-3 border-t border-[var(--aurora-border)] flex items-center justify-end gap-2 shrink-0 bg-[var(--aurora-surface-solid)]">
+        {/* Footer (clears native mobile floating TabBar & iOS home indicator) */}
+        <div
+          className="px-4 sm:px-5 pt-3 border-t border-[var(--aurora-border)] flex items-center justify-end gap-2 shrink-0 bg-[var(--aurora-surface-solid)]"
+          style={{ paddingBottom: "calc(max(0.75rem, env(safe-area-inset-bottom, 0px)) + var(--memento-tabbar-inset, 0px))" }}
+        >
           <Btn variant="glass" size="sm" onClick={onClose} disabled={submitting}>
             {isZh ? "取消" : "Cancel"}
           </Btn>

@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { mergeTaskEvent, type TaskEvent } from "@memento/core";
 import { formatApiError, formatInlineReviewPrompt, handoffModeLabel } from "@/lib/ask/git-review";
@@ -73,5 +75,17 @@ describe("git-review & cross-agent handoff helpers", () => {
     expect(formatApiError(new Error('API 504: {"detail":"设备 35 秒没有回应"}'))).toBe("设备 35 秒没有回应");
     expect(formatApiError(new Error('API 409: {"detail":"请升级客户端"}'))).toBe("请升级客户端");
     expect(formatApiError(new Error("普通网络异常"))).toBe("普通网络异常");
+  });
+
+  it("GitDiffDrawer and HandoffModal clear mobile Liquid Glass TabBar, iOS safe areas, and Windows window controls", () => {
+    const diffSrc = readFileSync(resolve(process.cwd(), "src/components/ask/GitDiffDrawer.tsx"), "utf8");
+    const handoffSrc = readFileSync(resolve(process.cwd(), "src/components/ask/HandoffModal.tsx"), "utf8");
+    expect(diffSrc).toContain("data-window-controls");
+    expect(diffSrc).toContain("--memento-tabbar-inset");
+    expect(diffSrc).toContain("safe-area-inset-top");
+    expect(diffSrc).toContain("safe-area-inset-bottom");
+    expect(diffSrc).toContain("overscroll-x-contain");
+    expect(handoffSrc).toContain("--memento-tabbar-inset");
+    expect(handoffSrc).toContain("safe-area-inset-bottom");
   });
 });

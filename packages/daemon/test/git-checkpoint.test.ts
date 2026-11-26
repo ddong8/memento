@@ -64,6 +64,14 @@ describe("git-checkpoint", () => {
     expect(diff.total_files).toBe(2);
     expect(diff.files?.map((f) => f.path).sort()).toEqual(["src/app.ts", "src/new-file.ts"]);
     expect(diff.checkpoints?.some((c) => c.id === ev!.id)).toBe(true);
+    expect(diff.recent_commits?.length).toBeGreaterThanOrEqual(1);
+    expect(diff.recent_commits?.[0]?.subject).toBe("chore: init");
+
+    // Root commit inspection works with empty baseRef + commit targetRef
+    const rootCommit = diff.recent_commits![0]!;
+    const commitDiff = await getGitDiff({ cwd: repo, baseRef: rootCommit.parent_sha, targetRef: rootCommit.sha });
+    expect(commitDiff.ok).toBe(true);
+    expect(commitDiff.total_files).toBe(2);
   });
 
   it("drops hidden refs cleanly when a turn makes no file changes", async () => {

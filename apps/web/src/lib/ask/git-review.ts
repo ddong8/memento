@@ -92,6 +92,31 @@ export function dispatchOpenGitDiff(detail: OpenGitDiffEventDetail): void {
 }
 
 /**
+ * Unwraps FastAPI error strings like `API 504: {"detail":"..."}` into clean human-readable text.
+ */
+export function formatApiError(err: unknown, fallback = "请求失败，请稍后重试"): string {
+  const raw = err instanceof Error ? err.message : String(err ?? "");
+  const trimmed = raw.trim();
+  if (!trimmed) return fallback;
+  const match = /^API\s+\d+:\s*([\s\S]+)$/.exec(trimmed);
+  const body = match ? match[1]!.trim() : trimmed;
+  if (body.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(body) as { detail?: unknown; error?: unknown; message?: unknown };
+      const msg = parsed.detail ?? parsed.error ?? parsed.message;
+      if (typeof msg === "string" && msg.trim()) return msg.trim();
+      if (Array.isArray(msg) && msg.length > 0) {
+        const first = msg[0] as { msg?: unknown };
+        if (typeof first?.msg === "string" && first.msg.trim()) return first.msg.trim();
+      }
+    } catch {
+      // fall through to cleaned string
+    }
+  }
+  return body || fallback;
+}
+
+/**
  * Formats anchored inline diff review comments (`file:line`) into a clean,
  * structured prompt that any coding agent can apply directly.
  */

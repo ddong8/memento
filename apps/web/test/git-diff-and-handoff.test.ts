@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { mergeTaskEvent, type TaskEvent } from "@memento/core";
-import { formatInlineReviewPrompt, handoffModeLabel } from "@/lib/ask/git-review";
+import { formatApiError, formatInlineReviewPrompt, handoffModeLabel } from "@/lib/ask/git-review";
 
 describe("git-review & cross-agent handoff helpers", () => {
   it("formats anchored inline diff comments with 1), 2) numbering and exact file:line locations", () => {
@@ -67,5 +67,11 @@ describe("git-review & cross-agent handoff helpers", () => {
     expect(handoffModeLabel("antigravity", true)).toBe("Antigravity");
     expect(handoffModeLabel("workbuddy", true)).toBe("WorkBuddy");
     expect(handoffModeLabel("ai", true)).toBe("AI 编排");
+  });
+
+  it("unwraps FastAPI JSON detail strings cleanly instead of showing raw JSON", () => {
+    expect(formatApiError(new Error('API 504: {"detail":"设备 35 秒没有回应"}'))).toBe("设备 35 秒没有回应");
+    expect(formatApiError(new Error('API 409: {"detail":"请升级客户端"}'))).toBe("请升级客户端");
+    expect(formatApiError(new Error("普通网络异常"))).toBe("普通网络异常");
   });
 });

@@ -1756,6 +1756,14 @@ export interface GitCheckpointSummary {
   created_at?: string;
 }
 
+export interface GitCommitSummary {
+  sha: string;
+  parent_sha: string;
+  short_sha: string;
+  subject: string;
+  created_at?: string | null;
+}
+
 export interface GitDiffResponse {
   ok: boolean;
   error?: string;
@@ -1771,6 +1779,9 @@ export interface GitDiffResponse {
   truncated?: boolean;
   files?: GitDiffFile[];
   checkpoints?: GitCheckpointSummary[];
+  recent_commits?: GitCommitSummary[];
+  legacy_fallback?: boolean;
+  client_version?: string | null;
 }
 
 export interface GitRestoreResponse {

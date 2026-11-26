@@ -10,7 +10,7 @@ import {
 import { BrandMark } from "@/components/aurora/BrandMark";
 import { Icon } from "@/components/aurora/Icon";
 import { Btn } from "@/components/aurora/primitives";
-import { HANDOFF_MODE_OPTIONS, handoffModeLabel, type HandoffModeOption } from "@/lib/ask/git-review";
+import { formatApiError, HANDOFF_MODE_OPTIONS, handoffModeLabel, type HandoffModeOption } from "@/lib/ask/git-review";
 import { showInAppToast } from "@/lib/native-notify";
 
 const PRESET_INSTRUCTIONS_ZH = [
@@ -123,7 +123,7 @@ export function HandoffModal({
     } catch (e: unknown) {
       showInAppToast(
         isZh ? "移交失败" : "Handoff failed",
-        e instanceof Error ? e.message : String(e),
+        formatApiError(e, isZh ? "移交请求失败" : "Handoff failed"),
       );
     } finally {
       setSubmitting(false);

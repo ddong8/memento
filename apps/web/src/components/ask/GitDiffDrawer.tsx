@@ -11,6 +11,7 @@ import {
 import { Icon } from "@/components/aurora/Icon";
 import { Btn } from "@/components/aurora/primitives";
 import {
+  formatApiError,
   formatInlineReviewPrompt,
   type InlineDiffComment,
   type OpenGitDiffEventDetail,
@@ -96,14 +97,15 @@ export function GitDiffDrawer({
         const res = await api.getGitDiff({
           device_id: deviceId,
           cwd: effectiveCwd,
-          ...(bRef && tRef ? { base_ref: bRef, target_ref: tRef } : {}),
+          ...(bRef ? { base_ref: bRef } : {}),
+          ...(tRef ? { target_ref: tRef } : {}),
         });
         setDiffData(res);
         const files = res.files || [];
         setSelectedPath((prev) => (prev && files.some((f) => f.path === prev) ? prev : files[0]?.path || ""));
         setSelectedDeliverFiles(new Set(files.map((f) => f.path)));
       } catch (e: unknown) {
-        setError(e instanceof Error ? e.message : String(e));
+        setError(formatApiError(e, isZh ? "获取 Git Diff 失败" : "Failed to fetch Git diff"));
         setDiffData(null);
       } finally {
         setLoading(false);
@@ -164,11 +166,24 @@ export function GitDiffDrawer({
       void fetchDiff("", "");
       return;
     }
-    const cp = (diffData?.checkpoints || []).find((c) => c.id === val);
-    if (cp) {
-      setBaseRef(cp.before_ref);
-      setTargetRef(cp.after_ref);
-      void fetchDiff(cp.before_ref, cp.after_ref);
+    if (val.startsWith("cp:")) {
+      const id = val.slice(3);
+      const cp = (diffData?.checkpoints || []).find((c) => c.id === id);
+      if (cp) {
+        setBaseRef(cp.before_ref);
+        setTargetRef(cp.after_ref);
+        void fetchDiff(cp.before_ref, cp.after_ref);
+      }
+      return;
+    }
+    if (val.startsWith("commit:")) {
+      const sha = val.slice(7);
+      const commit = (diffData?.recent_commits || []).find((c) => c.sha === sha);
+      if (commit) {
+        setBaseRef(commit.parent_sha || "");
+        setTargetRef(commit.sha);
+        void fetchDiff(commit.parent_sha || "", commit.sha);
+      }
     }
   };
 
@@ -232,7 +247,7 @@ export function GitDiffDrawer({
       setTargetRef("");
       await fetchDiff("", "");
     } catch (e: unknown) {
-      showInAppToast(isZh ? "回滚失败" : "Restore failed", e instanceof Error ? e.message : String(e));
+      showInAppToast(isZh ? "回滚失败" : "Restore failed", formatApiError(e, isZh ? "回滚检查点失败" : "Restore failed"));
     } finally {
       setRestoring(false);
     }
@@ -267,7 +282,7 @@ export function GitDiffDrawer({
         showInAppToast(isZh ? "部分步骤未完成" : "Delivery incomplete", res.error || res.pr_error || "");
       }
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
+      const msg = formatApiError(e, isZh ? "Git 交付失败" : "Delivery failed");
       setDeliverResult({ ok: false, error: msg });
       showInAppToast(isZh ? "交付失败" : "Delivery failed", msg);
     } finally {
@@ -277,9 +292,21 @@ export function GitDiffDrawer({
 
   if (!open) return null;
 
-  const selectedCheckpointId = isCheckpointScope
-    ? (diffData?.checkpoints || []).find((c) => c.before_ref === baseRef)?.id || ""
-    : "";
+  const checkpoints = diffData?.checkpoints || [];
+  const recentCommits = diffData?.recent_commits || [];
+  const latestCommit = recentCommits[0];
+
+  const selectedScopeValue = (() => {
+    if (isCheckpointScope) {
+      const cp = checkpoints.find((c) => c.before_ref === baseRef);
+      return cp ? `cp:${cp.id}` : "";
+    }
+    if (targetRef && targetRef !== "WORKING_TREE") {
+      const cm = recentCommits.find((c) => c.sha === targetRef);
+      return cm ? `commit:${cm.sha}` : "";
+    }
+    return "";
+  })();
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end overflow-hidden" role="dialog" aria-modal="true">
@@ -294,8 +321,11 @@ export function GitDiffDrawer({
         className="relative z-10 w-full max-w-[1060px] h-full flex flex-col border-l border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)] shadow-2xl overflow-hidden"
         style={{ maxWidth: "min(1060px, 100vw)" }}
       >
-        {/* Top Bar */}
-        <div className="px-3 sm:px-5 py-3 border-b border-[var(--aurora-border)] flex flex-wrap items-center justify-between gap-2 shrink-0 bg-[var(--aurora-surface-solid)]">
+        {/* Top Bar (data-window-controls keeps clear of Windows frameless titlebar buttons) */}
+        <div
+          data-window-controls
+          className="px-3 sm:px-5 py-2.5 min-h-12 border-b border-[var(--aurora-border)] flex flex-wrap items-center justify-between gap-2 shrink-0 bg-[var(--aurora-surface-solid)] app-region-drag"
+        >
           <div className="flex items-center gap-2 min-w-0 flex-1">
             <div
               className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0"
@@ -330,7 +360,7 @@ export function GitDiffDrawer({
             </div>
           </div>
 
-          <div className="flex items-center gap-1.5 shrink-0">
+          <div className="flex items-center gap-1.5 shrink-0 app-region-no-drag">
             {/* Segmented Tab Switcher */}
             <div
               className="inline-flex items-center p-0.5 rounded-lg border border-[var(--aurora-border)]"
@@ -355,7 +385,7 @@ export function GitDiffDrawer({
                 type="button"
                 onClick={() => {
                   setActiveTab("deliver");
-                  if (isCheckpointScope) {
+                  if (isCheckpointScope || (targetRef && targetRef !== "WORKING_TREE")) {
                     setBaseRef("");
                     setTargetRef("");
                     void fetchDiff("", "");
@@ -395,10 +425,10 @@ export function GitDiffDrawer({
           className="px-3 sm:px-5 py-2 border-b border-[var(--aurora-border)] flex flex-wrap items-center justify-between gap-2 shrink-0 text-[12px]"
           style={{ background: "var(--aurora-surface-mute)" }}
         >
-          <div className="flex items-center gap-2 min-w-0 flex-1">
+          <div className="flex items-center gap-2 min-w-0 flex-1 flex-wrap">
             <Icon name="clock" size={13} style={{ color: "var(--aurora-fg3)", flexShrink: 0 }} />
             <select
-              value={selectedCheckpointId}
+              value={selectedScopeValue}
               onChange={(e) => handleScopeChange(e.target.value)}
               disabled={loading || activeTab === "deliver"}
               className="text-[12px] font-medium rounded-lg px-2 py-1 border border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)] text-[var(--aurora-fg1)] outline-none max-w-full min-w-0 truncate"
@@ -406,13 +436,26 @@ export function GitDiffDrawer({
               <option value="">
                 {isZh ? "当前工作区全部改动（HEAD → 工作区）" : "Working Tree (HEAD → Working Tree)"}
               </option>
-              {(diffData?.checkpoints || []).map((cp, idx) => (
-                <option key={cp.id} value={cp.id}>
-                  {isZh
-                    ? `回合检查点 #${idx + 1} · ${cp.id.slice(0, 14)}${cp.created_at ? ` (${cp.created_at.slice(5, 16).replace("T", " ")})` : ""}`
-                    : `Checkpoint #${idx + 1} · ${cp.id.slice(0, 14)}`}
-                </option>
-              ))}
+              {checkpoints.length > 0 && (
+                <optgroup label={isZh ? "回合检查点（支持回滚）" : "Turn Checkpoints (Revertible)"}>
+                  {checkpoints.map((cp, idx) => (
+                    <option key={cp.id} value={`cp:${cp.id}`}>
+                      {isZh
+                        ? `回合检查点 #${idx + 1} · ${cp.id.slice(0, 14)}${cp.created_at ? ` (${cp.created_at.slice(5, 16).replace("T", " ")})` : ""}`
+                        : `Checkpoint #${idx + 1} · ${cp.id.slice(0, 14)}`}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+              {recentCommits.length > 0 && (
+                <optgroup label={isZh ? "最近提交记录" : "Recent Commits"}>
+                  {recentCommits.map((cm) => (
+                    <option key={cm.sha} value={`commit:${cm.sha}`}>
+                      {`${cm.short_sha} · ${cm.subject.length > 44 ? `${cm.subject.slice(0, 44)}…` : cm.subject}`}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
             </select>
 
             {isCheckpointScope && activeTab === "diff" && (
@@ -429,6 +472,21 @@ export function GitDiffDrawer({
                 <Icon name="refresh" size={11.5} />
                 <span>{isZh ? "回滚到此回合前" : "Revert Turn"}</span>
               </button>
+            )}
+
+            {diffData?.legacy_fallback && (
+              <span
+                className="text-[11px] px-2 py-0.5 rounded-full shrink-0"
+                style={{
+                  background: "var(--aurora-chip)",
+                  border: "1px solid var(--aurora-border)",
+                  color: "var(--aurora-fg3)",
+                }}
+              >
+                {isZh
+                  ? `兼容模式（设备 ${diffData.client_version || "旧版"}，升级后开启回合检查点）`
+                  : `Compat mode (device ${diffData.client_version || "older"})`}
+              </span>
             )}
           </div>
 
@@ -493,16 +551,34 @@ export function GitDiffDrawer({
           </div>
         ) : activeTab === "diff" ? (
           files.length === 0 ? (
-            <div className="flex-1 flex flex-col items-center justify-center gap-2 p-8 text-center">
+            <div className="flex-1 flex flex-col items-center justify-center gap-3 p-8 text-center">
               <Icon name="check" size={22} style={{ color: "#10B981" }} />
               <div className="text-[14px] font-semibold text-[var(--aurora-fg1)]">
-                {isZh ? "工作区干净，暂无未提交改动" : "Working tree is clean"}
+                {selectedScopeValue
+                  ? isZh
+                    ? "该范围无文件差异"
+                    : "No file changes in this scope"
+                  : isZh
+                    ? "工作区干净，暂无未提交改动"
+                    : "Working tree is clean"}
               </div>
-              <div className="text-[12px] text-[var(--aurora-fg3)] max-w-sm">
+              <div className="text-[12px] text-[var(--aurora-fg3)] max-w-md leading-relaxed">
                 {isZh
-                  ? "智能体修改代码后会自动在此呈现逐行差异，也可以在上方下拉框切换查看历史回合检查点。"
-                  : "Changes made by agents appear here automatically, or pick a previous turn checkpoint above."}
+                  ? "智能体修改代码后会自动在此呈现逐行差异；也可以直接审阅最近一次提交，或在上方下拉框切换任意历史提交 / 回合检查点。"
+                  : "Uncommitted agent edits appear here automatically; you can also review the latest commit or pick any commit/checkpoint above."}
               </div>
+              {!selectedScopeValue && latestCommit && (
+                <Btn
+                  variant="primary"
+                  size="sm"
+                  icon="code"
+                  onClick={() => handleScopeChange(`commit:${latestCommit.sha}`)}
+                >
+                  {isZh
+                    ? `查看最近提交 ${latestCommit.short_sha} · ${latestCommit.subject.length > 32 ? `${latestCommit.subject.slice(0, 32)}…` : latestCommit.subject}`
+                    : `Review latest commit ${latestCommit.short_sha}`}
+                </Btn>
+              )}
             </div>
           ) : (
             <div className="flex-1 min-h-0 flex flex-col md:flex-row overflow-hidden">

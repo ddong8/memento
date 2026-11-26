@@ -23,12 +23,18 @@ def _user(uid: uuid.UUID | None = None) -> User:
     return u
 
 
-def _machine(owner_id: uuid.UUID, token_hash: str = "dev-tok-1", name: str = "MacBook") -> Machine:
+def _machine(
+    owner_id: uuid.UUID,
+    token_hash: str = "dev-tok-1",
+    name: str = "MacBook",
+    collector_version: str = "1.0.158",
+) -> Machine:
     m = MagicMock(spec=Machine)
     m.id = uuid.uuid4()
     m.user_id = owner_id
     m.collector_token_hash = token_hash
     m.name = name
+    m.collector_version = collector_version
     return m
 
 
@@ -137,6 +143,86 @@ class TestGitReviewApi(unittest.TestCase):
                 self.assertTrue(sent_payload["push"])
                 self.assertTrue(sent_payload["create_pr"])
                 self.assertEqual(sent_payload["files"], ["a.py"])
+
+        asyncio.run(_run())
+
+    def test_git_diff_uses_zero_upgrade_shell_fallback_on_older_daemon(self):
+        """A 1.0.157 daemon does not understand git_diff_req; server must fall back seamlessly
+        to an ephemeral shell command instead of hanging 35s for a 504 timeout."""
+        user = _user()
+        old_mac = _machine(user.id, name="haixingdeMac-mini.local (Darwin)", collector_version="1.0.157")
+        db = AsyncMock()
+        sample_stdout = "\n".join([
+            "===M_META===",
+            "/Users/dev/memento",
+            "main",
+            "1111111111111111111111111111111111111111",
+            "===M_STATUS===",
+            " M src/app.ts",
+            "===M_COMMITS===",
+            "1111111111111111111111111111111111111111\t0000000000000000000000000000000000000000\t1111111\tfeat: init\t2026-11-26T10:00:00+08:00",
+            "===M_CHECKPOINTS===",
+            "===M_DIFF===",
+            "diff --git a/src/app.ts b/src/app.ts",
+            "index 1111111..2222222 100644",
+            "--- a/src/app.ts",
+            "+++ b/src/app.ts",
+            "@@ -1,2 +1,2 @@",
+            "-const a = 1;",
+            "+const a = 2;",
+            " export default a;",
+            "===M_UNTRACKED===",
+            "===M_UFILE===notes.md\t6",
+            "hello",
+            "===M_UEND===",
+        ])
+
+        async def _run():
+            with patch.object(git_review, "find_machine_by_id_or_hash", AsyncMock(return_value=old_mac)), \
+                 patch.object(git_review, "user_machine_ids", AsyncMock(return_value={old_mac.id})), \
+                 patch.object(git_review, "sees_all", return_value=False), \
+                 patch.object(git_review.device_reports, "device_has_feature", return_value=False), \
+                 patch.object(git_review.device_reports, "get_cached_device_capabilities", return_value={"environment": {"platform": "darwin"}}), \
+                 patch.object(git_review.ws_manager, "request_device", AsyncMock()) as native_rpc, \
+                 patch.object(git_review, "_run_ephemeral_shell", AsyncMock(return_value=(0, sample_stdout, "", None))) as shell_fn:
+                out = await git_review.git_diff(
+                    git_review.GitDiffRequest(device_id=old_mac.collector_token_hash, cwd="/Users/dev/memento"),
+                    db=db,
+                    _user=user,
+                )
+                native_rpc.assert_not_awaited()
+                shell_fn.assert_awaited_once()
+                self.assertTrue(out["ok"])
+                self.assertTrue(out["legacy_fallback"])
+                self.assertEqual(out["branch"], "main")
+                self.assertEqual(out["total_files"], 2)
+                self.assertEqual(out["recent_commits"][0]["short_sha"], "1111111")
+                self.assertEqual(sorted(f["path"] for f in out["files"]), ["notes.md", "src/app.ts"])
+
+        asyncio.run(_run())
+
+    def test_checkpoint_restore_fails_fast_on_older_daemon(self):
+        user = _user()
+        old_mac = _machine(user.id, name="haixingdeMac-mini.local", collector_version="1.0.157")
+        db = AsyncMock()
+
+        async def _run():
+            with patch.object(git_review, "find_machine_by_id_or_hash", AsyncMock(return_value=old_mac)), \
+                 patch.object(git_review, "user_machine_ids", AsyncMock(return_value={old_mac.id})), \
+                 patch.object(git_review, "sees_all", return_value=False), \
+                 patch.object(git_review.device_reports, "device_has_feature", return_value=False):
+                with self.assertRaises(HTTPException) as ctx:
+                    await git_review.git_checkpoint_restore(
+                        git_review.GitRestoreRequest(
+                            device_id=old_mac.collector_token_hash,
+                            cwd="/repo",
+                            target_ref="refs/memento/checkpoints/abc/before",
+                        ),
+                        db=db,
+                        _user=user,
+                    )
+                self.assertEqual(ctx.exception.status_code, 409)
+                self.assertIn("1.0.157", ctx.exception.detail)
 
         asyncio.run(_run())
 

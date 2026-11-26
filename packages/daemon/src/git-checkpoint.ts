@@ -87,6 +87,14 @@ export interface GitCheckpointSummary {
   created_at?: string;
 }
 
+export interface GitCommitSummary {
+  sha: string;
+  parent_sha: string;
+  short_sha: string;
+  subject: string;
+  created_at?: string;
+}
+
 export interface GitDiffResponse {
   ok: boolean;
   error?: string;
@@ -102,6 +110,7 @@ export interface GitDiffResponse {
   truncated?: boolean;
   files?: GitDiffFile[];
   checkpoints?: GitCheckpointSummary[];
+  recent_commits?: GitCommitSummary[];
 }
 
 export interface GitRestoreResponse {
@@ -257,6 +266,31 @@ async function listCheckpoints(repoRoot: string, env?: NodeJS.ProcessEnv): Promi
     }
   }
   return out.slice(0, 30);
+}
+
+async function listRecentCommits(repoRoot: string, env?: NodeJS.ProcessEnv): Promise<GitCommitSummary[]> {
+  const res = await git(
+    ["log", "-n", "12", "--format=%H%x09%P%x09%h%x09%s%x09%cI"],
+    repoRoot,
+    env,
+    10_000,
+  );
+  if (res.code !== 0 || !res.stdout.trim()) return [];
+  const out: GitCommitSummary[] = [];
+  for (const line of res.stdout.trim().split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    const [sha, parents, shortSha, subject, dateStr] = line.split("\t");
+    if (!sha) continue;
+    const parentSha = (parents || "").trim().split(/\s+/)[0] || "";
+    out.push({
+      sha: sha.trim(),
+      parent_sha: parentSha,
+      short_sha: (shortSha || sha.slice(0, 8)).trim(),
+      subject: (subject || "").trim(),
+      created_at: dateStr?.trim() || undefined,
+    });
+  }
+  return out;
 }
 
 /**
@@ -534,7 +568,12 @@ export async function getGitDiff(params: {
 
   if (baseRef && targetRef) {
     const res = await git(["diff", "--no-color", "--unified=3", "-M", baseRef, targetRef, ...pathArgs], repo.repoRoot, params.env, 25_000);
-    if (res.code !== 0) return { ok: false, error: res.stderr.trim() || "获取检查点 Diff 失败" };
+    if (res.code !== 0) return { ok: false, error: res.stderr.trim() || "获取 Diff 失败" };
+    rawDiff = res.stdout;
+  } else if (targetRef) {
+    // Single commit without parent (root commit)
+    const res = await git(["show", "--format=", "--no-color", "--unified=3", "-M", targetRef, ...pathArgs], repo.repoRoot, params.env, 25_000);
+    if (res.code !== 0) return { ok: false, error: res.stderr.trim() || "获取提交 Diff 失败" };
     rawDiff = res.stdout;
   } else {
     // Live working tree vs HEAD (includes both staged and unstaged tracked changes)
@@ -562,8 +601,11 @@ export async function getGitDiff(params: {
   const parsed = [...parseUnifiedDiff(rawDiff), ...extraFiles];
   const totalAdditions = parsed.reduce((acc, f) => acc + f.additions, 0);
   const totalDeletions = parsed.reduce((acc, f) => acc + f.deletions, 0);
-  const statusOut = await git(["status", "--porcelain"], repo.repoRoot, params.env, 10_000);
-  const checkpoints = await listCheckpoints(repo.repoRoot, params.env);
+  const [statusOut, checkpoints, recentCommits] = await Promise.all([
+    git(["status", "--porcelain"], repo.repoRoot, params.env, 10_000),
+    listCheckpoints(repo.repoRoot, params.env),
+    listRecentCommits(repo.repoRoot, params.env),
+  ]);
 
   return {
     ok: true,
@@ -579,6 +621,7 @@ export async function getGitDiff(params: {
     truncated,
     files: parsed,
     checkpoints,
+    recent_commits: recentCommits,
   };
 }
 

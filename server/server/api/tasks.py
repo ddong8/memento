@@ -653,15 +653,18 @@ async def device_websocket_endpoint(
             elif msg_type == "task_finished":
                 tid_str = data.get("task_id")
                 if tid_str:
-                    watched = await ws_manager.is_watched(tid_str)
-                    ws_manager.push_finished(tid_str, data)
-                    if await _save_finished(tid_str, data) and not watched:
-                        await _recover_turn(tid_str)
-                    notify_service.spawn(task_alerts.handle_task_finished(
-                        tid_str, data.get("status"), machine.name, watched,
-                    ))
-                    # A mission waiting on it takes its next step now
-                    notify_service.spawn(mission_service.wake_for_task(tid_str))
+                    if str(tid_str).startswith("gitrpc-"):
+                        ws_manager.push_finished(tid_str, data)
+                    else:
+                        watched = await ws_manager.is_watched(tid_str)
+                        ws_manager.push_finished(tid_str, data)
+                        if await _save_finished(tid_str, data) and not watched:
+                            await _recover_turn(tid_str)
+                        notify_service.spawn(task_alerts.handle_task_finished(
+                            tid_str, data.get("status"), machine.name, watched,
+                        ))
+                        # A mission waiting on it takes its next step now
+                        notify_service.spawn(mission_service.wake_for_task(tid_str))
     except WebSocketDisconnect:
         logger.info("Device WebSocket disconnected: %s", real_device_id)
     except Exception as e:

@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `09f12247` · Updated: `2026-11-25`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `e1af1b27` · Updated: `2026-11-25`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -13,10 +13,10 @@
 - 类型 (Type): Monorepo (Workspaces)
 - 技术栈 (Stack): TypeScript/JavaScript, Python, Shell / Bash · React, Electron, Next.js, TailwindCSS, Model Context Protocol (MCP), FastAPI, SQLAlchemy, Celery
 - 基础设施 (Infra): PostgreSQL, pgvector (Vector DB), Redis, MinIO / S3 Object Storage, Celery Task Queue
-- 规模 (Scale): 9 个子系统 · 40 组 API 路由 / 322 个接口 · 39 个前端页面 · 41 个数据模型 · 35 个服务模块 · 257 个测试文件
+- 规模 (Scale): 9 个子系统 · 40 组 API 路由 / 322 个接口 · 39 个前端页面 · 41 个数据模型 · 35 个服务模块 · 259 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `09f12247` (2026-11-25): feat(studio): 升级 filmkit 镜像至 2e888f64b77c 并接入 H3 BF16 高精与 768P 原生画质配置
+- 最近改动 (Latest): `e1af1b27` (2026-11-25): feat(studio): 升级 filmkit 至 8ccc710f7bcb 并将默认模板切换为 1-2 分钟中国化爆梗短视频
 - 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 75（✅ 75 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
 
 | 章节 (Section) | 行号 (Lines) |
@@ -647,17 +647,17 @@ erDiagram
 | :--- | :--- | :--- | :--- |
 | server/tests (pytest) | [`server/tests`](server/tests) | 129 | `test_agent_ids.py`, `test_agent_limits.py`, `test_agent_login.py`, `test_agent_run_states.py`, `test_ai_provider.py` |
 | packages/daemon/test (vitest / jest) | [`packages/daemon/test`](packages/daemon/test) | 63 | `agent-args.test.ts`, `agent-login.test.ts`, `agent-stream.test.ts`, `agy-background.test.ts`, `agy-models.test.ts` |
-| apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 57 | `active-runs-chip.test.tsx`, `api-client.test.ts`, `ask-performance-guards.test.tsx`, `ask-reading-and-persona-rules.test.tsx`, `ask-top-bar.test.tsx` |
+| apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 58 | `active-runs-chip.test.tsx`, `api-client.test.ts`, `ask-performance-guards.test.tsx`, `ask-reading-and-persona-rules.test.tsx`, `ask-top-bar.test.tsx` |
+| apps/mobile/test (vitest / jest) | [`apps/mobile/test`](apps/mobile/test) | 3 | `deeplink.test.ts`, `glass-surface.test.ts`, `webview-props.test.ts` |
 | apps/desktop/test (vitest / jest) | [`apps/desktop/test`](apps/desktop/test) | 2 | `helpers.test.ts`, `updater-and-daemon.test.ts` |
-| apps/mobile/test (vitest / jest) | [`apps/mobile/test`](apps/mobile/test) | 2 | `deeplink.test.ts`, `webview-props.test.ts` |
 | packages/core/test (vitest / jest) | [`packages/core/test`](packages/core/test) | 2 | `ask-stream.test.ts`, `task-events.test.ts` |
 | packages/mcp/test (vitest / jest) | [`packages/mcp/test`](packages/mcp/test) | 2 | `remote-and-tools.test.ts`, `server.test.ts` |
 
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
-- [`deploy/k8s/studio.yaml`](deploy/k8s/studio.yaml) (18 commits)
+- [`deploy/k8s/studio.yaml`](deploy/k8s/studio.yaml) (19 commits)
+- [`apps/web/src/app/studio/page.tsx`](apps/web/src/app/studio/page.tsx) (10 commits)
 - [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (10 commits)
-- [`apps/web/src/app/studio/page.tsx`](apps/web/src/app/studio/page.tsx) (9 commits)
 - [`apps/web/src/components/layout/Sidebar.tsx`](apps/web/src/components/layout/Sidebar.tsx) (8 commits)
 - [`apps/web/src/lib/studio-api.ts`](apps/web/src/lib/studio-api.ts) (8 commits)
 - [`server/server/api/studio.py`](server/server/api/studio.py) (8 commits)
@@ -687,12 +687,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `e1af1b27` (2026-11-25): feat(studio): 升级 filmkit 至 8ccc710f7bcb 并将默认模板切换为 1-2 分钟中国化爆梗短视频
 - `09f12247` (2026-11-25): feat(studio): 升级 filmkit 镜像至 2e888f64b77c 并接入 H3 BF16 高精与 768P 原生画质配置
 - `0d8a8992` (2026-11-25): chore(studio): 升级 filmkit 镜像至 a73e85e227d0 并同步去 AI 感实拍预设
 - `12b21adc` (2026-11-24): chore(deploy): filmkit 镜像升到 34ecb2a62b92（修复 G4/H100 申请误带 --high-mem 被拒问题）
 - `71134630` (2026-11-24): chore(deploy): filmkit 镜像升到 9ac8c3947e44（视频号文案去短剧高敏词硬过滤与自动勾选 AI 标注）
 - `6e837d78` (2026-11-24): fix(studio): 修正孤立云端实例状态徽章并去渐变统一纯平按钮
-- `b17639a6` (2026-11-24): chore(deploy): filmkit 镜像升到 0705b312fc61（实时 Colab 额度查询与单实例强制停表）
 
 ## 10. Key Environment Variables & Configuration
 

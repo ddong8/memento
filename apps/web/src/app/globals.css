@@ -807,6 +807,14 @@ html.memento-native-shell footer[data-ask-footer="true"] {
   padding-bottom: 2px !important;
   padding-top: 2px !important;
 }
+/* New mobile native shell (>= v1.0.156) overlays a floating Liquid Glass / BlurView TabBar
+   on top of a full-bleed WebView and exposes its live height via --memento-tabbar-inset. */
+html.memento-glass-tabbar .memento-scroll-main {
+  padding-bottom: calc(var(--memento-tabbar-inset, 0px) + 16px) !important;
+}
+html.memento-glass-tabbar footer[data-ask-footer="true"] {
+  padding-bottom: calc(var(--memento-tabbar-inset, 0px) + 6px) !important;
+}
 
 /* Mobile Ask View: Maximize width & vertical real estate for dialogue bubbles */
 @media (max-width: 640px) {
@@ -1008,6 +1016,18 @@ html, body {
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
   }
+  /* Selective mobile frosted glass: only the 2-3 fixed chrome surfaces (top bar, composer, popover)
+     blur underneath scrolling content, keeping list cards blur-free for 120Hz smooth scrolling. */
+  html[data-glass="on"] .memento-glass-chrome {
+    background: rgba(255, 255, 255, 0.78) !important;
+    backdrop-filter: blur(18px) saturate(175%) !important;
+    -webkit-backdrop-filter: blur(18px) saturate(175%) !important;
+  }
+  html[data-glass="on"][data-theme="dark"] .memento-glass-chrome {
+    background: rgba(20, 20, 30, 0.76) !important;
+    backdrop-filter: blur(18px) saturate(175%) !important;
+    -webkit-backdrop-filter: blur(18px) saturate(175%) !important;
+  }
   /* 移动端关闭常驻装饰性无限动画，释放 iPhone ProMotion / Android LTPO 屏幕在静置时降频至 1Hz */
   .breathing-glow-emerald,
   .animate-ping {
@@ -1033,6 +1053,77 @@ html, body {
 .ask-footer-card:focus-within {
   border-color: color-mix(in srgb, var(--aurora-accent) 42%, var(--aurora-border-strong));
   box-shadow: var(--aurora-card-shadow), 0 0 0 3px var(--aurora-accent-soft);
+}
+
+/* =========================================================================
+   macOS / Windows 11 Native Glass & Cross-Platform Frosted Chrome System
+   -------------------------------------------------------------------------
+   1) Desktop with native vibrancy / Mica (data-client="desktop" data-native-glass="1" data-glass="on"):
+      - Root html/body become transparent so Electron's NSVisualEffectView / Mica shines through.
+      - Left sidebar (<aside>) uses a luminous translucent tint without double-blur (pure OS vibrancy).
+      - Right main pane (.memento-main-pane) stays crisp & high-contrast so text never looks muddy grey.
+   2) Floating chrome surfaces (.memento-glass-chrome: top bars, composer, popovers):
+      - Translucent frosted glass with 1px specular inner highlight, zero cheap gradients.
+   3) User toggle data-glass="off":
+      - Immediately disables all blur/transparency everywhere and restores solid opaque surfaces.
+   ========================================================================= */
+html[data-glass="on"] .memento-glass-chrome {
+  background: rgba(255, 255, 255, 0.72) !important;
+  backdrop-filter: blur(22px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(22px) saturate(180%) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72), 0 12px 32px -18px rgba(15, 15, 40, 0.14);
+}
+html[data-glass="on"][data-theme="dark"] .memento-glass-chrome {
+  background: rgba(20, 20, 30, 0.72) !important;
+  backdrop-filter: blur(22px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(22px) saturate(180%) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10), 0 14px 36px -18px rgba(0, 0, 0, 0.52);
+}
+html[data-glass="on"] .memento-glass-bar {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+html[data-glass="on"][data-theme="dark"] .memento-glass-bar {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+/* Native macOS sidebar vibrancy / Windows 11 Mica desktop window */
+html[data-client="desktop"][data-native-glass="1"][data-glass="on"],
+html[data-client="desktop"][data-native-glass="1"][data-glass="on"] body {
+  background: transparent !important;
+}
+html[data-client="desktop"][data-native-glass="1"][data-glass="on"] .memento-aurora-backdrop {
+  display: none !important;
+}
+html[data-client="desktop"][data-native-glass="1"][data-glass="on"] aside {
+  background: rgba(255, 255, 255, 0.24) !important;
+  border-right: 1px solid rgba(15, 15, 30, 0.08) !important;
+  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.36);
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+html[data-client="desktop"][data-native-glass="1"][data-glass="on"][data-theme="dark"] aside {
+  background: rgba(14, 14, 24, 0.34) !important;
+  border-right: 1px solid rgba(255, 255, 255, 0.09) !important;
+  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.04);
+}
+html[data-client="desktop"][data-native-glass="1"][data-glass="on"] .memento-main-pane {
+  background: var(--aurora-bg);
+  min-height: 100vh;
+  min-height: 100dvh;
+  box-shadow: -1px 0 0 var(--aurora-border);
+}
+
+/* Solid fallback when user turns frosted glass OFF */
+html[data-glass="off"] .memento-glass-chrome,
+html[data-glass="off"] .aurora-glass,
+html[data-glass="off"] .aurora-glass-panel,
+html[data-glass="off"] aside,
+html[data-glass="off"] header {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+html[data-glass="off"] .memento-glass-chrome {
+  background: var(--aurora-surface-solid) !important;
 }
 
 /* Native zero-reflow textarea auto-sizing on Chrome/Electron/Safari 18+

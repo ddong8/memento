@@ -101,13 +101,13 @@ function AppShellInner({
   return (
     <div className={`min-h-screen ${isAskRoute ? "h-[100dvh] overflow-hidden" : ""}`}>
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-      <div className={`transition-[margin-left] duration-200 ease-in-out ${collapsed ? "lg:ml-[68px]" : "lg:ml-60"} relative z-0 ${isAskRoute ? "h-full overflow-hidden" : ""}`}>
+      <div className={`memento-main-pane transition-[margin-left] duration-200 ease-in-out ${collapsed ? "lg:ml-[68px]" : "lg:ml-60"} relative z-0 ${isAskRoute ? "h-full overflow-hidden" : ""}`}>
         <Header onMenuToggle={() => setSidebarOpen((v) => !v)} className={isAskRoute ? "hidden" : "flex"} />
         <main
           className={
             isAskRoute
               ? "p-0 h-full overflow-hidden"
-              : "pt-14 px-3 pb-4 sm:pt-16 sm:px-5 sm:pb-5 md:pt-16 md:px-7 md:pb-6"
+              : "memento-scroll-main pt-14 px-3 pb-4 sm:pt-16 sm:px-5 sm:pb-5 md:pt-16 md:px-7 md:pb-6"
           }
         >
           <RouteKeepAlive>{children}</RouteKeepAlive>

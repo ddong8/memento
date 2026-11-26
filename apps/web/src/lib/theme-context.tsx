@@ -8,25 +8,30 @@ export type Skin = "aurora" | "arc" | "baseline";
 interface ThemeCtx {
   theme: Theme;
   skin: Skin;
+  glass: boolean;
   setTheme: (t: Theme) => void;
   setSkin: (s: Skin) => void;
+  setGlass: (on: boolean) => void;
   toggleTheme: () => void;
 }
 
 const Ctx = createContext<ThemeCtx>({
   theme: "light",
   skin: "aurora",
+  glass: true,
   setTheme: () => {},
   setSkin: () => {},
+  setGlass: () => {},
   toggleTheme: () => {},
 });
 
 const SKINS: Skin[] = ["aurora", "arc", "baseline"];
 
-function applyAttrs(skin: Skin, theme: Theme) {
+function applyAttrs(skin: Skin, theme: Theme, glass: boolean) {
   if (typeof document === "undefined") return;
   document.documentElement.setAttribute("data-skin", skin);
   document.documentElement.setAttribute("data-theme", theme);
+  document.documentElement.setAttribute("data-glass", glass ? "on" : "off");
   // Swap favicon to match skin
   const href = `/favicon-${skin}.svg`;
   let link = document.querySelector<HTMLLinkElement>("link[rel~='icon'][data-skin-icon]");
@@ -51,18 +56,26 @@ function applyAttrs(skin: Skin, theme: Theme) {
   }
   meta.content = headerBg;
 
-  // The desktop app: what the system draws (title bar on Windows, scroll bars, menus) in the same light/dark
-  const dt = (window as unknown as { mementoDesktop?: { setTheme?: (t: string) => Promise<unknown> } }).mementoDesktop;
+  // The desktop app: what the system draws (title bar on Windows, macOS vibrancy, scroll bars, menus)
+  const dt = (window as unknown as {
+    mementoDesktop?: {
+      nativeGlass?: boolean;
+      setTheme?: (t: string) => Promise<unknown>;
+      setGlass?: (on: boolean) => Promise<unknown>;
+    };
+  }).mementoDesktop;
+  document.documentElement.setAttribute("data-native-glass", dt?.nativeGlass ? "1" : "0");
   // Not chosen in the app: "system", so the page keeps seeing the system's changes (Electron's
   // prefers-color-scheme follows nativeTheme.themeSource)
   let chosen: string | null = null;
   try { chosen = localStorage.getItem("dr_theme"); } catch {}
   void dt?.setTheme?.(chosen === "light" || chosen === "dark" ? theme : "system")?.catch?.(() => {});
+  void dt?.setGlass?.(glass)?.catch?.(() => {});
 
   const bridge = (window as unknown as { ReactNativeWebView?: { postMessage: (msg: string) => void } }).ReactNativeWebView;
   if (bridge?.postMessage) {
     try {
-      bridge.postMessage(JSON.stringify({ type: "theme", bg: headerBg, dark: isDark }));
+      bridge.postMessage(JSON.stringify({ type: "theme", bg: headerBg, dark: isDark, glass }));
     } catch {}
   }
 }
@@ -80,9 +93,19 @@ function readInitialSkin(): Skin {
   return saved && SKINS.includes(saved) ? saved : "aurora";
 }
 
+function readInitialGlass(): boolean {
+  if (typeof window === "undefined") return true;
+  try {
+    return localStorage.getItem("dr_glass") !== "off";
+  } catch {
+    return true;
+  }
+}
+
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [theme, setThemeState] = useState<Theme>(readInitialTheme);
   const [skin, setSkinState] = useState<Skin>(readInitialSkin);
+  const [glass, setGlassState] = useState<boolean>(readInitialGlass);
 
   // Not chosen in the app: follow the system's light/dark as it changes, like a native app does
   useEffect(() => {
@@ -98,35 +121,41 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     return () => mq.removeEventListener("change", onChange);
   }, []);
 
-  // Sync <html data-*> attrs + favicon link on mount and whenever theme/skin change.
+  // Sync <html data-*> attrs + favicon link on mount and whenever theme/skin/glass change.
   useEffect(() => {
-    applyAttrs(skin, theme);
-    const onActive = () => applyAttrs(skin, theme);
+    applyAttrs(skin, theme, glass);
+    const onActive = () => applyAttrs(skin, theme, glass);
     window.addEventListener("focus", onActive);
     window.addEventListener("memento_app_active", onActive);
     return () => {
       window.removeEventListener("focus", onActive);
       window.removeEventListener("memento_app_active", onActive);
     };
-  }, [skin, theme]);
+  }, [skin, theme, glass]);
 
   const setTheme = (t: Theme) => {
     try { localStorage.setItem("dr_theme", t); } catch {}
     setThemeState(t);
-    applyAttrs(skin, t);
+    applyAttrs(skin, t, glass);
   };
 
   const setSkin = (s: Skin) => {
     setSkinState(s);
-    applyAttrs(s, theme);
+    applyAttrs(s, theme, glass);
     try { localStorage.setItem("dr_skin", s); } catch {}
+  };
+
+  const setGlass = (on: boolean) => {
+    setGlassState(on);
+    try { localStorage.setItem("dr_glass", on ? "on" : "off"); } catch {}
+    applyAttrs(skin, theme, on);
   };
 
   return (
     <Ctx.Provider
       value={{
-        theme, skin,
-        setTheme, setSkin,
+        theme, skin, glass,
+        setTheme, setSkin, setGlass,
         toggleTheme: () => setTheme(theme === "dark" ? "light" : "dark"),
       }}
     >

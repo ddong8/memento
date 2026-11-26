@@ -23,6 +23,8 @@ export interface CollectorConfig {
   webUrl?: string;
   /** Last visited route in the client (e.g. /app, /ask, /inbox) to restore on relaunch. */
   lastRoute?: string;
+  /** Desktop frosted glass / native vibrancy window effect (default true). */
+  glassEnabled?: boolean;
 }
 
 export const DEFAULT_SERVER_URL = "https://mem.ihasy.com";
@@ -83,6 +85,8 @@ export async function loadConfig(options: { home?: string; env?: NodeJS.ProcessE
   let execKey = env.MEMENTO_REMOTE_EXEC_KEY;
   const extraWatchDirs: string[] = [];
   let webUrl = env.MEMENTO_WEB_URL || undefined;
+  let lastRoute: string | undefined;
+  let glassEnabled: boolean | undefined;
 
   let deviceId = (await readText(paths.deviceId))?.trim() ?? "";
   if (!deviceId) {
@@ -109,6 +113,8 @@ export async function loadConfig(options: { home?: string; env?: NodeJS.ProcessE
         if (nonEmpty(map.remote_exec_key)) execKey = map.remote_exec_key;
         if (Array.isArray(map.extra_watch_dirs)) extraWatchDirs.push(...map.extra_watch_dirs.filter(nonEmpty));
         if (!webUrl && nonEmpty(map.web_url)) webUrl = map.web_url;
+        if (nonEmpty(map.last_route)) lastRoute = map.last_route;
+        if (typeof map.glass_enabled === "boolean") glassEnabled = map.glass_enabled;
       } else if (nonEmpty(map.obsidian_vault_path)) {
         extraWatchDirs.push(map.obsidian_vault_path);
       }
@@ -139,6 +145,8 @@ export async function loadConfig(options: { home?: string; env?: NodeJS.ProcessE
     remoteExecKey: execKey || undefined,
     extraWatchDirs,
     ...(webUrl ? { webUrl: webUrl.replace(/\/+$/, "") } : {}),
+    ...(lastRoute ? { lastRoute } : {}),
+    ...(glassEnabled !== undefined ? { glassEnabled } : {}),
   };
 }
 
@@ -164,6 +172,8 @@ export async function saveConfig(config: CollectorConfig, home = homeDir()): Pro
     ...(config.remoteExecKey ? { remote_exec_key: config.remoteExecKey } : {}),
     extra_watch_dirs: config.extraWatchDirs,
     ...(config.webUrl ? { web_url: config.webUrl } : {}),
+    ...(config.lastRoute ? { last_route: config.lastRoute } : {}),
+    ...(config.glassEnabled !== undefined ? { glass_enabled: config.glassEnabled } : {}),
     updated_at: new Date().toISOString(),
   };
   await writeFile(paths.config, JSON.stringify(data, null, 2));

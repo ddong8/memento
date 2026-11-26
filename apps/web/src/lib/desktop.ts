@@ -41,6 +41,8 @@ export interface DesktopInfo {
   platform: string;
   openAtLogin: boolean;
   packaged: boolean;
+  nativeGlass?: boolean;
+  glassEnabled?: boolean;
   /** How AI tools start the MCP server bundled with the app. */
   mcp?: { command: string; args: string[]; env: Record<string, string> };
 }
@@ -78,10 +80,14 @@ export interface ServerTestResult {
 
 export interface MementoDesktop {
   isDesktop: true;
+  /** v1.0.156+: true when macOS vibrancy or Windows 11 Mica native backdrop is supported by this window. */
+  nativeGlass?: boolean;
   info(): Promise<DesktopInfo>;
   setOpenAtLogin(on: boolean): Promise<boolean>;
   /** v1.0.126+: what the system draws (title bar, scroll bars, menus) follows the page's light/dark. */
   setTheme?(theme: "light" | "dark" | "system"): Promise<string>;
+  /** v1.0.156+: toggle native window frosted glass material (macOS vibrancy / Windows 11 Mica). */
+  setGlass?(on: boolean): Promise<{ enabled: boolean; nativeGlass: boolean }>;
   /** v1.0.128+: an action menu as the system's menu; the chosen item's id, null when closed without one. */
   popupMenu?(items: unknown[], pos?: { x: number; y: number }): Promise<string | null>;
   checkForUpdates(): Promise<void>;

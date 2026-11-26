@@ -5182,7 +5182,7 @@ function AskPageContent() {
     >
       <div className="max-w-3xl xl:max-w-4xl 2xl:max-w-5xl mx-auto w-full min-w-0" style={{ boxSizing: "border-box" }}>
         <div
-          className="ask-footer-card px-2.5 py-2 sm:px-3.5 sm:py-2.5"
+          className="ask-footer-card memento-glass-chrome px-2.5 py-2 sm:px-3.5 sm:py-2.5"
           style={{
             background: isDraggingOver ? "var(--aurora-accent-soft)" : "var(--aurora-surface-solid)",
             ...(isDraggingOver

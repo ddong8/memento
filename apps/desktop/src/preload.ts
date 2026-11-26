@@ -12,11 +12,15 @@ const subscribe = (channel: string) => (cb: (payload: unknown) => void) => {
   };
 };
 
+const nativeGlass = process.argv.includes("--memento-native-glass");
+
 contextBridge.exposeInMainWorld("mementoDesktop", {
   isDesktop: true,
+  nativeGlass,
   info: () => ipcRenderer.invoke("app:info"),
   setOpenAtLogin: (on: boolean) => ipcRenderer.invoke("app:set-open-at-login", on),
   setTheme: (theme: "light" | "dark" | "system") => ipcRenderer.invoke("app:set-theme", theme),
+  setGlass: (on: boolean) => ipcRenderer.invoke("app:set-glass", on),
   popupMenu: (items: unknown[], pos?: { x: number; y: number }) => ipcRenderer.invoke("app:popup-menu", items, pos),
   checkForUpdates: () => ipcRenderer.invoke("app:check-updates"),
   notify: (options: { title: string; body: string; url?: string }) =>

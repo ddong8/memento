@@ -21,9 +21,11 @@ import {
 } from "react-native";
 import * as Haptics from "expo-haptics";
 import * as Notifications from "expo-notifications";
+import { BlurTargetView } from "expo-blur";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { WebView, type WebViewMessageEvent, type WebViewNavigation, type WebViewProps } from "react-native-webview";
 
+import { GlassSurface } from "../components/GlassSurface";
 import { Icon, type IconName } from "../components/Icon";
 import { Button } from "../components/ui";
 import { normalizeDeepLinkTarget, parseDeepLinkAction, subscribeDeepLinkTarget } from "../lib/deeplink";
@@ -44,21 +46,23 @@ const TABS: Array<{ id: TabId; label: string; icon: IconName; path: string }> = 
 // The web app is the interface, elevated with iOS/Android native haptic feedback,
 // fluid momentum scrolling, and custom micro-interactions to deliver a true native feel.
 const INJECTED_CLIENT_HELPERS = `(() => {
-  document.documentElement.classList.add("memento-native-shell");
+  document.documentElement.classList.add("memento-native-shell", "memento-glass-tabbar");
   if (window.__memento_native_helpers_installed) return;
   window.__memento_native_helpers_installed = true;
 
-  // 1. Theme tracking
+  // 1. Theme & glass tracking
   const postTheme = () => {
     const root = document.documentElement;
     const isDark = root.getAttribute("data-theme") === "dark" || (root.getAttribute("data-theme") !== "light" && window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
     const bg = isDark ? "#15151F" : "#FFFFFF";
+    let glass = root.getAttribute("data-glass") !== "off";
+    try { if (localStorage.getItem("dr_glass") === "off") glass = false; } catch (e) {}
     if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
-      window.ReactNativeWebView.postMessage(JSON.stringify({ type: "theme", bg, dark: isDark }));
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type: "theme", bg, dark: isDark, glass }));
     }
   };
   postTheme();
-  new MutationObserver(postTheme).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "data-skin"] });
+  new MutationObserver(postTheme).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "data-skin", "data-glass"] });
 
   // 2. Apple Taptic Engine Native Haptics Bridge
   window.__memento_haptic = function(style) {
@@ -236,9 +240,11 @@ export default function WebShell() {
   const insets = useSafeAreaInsets();
   const { ready, server, token, signOut, switchServer } = useSession();
   const web = useRef<WebView>(null);
+  const blurTargetRef = useRef<View | null>(null);
   const canGoBack = useRef(false);
   const pendingUrlRef = useRef<string | null>(null);
   const [page, setPage] = useState<{ bg: string; dark: boolean } | null>(null);
+  const [glassEnabled, setGlassEnabled] = useState(true);
   const [activeTab, setActiveTab] = useState<TabId | null>("ask");
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
@@ -493,6 +499,8 @@ export default function WebShell() {
         type?: string;
         bg?: string;
         dark?: boolean;
+        glass?: boolean;
+        enabled?: boolean;
         title?: string;
         body?: string;
         url?: string;
@@ -501,6 +509,9 @@ export default function WebShell() {
       };
       if (msg.type === "theme" && msg.bg && !/rgba\(0, 0, 0, 0\)|transparent/.test(msg.bg)) {
         setPage({ bg: msg.bg, dark: !!msg.dark });
+        if (typeof msg.glass === "boolean") setGlassEnabled(msg.glass);
+      } else if (msg.type === "glass" && typeof msg.enabled === "boolean") {
+        setGlassEnabled(msg.enabled);
       } else if (msg.type === "route") {
         const path = (msg as { path?: string }).path || "";
         const matched = TABS.find((tab) => path === tab.path || path.startsWith(tab.path + "/"));
@@ -578,6 +589,16 @@ export default function WebShell() {
     }
   }, [origin, switchServer]);
 
+  const tabBarBottom = Math.max(insets.bottom, 10);
+  const tabBarInset = keyboardVisible ? 0 : 58 + tabBarBottom + 8;
+
+  useEffect(() => {
+    if (!initialLoaded || !web.current) return;
+    web.current.injectJavaScript(
+      `document.documentElement.style.setProperty("--memento-tabbar-inset", "${tabBarInset}px"); true;`,
+    );
+  }, [initialLoaded, tabBarInset]);
+
   if (!ready) return <View style={{ flex: 1, backgroundColor: t.bg }} />;
   if (!token || !start) return <Redirect href="/login" />;
 
@@ -588,13 +609,13 @@ export default function WebShell() {
     <View style={{ flex: 1, backgroundColor: bg }}>
       <StatusBar style={dark ? "light" : "dark"} />
       <View style={{ height: insets.top, backgroundColor: bg }} />
-      <View style={{ flex: 1, marginBottom: Platform.OS === "ios" ? keyboardHeight : 0 }}>
+      <BlurTargetView ref={blurTargetRef} style={{ flex: 1, marginBottom: Platform.OS === "ios" ? keyboardHeight : 0 }}>
         <WebView
           ref={web}
           source={{ uri: start }}
           style={{ flex: 1, backgroundColor: bg }}
           applicationNameForUserAgent={USER_AGENT_SUFFIX}
-          injectedJavaScriptBeforeContentLoaded={INJECTED_CLIENT_HELPERS}
+          injectedJavaScriptBeforeContentLoaded={`${INJECTED_CLIENT_HELPERS}\ndocument.documentElement.style.setProperty("--memento-tabbar-inset", "${tabBarInset}px"); true;`}
           onMessage={onMessage}
           onNavigationStateChange={onNavigation}
           onShouldStartLoadWithRequest={onShouldStart}
@@ -623,6 +644,9 @@ export default function WebShell() {
             const loadedUrl = e.nativeEvent?.url || "";
             if (loadedUrl.includes("/auth/handoff")) return;
             setInitialLoaded(true);
+            web.current?.injectJavaScript(
+              `document.documentElement.style.setProperty("--memento-tabbar-inset", "${tabBarInset}px"); true;`,
+            );
             if (pendingUrlRef.current && web.current) {
               const fullUrl = pendingUrlRef.current;
               pendingUrlRef.current = null;
@@ -662,79 +686,97 @@ export default function WebShell() {
               </View>
 
               {offlineSnapshot && offlineSnapshot.length > 0 ? (
-                <View style={{ width: "100%", maxHeight: 220, backgroundColor: t.surface, borderRadius: 12, borderWidth: StyleSheet.hairlineWidth, borderColor: t.border, padding: 8, gap: 6 }}>
+                <GlassSurface
+                  enabled={glassEnabled}
+                  dark={dark}
+                  blurTarget={blurTargetRef}
+                  variant="card"
+                  style={{ width: "100%", maxHeight: 220, borderRadius: 16, padding: 8, gap: 6 }}
+                >
                   {offlineSnapshot.slice(0, 5).map((item, idx) => (
                     <View key={item.id || idx} style={{ paddingVertical: 6, paddingHorizontal: 8, borderBottomWidth: idx < Math.min(offlineSnapshot.length - 1, 4) ? StyleSheet.hairlineWidth : 0, borderBottomColor: t.border }}>
                       <Text style={{ fontSize: 13, color: t.fg1, fontWeight: "500" }} numberOfLines={1}>{item.title || "未命名会话"}</Text>
                       {item.time ? <Text style={{ fontSize: 11, color: t.fg3, marginTop: 2 }}>{item.time}</Text> : null}
                     </View>
                   ))}
-                </View>
+                </GlassSurface>
               ) : null}
 
               <Button onPress={() => web.current?.reload()}>重新连接</Button>
             </View>
           )}
         />
-      </View>
+      </BlurTargetView>
       {!keyboardVisible ? (
         <View
-          style={{
-            backgroundColor: dark ? t.surface : "#FFFFFF",
-            borderTopWidth: StyleSheet.hairlineWidth,
-            borderTopColor: t.border,
-            paddingBottom: insets.bottom,
-          }}
+          pointerEvents="box-none"
+          style={[
+            styles.tabBarDockWrap,
+            {
+              bottom: tabBarBottom,
+            },
+          ]}
         >
-          <View
-            style={{
-              height: 52,
-              flexDirection: "row",
-              alignItems: "center",
-              justifyContent: "space-around",
-              paddingHorizontal: 8,
-            }}
+          <GlassSurface
+            enabled={glassEnabled}
+            dark={dark}
+            blurTarget={blurTargetRef}
+            variant="tabbar"
+            style={[
+              styles.tabBarDock,
+              {
+                shadowColor: dark ? "#000000" : "#16131F",
+                shadowOpacity: dark ? 0.42 : 0.14,
+              },
+            ]}
           >
-            {TABS.map((tab) => {
-              const isActive = activeTab === tab.id;
-              const color = isActive ? t.accent : t.fg3;
-              return (
-                <Pressable
-                  key={tab.id}
-                  onPress={() => {
-                    void Haptics.selectionAsync();
-                    setActiveTab(tab.id);
-                    const script = `(() => {
-                      let targetPath = ${JSON.stringify(tab.path)};
-                      if (targetPath === "/ask") {
-                        if (window.location.pathname.startsWith("/ask")) {
-                          return;
+            <View style={styles.tabBarRow}>
+              {TABS.map((tab) => {
+                const isActive = activeTab === tab.id;
+                const color = isActive ? t.accent : dark ? "#B4B1C4" : "#5A566B";
+                return (
+                  <Pressable
+                    key={tab.id}
+                    onPress={() => {
+                      void Haptics.selectionAsync();
+                      setActiveTab(tab.id);
+                      const script = `(() => {
+                        let targetPath = ${JSON.stringify(tab.path)};
+                        if (targetPath === "/ask") {
+                          if (window.location.pathname.startsWith("/ask")) {
+                            return;
+                          }
+                          const lastId = localStorage.getItem("memento_last_ask_conv_id");
+                          if (lastId) targetPath = "/ask?id=" + encodeURIComponent(lastId);
                         }
-                        const lastId = localStorage.getItem("memento_last_ask_conv_id");
-                        if (lastId) targetPath = "/ask?id=" + encodeURIComponent(lastId);
-                      }
-                      if (typeof window.__memento_client_push === "function") {
-                        window.__memento_client_push(targetPath);
-                      } else {
-                        window.location.assign(${JSON.stringify(origin)} + targetPath);
-                      }
-                    })(); true;`;
-                    web.current?.injectJavaScript(script);
-                  }}
-                  style={({ pressed }) => [
-                    styles.tabItem,
-                    { opacity: pressed ? 0.6 : 1, transform: [{ scale: pressed ? 0.92 : 1 }] },
-                  ]}
-                  hitSlop={{ top: 8, bottom: 8, left: 12, right: 12 }}
-                >
-                  <Icon name={tab.icon} size={22} color={color} strokeWidth={isActive ? 2.2 : 1.8} />
-                  <Text style={[styles.tabLabel, { color, fontWeight: isActive ? "600" : "500" }]}>
-                    {tab.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
+                        if (typeof window.__memento_client_push === "function") {
+                          window.__memento_client_push(targetPath);
+                        } else {
+                          window.location.assign(${JSON.stringify(origin)} + targetPath);
+                        }
+                      })(); true;`;
+                      web.current?.injectJavaScript(script);
+                    }}
+                    style={({ pressed }) => [
+                      styles.tabItem,
+                      isActive
+                        ? {
+                            backgroundColor: dark ? "rgba(167, 139, 250, 0.18)" : "rgba(124, 58, 237, 0.11)",
+                          }
+                        : null,
+                      { opacity: pressed ? 0.72 : 1, transform: [{ scale: pressed ? 0.94 : 1 }] },
+                    ]}
+                    hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                  >
+                    <Icon name={tab.icon} size={20} color={color} strokeWidth={isActive ? 2.2 : 1.8} />
+                    <Text style={[styles.tabLabel, { color, fontWeight: isActive ? "600" : "500" }]} numberOfLines={1}>
+                      {tab.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </GlassSurface>
         </View>
       ) : null}
     </View>
@@ -742,12 +784,34 @@ export default function WebShell() {
 }
 
 const styles = StyleSheet.create({
+  tabBarDockWrap: {
+    position: "absolute",
+    left: 14,
+    right: 14,
+    zIndex: 40,
+  },
+  tabBarDock: {
+    borderRadius: 28,
+    shadowOffset: { width: 0, height: 10 },
+    shadowRadius: 24,
+    elevation: 14,
+  },
+  tabBarRow: {
+    height: 58,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 6,
+    gap: 2,
+  },
   tabItem: {
     flex: 1,
+    height: 46,
+    borderRadius: 22,
     alignItems: "center",
     justifyContent: "center",
-    gap: 3,
-    paddingVertical: 4,
+    gap: 2,
+    paddingHorizontal: 4,
   },
   tabLabel: {
     fontSize: 10,

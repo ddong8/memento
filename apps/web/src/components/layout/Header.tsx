@@ -47,7 +47,7 @@ export default function Header({ onMenuToggle, className = "" }: { onMenuToggle:
 
   return (
     <header
-      className={`h-11 sm:h-12 flex items-center justify-between px-3 sm:px-5 md:px-7 fixed top-0 left-0 ${collapsed ? "lg:left-[68px]" : "lg:left-60"} right-0 z-20 transition-[left] duration-200 ease-in-out ${isDesktopApp ? "app-region-drag" : ""} ${className}`}
+      className={`memento-glass-chrome memento-glass-bar h-11 sm:h-12 flex items-center justify-between px-3 sm:px-5 md:px-7 fixed top-0 left-0 ${collapsed ? "lg:left-[68px]" : "lg:left-60"} right-0 z-20 transition-[left] duration-200 ease-in-out ${isDesktopApp ? "app-region-drag" : ""} ${className}`}
       style={{
         background: "var(--aurora-surface)",
         backdropFilter: "var(--aurora-blur)",

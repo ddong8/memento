@@ -3,6 +3,7 @@ import { autoUpdater } from "electron-updater";
 import { execFile, execFileSync, spawn } from "node:child_process";
 import { createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
+import { release as osRelease } from "node:os";
 import { join, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
@@ -166,7 +167,50 @@ function getWindowIcon(): Electron.NativeImage | undefined {
  * 48 px, 44 px in a window narrower than 640 px (the page's sm breakpoint).
  */
 const MERGED_TITLE_BAR = process.platform === "win32";
-let overlayFollowsTheme = false;
+const IS_WIN11_PLUS = process.platform === "win32" && Number(osRelease().split(".")[2] ?? 0) >= 22000;
+const NATIVE_GLASS_SUPPORTED = process.platform === "darwin" || IS_WIN11_PLUS;
+let themeListenerInstalled = false;
+
+function isGlassEnabled(): boolean {
+  return config?.glassEnabled !== false;
+}
+
+function solidWindowBg(): string {
+  return nativeTheme.shouldUseDarkColors ? "#0b0b12" : "#f6f5fb";
+}
+
+function applyWindowMaterial(target?: BrowserWindow): void {
+  const w = target ?? win;
+  if (!w || w.isDestroyed()) return;
+  const glass = NATIVE_GLASS_SUPPORTED && isGlassEnabled();
+  if (process.platform === "darwin") {
+    try {
+      if (glass) {
+        w.setBackgroundColor("#00000000");
+        w.setVibrancy("sidebar");
+      } else {
+        w.setVibrancy(null);
+        w.setBackgroundColor(solidWindowBg());
+      }
+    } catch {}
+    return;
+  }
+  if (IS_WIN11_PLUS) {
+    try {
+      if (glass) {
+        w.setBackgroundColor("#00000000");
+        w.setBackgroundMaterial("mica");
+      } else {
+        w.setBackgroundMaterial("none");
+        w.setBackgroundColor(solidWindowBg());
+      }
+    } catch {}
+    return;
+  }
+  try {
+    w.setBackgroundColor(solidWindowBg());
+  } catch {}
+}
 
 function titleBarOverlay(width?: number): Electron.TitleBarOverlay {
   const dark = nativeTheme.shouldUseDarkColors;
@@ -186,6 +230,7 @@ function updateTitleBarOverlay(): void {
 }
 
 function createWindow(show: boolean): void {
+  const useNativeGlass = NATIVE_GLASS_SUPPORTED && isGlassEnabled();
   win = new BrowserWindow({
     width: 1280,
     height: 860,
@@ -194,9 +239,19 @@ function createWindow(show: boolean): void {
     show,
     title: "Memento",
     icon: getWindowIcon(),
-    // Matches the page while it loads, so there's no dark flash in light mode. (No sidebar vibrancy on
-    // macOS: tried in 1.0.127, its grey didn't match the rest of the window.)
-    backgroundColor: nativeTheme.shouldUseDarkColors ? "#0b0b12" : "#f6f5fb",
+    // Native translucent material on macOS (sidebar vibrancy) and Windows 11 (Mica); opaque fallback elsewhere or when disabled.
+    backgroundColor: useNativeGlass ? "#00000000" : solidWindowBg(),
+    ...(process.platform === "darwin"
+      ? {
+          vibrancy: useNativeGlass ? "sidebar" : undefined,
+          visualEffectState: "followWindow",
+        }
+      : {}),
+    ...(IS_WIN11_PLUS
+      ? {
+          backgroundMaterial: useNativeGlass ? "mica" : "none",
+        }
+      : {}),
     titleBarStyle: process.platform === "darwin" ? "hiddenInset" : MERGED_TITLE_BAR ? "hidden" : "default",
     ...(MERGED_TITLE_BAR ? { titleBarOverlay: titleBarOverlay(1280) } : {}),
     trafficLightPosition: process.platform === "darwin" ? { x: 18, y: 18 } : undefined,
@@ -205,6 +260,7 @@ function createWindow(show: boolean): void {
     autoHideMenuBar: true,
     webPreferences: {
       preload: join(__dirname, "preload.cjs"),
+      additionalArguments: NATIVE_GLASS_SUPPORTED ? ["--memento-native-glass"] : [],
       contextIsolation: true,
       sandbox: true,
       nodeIntegration: false,
@@ -215,13 +271,17 @@ function createWindow(show: boolean): void {
   // instead of downloading ~1.4 MB again; only the first start of a new version clears the cache once.
   clearCacheOnNewVersion();
 
+  if (!themeListenerInstalled) {
+    themeListenerInstalled = true;
+    nativeTheme.on("updated", () => {
+      updateTitleBarOverlay();
+      applyWindowMaterial();
+    });
+  }
+
   if (MERGED_TITLE_BAR) {
     // The buttons' height follows the top bar's (it's lower in a narrow window)
     let tall = true;
-    if (!overlayFollowsTheme) {
-      overlayFollowsTheme = true;
-      nativeTheme.on("updated", updateTitleBarOverlay); // the system's dark mode, when the page follows it
-    }
     win.on("resize", () => {
       const now = (win?.getContentSize()[0] ?? 1280) >= 640;
       if (now !== tall) {
@@ -1371,6 +1431,8 @@ function setupIpc(): void {
     platform: process.platform,
     openAtLogin: getOpenAtLogin(),
     packaged: app.isPackaged,
+    nativeGlass: NATIVE_GLASS_SUPPORTED,
+    glassEnabled: isGlassEnabled(),
     // How AI tools start the bundled MCP server: this app's binary as Node.
     mcp: {
       command: process.execPath,
@@ -1382,7 +1444,15 @@ function setupIpc(): void {
   handle("app:set-theme", (_e, theme: unknown) => {
     nativeTheme.themeSource = theme === "dark" || theme === "light" ? theme : "system";
     updateTitleBarOverlay();
+    applyWindowMaterial();
     return nativeTheme.themeSource;
+  });
+  handle("app:set-glass", async (_e, enabled: unknown) => {
+    const next = enabled !== false;
+    config = { ...config, glassEnabled: next };
+    applyWindowMaterial();
+    await saveConfig(config).catch(() => {});
+    return { enabled: next, nativeGlass: NATIVE_GLASS_SUPPORTED };
   });
   // The page's action menus as the system's own menu (macOS / Windows look, keyboard, accessibility):
   // resolves with the chosen item's id, null when the menu closed without one.

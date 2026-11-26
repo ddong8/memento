@@ -118,7 +118,7 @@ export const AskTopBar = memo(function AskTopBar({
   };
 
   return (
-    <header className={`px-3 sm:px-5 h-11 sm:h-12 border-b border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/96 flex items-center justify-between gap-1.5 sm:gap-2.5 shrink-0 select-none relative z-20 ${isDesktopApp ? "app-region-drag" : ""}`}>
+    <header className={`memento-glass-chrome memento-glass-bar px-3 sm:px-5 h-11 sm:h-12 border-b border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/96 flex items-center justify-between gap-1.5 sm:gap-2.5 shrink-0 select-none relative z-20 ${isDesktopApp ? "app-region-drag" : ""}`}>
       <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-1 mr-1 sm:mr-2 overflow-hidden">
         {/* 移动端与平板侧边菜单开关 */}
         <button

@@ -27,7 +27,7 @@ interface UserMenuProps {
 export function UserMenu({ variant = "sidebar", collapsed = false, onNavClick }: UserMenuProps) {
   const { user, logout } = useAuth();
   const { t, locale, setLocale } = useI18n();
-  const { skin, setSkin } = useTheme();
+  const { skin, setSkin, glass, setGlass } = useTheme();
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const isDesktop = useIsDesktopApp();
@@ -330,6 +330,7 @@ export function UserMenu({ variant = "sidebar", collapsed = false, onNavClick }:
           }}
           lang={{ value: locale, options: (Object.keys(locales) as Locale[]).map((l) => ({ id: l, label: locales[l].label })), onChange: (v) => setLocale(v as Locale) }}
           look={{ value: skin, options: SKINS, onChange: (v) => setSkin(v as Skin) }}
+          glass={{ value: glass ? "on" : "off", options: GLASS_OPTIONS, onChange: (v) => setGlass(v === "on") }}
           labels={{
             settings: t.profile.title || "个人设置",
             devices: t.profile.tabs?.devices || "我的设备",
@@ -354,6 +355,11 @@ const SKINS: { id: Skin; label: string }[] = [
   { id: "aurora", label: "极光" },
   { id: "arc", label: "纸感" },
   { id: "baseline", label: "经典" },
+];
+
+const GLASS_OPTIONS: { id: string; label: string }[] = [
+  { id: "on", label: "开启" },
+  { id: "off", label: "关闭" },
 ];
 
 /** A setting picked in place: its name, then a small segmented control. */
@@ -458,6 +464,7 @@ function UserMenuPanel({
   onLogout,
   lang,
   look,
+  glass,
   labels,
 }: {
   anchor: Element | null;
@@ -474,6 +481,7 @@ function UserMenuPanel({
   onLogout: () => void;
   lang: Segment;
   look: Segment;
+  glass: Segment;
   labels: Record<"settings" | "devices" | "health" | "collector" | "admin" | "server" | "logout", string>;
 }) {
   const [pos, setPos] = useState<React.CSSProperties | null>(null);
@@ -510,6 +518,7 @@ function UserMenuPanel({
       ref={panelRef}
       role="menu"
       aria-label={labels.settings}
+      className="memento-glass-chrome"
       style={{
         position: "fixed",
         ...pos,
@@ -611,6 +620,7 @@ function UserMenuPanel({
       <div style={{ margin: "8px 0 0", padding: "10px 10px 8px", borderRadius: 12, background: "var(--aurora-chip)", display: "grid", gap: 8 }}>
         <SegmentRow label="界面语言" {...lang} />
         <SegmentRow label="界面风格" {...look} />
+        <SegmentRow label="毛玻璃质感" {...glass} />
       </div>
 
       {/* Account */}

@@ -2,14 +2,14 @@
   "expo": {
     "name": "Memento",
     "slug": "memento",
-    "version": "1.0.155",
+    "version": "1.0.156",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.ihasy.memento",
-      "buildNumber": "9",
+      "buildNumber": "10",
       "appleTeamId": "WHNZV34GK4",
       "infoPlist": {
         "NSMicrophoneUsageDescription": "Memento 需要使用麦克风以支持语音吩咐与实时听写功能。",

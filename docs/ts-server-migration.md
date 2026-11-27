@@ -82,19 +82,19 @@
 2) 内嵌数据库：embedded-postgres 16.16（npm 预编译包，和线上同为 PG16）半秒启动；它不带 pgvector，用 PG16 头文件自己编译 pgvector 0.8.1（只依赖系统库），把 vector.dylib 放进 lib/postgresql、控制文件和 SQL 放进 share/postgresql/extension 后，向量列、HNSW 索引、余弦距离查询、jsonb、GIN 全文索引都正常。
 3) 必须注意：内嵌包默认用 SQL_ASCII 初始化，中文进不了全文索引（to_tsvector 结果为空、查不到）。初始化必须带 `--encoding=UTF8 --locale=C`，改后中文检索正常。
 4) 体积：这一版 Mac 包里库文件有重复副本，去重后 136 MB、压缩后约 48 MB（大头是 ICU 数据 55 MB）。
-5) 多平台：.github/workflows/embedded-pg.yml 在 Mac（Apple 芯片 / Intel）、Linux（x64 / arm64，Rocky Linux 8 容器里编，glibc 2.28）、Windows x64 上编译并装进内嵌库验证（2026-11-27 前四个平台通过）。
+5) 多平台：.github/workflows/embedded-pg.yml 在 Mac（Apple 芯片 / Intel）、Linux（x64 / arm64，Rocky Linux 8 容器里编，glibc 2.28）、Windows x64 上编译并装进内嵌库验证（2026-11-27 五个平台全部通过）。
 6) Windows 上不能用管理员账号直接启动 postgres（CI 运行器和很多用户都是管理员）：要经 pg_ctl 启动，它会换成受限权限。单安装包（P7）照这样启动。
 
 ## 6. 进度
 
-- [ ] P0 地基与单安装包技术验证
+- [x] P0 地基与单安装包技术验证
   - [x] 分词一致性、Mac 上内嵌 Postgres + pgvector（第 5 节）
   - [x] packages/server 骨架：Hono、Drizzle（表结构从 Python 迁移建出的库反向生成，db/schema.sql 快照由 CI 核对）、配置、令牌与密码兼容、限流与审计、FastAPI 错误格式
   - [x] 登录相关 5 个接口 + /health、/health/deep；本地契约对照 20 个用例全部一致
   - [x] CI：TS 测试连真实 Postgres、两边起服务跑契约对照
   - [x] 部署：api-ts（镜像在公开的 memento-server 包，ts-<提交号>）
   - [x] 入口把 5 个路径切到 api-ts（1313d568，2026-11-27 上线；切前集群内真实数据对照 9 个用例一致），上线验证看 x-memento-server 头
-  - [ ] Windows / Linux / Mac Intel 上编译 pgvector 进 CI（工作流 embedded-pg.yml，脚本在 packages/server/embedded/；Mac Apple 芯片本机已验证）
+  - [x] 五个平台编译 pgvector 并在内嵌库里验证（embedded-pg.yml，33dde2b3 全部通过，产物为 Actions artifact）
 - [ ] P1 简单接口
   - [x] 工具浏览 /api/tools（列表、详情、文件分页）与公开统计 /api/public/stats：契约对照 62 个用例一致（管理员 / 普通用户各一套造数）；线上 12 个工具的列表、4 个工具的详情与分页、统计（7533 份文档、89 万条消息）两边一致
   - [x] 待办 /api/todos（列表、新建、修改）：与 Python 共用缓存键并互相通知清缓存；契约对照 38 个用例一致；线上清缓存后两边各自重算对照一致（24 条未完成、18 条已完成）

@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `2d6fc5f2` · Updated: `2026-11-27`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `4604f1ed` · Updated: `2026-11-27`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,7 +16,7 @@
 - 规模 (Scale): 10 个子系统 · 44 组 API 路由 / 346 个接口 · 39 个前端页面 · 126 个数据模型 · 35 个服务模块 · 289 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `packages/server`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `2d6fc5f2` (2026-11-27): feat(server-ts): 完成 P5 后台智能、健康总览与 21 个定时任务并修复契约对照竞态
+- 最近改动 (Latest): `4604f1ed` (2026-11-27): feat(server-ts): 完成 P6 全量路由与后台运行器、对齐 ask-runs 集群协议并切流 P5
 - 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 77（✅ 77 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 12 · 状态 10
 
 | 章节 (Section) | 行号 (Lines) |
@@ -682,24 +682,24 @@ erDiagram
 | server/tests (pytest) | [`server/tests`](server/tests) | 139 | `test_acp_modes.py`, `test_agent_ids.py`, `test_agent_limits.py`, `test_agent_login.py`, `test_agent_run_states.py` |
 | apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 69 | `active-runs-chip.test.tsx`, `agent-modes.test.ts`, `api-client.test.ts`, `ask-performance-guards.test.tsx`, `ask-reading-and-persona-rules.test.tsx` |
 | packages/daemon/test (vitest / jest) | [`packages/daemon/test`](packages/daemon/test) | 67 | `acp-runner.test.ts`, `agent-args.test.ts`, `agent-login.test.ts`, `agent-stream.test.ts`, `agy-background.test.ts` |
+| apps/desktop/test (vitest / jest) | [`apps/desktop/test`](apps/desktop/test) | 4 | `embedded-server.test.ts`, `helpers.test.ts`, `local-server.test.ts`, `updater-and-daemon.test.ts` |
 | apps/mobile/test (vitest / jest) | [`apps/mobile/test`](apps/mobile/test) | 4 | `deeplink.test.ts`, `glass-surface.test.ts`, `injected-helpers.test.ts`, `webview-props.test.ts` |
-| apps/desktop/test (vitest / jest) | [`apps/desktop/test`](apps/desktop/test) | 3 | `helpers.test.ts`, `local-server.test.ts`, `updater-and-daemon.test.ts` |
 | packages/mcp/test (vitest / jest) | [`packages/mcp/test`](packages/mcp/test) | 3 | `remote-and-tools.test.ts`, `server.test.ts`, `task-tools.test.ts` |
 | packages/core/test (vitest / jest) | [`packages/core/test`](packages/core/test) | 2 | `ask-stream.test.ts`, `task-events.test.ts` |
-| packages/server/test (vitest / jest) | [`packages/server/test`](packages/server/test) | 2 | `auth-routes.test.ts`, `compat.test.ts` |
+| packages/server/test (vitest / jest) | [`packages/server/test`](packages/server/test) | 1 | `auth-routes.test.ts` |
 
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
 - [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (10 commits)
+- [`packages/server/scripts/contract.mts`](packages/server/scripts/contract.mts) (10 commits)
+- [`packages/server/src/app.ts`](packages/server/src/app.ts) (10 commits)
 - [`apps/web/src/components/ask/GitDiffDrawer.tsx`](apps/web/src/components/ask/GitDiffDrawer.tsx) (9 commits)
-- [`packages/server/scripts/contract.mts`](packages/server/scripts/contract.mts) (9 commits)
-- [`packages/server/src/app.ts`](packages/server/src/app.ts) (9 commits)
 - [`apps/mobile/src/app/index.tsx`](apps/mobile/src/app/index.tsx) (8 commits)
 - [`apps/web/src/lib/api-client.ts`](apps/web/src/lib/api-client.ts) (8 commits)
 - [`apps/web/test/glass-system.test.ts`](apps/web/test/glass-system.test.ts) (8 commits)
+- [`deploy/k8s/ingress.yaml`](deploy/k8s/ingress.yaml) (8 commits)
 - [`deploy/k8s/studio.yaml`](deploy/k8s/studio.yaml) (8 commits)
 - [`docs/ts-server-migration.md`](docs/ts-server-migration.md) (8 commits)
-- [`apps/web/src/app/globals.css`](apps/web/src/app/globals.css) (7 commits)
 
 ## 8. Development & Verification Commands
 
@@ -722,12 +722,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `4604f1ed` (2026-11-27): feat(server-ts): 完成 P6 全量路由与后台运行器、对齐 ask-runs 集群协议并切流 P5
 - `2d6fc5f2` (2026-11-27): feat(server-ts): 完成 P5 后台智能、健康总览与 21 个定时任务并修复契约对照竞态
 - `5e7e1373` (2026-11-27): feat(server-ts): 切入 P3 入口并完成 P4 问答、编排、直连 Agent、心领神会与对话路由
 - `4ccae92a` (2026-11-27): feat(server-ts): 切入 P2 入口并完成 P3 设备实时通信、任务、终端、预览、Git 审阅、额度与定时任务
 - `dd0024dc` (2026-11-27): feat(server-ts): 切入 Batch 2 与媒体插件入口并完成 P2 采集、检索、会话与排除模块
 - `0ef14750` (2026-11-27): feat(server-ts): 切入 Batch 1 入口、补齐部署配置并完成 Batch 2 路由与底座
-- `7921c4bd` (2026-11-27): feat(server-ts): 迁移看板、层级、文档、媒体、技能、插件、更新与安装脚本接口（P1 首批，先部署暂不切入口）
 
 ## 10. Key Environment Variables & Configuration
 

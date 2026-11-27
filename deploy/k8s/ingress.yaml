@@ -8,135 +8,20 @@ spec:
     - host: mem.ihasy.com
       http:
         paths:
-          # Taken over by the TypeScript server (packages/server, MIGRATED_PATHS in src/app.ts). Exact paths win
-          # over the /api prefix; to send one back to Python, delete its line here.
-          - path: /api/auth/login
-            pathType: Exact
-            backend: { service: { name: api-ts, port: { number: 8000 } } }
-          - path: /api/auth/refresh
-            pathType: Exact
-            backend: { service: { name: api-ts, port: { number: 8000 } } }
-          - path: /api/auth/token-exchange
-            pathType: Exact
-            backend: { service: { name: api-ts, port: { number: 8000 } } }
-          - path: /api/auth/registration-mode
-            pathType: Exact
-            backend: { service: { name: api-ts, port: { number: 8000 } } }
-          - path: /api/auth/me
-            pathType: Exact
-            backend: { service: { name: api-ts, port: { number: 8000 } } }
-          - path: /api/todos
+          # 100% of API, health, install & quota endpoints are now served by the TypeScript server (packages/server).
+          - path: /api
             pathType: Prefix
             backend: { service: { name: api-ts, port: { number: 8000 } } }
-          - path: /api/tools
+          - path: /health
             pathType: Prefix
             backend: { service: { name: api-ts, port: { number: 8000 } } }
-          - path: /api/public
-            pathType: Prefix
-            backend: { service: { name: api-ts, port: { number: 8000 } } }
-          - path: /api/dashboard
-            pathType: Prefix
-            backend: { service: { name: api-ts, port: { number: 8000 } } }
-          - path: /api/hierarchy
-            pathType: Prefix
-            backend: { service: { name: api-ts, port: { number: 8000 } } }
-          - path: /api/documents
-            pathType: Prefix
-            backend: { service: { name: api-ts, port: { number: 8000 } } }
-          - path: /api/skills
-            pathType: Prefix
-            backend: { service: { name: api-ts, port: { number: 8000 } } }
-          - path: /api/system/update
-            pathType: Prefix
-            backend: { service: { name: api-ts, port: { number: 8000 } } }
-          - path: /api/media
-            pathType: Prefix
-            backend: { service: { name: api-ts, port: { number: 8000 } } }
-          - path: /api/plugins
-            pathType: Prefix
-            backend: { service: { name: api-ts, port: { number: 8000 } } }
-          - path: /api/events
-            pathType: Prefix
-            backend: { service: { name: api-ts, port: { number: 8000 } } }
-          - path: /api/notify
-            pathType: Prefix
-            backend: { service: { name: api-ts, port: { number: 8000 } } }
-          - path: /api/profile/llm
-            pathType: Prefix
-            backend: { service: { name: api-ts, port: { number: 8000 } } }
-          - path: /api/daily
-            pathType: Prefix
-            backend: { service: { name: api-ts, port: { number: 8000 } } }
-          - path: /api/life
-            pathType: Prefix
-            backend: { service: { name: api-ts, port: { number: 8000 } } }
-          - path: /api/proactive
-            pathType: Prefix
-            backend: { service: { name: api-ts, port: { number: 8000 } } }
-          - path: /api/data
-            pathType: Prefix
-            backend: { service: { name: api-ts, port: { number: 8000 } } }
-          - path: /api/search
-            pathType: Prefix
-            backend: { service: { name: api-ts, port: { number: 8000 } } }
-          - path: /api/ingest
-            pathType: Prefix
-            backend: { service: { name: api-ts, port: { number: 8000 } } }
-          - path: /api/conversations
-            pathType: Prefix
-            backend: { service: { name: api-ts, port: { number: 8000 } } }
-          - path: /api/collect/exclusions
-            pathType: Prefix
-            backend: { service: { name: api-ts, port: { number: 8000 } } }
-          - path: /api/devices
-            pathType: Prefix
-            backend: { service: { name: api-ts, port: { number: 8000 } } }
-          - path: /api/tasks
-            pathType: Prefix
-            backend: { service: { name: api-ts, port: { number: 8000 } } }
-          - path: /api/terminal
-            pathType: Prefix
-            backend: { service: { name: api-ts, port: { number: 8000 } } }
-          - path: /api/preview
-            pathType: Prefix
-            backend: { service: { name: api-ts, port: { number: 8000 } } }
-          - path: /api/git
-            pathType: Prefix
-            backend: { service: { name: api-ts, port: { number: 8000 } } }
-          - path: /api/agent/quotas
-            pathType: Prefix
-            backend: { service: { name: api-ts, port: { number: 8000 } } }
-          - path: /api/quotas
+          - path: /install
             pathType: Prefix
             backend: { service: { name: api-ts, port: { number: 8000 } } }
           - path: /agent/quotas
             pathType: Prefix
             backend: { service: { name: api-ts, port: { number: 8000 } } }
           - path: /quotas
-            pathType: Prefix
-            backend: { service: { name: api-ts, port: { number: 8000 } } }
-          - path: /api/scheduled-tasks
-            pathType: Prefix
-            backend: { service: { name: api-ts, port: { number: 8000 } } }
-          - path: /api/learning
-            pathType: Prefix
-            backend: { service: { name: api-ts, port: { number: 8000 } } }
-          - path: /api/health/overview
-            pathType: Prefix
-            backend: { service: { name: api-ts, port: { number: 8000 } } }
-          - path: /api
-            pathType: Prefix
-            backend: { service: { name: api, port: { number: 8000 } } }
-          - path: /health
-            pathType: Prefix
-            backend: { service: { name: api, port: { number: 8000 } } }
-          - path: /docs
-            pathType: Prefix
-            backend: { service: { name: api, port: { number: 8000 } } }
-          - path: /openapi.json
-            pathType: Prefix
-            backend: { service: { name: api, port: { number: 8000 } } }
-          - path: /install
             pathType: Prefix
             backend: { service: { name: api-ts, port: { number: 8000 } } }
           - path: /

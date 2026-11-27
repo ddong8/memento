@@ -318,6 +318,7 @@ jobs:
           # bump 实际回写成本次 tag 的镜像(main 上已有更新提交的镜像它不覆盖,这里也就不等)
           SERVER: ${{ needs.bump.outputs.server }}
           WEB: ${{ needs.bump.outputs.web }}
+          TS: ${{ needs.bump.outputs.ts }}
         run: |
           SHA_SHORT="${SHA:0:12}"
           server_live() {
@@ -329,13 +330,19 @@ jobs:
             [ "$WEB" != true ] && return 0
             curl -fsS --max-time 8 https://mem.ihasy.com/auth/login 2>/dev/null | grep -q "$SHA_SHORT"
           }
+          # The TypeScript server answers the paths the entrance gives it, with its build in a header
+          ts_live() {
+            [ "$TS" != true ] && return 0
+            curl -fsS --max-time 6 -D - -o /dev/null https://mem.ihasy.com/api/auth/registration-mode | grep -iq "^x-memento-server: ts .*$SHA_SHORT"
+          }
           for i in $(seq 1 150); do
-            s=未切换; w=未切换
+            s=未切换; w=未切换; t=未切换
             server_live && s=已切换
             web_live && w=已切换
-            if [ "$s" = 已切换 ] && [ "$w" = 已切换 ]; then echo "线上已是 $SHA_SHORT"; exit 0; fi
+            ts_live && t=已切换
+            if [ "$s" = 已切换 ] && [ "$w" = 已切换 ] && [ "$t" = 已切换 ]; then echo "线上已是 $SHA_SHORT"; exit 0; fi
             if [ $((i % 5)) -eq 1 ]; then
-              echo "等待线上切到 $SHA_SHORT:server $s,web $w(本次构建 server=$SERVER web=$WEB)... ($i/150)"
+              echo "等待线上切到 $SHA_SHORT:server $s,web $w,ts $t(本次构建 server=$SERVER web=$WEB ts=$TS)... ($i/150)"
             fi
             sleep 6
           done

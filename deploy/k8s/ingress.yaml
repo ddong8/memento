@@ -8,6 +8,23 @@ spec:
     - host: mem.ihasy.com
       http:
         paths:
+          # Taken over by the TypeScript server (packages/server, MIGRATED_PATHS in src/app.ts). Exact paths win
+          # over the /api prefix; to send one back to Python, delete its line here.
+          - path: /api/auth/login
+            pathType: Exact
+            backend: { service: { name: api-ts, port: { number: 8000 } } }
+          - path: /api/auth/refresh
+            pathType: Exact
+            backend: { service: { name: api-ts, port: { number: 8000 } } }
+          - path: /api/auth/token-exchange
+            pathType: Exact
+            backend: { service: { name: api-ts, port: { number: 8000 } } }
+          - path: /api/auth/registration-mode
+            pathType: Exact
+            backend: { service: { name: api-ts, port: { number: 8000 } } }
+          - path: /api/auth/me
+            pathType: Exact
+            backend: { service: { name: api-ts, port: { number: 8000 } } }
           - path: /api
             pathType: Prefix
             backend: { service: { name: api, port: { number: 8000 } } }

@@ -38,6 +38,12 @@
 - **新代码不要把需要跨请求共享的状态放进模块级 dict / `asyncio.Lock` / 进程内后台循环**:会在副本间各自为政。共享状态用 Redis(`cluster.redis`、`SharedDict`),互斥用 `cluster.mutex` / `try_lock`,只该跑一份的后台任务包在 `cluster.leased(...)` 里。纯缓存(丢了能重算)可以留在进程内。
 - 发版时旧 pod 会先等进行中的回答跑完(最多 `MEMENTO_SHUTDOWN_DRAIN_SECONDS`,默认 600 秒)再退出,期间客户端自动改连新 pod 继续看。所以旧 pod 停在 `Terminating` 几分钟是正常的;改这个时长要同步改 api.yaml 的 `terminationGracePeriodSeconds`。
 
+### 服务端正在迁移到 TypeScript(docs/ts-server-migration.md)
+- `packages/server`(TS)以 `api-ts` 部署(deploy/k8s/api-ts.yaml)和 Python 的 `api` 并行,连同一个库和 Redis;入口(ingress.yaml)用 Exact 路径把已迁移的接口交给它,其余仍走 Python。某个接口要切回 Python:删掉 ingress.yaml 里那一行再推。
+- TS 镜像推在公开的 `memento-server` 包里,标签 `ts-<提交号>`(新建的 GHCR 包默认私有,集群拉不到);kustomization 里叫 `memento-server-ts`。
+- 新接口迁过去之前要过:移植测试、CI 的契约对照(packages/server/scripts/contract.mts,两边起服务逐字段比)、线上对照。表结构仍由 Python 迁移负责,改了迁移要重新 pg_dump 到 packages/server/db/schema.sql 并 `npm run db:pull -w @memento/server`(CI 会核对)。
+- 改 deploy.yml 的 bump 步骤要同步 server/tests/test_deploy_bump.py(它原样执行那段脚本)。
+
 ### 数据库写入(documents 表)
 - documents 每次同步都改 synced_at(在 4 个索引里),这种更新做不了 HOT,新行版本要插进它的每个索引。所以 **不要往 documents 上加大的 GIN / 表达式索引**:全文索引原来就在这里,一篇文档 1300 多个词条,每次同步写约 240KB WAL;2026-11-08 拆到 `document_search` 表(0cba3288、d9d6a553),同步更新的 WAL 少了约 17 倍。要索引文档内容就放到单独的表里。
 - 和标题/路径条件 OR 在一起的全文条件写成 `Document.id.in_(select(DocumentSearch.document_id).where(...))`,别直接 OR 在左连接上:那样用不上 GIN,每篇的词向量都要解出来比(搜索 125ms vs 4.6ms)。

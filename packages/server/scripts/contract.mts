@@ -275,12 +275,20 @@ if (dbUrl && redisUrl) {
     ["task missing", "/api/tasks/00000000-0000-0000-0000-000000000001"],
     ["scheduled tasks list", "/api/scheduled-tasks"],
     ["terminal bad id", "/api/terminal/bad-id/stream"],
+    ["ask runs", "/api/ask/runs"],
+    ["ask runs active", "/api/ask/runs/active"],
+    ["ask recent active", "/api/ask/conversations/recent-active"],
+    ["ask conversations list", "/api/ask/conversations"],
+    ["ask capabilities codex", "/api/ask/capabilities?tool=codex"],
+    ["ask capabilities claude", "/api/ask/capabilities?tool=claude"],
+    ["ask capabilities antigravity", "/api/ask/capabilities?tool=antigravity"],
+    ["agent capabilities workbuddy", "/api/agent/capabilities?tool=workbuddy"],
   ];
   for (const [who, headers] of [["owner", ownerAuth], ["viewer", viewerHeaders]] as const) {
     for (const [name, path] of reads) {
       // Each server computes it itself: drop the shared cache before each call (and wait out the other's 3 s L1)
       const fresh = async (base: string) => {
-        for (const pat of ["tools:list:*", "dashboard:*", "hierarchy:*", "skills:*", "daily:*", "life:*", "search:*", "devices:*"]) {
+        for (const pat of ["tools:list:*", "dashboard:*", "hierarchy:*", "skills:*", "daily:*", "life:*", "search:*", "devices:*", "ask_conv_*"]) {
           const keys = await redis.keys(pat);
           if (keys.length) await redis.del(...keys);
         }

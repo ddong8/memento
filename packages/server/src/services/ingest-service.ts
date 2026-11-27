@@ -17,6 +17,7 @@ import * as messageStore from "./message-store";
 import { stripProfileBlock } from "./profile-scopes";
 import { dropExcluded, updateSyncState } from "./project-exclusion";
 import { publishEventThrottled } from "./sse";
+import { scheduleForDocument } from "./session-timeline";
 import { MAX_INPUT_CHARS, tokenizeForIndex } from "./tokenize";
 
 export const TOOL_DISPLAY_NAMES: Record<string, string> = {
@@ -1118,6 +1119,9 @@ export async function ingestFile(params: IngestFileParams): Promise<{ id: string
   }
 
   publishEventThrottled("file_synced", { document_id: docId, tool_id: toolId, category, relative_path: relativePath, title: finalTitle }, userId ?? null);
+  if (category === "conversation" && sid) {
+    scheduleForDocument(db, docId, sid);
+  }
 
   return { id: docId, title: finalTitle, toolId, category };
 }

@@ -124,7 +124,7 @@ function isCcSummary(m: CompactMessage): boolean {
   return m.role === "user" && (m.content || "").slice(0, 2000).includes(CC_SUMMARY_MARK);
 }
 
-function cleanText(content: string): string {
+export function cleanText(content: string): string {
   return content.replace(INJECTED_CONTEXT_RE, "").replace(NOISE_TAG_RE, "").trim();
 }
 

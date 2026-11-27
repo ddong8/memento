@@ -283,6 +283,150 @@ export async function callChatCompletion(
   throw new Error(`All ${providers.length} AI providers failed: ${errors.join("; ")}`);
 }
 
+export async function* streamChatCompletion(
+  settings: Settings,
+  redis: Redis | null,
+  messages: Record<string, unknown>[],
+  opts: {
+    temperature?: number;
+    maxTokens?: number;
+    timeoutSec?: number;
+    user?: { llmSettings?: unknown } | null;
+    customSettings?: Record<string, unknown> | null;
+    model?: string | null;
+    signal?: AbortSignal;
+  } = {},
+): AsyncGenerator<{ type: "thinking" | "content"; text: string }, void, void> {
+  let providers = getAiProviders(settings, { background: false, user: opts.user, customSettings: opts.customSettings });
+  if (!providers.length) throw new Error("No AI API providers configured (missing API keys)");
+  const modelOverride = (opts.model ?? "").trim();
+  if (modelOverride) {
+    providers = [{ ...providers[0]!, model: modelOverride }, ...providers.slice(1)];
+  }
+  const temperature = opts.temperature ?? 0.3;
+  const maxTokens = opts.maxTokens ?? 2500;
+  const timeoutMs = (opts.timeoutSec ?? 120) * 1000;
+
+  const errors: string[] = [];
+  const failures: { provider: string; model: string; reason: string; detail: string }[] = [];
+
+  for (let index = 0; index < providers.length; index++) {
+    const p = providers[index]!;
+    let started = false;
+    const began = performance.now();
+    let streamRetries = 0;
+
+    while (streamRetries <= 2) {
+      try {
+        const timeoutSig = AbortSignal.timeout(timeoutMs);
+        const signal = opts.signal ? AbortSignal.any([opts.signal, timeoutSig]) : timeoutSig;
+        const resp = await fetch(`${p.baseUrl}/chat/completions`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${p.apiKey}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ model: p.model, messages, temperature, max_tokens: maxTokens, stream: true }),
+          signal,
+        });
+
+        if ((resp.status === 429 || resp.status === 503) && streamRetries < 2) {
+          streamRetries++;
+          await sleep(1500 * streamRetries);
+          continue;
+        }
+        if (resp.status !== 200 || !resp.body) {
+          const detail = (await resp.text().catch(() => "")).slice(0, 200);
+          errors.push(`Provider '${p.name}' HTTP ${resp.status}: ${detail}`);
+          failures.push({ provider: p.name, model: p.model, reason: reasonForStatus(resp.status), detail: `HTTP ${resp.status}: ${detail}` });
+          break;
+        }
+
+        started = true;
+        let inThinkTag = false;
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder("utf-8");
+        let buf = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+          const lines = buf.split(/\r?\n/);
+          buf = lines.pop() ?? "";
+          for (const rawLine of lines) {
+            const line = rawLine.trim();
+            if (!line || !line.startsWith("data: ")) continue;
+            const dataStr = line.slice(6).trim();
+            if (dataStr === "[DONE]") break;
+            try {
+              const chunk = JSON.parse(dataStr) as { choices?: { delta?: { reasoning_content?: string; content?: string } }[] };
+              const delta = chunk.choices?.[0]?.delta ?? {};
+              const reasoning = delta.reasoning_content || "";
+              if (reasoning) yield { type: "thinking", text: reasoning };
+
+              const content = delta.content || "";
+              if (content) {
+                if (inThinkTag) {
+                  const idx = content.indexOf("</think>");
+                  if (idx !== -1) {
+                    const tPart = content.slice(0, idx);
+                    const cPart = content.slice(idx + 8);
+                    if (tPart) yield { type: "thinking", text: tPart };
+                    inThinkTag = false;
+                    if (cPart) yield { type: "content", text: cPart };
+                  } else {
+                    yield { type: "thinking", text: content };
+                  }
+                } else {
+                  const idx = content.indexOf("<think>");
+                  if (idx !== -1) {
+                    const cPart = content.slice(0, idx);
+                    const rest = content.slice(idx + 7);
+                    if (cPart) yield { type: "content", text: cPart };
+                    inThinkTag = true;
+                    const closeIdx = rest.indexOf("</think>");
+                    if (closeIdx !== -1) {
+                      const tPart = rest.slice(0, closeIdx);
+                      const after = rest.slice(closeIdx + 8);
+                      if (tPart) yield { type: "thinking", text: tPart };
+                      inThinkTag = false;
+                      if (after) yield { type: "content", text: after };
+                    } else if (rest) {
+                      yield { type: "thinking", text: rest };
+                    }
+                  } else {
+                    yield { type: "content", text: content };
+                  }
+                }
+              }
+            } catch {
+              continue;
+            }
+          }
+        }
+
+        await recordCall(redis, "stream", index === 0 ? "ok" : "fallback", {
+          provider: p.name,
+          model: p.model,
+          latencyMs: performance.now() - began,
+          failures,
+        });
+        return;
+      } catch (e) {
+        if (opts.signal?.aborted) throw e;
+        errors.push(`Provider '${p.name}' stream error: ${(e as Error).message || e}`);
+        failures.push({ provider: p.name, model: p.model, reason: reasonForException(e), detail: String(e) });
+        if (started) {
+          await recordCall(redis, "stream", "failed", { failures });
+          return;
+        }
+        break;
+      }
+    }
+  }
+
+  await recordCall(redis, "stream", "failed", { failures });
+  throw new Error(`All ${providers.length} AI providers failed to stream: ${errors.join("; ")}`);
+}
+
 export async function callPlainChat(
   settings: Settings,
   redis: Redis | null,

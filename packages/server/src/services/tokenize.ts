@@ -6,7 +6,7 @@ import { dict as defaultDict } from "@node-rs/jieba/dict.js";
 const PUNCT_RE =
   /[\s\u3000]+|[.,;:!?\-_/\\()[\]{}"'`~@#$%^&*+=<>|]+|[，。？！、；：“”‘’（）【】《》〈〉「」『』…—～·]+/;
 
-const STOPWORDS = new Set(
+export const STOPWORDS = new Set(
   (
     "的 了 吗 呢 吧 啊 呀 么 是 在 有 和 与 及 或 就 都 也 还 又 把 被 给 让 对 从 到 为 以 于 之 " +
     "这 那 这个 那个 这些 那些 哪 哪个 哪些 哪里 什么 啥 怎么 怎样 怎么样 如何 为什么 为何 是否 多少 几 " +

@@ -88,3 +88,31 @@ export async function loadChatImage(settings: Settings, userId: string, path: st
   const ext = key.split(".").pop()?.toLowerCase() ?? "";
   return [data, contentType.startsWith("image/") ? contentType : (MIME[ext] ?? "application/octet-stream")];
 }
+
+const DATA_URL_IMG_RE = /^data:image\/([a-zA-Z0-9.+-]+);base64,(.+)$/s;
+
+export async function storeImages(
+  settings: Settings,
+  userId: string,
+  convId: string,
+  images: string[],
+): Promise<string[]> {
+  if (!images.length) return [];
+  const out: string[] = [];
+  const tag = `${Math.floor(Date.now() / 1000).toString(16)}${randomUUID().replaceAll("-", "").slice(0, 4)}`;
+  for (let i = 0; i < images.length; i++) {
+    const raw = images[i] ?? "";
+    const m = DATA_URL_IMG_RE.exec(raw);
+    if (!m) {
+      if (raw) out.push(raw);
+      continue;
+    }
+    const extRaw = m[1]!.toLowerCase().replace("jpeg", "jpg");
+    const ext = ["png", "jpg", "webp", "gif", "bmp", "avif"].includes(extRaw) ? extRaw : "png";
+    const name = `image_${tag}_${i + 1}.${ext}`;
+    const buf = Buffer.from(m[2]!, "base64");
+    const ok = await keepChatImage(settings, userId, convId, name, buf).catch(() => false);
+    out.push(ok ? agentPath(convId, name) : raw);
+  }
+  return out;
+}

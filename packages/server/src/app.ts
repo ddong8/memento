@@ -8,6 +8,7 @@ import { etag } from "hono/etag";
 
 import type { AppEnv, Deps } from "./context";
 import { errorResponse, HttpError } from "./http";
+import { agentCapabilitiesRoutes, askRoutes } from "./routes/ask";
 import { authRoutes } from "./routes/auth";
 import { collectExclusionRoutes } from "./routes/collect-exclusions";
 import { conversationRoutes } from "./routes/conversations";
@@ -78,11 +79,15 @@ export const MIGRATED_PATHS = [
   "/agent/quotas",
   "/quotas",
   "/api/scheduled-tasks",
+  "/api/ask",
+  "/api/agent/capabilities",
+  "/api/agent/models",
 ] as const;
 
 function skipStreamMiddleware(path: string): boolean {
   return (
     path === "/api/events/stream" ||
+    path === "/api/ask" ||
     path.endsWith("/stream") ||
     path.includes("/files/stream") ||
     path.startsWith("/api/preview/t/")
@@ -109,8 +114,8 @@ export function createApp(deps: Deps) {
     return compress({ threshold: 1000 })(c, next);
   });
   app.use("*", async (c, next) => {
-    // Skip automatic ETag on streams and on /api/devices (devices.ts computes its own MD5 ETag & 304)
-    if (skipStreamMiddleware(c.req.path) || c.req.path === "/api/devices") return next();
+    // Skip automatic ETag on streams, /api/devices, and /api/ask/conversations/:id (they compute their own ETag & 304)
+    if (skipStreamMiddleware(c.req.path) || c.req.path === "/api/devices" || c.req.path.startsWith("/api/ask/conversations/")) return next();
     return etag()(c, next);
   });
   app.route("/", healthRoutes);
@@ -147,6 +152,8 @@ export function createApp(deps: Deps) {
   app.route("/agent/quotas", quotaRoutes);
   app.route("/quotas", quotaRoutes);
   app.route("/api/scheduled-tasks", scheduledTaskRoutes);
+  app.route("/api/ask", askRoutes);
+  app.route("/api/agent", agentCapabilitiesRoutes);
   app.notFound((c) => c.json({ detail: "Not Found" }, 404));
   app.onError((err, c) => errorResponse(c, err));
   return app;

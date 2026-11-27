@@ -502,6 +502,117 @@ export function taskLink(settings: Settings, taskId: string): string {
   return base ? `${base}/tasks/${taskId}` : `/tasks/${taskId}`;
 }
 
+export async function pushLiveActivityEvent(
+  deps: { db: Db; settings: Settings },
+  userId: string | null | undefined,
+  conversationId: string,
+  event: "start" | "update" | "end",
+  opts: {
+    status: string;
+    currentStep: string;
+    stepCount?: number;
+    toolName?: string | null;
+    elapsedSeconds?: number;
+    title?: string;
+    engine?: string;
+    deviceName?: string;
+    startedAtEpoch?: number | null;
+  },
+): Promise<boolean> {
+  if (!userId || !conversationId) return false;
+  try {
+    const loadUser = async () => {
+      const [u] = await deps.db.select().from(users).where(eq(users.id, userId)).limit(1);
+      return u ?? null;
+    };
+    let user = await loadUser();
+    if (!user) return false;
+    let prefs = (user.notifySettings && typeof user.notifySettings === "object" ? user.notifySettings : {}) as Record<string, unknown>;
+    let actMap = (prefs.live_activity_tokens && typeof prefs.live_activity_tokens === "object" ? prefs.live_activity_tokens : {}) as Record<string, string>;
+    const startTokens = Array.isArray(prefs.live_activity_start_tokens) ? (prefs.live_activity_start_tokens as string[]) : [];
+
+    const safeStep = sanitizeLiveActivityStep(opts.currentStep, opts.status, event);
+    const contentState = {
+      status: opts.status,
+      currentStep: safeStep,
+      stepCount: Math.max(1, Math.trunc(opts.stepCount ?? 1)),
+      toolName: opts.toolName ?? null,
+      elapsedSeconds: Math.max(0, Math.trunc(opts.elapsedSeconds ?? 0)),
+    };
+
+    if (event === "start") {
+      const actTok = actMap[conversationId];
+      if (actTok) {
+        return await sendApnsLiveActivity(deps.settings, deps.db, [actTok], "update", contentState, { priority: "10", userId });
+      }
+      if (!startTokens.length) return false;
+      const engine = opts.engine || "AI";
+      const title = opts.title || "后台任务";
+      const attributes = {
+        conversationId,
+        title: title.slice(0, 50),
+        engine,
+        deviceName: opts.deviceName || "云端",
+        startedAtEpoch: Number(opts.startedAtEpoch ?? Date.now() / 1000),
+      };
+      return await sendApnsLiveActivity(deps.settings, deps.db, startTokens, "start", contentState, {
+        attributes,
+        alert: { title: `Memento · ${engine} 任务已启动`, body: (opts.title || opts.currentStep).slice(0, 60) },
+        priority: "10",
+        userId,
+      });
+    }
+
+    let actTok = actMap[conversationId];
+    if (!actTok && event === "end") {
+      await new Promise((r) => setTimeout(r, 1000));
+      user = await loadUser();
+      if (user) {
+        prefs = (user.notifySettings && typeof user.notifySettings === "object" ? user.notifySettings : {}) as Record<string, unknown>;
+        actMap = (prefs.live_activity_tokens && typeof prefs.live_activity_tokens === "object" ? prefs.live_activity_tokens : {}) as Record<string, string>;
+        actTok = actMap[conversationId];
+        if (!actTok) {
+          const vals = Object.values(actMap);
+          if (vals.length) actTok = vals[vals.length - 1];
+        }
+      }
+    }
+    if (!actTok) return false;
+
+    if (event === "end") {
+      const res = await sendApnsLiveActivity(deps.settings, deps.db, [actTok], "end", contentState, {
+        dismissalDate: 0,
+        priority: "10",
+        userId,
+      });
+      if (conversationId in actMap) {
+        try {
+          const fresh = await loadUser();
+          if (fresh && fresh.notifySettings && typeof fresh.notifySettings === "object") {
+            const fp = { ...(fresh.notifySettings as Record<string, unknown>) };
+            const fm = { ...((fp.live_activity_tokens as Record<string, string> | undefined) ?? {}) };
+            if (conversationId in fm) {
+              delete fm[conversationId];
+              fp.live_activity_tokens = fm;
+              await deps.db.update(users).set({ notifySettings: withoutNul(fp) }).where(eq(users.id, userId));
+            }
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+      return res;
+    }
+
+    return await sendApnsLiveActivity(deps.settings, deps.db, [actTok], "update", contentState, {
+      priority: opts.status === "generating" ? "5" : "10",
+      userId,
+    });
+  } catch {
+    return false;
+  }
+}
+
 export async function forgetTask(redis: Redis | null, taskId: string): Promise<void> {
   riskyPushCounts.delete(taskId);
   if (redis) await redis.del(RISKY_KEY + taskId).catch(() => {});

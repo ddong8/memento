@@ -38,6 +38,8 @@ on:
       - "apps/web/**"
       - "packages/core/**"
       - "packages/server/**"
+      # Build scripts for the embedded database (embedded-pg.yml), not part of any image
+      - "!packages/server/embedded/**"
       - "package.json"
       - "package-lock.json"
       - ".dockerignore"
@@ -79,7 +81,7 @@ jobs:
           SERVER_PATHS="server/Dockerfile server/pyproject.toml server/requirements.lock server/server scripts/fetch_geoip.py scripts/project_blueprint.mjs scripts/legacy deploy/bootstrap data/updates .dockerignore .github/workflows/deploy.yml"
           WEB_PATHS="apps/web packages/core package.json package-lock.json .dockerignore .github/workflows/deploy.yml"
           # TypeScript server (docs/ts-server-migration.md): pushed into the public memento-server package as ts-<commit>
-          TS_PATHS="packages/server package.json package-lock.json .dockerignore .github/workflows/deploy.yml"
+          TS_PATHS="packages/server :(exclude)packages/server/embedded package.json package-lock.json .dockerignore .github/workflows/deploy.yml"
           deployed_tag() {
             awk -v n="${REGISTRY}/${OWNER}/$1" '$1=="-" && $2=="name:" {cur=$3} $1=="newTag:" && cur==n {gsub(/"/,"",$2); print $2; exit}' deploy/k8s/kustomization.yaml
           }

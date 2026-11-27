@@ -28,6 +28,12 @@ spec:
           - path: /api/todos
             pathType: Prefix
             backend: { service: { name: api-ts, port: { number: 8000 } } }
+          - path: /api/tools
+            pathType: Prefix
+            backend: { service: { name: api-ts, port: { number: 8000 } } }
+          - path: /api/public
+            pathType: Prefix
+            backend: { service: { name: api-ts, port: { number: 8000 } } }
           - path: /api
             pathType: Prefix
             backend: { service: { name: api, port: { number: 8000 } } }

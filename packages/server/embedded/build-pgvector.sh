@@ -21,13 +21,15 @@ if [ "$os" = Darwin ]; then
   make -C "$src" PG_CONFIG="$(brew --prefix postgresql@16)/bin/pg_config" OPTFLAGS=""
   cp "$src/vector.dylib" "$out/lib/"
 else
-  # Old glibc on purpose: a library built against a newer one won't load on older distributions
-  docker run --rm -v "$src:/src" -w /src debian:bullseye bash -euc '
-    apt-get update -qq && apt-get install -y -qq curl ca-certificates gnupg build-essential >/dev/null
-    curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /usr/share/keyrings/pgdg.gpg
-    echo "deb [signed-by=/usr/share/keyrings/pgdg.gpg] http://apt.postgresql.org/pub/repos/apt bullseye-pgdg main" > /etc/apt/sources.list.d/pgdg.list
-    apt-get update -qq && apt-get install -y -qq postgresql-server-dev-16 >/dev/null
-    make PG_CONFIG=/usr/lib/postgresql/16/bin/pg_config OPTFLAGS=""
+  # Old glibc on purpose (Rocky Linux 8: 2.28, maintained until 2029): a library built against a newer one won't
+  # load on older distributions. (Debian bullseye went to the archive in 2026 and its security mirror 404s.)
+  docker run --rm -v "$src:/src" -w /src rockylinux:8 bash -euc '
+    dnf -q -y install "https://download.postgresql.org/pub/repos/yum/reporpms/EL-8-$(uname -m)/pgdg-redhat-repo-latest.noarch.rpm" >/dev/null
+    dnf -q -y module disable postgresql >/dev/null
+    dnf -q -y install dnf-plugins-core >/dev/null && dnf config-manager --set-enabled powertools
+    dnf -q -y install gcc make redhat-rpm-config postgresql16-devel >/dev/null
+    # with_llvm=no: no JIT bitcode (needs clang, and the embedded server has no JIT anyway)
+    make PG_CONFIG=/usr/pgsql-16/bin/pg_config OPTFLAGS="" with_llvm=no
     ldd --version | head -1'
   cp "$src/vector.so" "$out/lib/"
 fi

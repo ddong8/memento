@@ -95,6 +95,7 @@
   - [x] 入口把 5 个路径切到 api-ts（1313d568，2026-11-27 上线；切前集群内真实数据对照 9 个用例一致），上线验证看 x-memento-server 头
   - [ ] Windows / Linux / Mac Intel 上编译 pgvector 进 CI（工作流 embedded-pg.yml，脚本在 packages/server/embedded/；Mac Apple 芯片本机已验证）
 - [ ] P1 简单接口
+  - [x] 工具浏览 /api/tools（列表、详情、文件分页）与公开统计 /api/public/stats：契约对照 62 个用例一致（管理员 / 普通用户各一套造数）；线上 12 个工具的列表、4 个工具的详情与分页、统计（7533 份文档、89 万条消息）两边一致
   - [x] 待办 /api/todos（列表、新建、修改）：与 Python 共用缓存键并互相通知清缓存；契约对照 38 个用例一致；线上清缓存后两边各自重算对照一致（24 条未完成、18 条已完成）
 - [ ] P2 采集与检索
 - [ ] P3 设备与实时

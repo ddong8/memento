@@ -4,6 +4,7 @@ import { cpSync, existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 
 const built = process.argv[2];
 if (!built || !existsSync(join(built, "lib"))) {
@@ -11,7 +12,8 @@ if (!built || !existsSync(join(built, "lib"))) {
   process.exit(2);
 }
 const require = createRequire(join(process.cwd(), "package.json"));
-const { default: EmbeddedPostgres } = await import(require.resolve("embedded-postgres"));
+// A file:// URL: Windows absolute paths (D:\\...) aren't valid import specifiers
+const { default: EmbeddedPostgres } = await import(pathToFileURL(require.resolve("embedded-postgres")).href);
 const platPkg = `@embedded-postgres/${process.platform === "win32" ? "windows" : process.platform}-${process.arch}`;
 // The platform package exports no package.json: find it next to embedded-postgres in node_modules
 const nodeModules = require.resolve("embedded-postgres").split(/[\\/]node_modules[\\/]/)[0] + "/node_modules";

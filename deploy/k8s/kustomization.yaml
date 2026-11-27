@@ -50,7 +50,7 @@ images:
   newTag: 7921c4bd9066
 - name: ghcr.io/ddong8/memento-server-ts
   newName: ghcr.io/ddong8/memento-server
-  newTag: ts-dd0024dc600a
+  newTag: ts-4ccae92a6e5b
 - name: ghcr.io/ddong8/memento-web
   newName: ghcr.io/ddong8/memento-web
-  newTag: 0ef147501af5
+  newTag: 4ccae92a6e5b

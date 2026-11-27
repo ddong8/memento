@@ -268,12 +268,19 @@ if (dbUrl && redisUrl) {
     ["conversation stats", "/api/conversations/00000000-0000-0000-0000-000000000001/stats"],
     ["exclusions list", "/api/collect/exclusions"],
     ["exclusions preview", "/api/collect/exclusions/preview?name=nonexistent"],
+    ["devices list", "/api/devices"],
+    ["devices list archived", "/api/devices?include_archived=true"],
+    ["tasks list", "/api/tasks"],
+    ["tasks list running", "/api/tasks?status=running&limit=10"],
+    ["task missing", "/api/tasks/00000000-0000-0000-0000-000000000001"],
+    ["scheduled tasks list", "/api/scheduled-tasks"],
+    ["terminal bad id", "/api/terminal/bad-id/stream"],
   ];
   for (const [who, headers] of [["owner", ownerAuth], ["viewer", viewerHeaders]] as const) {
     for (const [name, path] of reads) {
       // Each server computes it itself: drop the shared cache before each call (and wait out the other's 3 s L1)
       const fresh = async (base: string) => {
-        for (const pat of ["tools:list:*", "dashboard:*", "hierarchy:*", "skills:*", "daily:*", "life:*", "search:*"]) {
+        for (const pat of ["tools:list:*", "dashboard:*", "hierarchy:*", "skills:*", "daily:*", "life:*", "search:*", "devices:*"]) {
           const keys = await redis.keys(pat);
           if (keys.length) await redis.del(...keys);
         }

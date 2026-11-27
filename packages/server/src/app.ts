@@ -14,8 +14,10 @@ import { conversationRoutes } from "./routes/conversations";
 import { dailyRoutes } from "./routes/daily";
 import { dashboardRoutes } from "./routes/dashboard";
 import { dataIoRoutes } from "./routes/data-io";
+import { deviceRoutes } from "./routes/devices";
 import { documentRoutes } from "./routes/documents";
 import { eventRoutes } from "./routes/events";
+import { gitReviewRoutes } from "./routes/git-review";
 import { healthRoutes } from "./routes/health";
 import { hierarchyRoutes } from "./routes/hierarchy";
 import { ingestRoutes } from "./routes/ingest";
@@ -25,9 +27,14 @@ import { llmRoutes } from "./routes/llm";
 import { mediaRoutes } from "./routes/media";
 import { notifyRoutes } from "./routes/notify";
 import { pluginRoutes } from "./routes/plugins";
+import { previewRoutes } from "./routes/preview";
 import { proactiveRoutes } from "./routes/proactive";
+import { quotaRoutes } from "./routes/quotas";
+import { scheduledTaskRoutes } from "./routes/scheduled-tasks";
 import { searchRoutes } from "./routes/search";
 import { skillRoutes } from "./routes/skills";
+import { taskRoutes } from "./routes/tasks";
+import { terminalRoutes } from "./routes/terminal";
 import { todoRoutes } from "./routes/todos";
 import { publicRoutes, toolRoutes } from "./routes/tools";
 import { updateRoutes } from "./routes/updates";
@@ -61,7 +68,26 @@ export const MIGRATED_PATHS = [
   "/api/ingest",
   "/api/conversations",
   "/api/collect/exclusions",
+  "/api/devices",
+  "/api/tasks",
+  "/api/terminal",
+  "/api/preview",
+  "/api/git",
+  "/api/agent/quotas",
+  "/api/quotas",
+  "/agent/quotas",
+  "/quotas",
+  "/api/scheduled-tasks",
 ] as const;
+
+function skipStreamMiddleware(path: string): boolean {
+  return (
+    path === "/api/events/stream" ||
+    path.endsWith("/stream") ||
+    path.includes("/files/stream") ||
+    path.startsWith("/api/preview/t/")
+  );
+}
 
 export function createApp(deps: Deps) {
   const app = new Hono<AppEnv>();
@@ -79,12 +105,12 @@ export function createApp(deps: Deps) {
   });
   app.use("*", cors({ origin: (origin) => (origin && originRe.test(origin) ? origin : null), credentials: true, allowMethods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"], allowHeaders: [], maxAge: 600 }));
   app.use("*", async (c, next) => {
-    // Never gzip SSE streams (buffering breaks real-time delivery)
-    if (c.req.path === "/api/events/stream" || c.req.path.endsWith("/stream")) return next();
+    if (skipStreamMiddleware(c.req.path)) return next();
     return compress({ threshold: 1000 })(c, next);
   });
   app.use("*", async (c, next) => {
-    if (c.req.path === "/api/events/stream" || c.req.path.endsWith("/stream")) return next();
+    // Skip automatic ETag on streams and on /api/devices (devices.ts computes its own MD5 ETag & 304)
+    if (skipStreamMiddleware(c.req.path) || c.req.path === "/api/devices") return next();
     return etag()(c, next);
   });
   app.route("/", healthRoutes);
@@ -111,6 +137,16 @@ export function createApp(deps: Deps) {
   app.route("/api/ingest", ingestRoutes);
   app.route("/api/conversations", conversationRoutes);
   app.route("/api/collect/exclusions", collectExclusionRoutes);
+  app.route("/api/devices", deviceRoutes);
+  app.route("/api/tasks", taskRoutes);
+  app.route("/api/terminal", terminalRoutes);
+  app.route("/api/preview", previewRoutes);
+  app.route("/api/git", gitReviewRoutes);
+  app.route("/api/agent/quotas", quotaRoutes);
+  app.route("/api/quotas", quotaRoutes);
+  app.route("/agent/quotas", quotaRoutes);
+  app.route("/quotas", quotaRoutes);
+  app.route("/api/scheduled-tasks", scheduledTaskRoutes);
   app.notFound((c) => c.json({ detail: "Not Found" }, 404));
   app.onError((err, c) => errorResponse(c, err));
   return app;

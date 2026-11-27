@@ -56,12 +56,20 @@ export interface CompactMessage {
 export function estimateTokens(text: string): number {
   if (!text) return 0;
   let cjk = 0;
-  for (let i = 0; i < text.length; i++) {
-    const code = text.charCodeAt(i);
+  let total = 0;
+  for (const ch of text) {
+    total++;
+    const code = ch.codePointAt(0)!;
     if ((code >= 0x4e00 && code <= 0x9fff) || (code >= 0x3040 && code <= 0x30ff) || (code >= 0xac00 && code <= 0xd7af)) cjk++;
   }
-  const other = text.length - cjk;
+  const other = total - cjk;
   return Math.trunc(cjk * 1.5 + other / 3.5);
+}
+
+function unicodeLength(text: string): number {
+  let n = 0;
+  for (const _ of text) n++;
+  return n;
 }
 
 export function calculateSessionStats(sessionId: string, messages: CompactMessage[], fileSizeBytes = 0): SessionStats {
@@ -70,7 +78,7 @@ export function calculateSessionStats(sessionId: string, messages: CompactMessag
   let base64Blobs = 0;
   for (const m of messages) {
     const combined = `${m.content || ""}\n${m.thinking || ""}`;
-    totalChars += combined.length;
+    totalChars += unicodeLength(combined);
     estTokens += estimateTokens(combined);
     const blobs = combined.match(BASE64_DATA_RE);
     if (blobs) base64Blobs += blobs.length;

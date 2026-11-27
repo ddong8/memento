@@ -76,6 +76,18 @@ spec:
           - path: /api/data
             pathType: Prefix
             backend: { service: { name: api-ts, port: { number: 8000 } } }
+          - path: /api/search
+            pathType: Prefix
+            backend: { service: { name: api-ts, port: { number: 8000 } } }
+          - path: /api/ingest
+            pathType: Prefix
+            backend: { service: { name: api-ts, port: { number: 8000 } } }
+          - path: /api/conversations
+            pathType: Prefix
+            backend: { service: { name: api-ts, port: { number: 8000 } } }
+          - path: /api/collect/exclusions
+            pathType: Prefix
+            backend: { service: { name: api-ts, port: { number: 8000 } } }
           - path: /api
             pathType: Prefix
             backend: { service: { name: api, port: { number: 8000 } } }

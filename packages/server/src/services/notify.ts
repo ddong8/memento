@@ -497,6 +497,11 @@ export async function allowRiskyPush(redis: Redis | null, taskId: string): Promi
   return true;
 }
 
+export function taskLink(settings: Settings, taskId: string): string {
+  const base = (settings.publicUrl || "").replace(/\/+$/, "");
+  return base ? `${base}/tasks/${taskId}` : `/tasks/${taskId}`;
+}
+
 export async function forgetTask(redis: Redis | null, taskId: string): Promise<void> {
   riskyPushCounts.delete(taskId);
   if (redis) await redis.del(RISKY_KEY + taskId).catch(() => {});

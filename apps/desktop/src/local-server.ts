@@ -10,6 +10,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync } from "n
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
+import { EmbeddedServer, type EmbeddedProcessHandle } from "./embedded-server";
+
 export const LOCAL_PROJECT = "memento-personal";
 /** Copied into the install folder on every start; the env template stays in the bundle (as env.example). */
 const BUNDLED_FILES = ["docker-compose.yml", "Caddyfile", "personal.env"] as const;
@@ -23,8 +25,10 @@ const SECRETS: Record<string, number> = {
 };
 
 export type DockerState = "missing" | "stopped" | "ready";
+export type LocalServerEngine = "embedded" | "docker";
 
 export interface LocalServerStatus {
+  engine?: LocalServerEngine;
   docker: DockerState;
   /** Set up on this computer before (.env exists). */
   installed: boolean;
@@ -118,13 +122,16 @@ export class LocalServer {
   /** Env for compose: the isolated docker config pointed at the engine the user's context uses. */
   private composeEnv: NodeJS.ProcessEnv | null = null;
   private starting: Promise<{ ok: boolean; url?: string; error?: string; code?: string }> | null = null;
+  readonly embedded: EmbeddedServer;
 
   constructor(
     private readonly bundleDir: string,
     dir = join(homedir(), ".memento", "local-server"),
     private readonly platform: NodeJS.Platform = process.platform,
+    spawnServer?: (entry: string, env: NodeJS.ProcessEnv, onLog: (line: string) => void) => EmbeddedProcessHandle,
   ) {
     this.dir = dir;
+    this.embedded = new EmbeddedServer({ bundleDir: dirname(bundleDir), spawnServer });
   }
 
   private envFile(): string {
@@ -132,6 +139,7 @@ export class LocalServer {
   }
 
   url(): string {
+    if (this.embedded.isAvailable()) return this.embedded.url();
     try {
       return localServerUrl(readFileSync(this.envFile(), "utf8"));
     } catch {
@@ -176,8 +184,12 @@ export class LocalServer {
   }
 
   async status(): Promise<LocalServerStatus> {
+    if (this.embedded.isAvailable()) {
+      const emb = await this.embedded.status();
+      return { engine: "embedded", docker: "ready", installed: emb.installed, running: emb.running, url: emb.url, dir: emb.dataDir };
+    }
     const [docker, running] = await Promise.all([this.dockerState(), this.healthy()]);
-    return { docker, installed: existsSync(this.envFile()), running, url: this.url(), dir: this.dir };
+    return { engine: "docker", docker, installed: existsSync(this.envFile()), running, url: this.url(), dir: this.dir };
   }
 
   /** Docker Desktop installed but not running: start it and wait for the engine (up to 3 minutes). */
@@ -282,6 +294,9 @@ export class LocalServer {
   }
 
   private async doStart(progress: (line: string) => void) {
+    if (this.embedded.isAvailable()) {
+      return this.embedded.start(progress);
+    }
     let docker = await this.dockerState();
     if (docker === "missing") return { ok: false, code: "no-docker", error: "这台电脑没有装 Docker" };
     if (docker === "stopped" && !(await this.startDockerDesktop(progress))) {
@@ -309,6 +324,9 @@ export class LocalServer {
   }
 
   async stop(): Promise<{ ok: boolean; error?: string }> {
+    if (this.embedded.isAvailable()) {
+      return this.embedded.stop();
+    }
     if ((await this.dockerState()) !== "ready") return { ok: true };
     this.composeEnv ??= await this.prepareComposeEnv();
     const r = await this.compose(["stop"], () => {}, 120_000);

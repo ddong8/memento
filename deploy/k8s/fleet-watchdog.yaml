@@ -1,18 +1,6 @@
-# Fleet 卡住自动重同步。
-# Fleet 经 fleet-proxy 克隆 GitHub，偶尔某个出口连不上（2026-11-16 17:46 vps1 出口 REALITY 握手失败、连接被重置），
-# gitrepo 就停在 Stalled，新镜像 tag 一直不部署，deploy.yml 的 verify 等 15 分钟后失败；以前要人手
-# `kubectl -n fleet-local patch gitrepo memento ... forceSyncGeneration+1`。
-# 这里每 3 分钟看一次：Stalled 持续 3 分钟以上、且距上次自动重同步 5 分钟以上，就把 forceSyncGeneration 加 1
-# （Fleet 另起任务重新连接，多数时候立刻恢复），上次重同步的时间记在 gitrepo 的注解里。
-# 用 server 镜像自带的 Python 标准库直接调 k8s API：不额外拉镜像，tag 跟着 kustomization 的 images 走。
-# 权限只到 fleet-local 里名叫 memento 的那个 gitrepo（ClusterRole + resourceNames；kustomization 的
-# namespace: memento 会改写命名空间级对象的命名空间，所以不用 fleet-local 里的 Role）。
-#
-# 另外清理手动改镜像留下的字段归属（2026-11-24 加）：有人 `kubectl set image` / `kubectl edit` 改过 memento 里的
-# Deployment 镜像后，managedFields 里留下 kubectl-set 之类的归属，Fleet 之后按 studio.yaml 改镜像就报
-# "conflict with kubectl-set ... image"，整个 memento-deploy-k8s 包卡在 WaitApplied，连带挡住 api/web 发版
-# （11-23 filmkit 就这样卡过）。这里每轮把 manager 以 kubectl 开头、拥有 f:image 的那几条归属删掉
-# （只删归属记录，不改镜像本身），Fleet 下一轮就能正常应用仓库里的镜像。
+# Fleet 卡住自动重同步（Node 22 原生脚本，复用 memento-server 镜像，不额外拉镜像）。
+# 每 3 分钟检查一次：gitrepo Stalled 持续 3 分钟以上且距上次重同步超过 5 分钟时，
+# 把 forceSyncGeneration 加 1 触发重新拉取；同时清理手动 kubectl set image 遗留的字段归属冲突。
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -88,59 +76,95 @@ spec:
             resources:
               requests: {cpu: 10m, memory: 32Mi}
               limits: {cpu: 200m, memory: 128Mi}
-            command: ["python3", "-c"]
+            command: ["node", "-e"]
             args:
             - |
-              import json, os, ssl, time, urllib.request
-              from datetime import datetime, timezone
+              const fs = require("node:fs");
+              const https = require("node:https");
 
-              SA = "/var/run/secrets/kubernetes.io/serviceaccount"
-              URL = "https://%s:%s/apis/fleet.cattle.io/v1alpha1/namespaces/fleet-local/gitrepos/memento" % (
-                  os.environ["KUBERNETES_SERVICE_HOST"], os.environ["KUBERNETES_SERVICE_PORT"])
-              ANN = "memento.ihasy.com/watchdog-resync-at"
-              STALLED_FOR, GAP = 180, 300
-              token = open(SA + "/token").read().strip()
-              ctx = ssl.create_default_context(cafile=SA + "/ca.crt")
+              const SA = "/var/run/secrets/kubernetes.io/serviceaccount";
+              const host = process.env.KUBERNETES_SERVICE_HOST;
+              const port = process.env.KUBERNETES_SERVICE_PORT;
+              const token = fs.readFileSync(`${SA}/token`, "utf8").trim();
+              const ca = fs.readFileSync(`${SA}/ca.crt`);
+              const ANN = "memento.ihasy.com/watchdog-resync-at";
+              const STALLED_FOR = 180;
+              const GAP = 300;
 
-              def call(method, body=None, ctype="application/json", url=URL):
-                  req = urllib.request.Request(url, method=method, data=json.dumps(body).encode() if body else None,
-                                               headers={"Authorization": "Bearer " + token, "Content-Type": ctype})
-                  with urllib.request.urlopen(req, context=ctx, timeout=20) as r:
-                      return json.load(r)
+              function call(method, path, body, ctype = "application/json") {
+                return new Promise((resolve, reject) => {
+                  const data = body ? Buffer.from(JSON.stringify(body), "utf8") : null;
+                  const req = https.request(
+                    {
+                      host,
+                      port,
+                      path,
+                      method,
+                      ca,
+                      timeout: 20000,
+                      headers: {
+                        Authorization: `Bearer ${token}`,
+                        "Content-Type": ctype,
+                        ...(data ? { "Content-Length": data.length } : {}),
+                      },
+                    },
+                    (res) => {
+                      const chunks = [];
+                      res.on("data", (c) => chunks.push(c));
+                      res.on("end", () => {
+                        const raw = Buffer.concat(chunks).toString("utf8");
+                        if (res.statusCode >= 400) return reject(new Error(`HTTP ${res.statusCode}: ${raw.slice(0, 200)}`));
+                        resolve(raw ? JSON.parse(raw) : {});
+                      });
+                    },
+                  );
+                  req.on("error", reject);
+                  req.on("timeout", () => req.destroy(new Error("timeout")));
+                  if (data) req.write(data);
+                  req.end();
+                });
+              }
 
-              # 手动改镜像留下的字段归属：删掉，免得 Fleet 应用时冲突
-              DEP = "https://%s:%s/apis/apps/v1/namespaces/memento/deployments" % (
-                  os.environ["KUBERNETES_SERVICE_HOST"], os.environ["KUBERNETES_SERVICE_PORT"])
-              try:
-                  for d in call("GET", url=DEP).get("items", []):
-                      mfs = d["metadata"].get("managedFields") or []
-                      bad = [(i, m["manager"]) for i, m in enumerate(mfs)
-                             if str(m.get("manager", "")).startswith("kubectl") and m.get("operation") == "Update"
-                             and '"f:image"' in json.dumps(m.get("fieldsV1") or {})]
-                      if not bad:
-                          continue
-                      ops = []
-                      for i, mgr in sorted(bad, reverse=True):
-                          ops += [{"op": "test", "path": "/metadata/managedFields/%d/manager" % i, "value": mgr},
-                                  {"op": "remove", "path": "/metadata/managedFields/%d" % i}]
-                      call("PATCH", ops, "application/json-patch+json", url=DEP + "/" + d["metadata"]["name"])
-                      print("cleared manual image ownership on deploy/%s: %s" % (d["metadata"]["name"], [m for _, m in bad]))
-              except Exception as e:
-                  print("manual-ownership check failed: %s" % e)
+              (async () => {
+                const depPath = "/apis/apps/v1/namespaces/memento/deployments";
+                try {
+                  const deps = await call("GET", depPath);
+                  for (const d of deps.items || []) {
+                    const mfs = d.metadata?.managedFields || [];
+                    const bad = mfs
+                      .map((m, i) => [i, m])
+                      .filter(([, m]) => String(m.manager || "").startsWith("kubectl") && m.operation === "Update" && JSON.stringify(m.fieldsV1 || {}).includes('"f:image"'));
+                    if (!bad.length) continue;
+                    const ops = [];
+                    for (const [i, m] of bad.reverse()) {
+                      ops.push({ op: "test", path: `/metadata/managedFields/${i}/manager`, value: m.manager });
+                      ops.push({ op: "remove", path: `/metadata/managedFields/${i}` });
+                    }
+                    await call("PATCH", `${depPath}/${d.metadata.name}`, ops, "application/json-patch+json");
+                    console.log(`cleared manual image ownership on deploy/${d.metadata.name}`);
+                  }
+                } catch (e) {
+                  console.log("manual-ownership check failed:", e.message);
+                }
 
-              def ts(s):
-                  return datetime.strptime(s, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).timestamp()
-
-              g = call("GET")
-              now = time.time()
-              cond = next((c for c in g.get("status", {}).get("conditions", []) if c.get("type") == "Stalled"), {})
-              if cond.get("status") != "True":
-                  print("ok: not stalled"); raise SystemExit(0)
-              stalled = now - ts(cond["lastUpdateTime"])
-              last = float((g["metadata"].get("annotations") or {}).get(ANN) or 0)
-              if stalled < STALLED_FOR or now - last < GAP:
-                  print("stalled %ds, last resync %ds ago: wait" % (stalled, now - last)); raise SystemExit(0)
-              gen = int(g["spec"].get("forceSyncGeneration") or 0) + 1
-              call("PATCH", {"metadata": {"annotations": {ANN: str(int(now))}}, "spec": {"forceSyncGeneration": gen}},
-                   "application/merge-patch+json")
-              print("stalled %ds (%s): forceSyncGeneration -> %d" % (stalled, (cond.get("message") or "")[:200], gen))
+                const repoPath = "/apis/fleet.cattle.io/v1alpha1/namespaces/fleet-local/gitrepos/memento";
+                const g = await call("GET", repoPath);
+                const now = Date.now() / 1000;
+                const cond = (g.status?.conditions || []).find((c) => c.type === "Stalled") || {};
+                if (cond.status !== "True") {
+                  console.log("ok: not stalled");
+                  return;
+                }
+                const stalled = now - Date.parse(cond.lastUpdateTime) / 1000;
+                const last = Number((g.metadata?.annotations || {})[ANN] || 0);
+                if (stalled < STALLED_FOR || now - last < GAP) {
+                  console.log(`stalled ${Math.round(stalled)}s, last resync ${Math.round(now - last)}s ago: wait`);
+                  return;
+                }
+                const gen = Number(g.spec?.forceSyncGeneration || 0) + 1;
+                await call("PATCH", repoPath, { metadata: { annotations: { [ANN]: String(Math.floor(now)) } }, spec: { forceSyncGeneration: gen } }, "application/merge-patch+json");
+                console.log(`stalled ${Math.round(stalled)}s: forceSyncGeneration -> ${gen}`);
+              })().catch((e) => {
+                console.error(e);
+                process.exit(1);
+              });

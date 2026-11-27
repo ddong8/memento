@@ -37,7 +37,7 @@ function isGlobalIpv4(ip: string): boolean {
   if (a === 172 && b >= 16 && b <= 31) return false; // 172.16.0.0/12 private
   if (a === 192 && b === 0 && c === 0) return false; // 192.0.0.0/24
   if (a === 192 && b === 0 && c === 2) return false; // TEST-NET-1
-  if (a === 192 && b === 168) return false; // 192.168.0.0/16
+  if (a === 192 && b === 168) return false; // RFC1918 /16 private
   if (a === 198 && (b === 18 || b === 19)) return false; // 198.18.0.0/15
   if (a === 198 && b === 51 && c === 100) return false; // TEST-NET-2
   if (a === 203 && b === 0 && c === 113) return false; // TEST-NET-3

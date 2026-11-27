@@ -419,7 +419,7 @@ askConversationRoutes.post("/conversations/ensure-by-session", async (c) => {
   return c.json({
     id: String(conv.id),
     title: conv.title,
-    turns: sanitizeTurnsForResponse(conv.turns),
+    turns: sanitizeTurnsForResponse(conv.turns, deps.settings.secretKey),
     device_id: resolved.deviceId || conv.deviceId,
     cwd: conv.cwd,
     execution_mode: cfg.execution_mode || (typeof body.execution_mode === "string" ? body.execution_mode : "ai"),
@@ -572,7 +572,7 @@ askConversationRoutes.get("/conversations/:conv_id", async (c) => {
   }
 
   const cfg = inferConversationConfig({ deviceId: conv.deviceId, cwd: conv.cwd, config: conv.config, turns: rawTurns });
-  const convTurns = sanitizeTurnsForResponse(rawTurns);
+  const convTurns = sanitizeTurnsForResponse(rawTurns, deps.settings.secretKey);
   const projIdVal = String(cfg.project_id ?? "");
   const projTitleVal = await lookupProjectTitle(deps.db, projIdVal);
   const { machMap, machRowsSummary } = await getProjectAndMachineMaps(deps, user.id);

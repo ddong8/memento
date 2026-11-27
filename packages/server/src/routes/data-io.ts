@@ -26,11 +26,21 @@ dataIoRoutes.get("/export", async (c) => {
     }
   }
 
+  let includeFull = false;
+  const rawFull = c.req.query("include_full");
+  if (rawFull !== undefined) {
+    try {
+      includeFull = parseBool(rawFull, false);
+    } catch {
+      throw new HttpError(422, [{ type: "bool_parsing", loc: ["query", "include_full"], msg: "Input should be a valid boolean", input: rawFull }]);
+    }
+  }
+
   const lock = await cluster.mutex(`export:${user.id}`);
   if (!lock) throw new HttpError(429, "Another export is already running for this account");
 
   try {
-    const result = await buildExport(db, user, { includeAccessLogs });
+    const result = await buildExport(db, user, { includeAccessLogs, includeFull });
     const countsHeader = Object.entries(result.counts)
       .map(([k, v]) => `${k}=${v}`)
       .join(",");

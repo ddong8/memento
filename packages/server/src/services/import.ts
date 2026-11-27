@@ -8,18 +8,27 @@ import type { UserRow } from "../auth/current-user";
 import { withoutNul, type Db } from "../db/client";
 import {
   accessLogs,
+  askConversations,
   conversationMessages,
+  correctionTopics,
   dailySummaries,
   documents,
   documentSearch,
   documentVersions,
+  dreamJournals,
   knowledgeEntities,
   knowledgeObservations,
   knowledgeRelations,
   machines,
   projects,
+  scheduledTasks,
   shareLinks,
+  skills,
+  todos,
   tools,
+  userMemories,
+  userProfiles,
+  users,
 } from "../db/pulled/schema";
 import { tokenizeForIndex } from "./tokenize";
 
@@ -41,6 +50,15 @@ const ALLOWED_MEMBERS = new Set([
   "knowledge_observations.jsonl",
   "share_links.jsonl",
   "access_logs.jsonl",
+  "user_memories.jsonl",
+  "user_profiles.jsonl",
+  "skills.jsonl",
+  "todos.jsonl",
+  "ask_conversations.jsonl",
+  "correction_topics.jsonl",
+  "dream_journals.jsonl",
+  "scheduled_tasks.jsonl",
+  "user_settings.json",
 ]);
 
 const VALID_SHARE_KINDS = new Set(["timeline", "daily", "memory"]);
@@ -576,6 +594,256 @@ export async function runImport(db: Db, user: UserRow, zipBytes: Uint8Array): Pr
     }
     await flushAl();
     counts.access_logs = insertedAl;
+
+    // 14) Optional full-migration tables (standalone <-> server bidirectional sync)
+    if (entries["user_memories.jsonl"]) {
+      let n = 0;
+      for (const r of load("user_memories.jsonl")) {
+        const key = typeof r.key === "string" ? r.key : "";
+        const content = typeof r.content === "string" ? r.content : "";
+        if (!key || !content) continue;
+        await dbTx
+          .insert(userMemories)
+          .values(
+            withoutNul({
+              id: randomUUID(),
+              userId: user.id,
+              category: typeof r.category === "string" && r.category ? r.category : "general",
+              key,
+              content,
+              confidence: typeof r.confidence === "number" ? r.confidence : 1.0,
+              source: typeof r.source === "string" && r.source ? r.source : "imported",
+              treePath: typeof r.tree_path === "string" ? r.tree_path : null,
+              isFolder: Boolean(r.is_folder),
+              status: typeof r.status === "string" && r.status ? r.status : "active",
+              statusReason: typeof r.status_reason === "string" ? r.status_reason : null,
+              recallCount: typeof r.recall_count === "number" ? r.recall_count : 0,
+              lastRecalledAt: parseIsoOrNull(r.last_recalled_at),
+              createdAt: parseIsoOrNull(r.created_at) ?? new Date().toISOString(),
+              updatedAt: parseIsoOrNull(r.updated_at) ?? new Date().toISOString(),
+            }),
+          )
+          .onConflictDoNothing({ target: [userMemories.userId, userMemories.category, userMemories.key] });
+        n++;
+      }
+      counts.user_memories = n;
+    }
+
+    if (entries["user_profiles.jsonl"]) {
+      let n = 0;
+      const existingProfs = await dbTx.select({ version: userProfiles.version }).from(userProfiles).where(eq(userProfiles.userId, user.id));
+      let maxVer = existingProfs.reduce((acc, p) => Math.max(acc, p.version ?? 0), 0);
+      for (const r of load("user_profiles.jsonl")) {
+        const content = typeof r.content === "string" ? r.content : "";
+        if (!content) continue;
+        const st = typeof r.status === "string" && r.status ? r.status : "draft";
+        const ver = typeof r.version === "number" ? (maxVer > 0 ? ++maxVer : r.version) : null;
+        await dbTx
+          .insert(userProfiles)
+          .values(
+            withoutNul({
+              id: randomUUID(),
+              userId: user.id,
+              status: st,
+              version: ver,
+              content,
+              stats: r.stats && typeof r.stats === "object" ? (r.stats as Record<string, unknown>) : {},
+              publishedAt: parseIsoOrNull(r.published_at),
+              createdAt: parseIsoOrNull(r.created_at) ?? new Date().toISOString(),
+              updatedAt: parseIsoOrNull(r.updated_at) ?? new Date().toISOString(),
+            }),
+          )
+          .onConflictDoNothing();
+        n++;
+      }
+      counts.user_profiles = n;
+    }
+
+    if (entries["skills.jsonl"]) {
+      let n = 0;
+      for (const r of load("skills.jsonl")) {
+        const slug = typeof r.slug === "string" ? r.slug : "";
+        const title = typeof r.title === "string" ? r.title : "";
+        const body = typeof r.body === "string" ? r.body : "";
+        if (!slug || !title || !body) continue;
+        await dbTx
+          .insert(skills)
+          .values(
+            withoutNul({
+              id: randomUUID(),
+              userId: user.id,
+              slug,
+              title,
+              description: typeof r.description === "string" ? r.description : "",
+              body,
+              project: typeof r.project === "string" ? r.project : null,
+              status: typeof r.status === "string" && r.status ? r.status : "draft",
+              version: typeof r.version === "number" ? r.version : 1,
+              evidence: Array.isArray(r.evidence) ? r.evidence : [],
+              timesSeen: typeof r.times_seen === "number" ? r.times_seen : 1,
+              editedByUser: Boolean(r.edited_by_user),
+              publishedAt: parseIsoOrNull(r.published_at),
+              createdAt: parseIsoOrNull(r.created_at) ?? new Date().toISOString(),
+            }),
+          )
+          .onConflictDoNothing({ target: [skills.userId, skills.slug] });
+        n++;
+      }
+      counts.skills = n;
+    }
+
+    if (entries["todos.jsonl"]) {
+      let n = 0;
+      for (const r of load("todos.jsonl")) {
+        const title = typeof r.title === "string" ? r.title : "";
+        const fp = typeof r.fingerprint === "string" ? r.fingerprint : "";
+        if (!title || !fp) continue;
+        await dbTx.insert(todos).values(
+          withoutNul({
+            id: randomUUID(),
+            userId: user.id,
+            title,
+            detail: typeof r.detail === "string" ? r.detail : null,
+            project: typeof r.project === "string" ? r.project : null,
+            status: typeof r.status === "string" && r.status ? r.status : "open",
+            dueAt: parseIsoOrNull(r.due_at),
+            source: typeof r.source === "string" && r.source ? r.source : "imported",
+            evidence: typeof r.evidence === "string" ? r.evidence : null,
+            fingerprint: fp,
+            closedAt: parseIsoOrNull(r.closed_at),
+            closeEvidence: typeof r.close_evidence === "string" ? r.close_evidence : null,
+            createdAt: parseIsoOrNull(r.created_at) ?? new Date().toISOString(),
+          }),
+        );
+        n++;
+      }
+      counts.todos = n;
+    }
+
+    if (entries["ask_conversations.jsonl"]) {
+      let n = 0;
+      for (const r of load("ask_conversations.jsonl")) {
+        const title = typeof r.title === "string" ? r.title : "导入对话";
+        const turns = Array.isArray(r.turns) ? r.turns : [];
+        await dbTx.insert(askConversations).values(
+          withoutNul({
+            id: randomUUID(),
+            userId: user.id,
+            title,
+            turns,
+            messageCount: typeof r.message_count === "number" ? r.message_count : turns.length,
+            deviceId: typeof r.device_id === "string" ? r.device_id : null,
+            cwd: typeof r.cwd === "string" ? r.cwd : null,
+            config: r.config && typeof r.config === "object" ? (r.config as Record<string, unknown>) : {},
+            createdAt: parseIsoOrNull(r.created_at) ?? new Date().toISOString(),
+            updatedAt: parseIsoOrNull(r.updated_at) ?? new Date().toISOString(),
+          }),
+        );
+        n++;
+      }
+      counts.ask_conversations = n;
+    }
+
+    if (entries["correction_topics.jsonl"]) {
+      let n = 0;
+      for (const r of load("correction_topics.jsonl")) {
+        const statement = typeof r.statement === "string" ? r.statement : "";
+        if (!statement) continue;
+        await dbTx.insert(correctionTopics).values(
+          withoutNul({
+            id: randomUUID(),
+            userId: user.id,
+            statement,
+            category: typeof r.category === "string" && r.category ? r.category : "rule",
+            status: typeof r.status === "string" && r.status ? r.status : "candidate",
+            scope: typeof r.scope === "string" && r.scope ? r.scope : "global",
+            times: typeof r.times === "number" ? r.times : 1,
+            firstAt: parseIsoOrNull(r.first_at),
+            lastAt: parseIsoOrNull(r.last_at),
+            acceptedAt: parseIsoOrNull(r.accepted_at),
+            createdAt: parseIsoOrNull(r.created_at) ?? new Date().toISOString(),
+          }),
+        );
+        n++;
+      }
+      counts.correction_topics = n;
+    }
+
+    if (entries["dream_journals.jsonl"]) {
+      let n = 0;
+      for (const r of load("dream_journals.jsonl")) {
+        const dreamDate = parseDateOrNull(r.dream_date);
+        const md = typeof r.report_markdown === "string" ? r.report_markdown : "";
+        if (!dreamDate || !md) continue;
+        await dbTx.insert(dreamJournals).values(
+          withoutNul({
+            id: randomUUID(),
+            userId: user.id,
+            dreamDate,
+            stageMetrics: r.stage_metrics && typeof r.stage_metrics === "object" ? (r.stage_metrics as Record<string, unknown>) : {},
+            lightSleepNotes: typeof r.light_sleep_notes === "string" ? r.light_sleep_notes : null,
+            remReflections: typeof r.rem_reflections === "string" ? r.rem_reflections : null,
+            deepConsolidations: typeof r.deep_consolidations === "string" ? r.deep_consolidations : null,
+            reportMarkdown: md,
+            createdAt: parseIsoOrNull(r.created_at) ?? new Date().toISOString(),
+          }),
+        );
+        n++;
+      }
+      counts.dream_journals = n;
+    }
+
+    if (entries["scheduled_tasks.jsonl"]) {
+      let n = 0;
+      for (const r of load("scheduled_tasks.jsonl")) {
+        const title = typeof r.title === "string" ? r.title : "";
+        const prompt = typeof r.prompt === "string" ? r.prompt : "";
+        if (!title || !prompt) continue;
+        await dbTx.insert(scheduledTasks).values(
+          withoutNul({
+            id: randomUUID(),
+            userId: user.id,
+            title,
+            device: typeof r.device === "string" ? r.device : "",
+            agent: typeof r.agent === "string" && r.agent ? r.agent : "claude",
+            prompt,
+            cwd: typeof r.cwd === "string" ? r.cwd : null,
+            permissionMode: typeof r.permission_mode === "string" && r.permission_mode ? r.permission_mode : "full",
+            schedule: typeof r.schedule === "string" && r.schedule ? r.schedule : "0 9 * * *",
+            tzOffsetMin: typeof r.tz_offset_min === "number" ? r.tz_offset_min : 480,
+            enabled: Boolean(r.enabled ?? true),
+            createdAt: parseIsoOrNull(r.created_at) ?? new Date().toISOString(),
+          }),
+        );
+        n++;
+      }
+      counts.scheduled_tasks = n;
+    }
+
+    if (entries["user_settings.json"]) {
+      try {
+        const s = JSON.parse(new TextDecoder().decode(entries["user_settings.json"])) as Record<string, unknown>;
+        const patch: Record<string, unknown> = {};
+        if (s.notify_settings && typeof s.notify_settings === "object" && Object.keys(s.notify_settings as object).length) {
+          patch.notifySettings = s.notify_settings;
+        }
+        if (s.proactive_settings && typeof s.proactive_settings === "object" && Object.keys(s.proactive_settings as object).length) {
+          patch.proactiveSettings = s.proactive_settings;
+        }
+        if (s.avatar_settings && typeof s.avatar_settings === "object" && Object.keys(s.avatar_settings as object).length) {
+          patch.avatarSettings = s.avatar_settings;
+        }
+        if (s.collect_settings && typeof s.collect_settings === "object" && Object.keys(s.collect_settings as object).length) {
+          patch.collectSettings = s.collect_settings;
+        }
+        if (Object.keys(patch).length) {
+          await dbTx.update(users).set(patch).where(eq(users.id, user.id));
+          counts.user_settings = Object.keys(patch).length;
+        }
+      } catch {
+        warnings.push("user_settings.json malformed; skipped");
+      }
+    }
   });
 
   return { machine_id: fallbackMachineId, counts, warnings };

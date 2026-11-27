@@ -55,8 +55,8 @@ jobs:
         include:
           - name: server
             image: memento-server
-            file: server/Dockerfile
-            geoip: true
+            file: packages/server/Dockerfile
+            geoip: false
           - name: web
             image: memento-web
             file: apps/web/Dockerfile

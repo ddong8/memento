@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `4604f1ed` · Updated: `2026-11-27`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `caf28e8b` · Updated: `2026-11-27`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -11,34 +11,34 @@
 
 - 简介 (About): 给你的 AI 工具建个共享大脑与多模态工作台。跨设备、跨工具自动采集 AI 编程对话与记忆，自建后端汇总，内置全能文档与媒体视窗（Office/PPT 16:9 横屏放映、万行表格切片、音视频 GPU 加速），Web + MCP 统一查看、搜索、召回。
 - 类型 (Type): Monorepo (Workspaces)
-- 技术栈 (Stack): TypeScript/JavaScript, Python, Shell / Bash · React, Electron, Next.js, TailwindCSS, Model Context Protocol (MCP), FastAPI, SQLAlchemy, Celery
+- 技术栈 (Stack): TypeScript/JavaScript, Python, Shell / Bash · React, Electron, Next.js, TailwindCSS, Model Context Protocol (MCP), Docker, Kubernetes / Fleet
 - 基础设施 (Infra): PostgreSQL, pgvector (Vector DB), Redis, MinIO / S3 Object Storage, Celery Task Queue
-- 规模 (Scale): 10 个子系统 · 44 组 API 路由 / 346 个接口 · 39 个前端页面 · 126 个数据模型 · 35 个服务模块 · 289 个测试文件
-- 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `packages/server`, `server`, `embedding`, `deploy`
-- 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `4604f1ed` (2026-11-27): feat(server-ts): 完成 P6 全量路由与后台运行器、对齐 ask-runs 集群协议并切流 P5
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 77（✅ 77 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 12 · 状态 10
+- 规模 (Scale): 9 个子系统 · 39 个前端页面 · 84 个数据模型 · 35 个服务模块 · 150 个测试文件
+- 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `packages/server`, `embedding`, `deploy`
+- 自测命令 (Verify): `npm test` ; `npx tsc --noEmit` ; `npm run lint` ; `npm run build`
+- 最近改动 (Latest): `caf28e8b` (2026-11-27): feat(deploy): 线上 100% 流量切换至 TypeScript 服务端 api-ts
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 77（✅ 77 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 12 · 状态 10 · 最近提交碰到 `T-RUN`, `T-PLAN`, `F-ASK`, `F-STOP`, `F-PLAN`, `R-STOP-ALL-AGENTS`, `R-ISLAND-CLEANUP`, `R-MULTI-DEVICE-STABLE`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
 | 1. Project Overview & Tech Stack | L36-L42 |
-| 2. High-Level Architecture Topology | L44-L79 |
-| 3. Subsystem Breakdown & Responsibilities | L81-L94 |
-| 4. Key Entry Points & API Endpoints | L96-L536 |
-| 5. Core Domain Services & Background Schedules | L538-L578 |
-| 6.5. AST Call Graph, DTO Schemas & CLI Entrypoints | L580-L652 |
-| 7. CI/CD Pipelines, Code Hotspots & Test Suites | L654-L702 |
-| 8. Development & Verification Commands | L704-L721 |
-| 9. Recent Architectural Evolutions | L723-L730 |
-| 10. Key Environment Variables & Configuration | L732-L744 |
-| 11. 业务蓝图核对 (Business Blueprint Check) | L746-L749 |
+| 2. High-Level Architecture Topology | L44-L67 |
+| 3. Subsystem Breakdown & Responsibilities | L69-L81 |
+| 4. Key Entry Points & API Endpoints | L83-L129 |
+| 5. Core Domain Services & Background Schedules | L131-L171 |
+| 6.5. AST Call Graph, DTO Schemas & CLI Entrypoints | L173-L215 |
+| 7. CI/CD Pipelines, Code Hotspots & Test Suites | L217-L262 |
+| 8. Development & Verification Commands | L264-L275 |
+| 9. Recent Architectural Evolutions | L277-L284 |
+| 10. Key Environment Variables & Configuration | L286-L298 |
+| 11. 业务蓝图核对 (Business Blueprint Check) | L300-L310 |
 
 ## 1. Project Overview & Tech Stack
 
 - **About**: 给你的 AI 工具建个共享大脑与多模态工作台。跨设备、跨工具自动采集 AI 编程对话与记忆，自建后端汇总，内置全能文档与媒体视窗（Office/PPT 16:9 横屏放映、万行表格切片、音视频 GPU 加速），Web + MCP 统一查看、搜索、召回。
 - **Project Type**: Monorepo (Workspaces)
 - **Core Languages**: TypeScript/JavaScript, Python, Shell / Bash
-- **Key Frameworks**: React, Electron, Next.js, TailwindCSS, Model Context Protocol (MCP), FastAPI, SQLAlchemy, Celery, Pydantic, Docker, Kubernetes / Fleet
+- **Key Frameworks**: React, Electron, Next.js, TailwindCSS, Model Context Protocol (MCP), Docker, Kubernetes / Fleet
 - **Infrastructure & Middleware**: PostgreSQL, pgvector (Vector DB), Redis, MinIO / S3 Object Storage, Celery Task Queue
 
 ## 2. High-Level Architecture Topology
@@ -56,8 +56,6 @@ flowchart TD
     end
 
     subgraph CoreBackend["后端中枢与智能计算"]
-        API["FastAPI 异步主服务 (REST / SSE / WS)"]
-        CELERY["Celery 异步 Worker (会话整理 / 梦境提炼 / 任务收割)"]
         EMB["向量推理服务 (Embedding Pipeline)"]
     end
 
@@ -66,16 +64,6 @@ flowchart TD
         REDIS[("Redis 缓存 / 分布式锁 / 任务总线")]
     end
 
-    WEB -->|HTTP / SSE / WebSocket| API
-    DESK -->|HTTP / 自动更新通道| API
-    MCP -->|API RPC 查询 / 蓝图与规则注入| API
-    DAEMON -->|长连接心跳 / 采集数据流推入 / 远程任务回传| API
-    API -->|读写会话、实体、向量| PG
-    API -->|缓存会话字典、租约分发| REDIS
-    CELERY -->|异步任务编排| REDIS
-    CELERY -->|离线提炼、梦境知识归纳| PG
-    API -->|文本向量化| EMB
-    CELERY -->|离线图嵌入| EMB
 ```
 
 ## 3. Subsystem Breakdown & Responsibilities
@@ -89,7 +77,6 @@ flowchart TD
 | [`packages/daemon`](packages/daemon) | Package / Service | Memento's local daemon: collects AI tool sessions, runs dispatched agent tasks, keeps the profile and skills in each too |
 | [`packages/mcp`](packages/mcp) | Package / Service | Memento memory over MCP (stdio): search, recall, project context, rules, pitfalls, skills and todos |
 | [`packages/server`](packages/server) | Package / Service | Memento's server in TypeScript, replacing server/ (Python) route by route: docs/ts-server-migration.md |
-| [`server`](server) | Backend API Service | FastAPI backend services, database models, background Celery workers |
 | [`embedding`](embedding) | Embedding Microservice | Vector embedding & semantic indexing service |
 | [`deploy`](deploy) | Infrastructure & Deployment | Kubernetes kustomization manifests, Fleet GitOps configs, systemd services |
 
@@ -137,403 +124,9 @@ flowchart TD
 - `/tools`
 - `/tools/[tool]`
 
-### Registered API Routers & Endpoints
-
-#### `/api/admin` (admin.py)
-
-- `GET /api/admin/users`
-- `POST /api/admin/users/{user_id}/approve`
-- `PUT /api/admin/users/{user_id}`
-- `POST /api/admin/users/{user_id}/rotate-collector-token`
-- `POST /api/admin/users/{user_id}/transfer-ownership`
-- _... (9 more endpoints)_
-
-#### `/api/ask` (ask.py)
-
-- `POST /api/ask/warmup`
-- `GET /api/ask/runs`
-- `GET /api/ask/runs/active`
-- `GET /api/ask/conversations/{conv_id}/run`
-- `GET /api/ask/conversations/{conv_id}/stream`
-- _... (8 more endpoints)_
-
-#### `/ask_conversations` (ask_conversations.py)
-
-- `GET /ask_conversations/conversations`
-- `GET /ask_conversations/conversations/recent-active`
-- `GET /ask_conversations/conversations/{conv_id}`
-- `POST /ask_conversations/conversations/ensure-by-session`
-- `PATCH /ask_conversations/conversations/{conv_id}`
-- _... (4 more endpoints)_
-
-#### `/api/auth` (auth.py)
-
-- `GET /api/auth/registration-mode`
-- `POST /api/auth/register`
-- `POST /api/auth/token-exchange`
-- `POST /api/auth/refresh`
-- `POST /api/auth/login`
-- _... (11 more endpoints)_
-
-#### `/api/collect/exclusions` (collect_exclusions.py)
-
-- `GET /api/collect/exclusions`
-- `GET /api/collect/exclusions/preview`
-- `POST /api/collect/exclusions`
-- `POST /api/collect/exclusions/{key}/retry`
-- `DELETE /api/collect/exclusions/{key}`
-
-#### `/api/conversations` (conversations.py)
-
-- `GET /api/conversations/{doc_id}`
-- `GET /api/conversations/{doc_id}/messages`
-- `PATCH /api/conversations/{doc_id}`
-- `GET /api/conversations/{session_id}/stats`
-- `POST /api/conversations/{session_id}/compact`
-
-#### `/api/daily` (daily.py)
-
-- `GET /api/daily`
-- `GET /api/daily/{date_str}`
-- `GET /api/daily/{date_str}/messages`
-- `GET /api/daily/{date_str}/summary`
-- `POST /api/daily/{date_str}/generate-summary`
-
-#### `/api/dashboard` (dashboard.py)
-
-- `GET /api/dashboard`
-
-#### `/api/data` (data_io.py)
-
-- `GET /api/data/export`
-- `POST /api/data/import`
-
-#### `/api/devices` (devices.py)
-
-- `GET /api/devices`
-- `GET /api/devices/{device_db_id}/discovery`
-- `DELETE /api/devices/{device_db_id}`
-- `POST /api/devices/{device_db_id}/archive`
-- `POST /api/devices/{device_db_id}/unarchive`
-- _... (7 more endpoints)_
-
-#### `/api/documents` (documents.py)
-
-- `GET /api/documents/proxy-fetch`
-- `GET /api/documents/{doc_id}`
-- `GET /api/documents/{doc_id}/backlinks`
-
-#### `/api/events` (events.py)
-
-- `GET /api/events/stream`
-
-#### `/api/git` (git_review.py)
-
-- `POST /api/git/diff`
-- `POST /api/git/checkpoint/restore`
-- `POST /api/git/deliver`
-- `POST /api/git/suggest-message`
-- `POST /api/git/prs`
-- _... (4 more endpoints)_
-
-#### `/api/health` (health.py)
-
-- `GET /api/health/overview`
-
-#### `/api/hierarchy` (hierarchy.py)
-
-- `GET /api/hierarchy/devices`
-- `GET /api/hierarchy/devices/{device_id}/tools`
-- `GET /api/hierarchy/devices/{device_id}/tools/{tool_id}/projects`
-- `GET /api/hierarchy/devices/{device_id}/tools/{tool_id}/files`
-
-#### `/api/ingest` (ingest.py)
-
-- `POST /api/ingest/file`
-- `POST /api/ingest/files`
-- `POST /api/ingest/reconcile`
-- `POST /api/ingest/discovery`
-- `POST /api/ingest/heartbeat`
-- _... (1 more endpoints)_
-
-#### `/install_bootstrap` (install_bootstrap.py)
-
-- `GET /install_bootstrap/install.sh`
-- `GET /install_bootstrap/install.ps1`
-- `GET /install_bootstrap/install/executor.sh`
-- `GET /install_bootstrap/install`
-- `GET /install_bootstrap/install`
-- _... (1 more endpoints)_
-
-#### `/api/learning` (learning.py)
-
-- `GET /api/learning/corrections`
-- `POST /api/learning/corrections/{topic_id}/accept`
-- `POST /api/learning/corrections/{topic_id}/dismiss`
-- `GET /api/learning/check`
-- `POST /api/learning/review`
-- _... (10 more endpoints)_
-
-#### `/api/life` (life_rhythm.py)
-
-- `GET /api/life/rhythm`
-- `POST /api/life/rhythm/sync`
-- `POST /api/life/rhythm`
-- `POST /api/life/rhythm/parse-image`
-- `POST /api/life/rhythm/ocr`
-- _... (4 more endpoints)_
-
-#### `/api/profile/llm` (llm.py)
-
-- `GET /api/profile/llm`
-- `PUT /api/profile/llm`
-- `GET /api/profile/llm/agent`
-- `PUT /api/profile/llm/agent`
-- `POST /api/profile/llm/test`
-
-#### `/api/media` (media.py)
-
-- `GET /api/media/image/{key:path}`
-- `GET /api/media/video/{key:path}`
-
-#### `/api/memory` (memory.py)
-
-- `GET /api/memory/stats`
-- `GET /api/memory/resonance`
-- `GET /api/memory/graph`
-- `GET /api/memory/entities/{entity_id}`
-- `GET /api/memory/search`
-- _... (17 more endpoints)_
-
-#### `/api/missions` (missions.py)
-
-- `GET /api/missions`
-- `POST /api/missions`
-- `GET /api/missions/{mission_id}`
-- `GET /api/missions/{mission_id}/approve`
-- `POST /api/missions/{mission_id}/approve`
-- _... (1 more endpoints)_
-
-#### `/api/notify` (notify.py)
-
-- `GET /api/notify/settings`
-- `PUT /api/notify/settings`
-- `POST /api/notify/device-token`
-- `DELETE /api/notify/device-token`
-- `POST /api/notify/live-activity-token`
-- _... (3 more endpoints)_
-
-#### `/api/plans` (plans.py)
-
-- `POST /api/plans`
-- `GET /api/plans`
-- `GET /api/plans/capabilities`
-- `GET /api/plans/{plan_id}`
-- `POST /api/plans/{plan_id}/start`
-- _... (5 more endpoints)_
-
-#### `/api/plugins` (plugins.py)
-
-- `GET /api/plugins`
-- `POST /api/plugins/{plugin_id}/install`
-- `PATCH /api/plugins/{plugin_id}/config`
-- `POST /api/plugins/{plugin_id}/test`
-- `DELETE /api/plugins/{plugin_id}`
-
-#### `/api/preview` (preview.py)
-
-- `GET /api/preview/ports`
-- `POST /api/preview/session`
-
-#### `/api/proactive` (proactive.py)
-
-- `GET /api/proactive/settings`
-- `PUT /api/proactive/settings`
-- `POST /api/proactive/test-morning-brief`
-- `POST /api/proactive/test-evening-reflection`
-
-#### `/api/profile` (profile.py)
-
-- `PUT /api/profile/blueprint/settings`
-- `PUT /api/profile/pitfalls/settings`
-- `POST /api/profile/blueprint/status`
-- `POST /api/profile/mcp/status`
-- `GET /api/profile/blueprint`
-- _... (14 more endpoints)_
-
-#### `/api/projects` (projects.py)
-
-- `GET /api/projects`
-- `GET /api/projects/{project_id}`
-- `PATCH /api/projects/{project_id}`
-- `GET /api/projects/{project_id}/timeline`
-- `GET /api/projects/{project_id}/conversations`
-- _... (3 more endpoints)_
-
-#### `/api/public` (public.py)
-
-- `GET /api/public/stats`
-
-#### `/api/agent/quotas` (quotas.py)
-
-- `GET /api/agent/quotas`
-- `POST /api/agent/quotas/refresh`
-
-#### `/api/scheduled-tasks` (scheduled_tasks.py)
-
-- `GET /api/scheduled-tasks`
-- `POST /api/scheduled-tasks`
-- `PATCH /api/scheduled-tasks/{sid}`
-- `DELETE /api/scheduled-tasks/{sid}`
-- `POST /api/scheduled-tasks/{sid}/run`
-
-#### `/api/scim/v2` (scim.py)
-
-- `GET /api/scim/v2/ServiceProviderConfig`
-- `GET /api/scim/v2/ResourceTypes`
-- `GET /api/scim/v2/Users`
-- `GET /api/scim/v2/Users/{user_id}`
-- `POST /api/scim/v2/Users`
-- _... (3 more endpoints)_
-
-#### `/api/search` (search.py)
-
-- `GET /api/search`
-
-#### `/api/share` (share.py)
-
-- `POST /api/share`
-- `GET /api/share`
-- `GET /api/share/recipients`
-- `GET /api/share/inbox`
-- `GET /api/share/{token}/views`
-- _... (3 more endpoints)_
-
-#### `/api/skills` (skills.py)
-
-- `GET /api/skills`
-- `PUT /api/skills/{skill_id}`
-- `POST /api/skills/{skill_id}/publish`
-- `POST /api/skills/{skill_id}/dismiss`
-- `POST /api/skills/{skill_id}/retire`
-- _... (5 more endpoints)_
-
-#### `/api/auth/oidc` (sso.py)
-
-- `GET /api/auth/oidc/authorize`
-- `GET /api/auth/oidc/callback`
-
-#### `/api/studio` (studio.py)
-
-- `GET /api/studio/health`
-- `GET /api/studio/compute/status`
-- `GET /api/studio/compute/account`
-- `POST /api/studio/compute/sessions/stop`
-- `POST /api/studio/compute/start`
-- _... (59 more endpoints)_
-
-#### `/api/tasks` (tasks.py)
-
-- `POST /api/tasks/dispatch/{device_id}`
-- `GET /api/tasks`
-- `GET /api/tasks/{task_id}`
-- `POST /api/tasks/{task_id}/cancel`
-- `POST /api/tasks/{task_id}/input`
-- _... (1 more endpoints)_
-
-#### `/api/terminal` (terminal.py)
-
-- `POST /api/terminal/open`
-- `GET /api/terminal/{term_id}/stream`
-- `POST /api/terminal/{term_id}/input`
-- `POST /api/terminal/{term_id}/resize`
-- `POST /api/terminal/{term_id}/close`
-
-#### `/api/todos` (todos.py)
-
-- `GET /api/todos`
-- `POST /api/todos`
-- `PUT /api/todos/{todo_id}`
-
-#### `/api/tools` (tools.py)
-
-- `GET /api/tools`
-- `GET /api/tools/{tool_id}`
-- `GET /api/tools/{tool_id}/files`
-
-#### `/api/system/update` (updates.py)
-
-- `GET /api/system/update/check`
-
 ### Core Database Models (`models.py`)
 
-`Base`, `Machine`, `MachineMerge`, `Tool`, `Project`, `Document`, `DocumentSearch`, `ConversationMessage`, `DailySummary`, `DocumentVersion`, `ConversationMessageRemoved`, `MessageAudit`, `DocumentPendingDelta`, `User`, `InviteCode`, `Permission`, `AccessLog`, `SyncState`, `DocumentEmbedding`, `KnowledgeEntity`, `KnowledgeRelation`, `KnowledgeObservation`, `ShareLink`, `ShareView`, `DeviceTask`, `AskConversation`, `UserMemory`, `DreamJournal`, `UserProfile`, `CorrectionTopic`, `CorrectionEvent`, `SessionReview`, `GuardEvent`, `Skill`, `Todo`, `EvalCase`, `EvalRun`, `LearningEval`, `AgentMission`, `AgentPlan`, `UserLifeRhythm`, `ScheduledTask`, `conversation_messages_removed`, `users`, `machines`, `tools`, `projects`, `daily_summaries`, `invite_codes`, `knowledge_entities`, `share_links`, `ask_conversations`, `user_memories`, `dream_journals`, `user_profiles`, `skills`, `eval_runs`, `learning_evals`, `agent_missions`, `agent_plans`, `user_life_rhythms`, `scheduled_tasks`, `machine_merges`, `documents`, `permissions`, `sync_state`, `knowledge_relations`, `share_views`, `device_tasks`, `correction_topics`, `guard_events`, `document_search`, `conversation_messages`, `document_versions`, `message_audit`, `document_pending_deltas`, `access_logs`, `document_embeddings`, `knowledge_observations`, `correction_events`, `session_reviews`, `todos`, `eval_cases`, `schema_migrations`, `public.access_logs`, `public.agent_missions`, `public.agent_plans`, `public.ask_conversations`, `public.conversation_messages`, `public.conversation_messages_removed`, `public.correction_events`, `public.correction_topics`, `public.daily_summaries`, `public.device_tasks`, `public.document_embeddings`, `public.document_pending_deltas`, `public.document_search`, `public.document_versions`, `public.documents`, `public.dream_journals`, `public.eval_cases`, `public.eval_runs`, `public.guard_events`, `public.invite_codes`, `public.knowledge_entities`, `public.knowledge_observations`, `public.knowledge_relations`, `public.learning_evals`, `public.machine_merges`, `public.machines`, `public.message_audit`, `public.permissions`, `public.projects`, `public.scheduled_tasks`, `public.schema_migrations`, `public.session_reviews`, `public.share_links`, `public.share_views`, `public.skills`, `public.sync_state`, `public.todos`, `public.tools`, `public.user_life_rhythms`, `public.user_memories`, `public.user_profiles`, `public.users`
-
-#### Key Entity Relationships (Foreign Keys)
-
-```mermaid
-erDiagram
-    USER ||--o{ MACHINE : "user_id"
-    MACHINE ||--o{ MACHINE : "merged_into"
-    MACHINE ||--o{ MACHINEMERGE : "from_machine_id"
-    MACHINE ||--o{ MACHINEMERGE : "into_machine_id"
-    TOOL ||--o{ PROJECT : "tool_id"
-    TOOL ||--o{ DOCUMENT : "tool_id"
-    PROJECT ||--o{ DOCUMENT : "project_id"
-    MACHINE ||--o{ DOCUMENT : "machine_id"
-    DOCUMENT ||--o{ DOCUMENTSEARCH : "as_uuid"
-    DOCUMENT ||--o{ CONVERSATIONMESSAGE : "document_id"
-    USER ||--o{ DAILYSUMMARY : "user_id"
-    TOOL ||--o{ DAILYSUMMARY : "tool_id"
-    DOCUMENT ||--o{ DOCUMENTVERSION : "document_id"
-    DOCUMENT ||--o{ MESSAGEAUDIT : "document_id"
-    DOCUMENT ||--o{ DOCUMENTPENDINGDELTA : "document_id"
-    USER ||--o{ INVITECODE : "created_by"
-    USER ||--o{ PERMISSION : "user_id"
-    PROJECT ||--o{ PERMISSION : "project_id"
-```
-
-- `Machine.user_id` ➔ `users.id`
-- `Machine.merged_into` ➔ `machines.id`
-- `MachineMerge.from_machine_id` ➔ `machines.id`
-- `MachineMerge.into_machine_id` ➔ `machines.id`
-- `Project.tool_id` ➔ `tools.id`
-- `Document.tool_id` ➔ `tools.id`
-- `Document.project_id` ➔ `projects.id`
-- `Document.machine_id` ➔ `machines.id`
-- `DocumentSearch.as_uuid` ➔ `documents.id`
-- `ConversationMessage.document_id` ➔ `documents.id`
-- `DailySummary.user_id` ➔ `users.id`
-- `DailySummary.tool_id` ➔ `tools.id`
-- `DocumentVersion.document_id` ➔ `documents.id`
-- `MessageAudit.document_id` ➔ `documents.id`
-- `DocumentPendingDelta.document_id` ➔ `documents.id`
-- `InviteCode.created_by` ➔ `users.id`
-- `Permission.user_id` ➔ `users.id`
-- `Permission.project_id` ➔ `projects.id`
-- `Permission.tool_id` ➔ `tools.id`
-- `Permission.granted_by` ➔ `users.id`
-- `AccessLog.user_id` ➔ `users.id`
-- `AccessLog.document_id` ➔ `documents.id`
-- `SyncState.machine_id` ➔ `machines.id`
-- `SyncState.tool_id` ➔ `tools.id`
-- `DocumentEmbedding.document_id` ➔ `documents.id`
-
-#### Deduplication & Uniqueness Constraints
-
-- `Project.slug` (unique)
-- `User.email` (unique)
-- `User.collector_token` (unique)
-- `User.wechat_openid` (unique)
-- `InviteCode.code` (unique)
-- `DocumentEmbedding`: unique(document_id, chunk_index)
-- `KnowledgeEntity`: unique(user_id, name, entity_type)
-- `ShareLink.token` (unique)
-- `UserMemory`: unique(user_id, category, key)
-- `UserProfile`: unique(user_id, version)
-- `CorrectionEvent`: unique(user_id, fingerprint)
-- `Skill`: unique(user_id, slug)
-- `LearningEval`: unique(user_id, week)
+`conversation_messages_removed`, `users`, `machines`, `tools`, `projects`, `daily_summaries`, `invite_codes`, `knowledge_entities`, `share_links`, `ask_conversations`, `user_memories`, `dream_journals`, `user_profiles`, `skills`, `eval_runs`, `learning_evals`, `agent_missions`, `agent_plans`, `user_life_rhythms`, `scheduled_tasks`, `machine_merges`, `documents`, `permissions`, `sync_state`, `knowledge_relations`, `share_views`, `device_tasks`, `correction_topics`, `guard_events`, `document_search`, `conversation_messages`, `document_versions`, `message_audit`, `document_pending_deltas`, `access_logs`, `document_embeddings`, `knowledge_observations`, `correction_events`, `session_reviews`, `todos`, `eval_cases`, `schema_migrations`, `public.access_logs`, `public.agent_missions`, `public.agent_plans`, `public.ask_conversations`, `public.conversation_messages`, `public.conversation_messages_removed`, `public.correction_events`, `public.correction_topics`, `public.daily_summaries`, `public.device_tasks`, `public.document_embeddings`, `public.document_pending_deltas`, `public.document_search`, `public.document_versions`, `public.documents`, `public.dream_journals`, `public.eval_cases`, `public.eval_runs`, `public.guard_events`, `public.invite_codes`, `public.knowledge_entities`, `public.knowledge_observations`, `public.knowledge_relations`, `public.learning_evals`, `public.machine_merges`, `public.machines`, `public.message_audit`, `public.permissions`, `public.projects`, `public.scheduled_tasks`, `public.schema_migrations`, `public.session_reviews`, `public.share_links`, `public.share_views`, `public.skills`, `public.sync_state`, `public.todos`, `public.tools`, `public.user_life_rhythms`, `public.user_memories`, `public.user_profiles`, `public.users`
 
 ## 5. Core Domain Services & Background Schedules
 
@@ -541,41 +134,41 @@ erDiagram
 
 | Service Module | Path | Responsibility |
 | :--- | :--- | :--- |
-| `agent_ids` | [`server/server/services/agent_ids.py`](server/server/services/agent_ids.py) | Small checks on what devices report about themselves and their agents' sessions. |
-| `agent_limits` | [`server/server/services/agent_limits.py`](server/server/services/agent_limits.py) | An agent's own report that the account's quota ran out: the run then reads as that, not as done, |
-| `ai_health` | [`server/server/services/ai_health.py`](server/server/services/ai_health.py) | AI call health: hourly counters in Redis, read back by the health page and alerts. |
-| `ai_provider` | [`server/server/services/ai_provider.py`](server/server/services/ai_provider.py) | AI Provider service — multi-provider fallback client. |
-| `ai_summary_service` | [`server/server/services/ai_summary_service.py`](server/server/services/ai_summary_service.py) | AI summary service — two-pass daily summary: per-conversation digest → merged daily report. |
-| `ask_followups` | [`server/server/services/ask_followups.py`](server/server/services/ask_followups.py) | Follow-ups the running agent didn't take, kept per conversation until the next message carries them. |
-| `ask_prompt` | [`server/server/services/ask_prompt.py`](server/server/services/ask_prompt.py) | Prompt assembly for /api/ask: the system prompt, the history window, and |
-| `ask_retrieval` | [`server/server/services/ask_retrieval.py`](server/server/services/ask_retrieval.py) | Retrieval for /api/ask: hybrid keyword + vector ranking over the user's |
-| `ask_runs` | [`server/server/services/ask_runs.py`](server/server/services/ask_runs.py) | Ask runs that outlive the HTTP request that started them. |
-| `ask_store` | [`server/server/services/ask_store.py`](server/server/services/ask_store.py) | Persistence for /api/ask conversations: finding or creating them, appending |
-| `ask_stream` | [`server/server/services/ask_stream.py`](server/server/services/ask_stream.py) | Streaming for /api/ask: the direct-agent SSE stream and the response that |
-| `audit_service` | [`server/server/services/audit_service.py`](server/server/services/audit_service.py) | Audit trail of who did what: sign-ins, account and permission changes, remote commands, settings. |
-| `bg_tasks` | [`server/server/services/bg_tasks.py`](server/server/services/bg_tasks.py) | Tracked background asyncio tasks with strong references and graceful shutdown. |
-| `blueprint_pick` | [`server/server/services/blueprint_pick.py`](server/server/services/blueprint_pick.py) | Which of several devices' copies of a project's code blueprint describes the newest code. |
-| `business_blueprint` | [`server/server/services/business_blueprint.py`](server/server/services/business_blueprint.py) | BUSINESS_BLUEPRINT.md on the server: the copy to show, what its check says, and which of the user's own |
-| `cache` | [`server/server/services/cache.py`](server/server/services/cache.py) | Tiered L1 (in-process memory) and L2 (Redis-backed) JSON cache for hot read endpoints. |
-| `chat_images` | [`server/server/services/chat_images.py`](server/server/services/chat_images.py) | Images the user pasted into a question, as the agent on the device sees them and the workbench shows them. |
-| `claude_session` | [`server/server/services/claude_session.py`](server/server/services/claude_session.py) | What resuming a Claude Code session will cost, read from its own transcript. |
-| `cluster` | [`server/server/services/cluster.py`](server/server/services/cluster.py) | Coordination between api replicas over Redis. |
-| `content_staging` | [`server/server/services/content_staging.py`](server/server/services/content_staging.py) | Appending to a big conversation without rewriting it on every sync. |
-| `conversation_parser` | [`server/server/services/conversation_parser.py`](server/server/services/conversation_parser.py) | Unified conversation parser — normalizes different JSONL formats into a common structure. |
-| `correction_service` | [`server/server/services/correction_service.py`](server/server/services/correction_service.py) | Learn from corrections as they happen, and measure whether the learning sticks. |
-| `device_commands` | [`server/server/services/device_commands.py`](server/server/services/device_commands.py) | Commands for a collector, picked up on its next poll (GET /api/devices/commands). |
-| `device_dispatch` | [`server/server/services/device_dispatch.py`](server/server/services/device_dispatch.py) | Handing a device_tasks row to its device. |
-| `device_files` | [`server/server/services/device_files.py`](server/server/services/device_files.py) | Device file path normalization, RFC 9110 byte-range parsing, and scoped cache helpers. |
-| `device_merge` | [`server/server/services/device_merge.py`](server/server/services/device_merge.py) | One computer, one device record. |
-| `device_reports` | [`server/server/services/device_reports.py`](server/server/services/device_reports.py) | What connected devices report about themselves: agent capabilities (tools, |
-| `device_service` | [`server/server/services/device_service.py`](server/server/services/device_service.py) | Device service — registers and updates collector devices. |
-| `dreaming_service` | [`server/server/services/dreaming_service.py`](server/server/services/dreaming_service.py) | Dreaming Consolidation Service — Autonomous Memory Tiering & Sleep Replay. |
-| `dreaming_voice` | [`server/server/services/dreaming_voice.py`](server/server/services/dreaming_voice.py) | User voice sanitization, batching, and signal extraction helpers for the Dreaming pipeline. |
-| `embedding_service` | [`server/server/services/embedding_service.py`](server/server/services/embedding_service.py) | Embeddings for documents: chunk the text, embed only the chunks that changed. |
-| `enterprise_policy` | [`server/server/services/enterprise_policy.py`](server/server/services/enterprise_policy.py) | Deployment-wide policy for enterprise installs (settings in config.py, see docs/enterprise.md). |
-| `entity_canon` | [`server/server/services/entity_canon.py`](server/server/services/entity_canon.py) | One knowledge-graph entity per thing. |
-| `eval_service` | [`server/server/services/eval_service.py`](server/server/services/eval_service.py) | Retrieval evaluation: does Memento still find the right document? |
-| `export_service` | [`server/server/services/export_service.py`](server/server/services/export_service.py) | Account-level data export — builds a portable ZIP of the caller's own data. |
+| `agent-ids` | [`packages/server/src/services/agent-ids.ts`](packages/server/src/services/agent-ids.ts) | Device OS detection & agent session id validation (server/server/services/agent_ids.py). |
+| `agent-limits` | [`packages/server/src/services/agent-limits.ts`](packages/server/src/services/agent-limits.ts) | Detection of agent subscription quota exhaustion (server/server/services/agent_limits.py). |
+| `ai-health` | [`packages/server/src/services/ai-health.ts`](packages/server/src/services/ai-health.ts) | AI call health hourly counters & small Redis JSON records (server/server/services/ai_health.py). |
+| `ai-provider` | [`packages/server/src/services/ai-provider.ts`](packages/server/src/services/ai-provider.ts) | Multi-provider OpenAI-compatible LLM client with automatic fallback (server/server/services/ai_provider.py). |
+| `ai-summary` | [`packages/server/src/services/ai-summary.ts`](packages/server/src/services/ai-summary.ts) | Two-pass daily summary: per-conversation digest -> merged daily report (server/server/services/ai_summary_serv |
+| `ask-followups` | [`packages/server/src/services/ask-followups.ts`](packages/server/src/services/ask-followups.ts) | Per-conversation queued follow-ups when a running agent didn't accept mid-run steer (server/server/services/as |
+| `ask-prompt` | [`packages/server/src/services/ask-prompt.ts`](packages/server/src/services/ask-prompt.ts) | Prompt construction for Ask: system prompt, history + RAG + Mind Resonance + user profile |
+| `ask-retrieval` | [`packages/server/src/services/ask-retrieval.ts`](packages/server/src/services/ask-retrieval.ts) | Hybrid retrieval & Ebbinghaus core-memory recall for /api/ask (server/server/services/ask_retrieval.py). |
+| `ask-runs` | [`packages/server/src/services/ask-runs.ts`](packages/server/src/services/ask-runs.ts) | Background Ask runs, SSE replay, cross-replica Redis Stream mirror & rolling handover |
+| `ask-store` | [`packages/server/src/services/ask-store.ts`](packages/server/src/services/ask-store.ts) | AskConversation persistence, config inference, session reconciliation & orphaned task recovery |
+| `ask-stream` | [`packages/server/src/services/ask-stream.ts`](packages/server/src/services/ask-stream.ts) | Direct agent SSE streaming (with 20ms chunk coalescing, session reconciliation & handover resume) |
+| `blueprint-pick` | [`packages/server/src/services/blueprint-pick.ts`](packages/server/src/services/blueprint-pick.ts) | Which of several devices' copies of a project's code blueprint describes the newest code |
+| `business-blueprint` | [`packages/server/src/services/business-blueprint.ts`](packages/server/src/services/business-blueprint.ts) | BUSINESS_BLUEPRINT.md parser, rule coverage, resolution & generation dispatch (server/server/services/business |
+| `chat-images` | [`packages/server/src/services/chat-images.ts`](packages/server/src/services/chat-images.ts) | Chat images persisted in object storage under /tmp/memento_images/<conv>/<name> (server/server/services/chat_i |
+| `claude-session` | [`packages/server/src/services/claude-session.ts`](packages/server/src/services/claude-session.ts) | Claude Code session context & resume-cost metadata (server/server/services/claude_session.py). |
+| `cluster` | [`packages/server/src/services/cluster.ts`](packages/server/src/services/cluster.ts) | Cross-replica coordination over Redis, wire-compatible with server/server/services/cluster.py. |
+| `content-staging` | [`packages/server/src/services/content-staging.ts`](packages/server/src/services/content-staging.ts) | Content staging for large conversations (server/server/services/content_staging.py). |
+| `conversation-parser` | [`packages/server/src/services/conversation-parser.ts`](packages/server/src/services/conversation-parser.ts) | Unified conversation parser for Claude Code, WorkBuddy, Codex, OpenClaw, Antigravity, Cursor, Hermes |
+| `correction-service` | [`packages/server/src/services/correction-service.ts`](packages/server/src/services/correction-service.ts) | Learn from user corrections & measure repeat-correction rate (server/server/services/correction_service.py). |
+| `device-commands` | [`packages/server/src/services/device-commands.ts`](packages/server/src/services/device-commands.ts) | Redis-backed command queue for collectors (server/server/services/device_commands.py). |
+| `device-dispatch` | [`packages/server/src/services/device-dispatch.ts`](packages/server/src/services/device-dispatch.ts) | Handing a device_tasks row to its device over WebSocket (server/server/services/device_dispatch.py). |
+| `device-files` | [`packages/server/src/services/device-files.ts`](packages/server/src/services/device-files.ts) | Device file path normalization, RFC 9110 byte-range parsing, and scoped cache helpers (server/server/services/ |
+| `device-merge` | [`packages/server/src/services/device-merge.ts`](packages/server/src/services/device-merge.ts) | Device merge resolution (server/server/services/device_merge.py resolve_merged). |
+| `device-reports` | [`packages/server/src/services/device-reports.ts`](packages/server/src/services/device-reports.ts) | Device capabilities and AI subscription quotas shared across replicas (server/server/services/device_reports.p |
+| `device-service` | [`packages/server/src/services/device-service.ts`](packages/server/src/services/device-service.ts) | Device registration & heartbeat throttling (server/server/services/device_service.py). |
+| `dreaming-core` | [`packages/server/src/services/dreaming-core.ts`](packages/server/src/services/dreaming-core.ts) | Core memory markdown export, safe JSON parser & pitfall persistence shared by P4 & P5 |
+| `dreaming-service` | [`packages/server/src/services/dreaming-service.ts`](packages/server/src/services/dreaming-service.ts) | Dreaming Consolidation Service: Light -> REM -> Deep -> MEMORY.md & DREAMS.md + Backfill + Bootstrap |
+| `dreaming-voice` | [`packages/server/src/services/dreaming-voice.ts`](packages/server/src/services/dreaming-voice.ts) | User voice sanitization, batching & signal extraction for Dreaming & Learning (server/server/services/dreaming |
+| `embedding` | [`packages/server/src/services/embedding.ts`](packages/server/src/services/embedding.ts) | Document embeddings, query vector cache & HNSW semantic search (server/server/services/embedding_service.py). |
+| `enterprise-policy` | [`packages/server/src/services/enterprise-policy.ts`](packages/server/src/services/enterprise-policy.ts) | Enterprise policy helpers (server/server/services/enterprise_policy.py). |
+| `entity-canon` | [`packages/server/src/services/entity-canon.ts`](packages/server/src/services/entity-canon.ts) | Canonical knowledge-graph entity resolution, dedup & stale marking (server/server/services/entity_canon.py). |
+| `eval-service` | [`packages/server/src/services/eval-service.ts`](packages/server/src/services/eval-service.ts) | Retrieval evaluation against a frozen grounded question set (server/server/services/eval_service.py). |
+| `export` | [`packages/server/src/services/export.ts`](packages/server/src/services/export.ts) | Account-level portable ZIP export, wire-compatible with server/server/services/export_service.py. |
+| `fulltext` | [`packages/server/src/services/fulltext.ts`](packages/server/src/services/fulltext.ts) | Keyword matching over document_search through its GIN index with BM25 IDF term weighting (server/server/servic |
+| `geoip` | [`packages/server/src/services/geoip.ts`](packages/server/src/services/geoip.ts) | Offline GeoIP lookup (server/server/services/geoip.py). |
 
 ## 6.5. AST Call Graph, DTO Schemas & CLI Entrypoints
 
@@ -587,56 +180,26 @@ erDiagram
 
 ### AST Cross-Layer Call & Import Graph (Entry ➔ Service / Store)
 
-- `api/admin` ➔ `models/AccessLog`
-- `api/admin` ➔ `models/ConversationMessage`
-- `api/admin` ➔ `models/Document`
-- `api/admin` ➔ `models/DocumentEmbedding`
-- `api/admin` ➔ `models/DocumentVersion`
-- `api/admin` ➔ `models/InviteCode`
-- `api/admin` ➔ `models/KnowledgeEntity`
-- `api/admin` ➔ `models/KnowledgeObservation`
-- `api/admin` ➔ `models/KnowledgeRelation`
-- `api/admin` ➔ `models/Machine`
-- `api/admin` ➔ `models/Permission`
-- `api/admin` ➔ `models/Project`
-- `api/admin` ➔ `models/SyncState`
-- `api/admin` ➔ `models/Tool`
-- `api/admin` ➔ `models/User`
-- `api/admin` ➔ `db/session`
-- `api/admin` ➔ `services/audit_service`
-- `api/admin` ➔ `services/enterprise_policy`
-- `api/ask` ➔ `models/Machine`
-- `api/ask` ➔ `models/User`
-
-### Key Request / Response DTO & OpenAPI Schemas
-
-| Schema Name | Type | Source File | Core Fields |
-| :--- | :--- | :--- | :--- |
-| `UserUpdateRequest` | Pydantic DTO | [`server/server/api/admin.py`](server/server/api/admin.py) | `role: str \| None`, `status: str \| None` |
-| `InviteCreateRequest` | Pydantic DTO | [`server/server/api/admin.py`](server/server/api/admin.py) | `max_uses: int`, `expires_days: int \| None`, `role_on_accept: str`, `note: str \| None` |
-| `GrantPermissionRequest` | Pydantic DTO | [`server/server/api/admin.py`](server/server/api/admin.py) | `user_id: str`, `project_id: str \| None`, `tool_id: str \| None`, `permission: str` |
-| `AskRequest` | Pydantic DTO | [`server/server/api/ask.py`](server/server/api/ask.py) | `question: str`, `conversation_id: str \| None`, `request_id: str \| None`, `history: list[dict] \| None`, `tool: str \| None`, `days: int \| None` |
-| `FollowUpRequest` | Pydantic DTO | [`server/server/api/ask.py`](server/server/api/ask.py) | `text: str` |
-| `EnsureConversationBySessionRequest` | Pydantic DTO | [`server/server/api/ask_conversations.py`](server/server/api/ask_conversations.py) | `session_id: str`, `project_id: str \| None`, `execution_mode: str \| None`, `device_id: str \| None`, `cwd: str \| None` |
-| `UpdateConversationRequest` | Pydantic DTO | [`server/server/api/ask_conversations.py`](server/server/api/ask_conversations.py) | `title: str \| None`, `device_id: str \| None`, `cwd: str \| None`, `execution_mode: str \| None`, `model: str \| None`, `effort: str \| None` |
-| `CompactAiConversationRequest` | Pydantic DTO | [`server/server/api/ask_conversations.py`](server/server/api/ask_conversations.py) | `keep_recent: int` |
-| `HandoffConversationRequest` | Pydantic DTO | [`server/server/api/ask_conversations.py`](server/server/api/ask_conversations.py) | `target_execution_mode: str`, `target_device_id: str \| None`, `target_model: str \| None`, `target_effort: str \| None`, `instruction: str \| None`, `max_recent_turns: int` |
-| `RegisterRequest` | Pydantic DTO | [`server/server/api/auth.py`](server/server/api/auth.py) | `email: str`, `password: str`, `name: str \| None`, `invite_code: str \| None` |
-| `RegistrationModeResponse` | Pydantic DTO | [`server/server/api/auth.py`](server/server/api/auth.py) | `mode: str`, `has_any_user: bool`, `github_enabled: bool`, `wechat_enabled: bool`, `sso_enabled: bool`, `sso_name: str` |
-| `LoginRequest` | Pydantic DTO | [`server/server/api/auth.py`](server/server/api/auth.py) | `email: str`, `password: str` |
-| `TokenResponse` | Pydantic DTO | [`server/server/api/auth.py`](server/server/api/auth.py) | `access_token: str`, `token_type: str`, `user_id: str`, `role: str` |
-| `UserResponse` | Pydantic DTO | [`server/server/api/auth.py`](server/server/api/auth.py) | `id: str`, `email: str`, `name: str \| None`, `role: str`, `status: str`, `collector_token: str \| None` |
-| `UpdateProfileRequest` | Pydantic DTO | [`server/server/api/auth.py`](server/server/api/auth.py) | `name: str \| None`, `avatar_url: str \| None` |
-| `ExclusionIn` | Pydantic DTO | [`server/server/api/collect_exclusions.py`](server/server/api/collect_exclusions.py) | `name: str` |
-| `ConversationUpdate` | Pydantic DTO | [`server/server/api/conversations.py`](server/server/api/conversations.py) | `title: str` |
-| `CompactRequest` | Pydantic DTO | [`server/server/api/conversations.py`](server/server/api/conversations.py) | `recent_turns: int`, `new_prompt: str` |
-| `P2POffer` | Pydantic DTO | [`server/server/api/devices.py`](server/server/api/devices.py) | `sdp: str` |
-| `AgentLoginBody` | Pydantic DTO | [`server/server/api/devices.py`](server/server/api/devices.py) | `action: str`, `agent: str`, `code: str` |
-| `GitDiffRequest` | Pydantic DTO | [`server/server/api/git_review.py`](server/server/api/git_review.py) | `device_id: str`, `cwd: str`, `base_ref: str \| None`, `target_ref: str \| None`, `file_path: str \| None` |
-| `GitRestoreRequest` | Pydantic DTO | [`server/server/api/git_review.py`](server/server/api/git_review.py) | `device_id: str`, `cwd: str`, `target_ref: str` |
-| `GitDeliverRequest` | Pydantic DTO | [`server/server/api/git_review.py`](server/server/api/git_review.py) | `device_id: str`, `cwd: str`, `message: str`, `files: list[str] \| None`, `push: bool`, `create_pr: bool` |
-| `GitSuggestRequest` | Pydantic DTO | [`server/server/api/git_review.py`](server/server/api/git_review.py) | `device_id: str`, `cwd: str`, `base_ref: str \| None`, `target_ref: str \| None`, `files: list[str] \| None` |
-| `GitPrListRequest` | Pydantic DTO | [`server/server/api/git_review.py`](server/server/api/git_review.py) | `device_id: str`, `cwd: str`, `state: str` |
+- `src/embedded-server` ➔ `local-server`
+- `src/local-server` ➔ `embedded-server`
+- `src/main` ➔ `daemon-host`
+- `src/main` ➔ `embedded-server`
+- `src/main` ➔ `local-server`
+- `src/main` ➔ `helpers`
+- `app/+native-intent` ➔ `lib/deeplink`
+- `app/_layout` ➔ `lib/session`
+- `app/_layout` ➔ `lib/theme`
+- `app/index` ➔ `components/GlassSurface`
+- `app/index` ➔ `components/Icon`
+- `app/index` ➔ `components/ui`
+- `app/index` ➔ `lib/deeplink`
+- `app/index` ➔ `lib/notifications`
+- `app/index` ➔ `lib/session`
+- `app/index` ➔ `lib/theme`
+- `app/login` ➔ `components/ui`
+- `app/login` ➔ `lib/api`
+- `app/login` ➔ `lib/session`
+- `app/login` ➔ `lib/theme`
 
 ### CLI Binaries & Automation Entrypoints
 
@@ -659,15 +222,13 @@ erDiagram
 | :--- | :--- | :--- | :--- |
 | GitHub Actions | `Android APK` | [`.github/workflows/android.yml`](.github/workflows/android.yml) | Jobs: apk |
 | GitHub Actions | `Auto Release` | [`.github/workflows/auto-release.yml`](.github/workflows/auto-release.yml) | Jobs: tag-and-release |
-| GitHub Actions | `CI` | [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | Jobs: python, ts-server, ts-client, ts-mobile, ts-web |
+| GitHub Actions | `CI` | [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | Jobs: ts-server, ts-client, ts-mobile, ts-web |
 | GitHub Actions | `Build & Deploy (k3s via Fleet)` | [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) | Jobs: changes, wait-ci, build, bump, verify |
 | GitHub Actions | `Desktop Release` | [`.github/workflows/desktop-release.yml`](.github/workflows/desktop-release.yml) | Jobs: build-electron, android, publish-release, attach-apk |
 | GitHub Actions | `Embedded Postgres + pgvector` | [`.github/workflows/embedded-pg.yml`](.github/workflows/embedded-pg.yml) | Jobs: build |
 | GitHub Actions | `Personal images (stable, multi-arch)` | [`.github/workflows/personal-images.yml`](.github/workflows/personal-images.yml) | Jobs: tags, arm64, stable |
 | K8s / GitOps | `gitrepo.yaml` | [`deploy/fleet/gitrepo.yaml`](deploy/fleet/gitrepo.yaml) | Resources: GitRepo |
 | K8s / GitOps | `api-ts.yaml` | [`deploy/k8s/api-ts.yaml`](deploy/k8s/api-ts.yaml) | Resources: Deployment, Service |
-| K8s / GitOps | `api.yaml` | [`deploy/k8s/api.yaml`](deploy/k8s/api.yaml) | Resources: Deployment, Service |
-| K8s / GitOps | `celery.yaml` | [`deploy/k8s/celery.yaml`](deploy/k8s/celery.yaml) | Resources: Deployment |
 | K8s / GitOps | `fleet-watchdog.yaml` | [`deploy/k8s/fleet-watchdog.yaml`](deploy/k8s/fleet-watchdog.yaml) | Resources: ServiceAccount, ClusterRole, ClusterRoleBinding, Role, RoleBinding |
 | K8s / GitOps | `ingress.yaml` | [`deploy/k8s/ingress.yaml`](deploy/k8s/ingress.yaml) | Resources: Ingress |
 | K8s / GitOps | `kustomization.yaml` | [`deploy/k8s/kustomization.yaml`](deploy/k8s/kustomization.yaml) | Resources: Kustomization |
@@ -679,7 +240,6 @@ erDiagram
 
 | Suite | Directory | Files | Sample Tests |
 | :--- | :--- | :--- | :--- |
-| server/tests (pytest) | [`server/tests`](server/tests) | 139 | `test_acp_modes.py`, `test_agent_ids.py`, `test_agent_limits.py`, `test_agent_login.py`, `test_agent_run_states.py` |
 | apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 69 | `active-runs-chip.test.tsx`, `agent-modes.test.ts`, `api-client.test.ts`, `ask-performance-guards.test.tsx`, `ask-reading-and-persona-rules.test.tsx` |
 | packages/daemon/test (vitest / jest) | [`packages/daemon/test`](packages/daemon/test) | 67 | `acp-runner.test.ts`, `agent-args.test.ts`, `agent-login.test.ts`, `agent-stream.test.ts`, `agy-background.test.ts` |
 | apps/desktop/test (vitest / jest) | [`apps/desktop/test`](apps/desktop/test) | 4 | `embedded-server.test.ts`, `helpers.test.ts`, `local-server.test.ts`, `updater-and-daemon.test.ts` |
@@ -694,40 +254,34 @@ erDiagram
 - [`packages/server/scripts/contract.mts`](packages/server/scripts/contract.mts) (10 commits)
 - [`packages/server/src/app.ts`](packages/server/src/app.ts) (10 commits)
 - [`apps/web/src/components/ask/GitDiffDrawer.tsx`](apps/web/src/components/ask/GitDiffDrawer.tsx) (9 commits)
+- [`deploy/k8s/ingress.yaml`](deploy/k8s/ingress.yaml) (9 commits)
 - [`apps/mobile/src/app/index.tsx`](apps/mobile/src/app/index.tsx) (8 commits)
 - [`apps/web/src/lib/api-client.ts`](apps/web/src/lib/api-client.ts) (8 commits)
 - [`apps/web/test/glass-system.test.ts`](apps/web/test/glass-system.test.ts) (8 commits)
-- [`deploy/k8s/ingress.yaml`](deploy/k8s/ingress.yaml) (8 commits)
 - [`deploy/k8s/studio.yaml`](deploy/k8s/studio.yaml) (8 commits)
 - [`docs/ts-server-migration.md`](docs/ts-server-migration.md) (8 commits)
 
 ## 8. Development & Verification Commands
 
 ```bash
-# Backend Tests (Python)
-cd server && uv run pytest -W error::RuntimeWarning
-
-# Backend Lint
-uvx ruff check --isolated --select F server/server
-
-# Frontend Tests & Typecheck (Next.js)
-cd apps/web && npx tsc --noEmit && npm test
-
-# Daemon Tests
-cd packages/daemon && npm test
-
-# Desktop Tests & Typecheck (Electron)
-npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
+# Unit Tests
+npm test
+# Typecheck
+npx tsc --noEmit
+# Code Lint
+npm run lint
+# Build Package
+npm run build
 ```
 
 ## 9. Recent Architectural Evolutions
 
+- `caf28e8b` (2026-11-27): feat(deploy): 线上 100% 流量切换至 TypeScript 服务端 api-ts
 - `4604f1ed` (2026-11-27): feat(server-ts): 完成 P6 全量路由与后台运行器、对齐 ask-runs 集群协议并切流 P5
 - `2d6fc5f2` (2026-11-27): feat(server-ts): 完成 P5 后台智能、健康总览与 21 个定时任务并修复契约对照竞态
 - `5e7e1373` (2026-11-27): feat(server-ts): 切入 P3 入口并完成 P4 问答、编排、直连 Agent、心领神会与对话路由
 - `4ccae92a` (2026-11-27): feat(server-ts): 切入 P2 入口并完成 P3 设备实时通信、任务、终端、预览、Git 审阅、额度与定时任务
 - `dd0024dc` (2026-11-27): feat(server-ts): 切入 Batch 2 与媒体插件入口并完成 P2 采集、检索、会话与排除模块
-- `0ef14750` (2026-11-27): feat(server-ts): 切入 Batch 1 入口、补齐部署配置并完成 Batch 2 路由与底座
 
 ## 10. Key Environment Variables & Configuration
 
@@ -747,6 +301,13 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 - 业务蓝图：[BUSINESS_BLUEPRINT.md](BUSINESS_BLUEPRINT.md) · 规则 77（✅ 77 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 12 · 状态 10
 - 结论：✅ 没有失效或违规
+
+### 最近提交碰到的业务条目（改动后复查它们还成不成立）
+
+- `4604f1ed` feat(server-ts): 完成 P6 全量路由与后台运行器、对齐 ask-runs 集群协议并切流 P5 → `T-RUN`, `T-PLAN`, `F-ASK`, `F-STOP`, `F-PLAN`, `R-STOP-ALL-AGENTS`, `R-ISLAND-CLEANUP`, `R-MULTI-DEVICE-STABLE`, `R-BIZ-AUTO`, `R-ENT-ADMIN-SCOPE`, `R-ENT-SSO`, `R-ENT-AUDIT`, `R-RUN-OUTLIVES-PAGE`, `R-PLAN-QUOTA-GATE`, `R-REPLICA-STATE`, `R-CODE-BLUEPRINT-NAME`, `R-USER-BLUEPRINT-BUSINESS`, `R-SESSION-PREVIEW-WHOLE`, `R-STUDIO-INLINE-PLAY`, `R-STUDIO-SMOOTH-PLAY`, `R-STUDIO-PUBLISH-PULL`, `R-PLUGIN-MARKETPLACE`, `R-BUSINESS-CHECKED`, `S-RUN-STATE`, `S-QUOTA`, `S-LOGIN-TICKET`
+- `2d6fc5f2` feat(server-ts): 完成 P5 后台智能、健康总览与 21 个定时任务并修复契约对照竞态 → `R-BIZ-AUTO`, `R-ENT-AUDIT`, `R-WS-EXEC-REMIND`, `R-BLUEPRINT-NEWEST`, `R-USER-BLUEPRINT-BUSINESS`, `R-SELF-EVOLVE`, `R-UI-COMMERCIAL`, `R-BUSINESS-CHECKED`
+- `5e7e1373` feat(server-ts): 切入 P3 入口并完成 P4 问答、编排、直连 Agent、心领神会与对话路由 → `T-CONVERSATION`, `T-SESSION`, `T-RUN`, `T-COMPACT`, `T-BLUEPRINT`, `F-ASK`, `F-RESUME`, `F-STOP`, `F-DELETE`, `F-BLUEPRINT`, `R-STOP-ALL-AGENTS`, `R-ISLAND-CLEANUP`, `R-ENT-SECRETS`, `R-RUN-OUTLIVES-PAGE`, `R-SESSION-TIMELINE`, `R-RESTORE-CONFIG`, `R-DEVICE-SESSION-MAP`, `R-DEVICE-ENV-PROFILE`, `R-DELETE-GONE-EVERYWHERE`, `R-FOLLOWUP-NOT-LOST`, `R-NO-STDERR`, `R-CLAUDE-RESUME-IN-PLACE`, `R-NEWCHAT-WORKS`, `R-BLUEPRINT-NEWEST`, `R-CODE-BLUEPRINT-NAME`, `R-SELF-EVOLVE`, `S-CONV-LIST`, `S-RUN-STATE`, `S-MODEL-CHOICE`, `S-AGENT-SESSION`
+- `4ccae92a` feat(server-ts): 切入 P2 入口并完成 P3 设备实时通信、任务、终端、预览、Git 审阅、额度与定时任务 → `T-DEVICE`, `T-QUOTA`, `T-FOLLOWUP`, `F-ASK`, `F-FOLLOWUP`, `F-STOP`, `F-CLIENT-UPGRADE`, `R-AGY-WORKDIR`, `R-STOP-ALL-AGENTS`, `R-MULTI-DEVICE-STABLE`, `R-WS-EDIT-ONLY`, `R-ENT-ADMIN-SCOPE`, `R-ENT-AUDIT`, `R-WS-EXEC-STOP`, `R-WS-EXEC-REMIND`, `R-QUOTA-PANEL-TRUE`, `R-QUOTA-NO-RETRY`, `R-DEVICE-SESSION-MAP`, `R-DEVICE-ENV-PROFILE`, `R-FOLLOWUP-NOT-LOST`, `S-RUN-STATE`, `S-QUOTA`, `S-FOLLOWUPS`, `S-DEVICE-CONNECTION`
 
 ---
 _Auto-maintained by `scripts/project_blueprint.mjs` (v20261126) & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._

@@ -50,7 +50,7 @@ jobs:
           cache-dependency-path: package-lock.json
 
       - name: Install
-        run: npm ci --workspace @memento/desktop --workspace @memento/daemon --workspace @memento/mcp --workspace @memento/core --include-workspace-root
+        run: npm ci --workspace @memento/desktop --workspace @memento/daemon --workspace @memento/mcp --workspace @memento/core --workspace @memento/server --include-workspace-root
 
       - name: Version from tag
         shell: bash

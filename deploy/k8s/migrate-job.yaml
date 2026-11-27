@@ -1,5 +1,5 @@
 # Standalone pre-deploy database migration Job for zero-downtime Kubernetes upgrades.
-# Run before rolling out new api replicas with MEMENTO_SKIP_DDL_MIGRATIONS=1:
+# Run before rolling out new api-ts replicas with MEMENTO_SKIP_DDL_MIGRATIONS=1:
 #   kubectl delete job memento-db-migrate --ignore-not-found && kubectl apply -f deploy/k8s/migrate-job.yaml
 apiVersion: batch/v1
 kind: Job
@@ -18,10 +18,10 @@ spec:
         - name: migrate
           image: ghcr.io/ddong8/memento-server:latest
           imagePullPolicy: IfNotPresent
-          command: ["python", "-m", "server.db.migrations"]
+          command: ["node", "--enable-source-maps", "dist/migrate.mjs"]
           envFrom:
             - configMapRef: { name: memento-config }
             - secretRef: { name: memento-secret }
           resources:
-            requests: { cpu: 100m, memory: 256Mi }
-            limits: { cpu: "1", memory: 1Gi }
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { cpu: "1", memory: 512Mi }

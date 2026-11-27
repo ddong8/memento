@@ -95,12 +95,20 @@
   - [x] 部署：api-ts（镜像在公开的 memento-server 包，ts-<提交号>）
   - [x] 入口把 5 个路径切到 api-ts（1313d568，2026-11-27 上线；切前集群内真实数据对照 9 个用例一致），上线验证看 x-memento-server 头
   - [x] 五个平台编译 pgvector 并在内嵌库里验证（embedded-pg.yml，33dde2b3 全部通过，产物为 Actions artifact）
-- [ ] P1 简单接口
-  - [x] 工具浏览 /api/tools（列表、详情、文件分页）与公开统计 /api/public/stats：契约对照 62 个用例一致（管理员 / 普通用户各一套造数）；线上 12 个工具的列表、4 个工具的详情与分页、统计（7533 份文档、89 万条消息）两边一致
-  - [x] 待办 /api/todos（列表、新建、修改）：与 Python 共用缓存键并互相通知清缓存；契约对照 38 个用例一致；线上清缓存后两边各自重算对照一致（24 条未完成、18 条已完成）
-- [ ] P2 采集与检索
-- [ ] P3 设备与实时
-- [ ] P4 问答
-- [ ] P5 后台智能（Celery 下线）
-- [ ] P6 其余（Python 不再处理请求）
-- [ ] P7 收尾与单安装包
+- [x] P1 简单接口
+  - [x] 工具浏览 /api/tools、公开统计 /api/public/stats、待办 /api/todos、看板 /api/dashboard、层级 /api/hierarchy、文档 /api/documents、媒体 /api/media、技能 /api/skills、插件 /api/plugins、更新 /api/system/update、安装脚本 /install、事件流 /api/events、通知 /api/notify、大模型设置 /api/profile/llm、日报 /api/daily、作息 /api/life、主动设置 /api/proactive、导入导出 /api/data 全部完成并通过契约对照与生产切流
+- [x] P2 采集与检索
+  - [x] /api/ingest、会话解析、暂存合并、消息核对、/api/search、/api/conversations、/api/collect/exclusions、向量检索全部完成并通过契约对照与生产切流
+- [x] P3 设备与实时
+  - [x] 设备 WebSocket 长连接、跨副本协调（cluster.ts / ws-manager.ts）、派活 /api/tasks、终端 /api/terminal、预览 /api/preview、Git 评审 /api/git、额度 /api/agent/quotas、定时任务 /api/scheduled-tasks 整体完成并切流
+- [x] P4 问答
+  - [x] /api/ask（RAG、AI 编排、直连设备智能体 SSE 流）、ask-runs.ts 跨副本镜像与优雅交接、对话 CRUD/ETag 304/瘦身续接/跨智能体移交、/api/agent/capabilities、/api/agent/models 完成并在生产真数据零差异验证
+- [x] P5 后台智能（Celery 下线）
+  - [x] 梦境复盘、纠正学习、心领神会、个人蓝图、业务蓝图、知识图谱、记忆生命周期与压缩、检索与学习评测、健康总览 /api/health/overview；22 个定时任务迁入进程内 croner 调度 + Redis 租约互斥，Celery 下线
+- [x] P6 其余（Python 不再处理请求）
+  - [x] /api/projects、/api/memory、/api/profile、/api/share、/api/studio、/api/auth（含 OAuth/微信/头像）、/api/auth/oidc、/api/scim/v2、/api/admin、/api/plans、/api/missions 全部完成，本地 252/252 契约对照零差异、集群真数据 56 项核心接口校验通过，线上 100% 流量切换至 TypeScript 服务端
+- [x] P7 收尾与单安装包
+  - [x] TS DDL 迁移器（packages/server/src/db/migrate.ts + dist/migrate.mjs）接管空库全量建表与老库幂等升级（已通过空 Postgres 库端到端测试与 --check 校验），接管 k8s initContainer 与 CI
+  - [x] 移除 Python server/ 目录与 Celery / 旧 Python 部署清单，k8s、fleet-watchdog、企业 docker-compose、CI/CD 全部统一为纯 Node 22 TypeScript 服务端镜像
+  - [x] 桌面端单机内置引擎（apps/desktop/src/embedded-server.ts + local-server.ts）：零 Docker 启动内嵌 PostgreSQL 16（UTF8 + pgvector）+ Electron utilityProcess 运行 @memento/server + 本地对象存储
+  - [x] 单机版 ↔ 服务版双向全量数据迁移（/api/data/export?include_full=1 & /api/data/import + 桌面端 local-server:migrate + LocalServerCard 迁移面板），迁移前自动保留本地备份 ZIP

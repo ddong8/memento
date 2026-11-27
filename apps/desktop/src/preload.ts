@@ -46,11 +46,13 @@ contextBridge.exposeInMainWorld("mementoDesktop", {
       };
     },
   },
-  // 单机模式: a personal server on this computer, run with Docker
+  // 单机模式: zero-Docker embedded server or Docker personal server, plus bidirectional data migration
   localServer: {
     status: () => ipcRenderer.invoke("local-server:status"),
     start: () => ipcRenderer.invoke("local-server:start"),
     stop: () => ipcRenderer.invoke("local-server:stop"),
+    migrate: (options: { direction: "to-remote" | "to-local"; remoteUrl: string; remoteEmail?: string; remotePassword?: string; remoteToken?: string }) =>
+      ipcRenderer.invoke("local-server:migrate", options),
     onProgress: subscribe("local-server:progress"),
   },
   daemon: {

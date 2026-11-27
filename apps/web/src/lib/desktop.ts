@@ -78,8 +78,9 @@ export interface ServerTestResult {
   error?: string;
 }
 
-/** 单机模式: a personal server on this computer (desktop src/local-server.ts). */
+/** 单机模式: a personal server on this computer (zero-Docker embedded or Docker, desktop src/local-server.ts). */
 export interface LocalServerStatus {
+  engine?: "embedded" | "docker";
   docker: "missing" | "stopped" | "ready";
   installed: boolean;
   running: boolean;
@@ -92,6 +93,14 @@ export interface LocalServerResult {
   url?: string;
   error?: string;
   code?: string;
+}
+
+export interface LocalServerMigrateResult {
+  ok: boolean;
+  backupPath?: string;
+  counts?: Record<string, number>;
+  warnings?: string[];
+  error?: string;
 }
 
 export interface MementoDesktop {
@@ -126,6 +135,13 @@ export interface MementoDesktop {
     status: () => Promise<LocalServerStatus>;
     start: () => Promise<LocalServerResult>;
     stop: () => Promise<{ ok: boolean; error?: string }>;
+    migrate?: (options: {
+      direction: "to-remote" | "to-local";
+      remoteUrl: string;
+      remoteEmail?: string;
+      remotePassword?: string;
+      remoteToken?: string;
+    }) => Promise<LocalServerMigrateResult>;
     onProgress: (cb: (line: unknown) => void) => () => void;
   };
   daemon: {

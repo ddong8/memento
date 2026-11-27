@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, MenuItem, nativeImage, nativeTheme, net, Notification, powerMonitor, protocol, shell, Tray } from "electron";
+import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, MenuItem, nativeImage, nativeTheme, net, Notification, powerMonitor, protocol, shell, Tray, utilityProcess } from "electron";
 import { autoUpdater } from "electron-updater";
 import { execFile, execFileSync, spawn } from "node:child_process";
 import { createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
@@ -24,6 +24,7 @@ import { DEFAULT_SERVER_URL, deviceFilePath, loadConfig, managedPolicy, saveConf
 const defaultServerUrl = (): string => managedPolicy().serverUrl || DEFAULT_SERVER_URL;
 
 import { DaemonHost, type DaemonMode } from "./daemon-host";
+import { migrateServerData, type EmbeddedProcessHandle } from "./embedded-server";
 import { LocalServer } from "./local-server";
 import {
   createNotificationDeduper,
@@ -45,8 +46,31 @@ let tray: Tray | undefined;
 let quitting = false;
 let config: CollectorConfig;
 const daemon = new DaemonHost();
-// The compose files ship next to main.cjs (scripts/build.mjs copies deploy/enterprise there)
-const localServer = new LocalServer(join(__dirname, "local-server"));
+// Zero-Docker embedded server (runs via Electron utilityProcess) with Docker compose fallback
+const spawnEmbeddedServer = (entry: string, env: NodeJS.ProcessEnv, onLog: (line: string) => void): EmbeddedProcessHandle => {
+  const child = utilityProcess.fork(entry, [], { env, stdio: "pipe" });
+  const forward = (buf: Buffer) => {
+    for (const line of buf.toString("utf8").split(/[\r\n]+/)) {
+      const t = line.trim();
+      if (t) onLog(t);
+    }
+  };
+  child.stdout?.on("data", forward);
+  child.stderr?.on("data", forward);
+  return {
+    kill: () => {
+      try {
+        child.kill();
+      } catch {
+        /* ignore */
+      }
+    },
+    onExit: (cb) => {
+      child.on("exit", (code) => cb(code));
+    },
+  };
+};
+const localServer = new LocalServer(join(__dirname, "local-server"), undefined, process.platform, spawnEmbeddedServer);
 
 /** Where the web app is: the server's origin, or a separate web URL on self-hosted setups. */
 const serverOrigin = () => new URL(config.webUrl || config.serverUrl).origin;
@@ -1589,15 +1613,17 @@ function setupIpc(): void {
     const status = await localServer.status();
     if (!status.installed) {
       // Asked here, natively: a script on the page can't start containers on its own
+      const embedded = status.engine === "embedded";
       const ask = {
         type: "question" as const,
         buttons: ["在这台电脑上运行", "取消"],
         defaultId: 0,
         cancelId: 1,
         message: "在这台电脑上运行 Memento？",
-        detail:
-          "会用 Docker 在本机启动一套只给你用的 Memento（数据库、对象存储、接口和网页），第一次要下载约 1.5 GB，占用约 1 GB 内存。\n" +
-          `数据都存在这台电脑上，只有本机能打开（${status.url}）。启动后切换到它，第一个注册的账号就是你。`,
+        detail: embedded
+          ? `将使用内置数据库和本机服务端（无需 Docker），数据存放在 ${status.dir}，只有本机能访问（${status.url}）。\n启动后切换到它，第一个注册的账号就是你，后续可随时迁往服务版。`
+          : "会用 Docker 在本机启动一套只给你用的 Memento（数据库、对象存储、接口和网页），第一次要下载约 1.5 GB，占用约 1 GB 内存。\n" +
+            `数据都存在这台电脑上，只有本机能打开（${status.url}）。启动后切换到它，第一个注册的账号就是你。`,
       };
       const { response } = parent ? await dialog.showMessageBox(parent, ask) : await dialog.showMessageBox(ask);
       if (response !== 0) return { ok: false, code: "cancelled", error: "已取消" };
@@ -1626,6 +1652,55 @@ function setupIpc(): void {
     const { response } = parent ? await dialog.showMessageBox(parent, ask) : await dialog.showMessageBox(ask);
     if (response !== 0) return { ok: false, error: "已取消" };
     return localServer.stop();
+  });
+  handle("local-server:migrate", async (e, raw: unknown) => {
+    const opt = (raw && typeof raw === "object" ? raw : {}) as {
+      direction?: "to-remote" | "to-local";
+      remoteUrl?: string;
+      remoteEmail?: string;
+      remotePassword?: string;
+      remoteToken?: string;
+    };
+    const direction = opt.direction === "to-local" ? "to-local" : "to-remote";
+    const remoteBase = String(opt.remoteUrl || "").trim().replace(/\/+$/, "");
+    if (!remoteBase) return { ok: false, error: "请填写服务版地址" };
+    const localBase = localServer.url().replace(/\/+$/, "");
+    const sender = e.sender;
+    const progress = (line: string) => {
+      if (!sender.isDestroyed()) sender.send("local-server:progress", line);
+    };
+
+    const currentUrl = (config?.serverUrl || "").replace(/\/+$/, "");
+    const currentJwt = await webToken();
+    const loginForToken = async (base: string, email?: string, password?: string): Promise<string | null> => {
+      if (!email || !password) return null;
+      const r = await fetch(`${base}/api/auth/login`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email, password }),
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (!r.ok) return null;
+      const body = (await r.json().catch(() => null)) as { access_token?: string } | null;
+      return body?.access_token ?? null;
+    };
+
+    const onLocal = currentUrl.replace("://127.0.0.1", "://localhost") === localBase.replace("://127.0.0.1", "://localhost");
+    const localToken = onLocal ? currentJwt : await loginForToken(localBase, opt.remoteEmail, opt.remotePassword);
+    const remoteToken =
+      opt.remoteToken ||
+      (!onLocal && currentUrl === remoteBase ? currentJwt : null) ||
+      (await loginForToken(remoteBase, opt.remoteEmail, opt.remotePassword));
+
+    if (direction === "to-remote") {
+      if (!localToken) return { ok: false, error: "请先在当前窗口登录本机单机账号，或输入本机登录邮箱密码" };
+      if (!remoteToken) return { ok: false, error: "目标服务版登录失败，请检查邮箱密码或先在目标服务器注册账号" };
+      return migrateServerData({ fromUrl: localBase, fromToken: localToken, toUrl: remoteBase, toToken: remoteToken, onProgress: progress });
+    } else {
+      if (!remoteToken) return { ok: false, error: "源服务版登录失败，请检查邮箱密码或先切换到源服务版登录" };
+      if (!localToken) return { ok: false, error: "请先启动并登录本机单机服务账号" };
+      return migrateServerData({ fromUrl: remoteBase, fromToken: remoteToken, toUrl: localBase, toToken: localToken, onProgress: progress });
+    }
   });
   handle("shell:open-external", (_e, url: unknown) => {
     if (typeof url === "string" && (url.startsWith("http://") || url.startsWith("https://") || url.startsWith("mailto:"))) {
@@ -1753,6 +1828,9 @@ if (!app.requestSingleInstanceLock()) {
   app.on("second-instance", () => showWindow());
   app.on("before-quit", () => {
     quitting = true;
+    if (localServer.embedded.isAvailable()) {
+      void localServer.embedded.stop();
+    }
   });
   app.on("will-quit", (event) => {
     try {

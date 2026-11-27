@@ -5,8 +5,9 @@ import { serve } from "@hono/node-server";
 
 import { createApp } from "./app";
 import { listenForBusts } from "./cache";
-import { loadSettings, validateProduction } from "./config";
+import { loadSettings, parseBool, validateProduction } from "./config";
 import { createDb } from "./db/client";
+import { checkSchemaReady, runAllMigrations } from "./db/migrate";
 import { closeRedis, redisClient } from "./redis";
 import { attachDeviceWebSocket, registerMindResonanceInjector, registerTaskFinishedHook } from "./routes/tasks";
 import { askRuns } from "./services/ask-runs";
@@ -18,10 +19,20 @@ import { startPlanRunner, stopPlanRunner } from "./services/plan-service";
 import { startProactivePulse, stopProactivePulse } from "./services/pulse-runner";
 import { startScheduledTaskRunner, stopScheduledTaskRunner } from "./services/scheduled-tasks";
 import { scheduler } from "./services/scheduler";
+import { sealExisting } from "./services/secret-box";
 
 const settings = loadSettings();
 validateProduction(settings);
 const { sql, db } = createDb(settings.databaseUrl);
+if (parseBool(process.env.MEMENTO_SKIP_DDL_MIGRATIONS, false)) {
+  await checkSchemaReady(sql).catch((err) => {
+    console.warn("[db] schema readiness check warning:", (err as Error).message);
+  });
+} else {
+  const ver = await runAllMigrations(sql);
+  console.log(`[db] migrations ready (${ver})`);
+}
+await sealExisting(db, settings).catch(() => {});
 const deps = { settings, db, redis: () => redisClient(settings.redisUrl) };
 askRuns.bindDeps(deps);
 registerTaskFinishedHook(async (d, taskId, watched) => {

@@ -2,7 +2,11 @@
 // Wire-compatible with Python cryptography.fernet.Fernet ("enc:v1:" + base64url(0x80 || ts64 || iv16 || aes128cbc || hmac256)).
 import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 
+import { eq } from "drizzle-orm";
+
 import type { Settings } from "../config";
+import type { Db } from "../db/client";
+import { users } from "../db/pulled/schema";
 
 export const PREFIX = "enc:v1:";
 export const LLM_SECRET_FIELDS = ["api_key", "fallback_api_key"] as const;
@@ -90,4 +94,21 @@ export function revealLlmSettings(data: Record<string, unknown> | null | undefin
     if (typeof out[f] === "string" && out[f]) out[f] = reveal(out[f] as string, settings);
   }
   return out;
+}
+
+/** Encrypt any plaintext LLM keys already sitting in users.llm_settings (idempotent). */
+export async function sealExisting(db: Db, settings: Pick<Settings, "dataKey" | "secretKey">): Promise<number> {
+  const rows = await db.select({ id: users.id, llmSettings: users.llmSettings }).from(users);
+  let sealedCount = 0;
+  for (const row of rows) {
+    const raw = row.llmSettings;
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+    const obj = raw as Record<string, unknown>;
+    const needsSeal = LLM_SECRET_FIELDS.some((f) => typeof obj[f] === "string" && obj[f]!.trim() !== "" && !isSealed(obj[f]));
+    if (!needsSeal) continue;
+    const next = sealLlmSettings(obj, settings);
+    await db.update(users).set({ llmSettings: next }).where(eq(users.id, row.id));
+    sealedCount++;
+  }
+  return sealedCount;
 }

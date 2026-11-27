@@ -8,11 +8,11 @@ import type { UserRow } from "../auth/current-user";
 import type { Deps } from "../context";
 import { withoutNul } from "../db/client";
 import { deviceTasks, machines } from "../db/pulled/schema";
-import { cleanSessionId } from "./agent-ids";
+import { cleanSessionId, deviceOs } from "./agent-ids";
 import { markUsageLimit } from "./agent-limits";
 import { callChatCompletion, splitThinking, streamChatCompletion } from "./ai-provider";
 import { deliverTask } from "./device-dispatch";
-import { getCachedDeviceCapabilities } from "./device-reports";
+import { getCachedDeviceCapabilities, getDeviceEnvironmentSummary } from "./device-reports";
 import { HEARTBEAT_WRITE_EVERY_MS } from "./device-service";
 import {
   cleanGuardrailOutput,
@@ -119,6 +119,17 @@ export async function resolveDeviceForUser(deps: Deps, user: UserRow, target: st
   );
 }
 
+export function deviceCwd(machineName: string, requestedCwd?: string | null): string | null {
+  const cwd = (requestedCwd ?? "").trim();
+  if (!cwd) return null;
+  const os = deviceOs(machineName);
+  const looksWinPath = /^[A-Za-z]:[\\/]/.test(cwd) || cwd.includes("\\");
+  const looksPosixPath = cwd.startsWith("/");
+  if (os === "windows" && looksPosixPath) return null;
+  if ((os === "macos" || os === "linux") && looksWinPath) return null;
+  return cwd;
+}
+
 export async function runOnDevice(
   deps: Deps,
   user: UserRow,
@@ -152,15 +163,27 @@ export async function runOnDevice(
   }
 
   const deviceId = machine.collectorTokenHash || machine.name;
+  const effectiveCwd = deviceCwd(machine.name, opts.cwd);
+  const cleanSid = cleanSessionId(opts.sessionId, opts.binary);
+  let sysAppend = (opts.systemPromptAppend ?? "").trim();
+  if (opts.action === "agent" && !cleanSid) {
+    const envSummary =
+      getDeviceEnvironmentSummary(deviceId, user, settings) ??
+      getDeviceEnvironmentSummary(machine.name, user, settings);
+    if (envSummary) {
+      const envBlock = `【目标设备就绪环境指纹画像】\n${envSummary}`;
+      sysAppend = sysAppend ? `${envBlock}\n\n${sysAppend}` : envBlock;
+    }
+  }
   const timeoutSec = Math.min(3600, Math.max(30, opts.timeoutSeconds ?? 600));
   const taskId = randomUUID();
   const payload: Record<string, unknown> = {
     ...(opts.action === "shell" ? { command: opts.command || "" } : { prompt: opts.prompt || "", binary: opts.binary || "claude" }),
-    ...(opts.cwd ? { cwd: opts.cwd } : {}),
-    ...(opts.sessionId ? { session_id: opts.sessionId } : {}),
+    ...(effectiveCwd ? { cwd: effectiveCwd } : {}),
+    ...(cleanSid ? { session_id: cleanSid } : {}),
     ...(opts.permissionMode ? { permission_mode: opts.permissionMode } : {}),
     ...(opts.conversationId ? { conversation_id: opts.conversationId } : {}),
-    ...(opts.systemPromptAppend ? { system_prompt_append: opts.systemPromptAppend } : {}),
+    ...(sysAppend ? { system_prompt_append: sysAppend } : {}),
     ...(opts.model ? { model: opts.model } : {}),
   };
 

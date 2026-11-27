@@ -14,6 +14,7 @@ import { cleanSessionId } from "./agent-ids";
 import { storeImages } from "./chat-images";
 import { isJunkOrUuidTitle } from "./ingest-service";
 import { dropCopiesOfRun, type TimelineTurn } from "./session-timeline";
+import { signMediaUrl, signVideoLinksInText } from "./storage";
 import { normalizeDeviceName } from "./user-filter";
 
 export type AskConversationRow = typeof askConversations.$inferSelect;
@@ -67,14 +68,18 @@ export async function sliceTurns(db: Db, convId: string, before: number | null, 
   };
 }
 
-export function sanitizeTurnsForResponse(turns: unknown): TimelineTurn[] {
+export function sanitizeTurnsForResponse(turns: unknown, secretKey?: string): TimelineTurn[] {
   if (!Array.isArray(turns)) return [];
   return turns
     .filter((t): t is TimelineTurn => Boolean(t && typeof t === "object"))
     .map((t) => {
       const out: TimelineTurn = { ...t };
       if (Array.isArray(out.images)) {
-        out.images = out.images.filter((img): img is string => typeof img === "string" && !img.startsWith("data:")).slice(0, 12);
+        const imgs = out.images.filter((img): img is string => typeof img === "string" && !img.startsWith("data:")).slice(0, 12);
+        out.images = secretKey ? imgs.map((img) => signMediaUrl(img, secretKey)) : imgs;
+      }
+      if (secretKey && typeof out.content === "string") {
+        out.content = signVideoLinksInText(out.content, secretKey);
       }
       return out;
     });
@@ -264,10 +269,11 @@ export async function appendConversationTurns(
 
   const nextTurns = [...baseTurns, userTurn, assistTurn];
   const curCfg = (conv.config && typeof conv.config === "object" ? conv.config : {}) as Record<string, unknown>;
-  const nextCfg = {
+  const nextCfg: Record<string, unknown> = {
     ...curCfg,
     ...(opts.configPatch || {}),
     ...(opts.agentSessionId ? { session_id: opts.agentSessionId, agent_session_id: opts.agentSessionId } : {}),
+    compact_mode: false,
   };
 
   let nextTitle = conv.title;

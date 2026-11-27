@@ -8,7 +8,7 @@
   "homepage": "https://mem.ihasy.com",
   "main": "dist/main.cjs",
   "scripts": {
-    "build": "npm run build -w @memento/daemon && npm run build -w @memento/mcp && node scripts/build.mjs",
+    "build": "npm run build -w @memento/daemon && npm run build -w @memento/mcp && npm run build -w @memento/server && node scripts/build.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "start": "npm run build && electron .",
     "dist": "npm run build && electron-builder --publish never",

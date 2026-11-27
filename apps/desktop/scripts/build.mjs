@@ -108,3 +108,28 @@ mkdirSync(join(dist, "local-server"), { recursive: true });
 for (const [from, to] of [["docker-compose.yml"], ["Caddyfile"], [".env.example", "env.example"], ["personal.env"]]) {
   cpSync(join(root, "../../deploy/enterprise", from), join(dist, "local-server", to ?? from));
 }
+
+// 内置 TypeScript 服务端 (src/embedded-server.ts): bundled @memento/server + native @node-rs/jieba + optional embedded PG & pgvector
+const serverSrc = join(root, "../../packages/server/dist");
+const serverOut = join(dist, "server");
+rmSync(serverOut, { recursive: true, force: true });
+if (existsSync(join(serverSrc, "main.mjs"))) {
+  mkdirSync(serverOut, { recursive: true });
+  for (const f of ["main.mjs", "migrate.mjs", "schema.sql"]) {
+    if (existsSync(join(serverSrc, f))) cpSync(join(serverSrc, f), join(serverOut, f));
+  }
+  const jiebaRoot = join(root, "../../node_modules/@node-rs");
+  if (existsSync(jiebaRoot)) {
+    cpSync(jiebaRoot, join(serverOut, "node_modules/@node-rs"), { recursive: true, dereference: true });
+  }
+}
+const plat = `${process.platform}-${process.arch}`;
+const pgPlat = `${process.platform === "win32" ? "windows" : process.platform}-${process.arch}`;
+const pgvSrc = join(root, "../../packages/server/embedded/out", plat);
+if (existsSync(join(pgvSrc, "lib"))) {
+  cpSync(pgvSrc, join(dist, "pgvector"), { recursive: true, dereference: true });
+}
+const embPgSrc = join(root, "../../node_modules", `@embedded-postgres/${pgPlat}`, "native");
+if (existsSync(embPgSrc)) {
+  cpSync(embPgSrc, join(dist, "embedded-pg/native"), { recursive: true, dereference: true });
+}

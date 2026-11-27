@@ -8,17 +8,25 @@ import type { UserRow } from "../auth/current-user";
 import type { Db } from "../db/client";
 import {
   accessLogs,
+  askConversations,
   conversationMessages,
+  correctionTopics,
   dailySummaries,
   documentPendingDeltas,
   documents,
   documentVersions,
+  dreamJournals,
   knowledgeEntities,
   knowledgeObservations,
   knowledgeRelations,
   machines,
   projects,
+  scheduledTasks,
   shareLinks,
+  skills,
+  todos,
+  userMemories,
+  userProfiles,
 } from "../db/pulled/schema";
 import { pgToIso } from "../pytime";
 import { withPending } from "./content-staging";
@@ -50,9 +58,10 @@ function anonymizeIp(raw: string | null | undefined): string | null {
 export async function buildExport(
   db: Db,
   user: UserRow,
-  opts: { includeAccessLogs?: boolean } = {},
+  opts: { includeAccessLogs?: boolean; includeFull?: boolean } = {},
 ): Promise<ExportResult> {
   const includeAccessLogs = Boolean(opts.includeAccessLogs);
+  const includeFull = Boolean(opts.includeFull);
   const enc = new TextEncoder();
   const files: Zippable = {};
   const counts: Record<string, number> = {};
@@ -265,11 +274,157 @@ export async function buildExport(
     addJsonl("access_logs.jsonl", []);
   }
 
+  // 9b) Full standalone <-> server migration extras (opt-in via include_full=1, backwards-compatible with 1.0)
+  if (includeFull) {
+    const [memRows, profRows, skillRows, todoRows, askRows, topicRows, dreamRows, schedRows] = await Promise.all([
+      db.select().from(userMemories).where(eq(userMemories.userId, user.id)),
+      db.select().from(userProfiles).where(eq(userProfiles.userId, user.id)),
+      db.select().from(skills).where(eq(skills.userId, user.id)),
+      db.select().from(todos).where(eq(todos.userId, user.id)),
+      db.select().from(askConversations).where(eq(askConversations.userId, user.id)),
+      db.select().from(correctionTopics).where(eq(correctionTopics.userId, user.id)),
+      db.select().from(dreamJournals).where(eq(dreamJournals.userId, user.id)),
+      db.select().from(scheduledTasks).where(eq(scheduledTasks.userId, user.id)),
+    ]);
+    addJsonl(
+      "user_memories.jsonl",
+      memRows.map((m) => ({
+        id: m.id,
+        category: m.category,
+        key: m.key,
+        content: m.content,
+        confidence: m.confidence,
+        source: m.source,
+        tree_path: m.treePath,
+        is_folder: m.isFolder,
+        status: m.status,
+        status_reason: m.statusReason,
+        recall_count: m.recallCount,
+        last_recalled_at: pgToIso(m.lastRecalledAt),
+        created_at: pgToIso(m.createdAt),
+        updated_at: pgToIso(m.updatedAt),
+      })),
+    );
+    addJsonl(
+      "user_profiles.jsonl",
+      profRows.map((p) => ({
+        status: p.status,
+        version: p.version,
+        content: p.content,
+        stats: p.stats,
+        published_at: pgToIso(p.publishedAt),
+        created_at: pgToIso(p.createdAt),
+        updated_at: pgToIso(p.updatedAt),
+      })),
+    );
+    addJsonl(
+      "skills.jsonl",
+      skillRows.map((s) => ({
+        slug: s.slug,
+        title: s.title,
+        description: s.description,
+        body: s.body,
+        project: s.project,
+        status: s.status,
+        version: s.version,
+        evidence: s.evidence,
+        times_seen: s.timesSeen,
+        edited_by_user: s.editedByUser,
+        published_at: pgToIso(s.publishedAt),
+        created_at: pgToIso(s.createdAt),
+      })),
+    );
+    addJsonl(
+      "todos.jsonl",
+      todoRows.map((t) => ({
+        title: t.title,
+        detail: t.detail,
+        project: t.project,
+        status: t.status,
+        due_at: pgToIso(t.dueAt),
+        source: t.source,
+        evidence: t.evidence,
+        fingerprint: t.fingerprint,
+        closed_at: pgToIso(t.closedAt),
+        close_evidence: t.closeEvidence,
+        created_at: pgToIso(t.createdAt),
+      })),
+    );
+    addJsonl(
+      "ask_conversations.jsonl",
+      askRows.map((a) => ({
+        title: a.title,
+        turns: a.turns,
+        message_count: a.messageCount,
+        device_id: a.deviceId,
+        cwd: a.cwd,
+        config: a.config,
+        created_at: pgToIso(a.createdAt),
+        updated_at: pgToIso(a.updatedAt),
+      })),
+    );
+    addJsonl(
+      "correction_topics.jsonl",
+      topicRows.map((c) => ({
+        statement: c.statement,
+        category: c.category,
+        status: c.status,
+        scope: c.scope,
+        times: c.times,
+        first_at: pgToIso(c.firstAt),
+        last_at: pgToIso(c.lastAt),
+        accepted_at: pgToIso(c.acceptedAt),
+        created_at: pgToIso(c.createdAt),
+      })),
+    );
+    addJsonl(
+      "dream_journals.jsonl",
+      dreamRows.map((d) => ({
+        dream_date: d.dreamDate,
+        stage_metrics: d.stageMetrics,
+        light_sleep_notes: d.lightSleepNotes,
+        rem_reflections: d.remReflections,
+        deep_consolidations: d.deepConsolidations,
+        report_markdown: d.reportMarkdown,
+        created_at: pgToIso(d.createdAt),
+      })),
+    );
+    addJsonl(
+      "scheduled_tasks.jsonl",
+      schedRows.map((st) => ({
+        title: st.title,
+        device: st.device,
+        agent: st.agent,
+        prompt: st.prompt,
+        cwd: st.cwd,
+        permission_mode: st.permissionMode,
+        schedule: st.schedule,
+        tz_offset_min: st.tzOffsetMin,
+        enabled: st.enabled,
+        created_at: pgToIso(st.createdAt),
+      })),
+    );
+    const settingsPayload = enc.encode(
+      JSON.stringify(
+        {
+          notify_settings: user.notifySettings ?? {},
+          proactive_settings: user.proactiveSettings ?? {},
+          avatar_settings: user.avatarSettings ?? {},
+          collect_settings: user.collectSettings ?? {},
+        },
+        null,
+        2,
+      ),
+    );
+    checkBudget(settingsPayload.byteLength);
+    files["user_settings.json"] = [settingsPayload, { level: 6, mtime: new Date(Date.UTC(2025, 0, 1)) }];
+  }
+
   // 10) Manifest
   const manifest = {
     format_version: FORMAT_VERSION,
     exported_at: new Date().toISOString().replace("Z", "+00:00"),
-    options: { include_access_logs: includeAccessLogs },
+    options: { include_access_logs: includeAccessLogs, ...(includeFull ? { include_full: true } : {}) },
     counts,
     compat: { major: 1, min_importer_version: "1.0" },
   };

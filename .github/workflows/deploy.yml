@@ -1,45 +1,26 @@
 name: Build & Deploy (k3s via Fleet)
 
-# 推送到 main 且改了进镜像的文件时:云端构建 server/web 镜像 → 推 GHCR →
+# 推送到 main 且改了进镜像的文件时:云端构建 server(TypeScript)/web 镜像 → 推 GHCR →
 # 回写 deploy/k8s/kustomization.yaml 的镜像 tag。集群里的 Rancher Fleet 监听
 # 本仓库 deploy/k8s/,检测到 tag 改动后自动部署到 NAS k3s(pull 式,适配家庭 NAT)。
 #
 # 快在哪:镜像和 CI 同时构建(只有回写 tag 等 CI 通过);每个镜像只在它自己的输入文件
 # 有改动时才构建,没改的镜像保持原 tag、pod 不重启。
-#
-# 安全说明(公开仓库):构建跑在 GitHub 托管 runner 上,不在自家网络;只在
-# push 到 main 触发(没有 pull_request,fork PR 不会触发),因此只会构建已合入
-# main 的代码。CI 没过的提交镜像也会推到 GHCR(只带提交号 tag),但不会回写、不会部署,
-# latest 也只在 CI 通过后才指过去。集群密钥不在本仓库——Secret 留在 k3s 内,清单只用
-# secretKeyRef 引用。
-#
-# 防递归:bump job 用默认 GITHUB_TOKEN 提交回写,GitHub 对 GITHUB_TOKEN 推送
-# 的 commit 不会再触发 workflow(这才是真正的防循环机制;[skip ci] 对 GitHub
-# Actions 无效,只是给其它工具看的)。另外 deploy/k8s/** 不在下方 paths 内,双保险。
-#
-# ⚠️ 首跑前置(一次性):首次构建会以 PRIVATE 创建 GHCR 包,集群无 pull secret
-# 会 ImagePullBackOff。首次成功后须把两个包设为 Public(见 nas-memento-cicd 文档),
-# 之后永久公开。
+# 防递归:bump job 用默认 GITHUB_TOKEN 提交回写,GitHub 对 GITHUB_TOKEN 推送的 commit 不会再触发 workflow。
 
 on:
   push:
     branches: [main]
-    # 只列进镜像的文件(和 changes job 里的 SERVER_PATHS / WEB_PATHS 一致):只改测试、客户端不触发
     paths:
-      - "server/Dockerfile"
-      - "server/pyproject.toml"
-      - "server/requirements.lock"
-      - "server/server/**"
-      - "scripts/fetch_geoip.py"
+      - "packages/server/**"
+      # Build scripts for the embedded database (embedded-pg.yml), not part of any container image
+      - "!packages/server/embedded/**"
       - "scripts/project_blueprint.mjs"
       - "scripts/legacy/**"
       - "deploy/bootstrap/**"
       - "data/updates/**"
       - "apps/web/**"
       - "packages/core/**"
-      - "packages/server/**"
-      # Build scripts for the embedded database (embedded-pg.yml), not part of any image
-      - "!packages/server/embedded/**"
       - "package.json"
       - "package-lock.json"
       - ".dockerignore"
@@ -48,27 +29,24 @@ on:
 
 concurrency:
   group: deploy-${{ github.ref }}
-  cancel-in-progress: true   # 自动部署只关心最新 commit,新 push 取消在途旧 run,避免回写撞车
+  cancel-in-progress: true
 
 permissions:
-  contents: write   # 回写镜像 tag 到 deploy/k8s
-  packages: write   # 推送镜像到 GHCR
-  actions: read    # 查询 CI 状态
+  contents: write
+  packages: write
+  actions: read
 
 env:
   REGISTRY: ghcr.io
   OWNER: ddong8
 
 jobs:
-  # 每个镜像和线上正在跑的那个提交(kustomization.yaml 里它的 tag)比:输入文件有改动才构建。
-  # 中间被取消的 run、连着几次 push 的改动都包含在内;找不到那个提交或手动触发时全部构建。
   changes:
     runs-on: ubuntu-latest
     outputs:
       targets: ${{ steps.diff.outputs.targets }}
       server: ${{ steps.diff.outputs.server }}
       web: ${{ steps.diff.outputs.web }}
-      ts: ${{ steps.diff.outputs.ts }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -78,10 +56,8 @@ jobs:
         env:
           EVENT: ${{ github.event_name }}
         run: |
-          SERVER_PATHS="server/Dockerfile server/pyproject.toml server/requirements.lock server/server scripts/fetch_geoip.py scripts/project_blueprint.mjs scripts/legacy deploy/bootstrap data/updates .dockerignore .github/workflows/deploy.yml"
+          SERVER_PATHS="packages/server :(exclude)packages/server/embedded scripts/project_blueprint.mjs scripts/legacy deploy/bootstrap data/updates package.json package-lock.json .dockerignore .github/workflows/deploy.yml"
           WEB_PATHS="apps/web packages/core package.json package-lock.json .dockerignore .github/workflows/deploy.yml"
-          # TypeScript server (docs/ts-server-migration.md): pushed into the public memento-server package as ts-<commit>
-          TS_PATHS="packages/server :(exclude)packages/server/embedded deploy/bootstrap data/updates package.json package-lock.json .dockerignore .github/workflows/deploy.yml"
           deployed_tag() {
             awk -v n="${REGISTRY}/${OWNER}/$1" '$1=="-" && $2=="name:" {cur=$3} $1=="newTag:" && cur==n {gsub(/"/,"",$2); print $2; exit}' deploy/k8s/kustomization.yaml
           }
@@ -99,18 +75,13 @@ jobs:
           }
           server=$(changed memento-server $SERVER_PATHS)
           web=$(changed memento-web $WEB_PATHS)
-          ts=$(changed memento-server-ts $TS_PATHS)
-          # web 不用 GitHub Actions 缓存:它的依赖层 600 多 MB,从缓存下载要 4 分钟、导出要 1.5 分钟,
-          # 比直接 npm ci(约 40 秒)慢得多
-          targets=$(jq -cn --argjson s "$server" --argjson w "$web" --argjson t "$ts" '[
-            (if $s then {name: "server", file: "server/Dockerfile", image: "memento-server", prefix: "", has_geoip: true, cache: true} else empty end),
-            (if $w then {name: "web", file: "apps/web/Dockerfile", image: "memento-web", prefix: "", has_geoip: false, cache: false} else empty end),
-            (if $t then {name: "server-ts", file: "packages/server/Dockerfile", image: "memento-server", prefix: "ts-", has_geoip: false, cache: false} else empty end)
+          targets=$(jq -cn --argjson s "$server" --argjson w "$web" '[
+            (if $s then {name: "server", file: "packages/server/Dockerfile", image: "memento-server"} else empty end),
+            (if $w then {name: "web", file: "apps/web/Dockerfile", image: "memento-web"} else empty end)
           ]')
           {
             echo "server=$server"
             echo "web=$web"
-            echo "ts=$ts"
             echo "targets=$targets"
           } >> "$GITHUB_OUTPUT"
 
@@ -125,9 +96,6 @@ jobs:
           SHA: ${{ github.sha }}
         run: |
           echo "Waiting for CI on commit $SHA to complete successfully..."
-          # Up to 40 minutes: a client release (v* tag) pushed together with main builds installers
-          # on three platforms first, and CI can sit in the queue behind them.
-          # Every 10s: each poll is a GitHub API call, and GITHUB_TOKEN gets 1000 an hour per repository.
           for i in $(seq 1 240); do
             status_json=$(gh run list --repo "${{ github.repository }}" --workflow "CI" --commit "$SHA" --json status,conclusion --jq '.[0] // empty')
             if [ -n "$status_json" ]; then
@@ -155,7 +123,6 @@ jobs:
           echo "::error::Timed out waiting for CI to complete (40 minutes)."
           exit 1
 
-  # 和 wait-ci 同时跑,不等 CI
   build:
     name: build · ${{ matrix.target.name }}
     needs: [changes]
@@ -169,9 +136,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - id: vars
-        run: |
-          echo "sha=${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
-          echo "geoip_month=$(date -u +%Y-%m)" >> "$GITHUB_OUTPUT"
+        run: echo "sha=${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-buildx-action@v3
 
@@ -189,11 +154,7 @@ jobs:
           push: true
           build-args: |
             GIT_SHA=${{ steps.vars.outputs.sha }}
-            ${{ matrix.target.has_geoip && format('GEOIP_MONTH={0}', steps.vars.outputs.geoip_month) || '' }}
-          # 只推提交号 tag;latest 等 CI 通过后在 bump 里指过去
-          tags: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.target.image }}:${{ matrix.target.prefix }}${{ steps.vars.outputs.sha }}
-          cache-from: ${{ matrix.target.cache && format('type=gha,scope={0}', matrix.target.name) || '' }}
-          cache-to: ${{ matrix.target.cache && format('type=gha,mode=max,scope={0}', matrix.target.name) || '' }}
+          tags: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.target.image }}:${{ steps.vars.outputs.sha }}
 
   bump:
     needs: [changes, wait-ci, build]
@@ -204,7 +165,6 @@ jobs:
     outputs:
       server: ${{ steps.pin.outputs.server }}
       web: ${{ steps.pin.outputs.web }}
-      ts: ${{ steps.pin.outputs.ts }}
     steps:
       - uses: actions/checkout@v4
 
@@ -216,8 +176,6 @@ jobs:
 
       - name: Install kustomize
         run: |
-          # 直接下载固定版二进制(走 release CDN),不用 install_kustomize.sh —— 后者查
-          # GitHub API 取最新版,在共享 runner 上常撞未认证限流(60/h)导致 bump 失败。
           curl -sfL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.4.3/kustomize_v5.4.3_linux_amd64.tar.gz" | tar -xz
           sudo install -m 0755 kustomize /usr/local/bin/kustomize
           kustomize version
@@ -228,32 +186,20 @@ jobs:
           SHA: ${{ github.sha }}
           SERVER: ${{ needs.changes.outputs.server }}
           WEB: ${{ needs.changes.outputs.web }}
-          TS: ${{ needs.changes.outputs.ts }}
           GH_TOKEN: ${{ github.token }}
         run: |
           SHA_SHORT="${SHA:0:12}"
           images=()
           [ "$SERVER" = true ] && images+=(memento-server)
           [ "$WEB" = true ] && images+=(memento-web)
-          [ "$TS" = true ] && images+=(memento-server-ts)
-          # Where each image's tag points: memento-server-ts is the memento-server package under ts-<commit>
-          ref_of() { if [ "$1" = memento-server-ts ]; then echo "${REGISTRY}/${OWNER}/memento-server:ts-${SHA_SHORT}"; else echo "${REGISTRY}/${OWNER}/$1:${SHA_SHORT}"; fi; }
-          want_tag() { if [ "$1" = memento-server-ts ]; then echo "ts-${SHA_SHORT}"; else echo "${SHA_SHORT}"; fi; }
-          # CI 已通过:latest 指向这次的镜像(只改清单,不重新推层)
           for image in "${images[@]}"; do
-            if [ "$image" = memento-server-ts ]; then
-              docker buildx imagetools create -t "${REGISTRY}/${OWNER}/memento-server:ts-latest" "$(ref_of "$image")"
-            else
-              docker buildx imagetools create -t "${REGISTRY}/${OWNER}/${image}:latest" "$(ref_of "$image")"
-            fi
+            docker buildx imagetools create -t "${REGISTRY}/${OWNER}/${image}:latest" "${REGISTRY}/${OWNER}/${image}:${SHA_SHORT}"
           done
           git config user.name  'github-actions[bot]'
           git config user.email 'github-actions[bot]@users.noreply.github.com'
           tag_of() {
             awk -v n="${REGISTRY}/${OWNER}/$1" '$1=="-" && $2=="name:" {cur=$3} $1=="newTag:" && cur==n {gsub(/"/,"",$2); print $2; exit}' deploy/k8s/kustomization.yaml
           }
-          # 只改这次构建了的镜像,没构建的保持原 tag。传 check:清单里已是比本次更新的提交就不动
-          # (晚到的旧 run 不能把线上退回去),比较不出来就报错停下
           pin() {
             pinned=()
             for image in "${images[@]}"; do
@@ -266,34 +212,28 @@ jobs:
                   *) echo "$image: 比较 ${cur} 和 ${SHA_SHORT} 失败(${rel})"; return 1 ;;
                 esac
               fi
-              ( cd deploy/k8s && kustomize edit set image "${REGISTRY}/${OWNER}/${image}=$(ref_of "$image")" )
-              # 断言 tag 确实回写成功
+              ( cd deploy/k8s && kustomize edit set image "${REGISTRY}/${OWNER}/${image}=${REGISTRY}/${OWNER}/${image}:${SHA_SHORT}" )
               tag=$(tag_of "$image")
-              [ "$tag" = "$(want_tag "$image")" ] || { echo "$image 镜像 tag 回写失败(现在是 ${tag:-空})"; return 1; }
+              [ "$tag" = "$SHA_SHORT" ] || { echo "$image 镜像 tag 回写失败(现在是 ${tag:-空})"; return 1; }
               pinned+=("$image")
             done
           }
-          # verify 只等真正指向本次提交的镜像
           finish() {
-            s=false; w=false; t=false
+            s=false; w=false
             for image in "${pinned[@]}"; do
               [ "$image" = memento-server ] && s=true
               [ "$image" = memento-web ] && w=true
-              [ "$image" = memento-server-ts ] && t=true
             done
-            { echo "server=$s"; echo "web=$w"; echo "ts=$t"; } >> "$GITHUB_OUTPUT"
+            { echo "server=$s"; echo "web=$w"; } >> "$GITHUB_OUTPUT"
             echo "$1"; exit 0
           }
           pin || exit 1
           git add deploy/k8s/kustomization.yaml
           git diff --cached --quiet && finish "镜像 tag 未变,跳过提交"
           git commit -q -m "ci(deploy): memento 镜像 -> ${SHA_SHORT} (${pinned[*]#memento-}) [skip ci]"
-          # 串行 run 之间可能有新 commit 落到 main,push 前先 rebase,失败重试
           for i in 1 2 3; do
             git pull --rebase origin main && git push && finish "已回写并推送,Fleet 将拉取部署"
             echo "push 撞车,重试 $i ..."
-            # 别的 run 刚改过同一行 tag 时 rebase 冲突,之后每次都拉不下来(2026-11-17:被取消的旧 run 取消前已推出
-            # 回写,新 run 三次重试都卡在冲突上,新提交没上线)。放弃这次 rebase,在最新的 main 上重新改
             git rebase --abort 2>/dev/null || true
             sleep 3
             git fetch -q origin main && git reset -q --hard origin/main || continue
@@ -304,12 +244,8 @@ jobs:
           done
           echo "回写 push 失败"; exit 1
 
-  # 回写 tag 只说明"该部署了"。等线上真正跑上这次的提交才算上线:server 看 /health 的 version,
-  # web 看页面里的 build id(就是提交号,见 apps/web/next.config.ts)。
-  # Fleet 卡住(gitrepo Stalled)等情况会在这里超时失败,不再静默。
   verify:
     needs: [changes, bump]
-    # 手动触发时 wait-ci 是 skipped,默认的 success() 会因为上游有 skipped 把这里也跳过
     if: ${{ !cancelled() && needs.bump.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -317,36 +253,28 @@ jobs:
       - name: Wait for production to run this commit
         env:
           SHA: ${{ github.sha }}
-          # bump 实际回写成本次 tag 的镜像(main 上已有更新提交的镜像它不覆盖,这里也就不等)
           SERVER: ${{ needs.bump.outputs.server }}
           WEB: ${{ needs.bump.outputs.web }}
-          TS: ${{ needs.bump.outputs.ts }}
         run: |
           SHA_SHORT="${SHA:0:12}"
           server_live() {
             [ "$SERVER" != true ] && return 0
             live=$(curl -fsS --max-time 6 https://mem.ihasy.com/health | jq -r '.version // ""' || true)
-            [[ "$live" == *"$SHA_SHORT"* ]]
+            [[ "$live" == *"$SHA_SHORT"* ]] && curl -fsS --max-time 6 -D - -o /dev/null https://mem.ihasy.com/health | grep -iq "^x-memento-server: ts .*$SHA_SHORT"
           }
           web_live() {
             [ "$WEB" != true ] && return 0
             curl -fsS --max-time 8 https://mem.ihasy.com/auth/login 2>/dev/null | grep -q "$SHA_SHORT"
           }
-          # The TypeScript server answers the paths the entrance gives it, with its build in a header
-          ts_live() {
-            [ "$TS" != true ] && return 0
-            curl -fsS --max-time 6 -D - -o /dev/null https://mem.ihasy.com/api/auth/registration-mode | grep -iq "^x-memento-server: ts .*$SHA_SHORT"
-          }
           for i in $(seq 1 150); do
-            s=未切换; w=未切换; t=未切换
+            s=未切换; w=未切换
             server_live && s=已切换
             web_live && w=已切换
-            ts_live && t=已切换
-            if [ "$s" = 已切换 ] && [ "$w" = 已切换 ] && [ "$t" = 已切换 ]; then echo "线上已是 $SHA_SHORT"; exit 0; fi
+            if [ "$s" = 已切换 ] && [ "$w" = 已切换 ]; then echo "线上已是 $SHA_SHORT"; exit 0; fi
             if [ $((i % 5)) -eq 1 ]; then
-              echo "等待线上切到 $SHA_SHORT:server $s,web $w,ts $t(本次构建 server=$SERVER web=$WEB ts=$TS)... ($i/150)"
+              echo "等待线上切到 $SHA_SHORT:server $s,web $w(本次构建 server=$SERVER web=$WEB)... ($i/150)"
             fi
             sleep 6
           done
-          echo "::error::15 分钟内线上没有切到 $SHA_SHORT。先看 kubectl -n fleet-local get gitrepo memento,Stalled 时按 CLAUDE.md 强制重同步(forceSyncGeneration+1)"
+          echo "::error::15 分钟内线上没有切到 $SHA_SHORT。先看 kubectl -n fleet-local get gitrepo memento"
           exit 1

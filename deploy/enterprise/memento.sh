@@ -124,7 +124,7 @@ cmd_up() {
 cmd_status() {
   "${DC[@]}" ps
   local url; url="$(get_env MEMENTO_PUBLIC_URL)"
-  if "${DC[@]}" exec -T api python -c "import urllib.request,sys;sys.stdout.write(urllib.request.urlopen('http://127.0.0.1:8000/health',timeout=5).read().decode())" 2>/dev/null; then
+  if "${DC[@]}" exec -T api node -e "fetch('http://127.0.0.1:8000/health').then(r=>r.text()).then(t=>process.stdout.write(t)).catch(()=>process.exit(1))" 2>/dev/null; then
     echo; ok "接口正常（对外地址 $url）"
   else
     die "接口没有响应：./memento.sh logs api 查看原因"
@@ -154,7 +154,7 @@ cmd_restore() {
   read -r answer; [ "$answer" = "yes" ] || die "已取消"
   say "先给当前数据做一次备份…"
   cmd_backup
-  "${DC[@]}" stop api celery-worker celery-beat web proxy
+  "${DC[@]}" stop api web proxy
   say "恢复数据库…"
   "${DC[@]}" exec -T postgres pg_restore -U postgres -d memento --clean --if-exists --no-owner < "$dir/memento.dump"
   if [ -f "$dir/minio.tar.gz" ]; then

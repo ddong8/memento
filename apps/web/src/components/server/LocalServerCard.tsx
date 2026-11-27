@@ -11,10 +11,12 @@ const DOCKER_URL = "https://www.docker.com/products/docker-desktop/";
 /** What the card says about the current state, in one line. */
 export function localServerSummary(st: LocalServerStatus | null, current: string): string {
   if (!st) return "正在检查这台电脑…";
-  if (st.docker === "missing") return "需要先安装 Docker Desktop（免费），装好后回到这里点运行。";
-  if (st.running && sameServer(st.url, current)) return `正在使用本机服务 ${st.url}`;
-  if (st.running) return `本机服务已在运行（${st.url}），点切换就能用。`;
-  if (st.installed) return "本机服务已停止，数据都还在，点运行接着用。";
+  const embedded = st.engine === "embedded";
+  if (!embedded && st.docker === "missing") return "需要先安装 Docker Desktop（免费），装好后回到这里点运行。";
+  if (st.running && sameServer(st.url, current)) return `正在使用本机${embedded ? "内置" : ""}服务 ${st.url}`;
+  if (st.running) return `本机${embedded ? "内置" : ""}服务已在运行（${st.url}），点切换就能用。`;
+  if (st.installed) return `本机${embedded ? "内置" : ""}服务已停止，数据都还在，点运行接着用。`;
+  if (embedded) return "无需 Docker、无需外网服务器：在这台电脑内置数据库直接运行，数据不出本机，随时可迁往服务版。";
   return "不用服务器：用 Docker 在这台电脑上跑一套只给你用的 Memento，数据不出本机。";
 }
 
@@ -29,6 +31,12 @@ export function LocalServerCard({ currentServer }: { currentServer: string }) {
   const [busy, setBusy] = useState(false);
   const [line, setLine] = useState("");
   const [error, setError] = useState("");
+  const [showMigrate, setShowMigrate] = useState(false);
+  const [direction, setDirection] = useState<"to-remote" | "to-local">("to-remote");
+  const [remoteUrl, setRemoteUrl] = useState("https://mem.ihasy.com");
+  const [remoteEmail, setRemoteEmail] = useState("");
+  const [remotePassword, setRemotePassword] = useState("");
+  const [migrateMsg, setMigrateMsg] = useState("");
 
   const refresh = useCallback(async () => {
     if (!bridge) return;
@@ -77,6 +85,33 @@ export function LocalServerCard({ currentServer }: { currentServer: string }) {
     } finally {
       setBusy(false);
       void refresh();
+    }
+  };
+
+  const runMigrate = async () => {
+    if (!bridge.migrate) return;
+    setBusy(true);
+    setError("");
+    setMigrateMsg("");
+    setLine("");
+    try {
+      const res = await bridge.migrate({
+        direction,
+        remoteUrl: remoteUrl.trim(),
+        remoteEmail: remoteEmail.trim() || undefined,
+        remotePassword: remotePassword || undefined,
+      });
+      if (!res.ok) {
+        setError(res.error || "数据迁移失败");
+      } else {
+        const docs = res.counts?.documents ?? 0;
+        const mems = res.counts?.user_memories ?? 0;
+        setMigrateMsg(`迁移完成（文档 ${docs} 份、核心记忆 ${mems} 条），已自动保留本地备份：${res.backupPath || ""}`);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -135,14 +170,74 @@ export function LocalServerCard({ currentServer }: { currentServer: string }) {
       {error && (
         <div style={{ fontSize: 12, color: "#DC2626", whiteSpace: "pre-wrap", wordBreak: "break-word", lineHeight: 1.5 }}>{error}</div>
       )}
+      {migrateMsg && (
+        <div style={{ fontSize: 12, color: "#10B981", whiteSpace: "pre-wrap", wordBreak: "break-word", lineHeight: 1.5 }}>{migrateMsg}</div>
+      )}
 
-      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-        {st?.docker === "missing" ? (
+      {showMigrate && bridge.migrate && (
+        <div
+          style={{
+            padding: 12,
+            borderRadius: 10,
+            background: "var(--aurora-chip)",
+            border: "1px solid var(--aurora-border)",
+            display: "flex",
+            flexDirection: "column",
+            gap: 8,
+          }}
+        >
+          <div style={{ display: "flex", gap: 6 }}>
+            <button type="button" onClick={() => setDirection("to-remote")} style={btn(direction === "to-remote")}>
+              单机迁到服务版
+            </button>
+            <button type="button" onClick={() => setDirection("to-local")} style={btn(direction === "to-local")}>
+              服务版迁回单机
+            </button>
+          </div>
+          <input
+            type="text"
+            placeholder="服务版地址（如 https://mem.ihasy.com）"
+            value={remoteUrl}
+            onChange={(e) => setRemoteUrl(e.target.value)}
+            style={inputStyle}
+          />
+          <input
+            type="email"
+            placeholder="对方服务器登录邮箱（如当前已登录对方则可留空）"
+            value={remoteEmail}
+            onChange={(e) => setRemoteEmail(e.target.value)}
+            style={inputStyle}
+          />
+          <input
+            type="password"
+            placeholder="对方服务器登录密码"
+            value={remotePassword}
+            onChange={(e) => setRemotePassword(e.target.value)}
+            style={inputStyle}
+          />
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+            <button type="button" onClick={() => setShowMigrate(false)} disabled={busy} style={btn(false)}>
+              收起
+            </button>
+            <button type="button" onClick={() => void runMigrate()} disabled={busy || !remoteUrl.trim()} style={btn(true)}>
+              {busy ? "迁移中…" : "先备份再开始迁移"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", flexWrap: "wrap" }}>
+        {st?.engine !== "embedded" && st?.docker === "missing" ? (
           <button type="button" onClick={() => void desktop()?.openExternal?.(DOCKER_URL)} style={btn(true)}>
             下载 Docker Desktop
           </button>
         ) : (
           <>
+            {bridge.migrate && st?.running && (
+              <button type="button" onClick={() => setShowMigrate((v) => !v)} disabled={busy} style={btn(false)}>
+                单机 / 服务版迁移
+              </button>
+            )}
             {st?.running && (
               <button type="button" onClick={() => void stop()} disabled={busy} style={btn(false)}>
                 停止
@@ -159,6 +254,16 @@ export function LocalServerCard({ currentServer }: { currentServer: string }) {
     </div>
   );
 }
+
+const inputStyle: React.CSSProperties = {
+  padding: "7px 10px",
+  borderRadius: 8,
+  fontSize: 12,
+  border: "1px solid var(--aurora-border)",
+  background: "var(--aurora-card-bg)",
+  color: "var(--aurora-fg1)",
+  outline: "none",
+};
 
 function btn(primary: boolean): React.CSSProperties {
   return {

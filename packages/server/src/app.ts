@@ -9,9 +9,17 @@ import { etag } from "hono/etag";
 import type { AppEnv, Deps } from "./context";
 import { errorResponse, HttpError } from "./http";
 import { authRoutes } from "./routes/auth";
+import { dashboardRoutes } from "./routes/dashboard";
+import { documentRoutes } from "./routes/documents";
 import { healthRoutes } from "./routes/health";
+import { hierarchyRoutes } from "./routes/hierarchy";
+import { installRoutes } from "./routes/install";
+import { mediaRoutes } from "./routes/media";
+import { pluginRoutes } from "./routes/plugins";
+import { skillRoutes } from "./routes/skills";
 import { todoRoutes } from "./routes/todos";
 import { publicRoutes, toolRoutes } from "./routes/tools";
+import { updateRoutes } from "./routes/updates";
 
 /** Paths this server answers, for the entrance and the contract check (scripts/contract.mts). */
 export const MIGRATED_PATHS = [
@@ -23,6 +31,14 @@ export const MIGRATED_PATHS = [
   "/api/todos",
   "/api/tools",
   "/api/public",
+  "/api/dashboard",
+  "/api/hierarchy",
+  "/api/documents",
+  "/api/media",
+  "/api/skills",
+  "/api/plugins",
+  "/api/system/update",
+  "/install",
 ] as const;
 
 export function createApp(deps: Deps) {
@@ -43,10 +59,18 @@ export function createApp(deps: Deps) {
   app.use("*", compress({ threshold: 1000 }));
   app.use("*", etag());
   app.route("/", healthRoutes);
+  app.route("/", installRoutes);
   app.route("/api/auth", authRoutes);
   app.route("/api/todos", todoRoutes);
   app.route("/api/tools", toolRoutes);
   app.route("/api/public", publicRoutes);
+  app.route("/api/dashboard", dashboardRoutes);
+  app.route("/api/hierarchy", hierarchyRoutes);
+  app.route("/api/documents", documentRoutes);
+  app.route("/api/media", mediaRoutes);
+  app.route("/api/skills", skillRoutes);
+  app.route("/api/plugins", pluginRoutes);
+  app.route("/api/system/update", updateRoutes);
   app.notFound((c) => c.json({ detail: "Not Found" }, 404));
   app.onError((err, c) => errorResponse(c, err));
   return app;

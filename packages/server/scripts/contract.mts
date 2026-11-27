@@ -198,14 +198,20 @@ if (dbUrl && redisUrl) {
     ON CONFLICT (id) DO NOTHING`;
   const doc = (n: number, tool: string, cat: string, m: string, at: string) => sqlc`INSERT INTO documents
     (id, tool_id, relative_path, category, content_type, content_hash, file_size_bytes, metadata, visibility, needs_review,
-     embedding_status, embedding_attempts, knowledge_status, knowledge_attempts, machine_id, title, ai_summary, synced_at)
+     embedding_status, embedding_attempts, knowledge_status, knowledge_attempts, machine_id, title, content, ai_summary, synced_at)
     VALUES (${`00000000-0000-0000-0000-00000000000${n}`}, ${tool}, ${`p/${n}.jsonl`}, ${cat}, 'jsonl', ${`h${n}`}, ${n * 100}, '{}', 'private', false,
-     'done', 0, 'done', 0, ${m}, ${`标题 ${n}`}, ${n % 2 ? "摘要" : null}, ${at})
+     'done', 0, 'done', 0, ${m}, ${`标题 ${n}`}, ${`正文 ${n}`}, ${n % 2 ? "摘要" : null}, ${at})
     ON CONFLICT (id) DO NOTHING`;
   await doc(1, "claude_code", "conversation", m1, "2026-11-27 05:00:00.5+00");
   await doc(2, "claude_code", "conversation", m2, "2026-11-27 06:00:00+00");
   await doc(3, "claude_code", "memory", m1, "2026-11-27 07:00:00.000123+00");
   await doc(4, "codex", "conversation", m2, "2026-11-26 07:00:00+00");
+  const entId = "33333333-3333-3333-3333-333333333333";
+  await sqlc`INSERT INTO knowledge_entities (id, user_id, name, entity_type) VALUES (${entId}, ${ownerId}, 'Memento', 'project') ON CONFLICT (id) DO NOTHING`;
+  await sqlc`INSERT INTO knowledge_observations (id, entity_id, content, source_document_id) VALUES
+    ('44444444-4444-4444-4444-444444444441', ${entId}, 'obs1', '00000000-0000-0000-0000-000000000001'),
+    ('44444444-4444-4444-4444-444444444443', ${entId}, 'obs3', '00000000-0000-0000-0000-000000000003')
+    ON CONFLICT (id) DO NOTHING`;
   const ownerAuth = { authorization: `Bearer ${token}` };
   const reads: [string, string][] = [
     ["tools", "/api/tools"],
@@ -220,14 +226,38 @@ if (dbUrl && redisUrl) {
     ["tool files offset -1", "/api/tools/claude_code/files?offset=-1"],
     ["tool files limit abc", "/api/tools/claude_code/files?limit=abc"],
     ["public stats", "/api/public/stats"],
+    ["dashboard default", "/api/dashboard"],
+    ["dashboard tz -480", "/api/dashboard?tz_offset=-480"],
+    ["dashboard of device", "/api/dashboard?device_id=hash-owner"],
+    ["hierarchy devices", "/api/hierarchy/devices"],
+    ["hierarchy device tools", "/api/hierarchy/devices/hash-owner/tools"],
+    ["hierarchy device tool projects", "/api/hierarchy/devices/hash-owner/tools/claude_code/projects"],
+    ["hierarchy device tool files", "/api/hierarchy/devices/hash-owner/tools/claude_code/files?project_id=none&limit=1&offset=0"],
+    ["document get", "/api/documents/00000000-0000-0000-0000-000000000001"],
+    ["document backlinks", "/api/documents/00000000-0000-0000-0000-000000000001/backlinks"],
+    ["document missing", "/api/documents/99999999-9999-9999-9999-999999999999"],
+    ["document proxy-fetch ssrf", "/api/documents/proxy-fetch?url=http://127.0.0.1:8000/health"],
+    ["document proxy-fetch scheme", "/api/documents/proxy-fetch?url=ftp://example.com/a"],
+    ["skills list", "/api/skills"],
+    ["plugins list", "/api/plugins"],
+    ["media image invalid key", "/api/media/image/..%2Fsecret"],
+    ["media image missing auth", "/api/media/image/ab/missing.png"],
+    ["media video missing auth", "/api/media/video/ab/missing.mp4"],
+    ["updates check mobile", "/api/system/update/check?platform=ios&version=1.0.0"],
+    ["updates check macos", "/api/system/update/check?platform=macos&version=1.0.0"],
+    ["install.sh", "/install.sh"],
+    ["install.ps1", "/install.ps1"],
+    ["install executor.sh", "/install/executor.sh"],
   ];
   for (const [who, headers] of [["owner", ownerAuth], ["viewer", viewerHeaders]] as const) {
     for (const [name, path] of reads) {
       // Each server computes it itself: drop the shared cache before each call (and wait out the other's 3 s L1)
       const fresh = async (base: string) => {
-        const keys = await redis.keys("tools:list:*");
-        if (keys.length) await redis.del(...keys);
-        return call(base, { name, method: "GET", path, headers });
+        for (const pat of ["tools:list:*", "dashboard:*", "hierarchy:*", "skills:*"]) {
+          const keys = await redis.keys(pat);
+          if (keys.length) await redis.del(...keys);
+        }
+        return call(base, { name, method: "GET", path, headers: { "x-forwarded-proto": "https", "x-forwarded-host": "mem.ihasy.com", ...headers } });
       };
       const a = await fresh(PY);
       const b = await fresh(TS);
@@ -252,6 +282,6 @@ for (const c of cases) {
     console.log(`✗ ${c.name}\n  python: ${a.status} ${a.ctype} ${JSON.stringify(normalize(a.body))}\n  ts:     ${b.status} ${b.ctype} ${JSON.stringify(normalize(b.body))}`);
   }
 }
-const total = cases.length + todoSteps.length + 3 + (dbUrl && redisUrl ? 24 : 0);
+const total = cases.length + todoSteps.length + 3 + (dbUrl && redisUrl ? 68 : 0);
 console.log(failed ? `\n${failed} of ${total} differ` : `\nall ${total} cases match`);
 process.exit(failed ? 1 : 0);

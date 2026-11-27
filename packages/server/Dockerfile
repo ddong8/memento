@@ -12,6 +12,8 @@ RUN npm run build -w @memento/server
 FROM node:22-alpine
 WORKDIR /app
 COPY --from=build /repo/packages/server/dist ./dist
+COPY deploy/bootstrap ./bootstrap
+COPY data/updates ./data/updates
 ENV NODE_ENV=production
 # Last, so a new commit doesn't invalidate the layers above; /health and the x-memento-server header report it
 ARG GIT_SHA=dev

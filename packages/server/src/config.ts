@@ -29,27 +29,63 @@ export function loadSettings(env: Env = process.env) {
   const settings = {
     databaseUrl: plainDatabaseUrl(s("database_url", "postgresql+asyncpg://postgres:postgres@localhost:5433/memento")),
     redisUrl: s("redis_url", "redis://localhost:6380/0"),
+    shutdownDrainSeconds: parseIntStrict(s("shutdown_drain_seconds"), 600, "SHUTDOWN_DRAIN_SECONDS"),
+    // S3 / MinIO and optional local-folder backend for single-installer desktop mode
+    s3Endpoint: s("s3_endpoint", "http://localhost:9000"),
+    s3AccessKey: s("s3_access_key", "minioadmin"),
+    s3SecretKey: s("s3_secret_key", "minioadmin"),
+    s3Bucket: s("s3_bucket", "memento"),
+    storageDir: s("storage_dir"),
+    // Auth
     secretKey: s("secret_key", "change-me-in-production"),
     algorithm: s("algorithm", "HS256"),
     accessTokenExpireMinutes: parseIntStrict(s("access_token_expire_minutes"), 60 * 24 * 365 * 10, "ACCESS_TOKEN_EXPIRE_MINUTES"),
+    dataKey: s("data_key"),
     collectorToken: s("collector_token", "collector-dev-token"),
+    // Server
     host: s("host", "0.0.0.0"),
     port: parseIntStrict(s("port"), 8000, "PORT"),
     debug: parseBool(s("debug"), false),
     registrationMode: s("registration_mode", "open"),
     /** own: admins see only their own data; all (default): everyone's (enterprise_policy.sees_all) */
     adminScope: s("admin_scope", "all"),
+    allowedModelHosts: s("allowed_model_hosts"),
     passwordLogin: parseBool(s("password_login"), true),
+    auditRetentionDays: parseIntStrict(s("audit_retention_days"), 365, "AUDIT_RETENTION_DAYS"),
+    remoteExecPolicy: s("remote_exec_policy", "off"),
+    // OAuth / SSO / SCIM
     githubClientId: s("github_client_id"),
     githubClientSecret: s("github_client_secret"),
     wechatToken: s("wechat_token"),
+    wechatTokenPrevious: s("wechat_token_previous"),
     oidcIssuer: s("oidc_issuer"),
     oidcClientId: s("oidc_client_id"),
     oidcClientSecret: s("oidc_client_secret"),
     oidcDisplayName: s("oidc_display_name", "企业账号"),
+    oidcScopes: s("oidc_scopes", "openid email profile"),
+    oidcAllowedDomains: s("oidc_allowed_domains"),
+    oidcAutoCreate: parseBool(s("oidc_auto_create"), true),
+    oidcAdminGroup: s("oidc_admin_group"),
+    scimToken: s("scim_token"),
     publicUrl: s("public_url"),
     /** Starlette matches the whole origin against it (re.fullmatch) */
     corsAllowOriginRegex: s("cors_allow_origin_regex", ".*"),
+    // Studio / Updates
+    studioFilmkitUrl: s("studio_filmkit_url", "http://127.0.0.1:8765"),
+    studioFilmkitToken: s("studio_filmkit_token"),
+    studioLocalVideoDir: s("studio_local_video_dir", "/data2/memento/studio_videos"),
+    updatesDir: s("updates_dir"),
+    githubRepo: s("github_repo", "ddong8/memento"),
+    updateCacheTtl: parseIntStrict(s("update_cache_ttl"), 300, "UPDATE_CACHE_TTL"),
+    githubToken: env.GITHUB_TOKEN || env.GH_TOKEN || "",
+    // LAN / WebRTC / APNs
+    lanUrls: s("lan_urls"),
+    stunUrls: s("stun_urls", "stun:stun.miwifi.com:3478,stun:stun.chat.bilibili.com:3478,stun:stun.cloudflare.com:3478"),
+    apnsAuthKey: s("apns_auth_key"),
+    apnsKeyId: s("apns_key_id", "JMF779PKS9"),
+    apnsTeamId: s("apns_team_id", "WHNZV34GK4"),
+    apnsBundleId: s("apns_bundle_id", "com.ihasy.memento"),
+    apnsProduction: parseBool(s("apns_production"), true),
     /** The commit this build is from; /health reports it (the deploy job waits for it). */
     buildSha: env.MEMENTO_BUILD_SHA ?? "dev",
   };

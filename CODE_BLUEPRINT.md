@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `4c4ccd30` · Updated: `2026-11-27`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `0527da52` · Updated: `2026-11-27`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,8 +16,8 @@
 - 规模 (Scale): 10 个子系统 · 44 组 API 路由 / 346 个接口 · 39 个前端页面 · 126 个数据模型 · 35 个服务模块 · 289 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `packages/server`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `4c4ccd30` (2026-11-27): docs: 服务端 TS 迁移 P0 技术验证结果（分词逐段一致、内嵌 PG16 + 自编译 pgvector 可用、必须 UTF8 初始化）
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 77（✅ 77 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 12 · 状态 10 · 最近提交碰到 `R-ENT-DEPLOY`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `R-ENT-SSO`, `R-ENT-DEVICE-POLICY`, `R-MAC-TRAY`
+- 最近改动 (Latest): `0527da52` (2026-11-27): feat(server-ts): TypeScript 服务端 P0 地基：登录相关 5 个接口与 Python 版逐字段一致，先部署 api-ts（入口暂不切）
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 77（✅ 77 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 12 · 状态 10 · 最近提交碰到 `F-BLUEPRINT`, `R-PUBLIC-REPO-CLEAN`, `R-CI-KUSTOMIZE-PINNED`, `R-DEPLOY-AFTER-CI`, `R-DEPLOY-BUMP-RACE`, `R-ENT-DEPLOY`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -697,8 +697,8 @@ erDiagram
 - [`apps/web/src/lib/api-client.ts`](apps/web/src/lib/api-client.ts) (9 commits)
 - [`apps/web/src/app/globals.css`](apps/web/src/app/globals.css) (8 commits)
 - [`apps/web/test/glass-system.test.ts`](apps/web/test/glass-system.test.ts) (8 commits)
-- [`apps/web/src/app/studio/page.tsx`](apps/web/src/app/studio/page.tsx) (7 commits)
-- [`apps/web/src/lib/studio-api.ts`](apps/web/src/lib/studio-api.ts) (6 commits)
+- [`apps/web/src/app/studio/page.tsx`](apps/web/src/app/studio/page.tsx) (6 commits)
+- [`packages/daemon/src/antigravity.ts`](packages/daemon/src/antigravity.ts) (6 commits)
 
 ## 8. Development & Verification Commands
 
@@ -721,12 +721,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `0527da52` (2026-11-27): feat(server-ts): TypeScript 服务端 P0 地基：登录相关 5 个接口与 Python 版逐字段一致，先部署 api-ts（入口暂不切）
 - `4c4ccd30` (2026-11-27): docs: 服务端 TS 迁移 P0 技术验证结果（分词逐段一致、内嵌 PG16 + 自编译 pgvector 可用、必须 UTF8 初始化）
 - `7c550b95` (2026-11-27): docs: 服务端迁移到 TypeScript 的分阶段计划（目标是一个安装包装上就有完整功能）
 - `7d6ad1d5` (2026-11-27): fix(deploy): MinIO 改用 Chainguard 免费镜像（官方 minio/minio 已从 Docker Hub 删除），单机模式不再卡在 Docker 凭据助手；发版 1.0.167
 - `5cebb8ed` (2026-11-27): feat(deploy): 单机模式：一条命令或桌面端一键在本机用 Docker 跑只给自己用的 memento
 - `352f4c10` (2026-11-27): feat(mobile): 底栏加高到 60pt（按钮 50pt、图标 21、文字 11），更接近 iOS 26 系统悬浮底栏，网页避让高度跟着变；发版 1.0.166
-- `5c8068b7` (2026-11-27): fix(mobile,desktop,web): 修复左下角折叠底栏错位、取消输入框与底栏半透明透字并统一 macOS 侧边栏底色
 
 ## 10. Key Environment Variables & Configuration
 
@@ -749,9 +749,9 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ### 最近提交碰到的业务条目（改动后复查它们还成不成立）
 
+- `0527da52` feat(server-ts): TypeScript 服务端 P0 地基：登录相关 5 个接口与 Python 版逐字段一致，先部署 api-ts（入口暂不切 → `F-BLUEPRINT`, `R-PUBLIC-REPO-CLEAN`, `R-CI-KUSTOMIZE-PINNED`, `R-DEPLOY-AFTER-CI`, `R-DEPLOY-BUMP-RACE`
 - `7d6ad1d5` fix(deploy): MinIO 改用 Chainguard 免费镜像（官方 minio/minio 已从 Docker Hub 删除），单机模式不再卡在  → `R-ENT-DEPLOY`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`
 - `5cebb8ed` feat(deploy): 单机模式：一条命令或桌面端一键在本机用 Docker 跑只给自己用的 memento → `R-ENT-SSO`, `R-ENT-DEVICE-POLICY`, `R-ENT-DEPLOY`, `R-MAC-TRAY`
-- `352f4c10` feat(mobile): 底栏加高到 60pt（按钮 50pt、图标 21、文字 11），更接近 iOS 26 系统悬浮底栏，网页避让高度跟着变；发版 1.0 → `R-APP-NAME`, `R-ALL-TYPESCRIPT`
 
 ---
 _Auto-maintained by `scripts/project_blueprint.mjs` (v20261126) & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._

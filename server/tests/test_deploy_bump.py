@@ -19,6 +19,9 @@ WORKFLOW = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "depl
 IMAGES = ("memento-server", "memento-web")
 KUSTOMIZATION = "images:\n" + "".join(
     f"- name: ghcr.io/ddong8/{i}\n  newName: ghcr.io/ddong8/{i}\n  newTag: 000000000000\n" for i in IMAGES
+) + (
+    # The TypeScript server: its own name, pushed into the public memento-server package as ts-<commit>
+    "- name: ghcr.io/ddong8/memento-server-ts\n  newName: ghcr.io/ddong8/memento-server\n  newTag: ts-000000000000\n"
 )
 STUBS = {
     "docker": "#!/bin/bash\nexit 0\n",
@@ -98,7 +101,7 @@ class DeployBumpTests(unittest.TestCase):
         self.git("commit", "-qam", f"bot {image} -> {sha[:12]}")
         self.git("push", "-q", "origin", "main")
 
-    def run_bump(self, sha: str, server: bool, web: bool, **env: str) -> tuple[int, dict, str]:
+    def run_bump(self, sha: str, server: bool, web: bool, ts: bool = False, **env: str) -> tuple[int, dict, str]:
         """The bump step of the run for `sha`, checked out at that commit as Actions does."""
         self.runs = getattr(self, "runs", 0) + 1
         run = self.tmp / f"run-{self.runs}"
@@ -108,12 +111,12 @@ class DeployBumpTests(unittest.TestCase):
         out = run / "github_output"
         out.write_text("")
         p = subprocess.run(["bash", "-eo", "pipefail", str(self.tmp / "bump.sh")], cwd=run, capture_output=True, text=True,
-                           env={**self.env, "SHA": sha, "SERVER": str(server).lower(), "WEB": str(web).lower(),
+                           env={**self.env, "SHA": sha, "SERVER": str(server).lower(), "WEB": str(web).lower(), "TS": str(ts).lower(),
                                 "GITHUB_OUTPUT": str(out), **env})
         outputs = dict(line.split("=", 1) for line in out.read_text().splitlines() if "=" in line)
         return p.returncode, outputs, p.stdout + p.stderr
 
-    def tags_on_main(self) -> dict[str, str]:
+    def tags_on_main(self, with_ts: bool = False) -> dict[str, str]:
         text = self.git("show", "main:deploy/k8s/kustomization.yaml", cwd=self.origin)
         tags, cur = {}, None
         for line in text.splitlines():
@@ -122,6 +125,8 @@ class DeployBumpTests(unittest.TestCase):
                 cur = parts[2].rsplit("/", 1)[-1]
             elif parts[:1] == ["newTag:"] and cur:
                 tags[cur] = parts[1]
+        if not with_ts:
+            tags.pop("memento-server-ts", None)
         return tags
 
     def test_pins_the_images_it_built(self) -> None:
@@ -129,7 +134,22 @@ class DeployBumpTests(unittest.TestCase):
         code, outputs, log = self.run_bump(c1, server=True, web=True)
         self.assertEqual(code, 0, log)
         self.assertEqual(self.tags_on_main(), {"memento-server": c1[:12], "memento-web": c1[:12]})
-        self.assertEqual(outputs, {"server": "true", "web": "true"})
+        self.assertEqual(outputs, {"server": "true", "web": "true", "ts": "false"})
+
+    def test_pins_the_typescript_server_as_ts_tag_of_the_server_package(self) -> None:
+        c1 = self.commit("c1")
+        code, outputs, log = self.run_bump(c1, server=False, web=False, ts=True)
+        self.assertEqual(code, 0, log)
+        tags = self.tags_on_main(with_ts=True)
+        self.assertEqual(tags["memento-server-ts"], f"ts-{c1[:12]}")
+        self.assertNotEqual(tags["memento-server"], c1[:12])  # the Python server untouched
+        self.assertEqual(outputs, {"server": "false", "web": "false", "ts": "true"})
+        # A later run that only built the Python server leaves the ts tag where it is
+        self.git("pull", "-q", "--rebase", "origin", "main")
+        c2 = self.commit("c2")
+        code, outputs, log = self.run_bump(c2, server=True, web=False)
+        self.assertEqual(code, 0, log)
+        self.assertEqual(self.tags_on_main(with_ts=True)["memento-server-ts"], f"ts-{c1[:12]}")
 
     def test_goes_through_when_a_cancelled_run_pushed_the_same_line_first(self) -> None:
         c1, c2 = self.commit("c1"), self.commit("c2")
@@ -137,7 +157,7 @@ class DeployBumpTests(unittest.TestCase):
         code, outputs, log = self.run_bump(c2, server=True, web=True)
         self.assertEqual(code, 0, log)
         self.assertEqual(self.tags_on_main(), {"memento-server": c2[:12], "memento-web": c2[:12]})
-        self.assertEqual(outputs, {"server": "true", "web": "true"})
+        self.assertEqual(outputs, {"server": "true", "web": "true", "ts": "false"})
 
     def test_a_late_older_run_never_moves_production_back(self) -> None:
         c1, c2 = self.commit("c1"), self.commit("c2")
@@ -146,13 +166,13 @@ class DeployBumpTests(unittest.TestCase):
         self.assertEqual(code, 0, log)
         self.assertEqual(self.tags_on_main(), {"memento-server": c2[:12], "memento-web": c1[:12]})
         # verify waits only for what points at this run's commit
-        self.assertEqual(outputs, {"server": "false", "web": "true"})
+        self.assertEqual(outputs, {"server": "false", "web": "true", "ts": "false"})
 
         self.bot_pin("memento-web", c2)
         code, outputs, log = self.run_bump(c1, server=True, web=True)
         self.assertEqual(code, 0, log)
         self.assertEqual(self.tags_on_main(), {"memento-server": c2[:12], "memento-web": c2[:12]})
-        self.assertEqual(outputs, {"server": "false", "web": "false"})
+        self.assertEqual(outputs, {"server": "false", "web": "false", "ts": "false"})
 
     def test_stops_when_it_cannot_tell_which_commit_is_newer(self) -> None:
         c1, c2 = self.commit("c1"), self.commit("c2")

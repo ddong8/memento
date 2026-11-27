@@ -95,6 +95,8 @@ export function loadSettings(env: Env = process.env) {
     embeddingApiKey: s("embedding_api_key"),
     embeddingModel: s("embedding_model", "BAAI/bge-m3"),
     sessionHeavyTokens: parseIntStrict(s("session_heavy_tokens"), 150000, "SESSION_HEAVY_TOKENS"),
+    messageAuditMode: s("message_audit_mode", "observe").trim().toLowerCase(),
+    enableScheduler: parseBool(s("enable_scheduler"), false),
     /** The commit this build is from; /health reports it (the deploy job waits for it). */
     buildSha: env.MEMENTO_BUILD_SHA ?? "dev",
   };

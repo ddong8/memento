@@ -154,7 +154,7 @@ function inferCategory(toolId: string, category: string, _contentType: string, r
   return category;
 }
 
-function parentSessionIdFromContent(content: string | null | undefined): string | null {
+export function parentSessionIdFromContent(content: string | null | undefined): string | null {
   if (!content) return null;
   if (content.includes('"isSidechain"') && /"isSidechain"\s*:\s*true/.test(content)) {
     const m = /"sessionId"\s*:\s*"([0-9a-fA-F-]{32,36})"/.exec(content);
@@ -191,7 +191,7 @@ function parentSessionIdFromContent(content: string | null | undefined): string 
   return null;
 }
 
-function extractLatestAiTitle(content: string | null | undefined): string | null {
+export function extractLatestAiTitle(content: string | null | undefined): string | null {
   if (!content || !content.includes('"aiTitle"')) return null;
   const matches = [...content.matchAll(/"aiTitle"\s*:\s*"([^"]+)"/g)];
   if (!matches.length) return null;

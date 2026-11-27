@@ -127,3 +127,80 @@ export async function withPending(db: Db, docId: string, content: string | null 
   if (!deltas.length) return content ?? null;
   return joined(content, deltas, fetcher(db));
 }
+
+function joinedSize(contentLen: number, deltas: [bigint, number][]): number {
+  let total = contentLen;
+  for (let i = 0; i < deltas.length; i++) {
+    total += deltas[i]![1] + (i === 0 && !contentLen ? 0 : 1);
+  }
+  return total;
+}
+
+export async function mergePending(db: Db, docId: string): Promise<number> {
+  return db.transaction(async (tx) => {
+    const locked = (await tx.execute(sql`SELECT id FROM documents WHERE id = ${docId}::uuid FOR UPDATE SKIP LOCKED`)) as unknown as {
+      id: string;
+    }[];
+    if (!locked.length) return 0;
+    const tdb = tx as unknown as Db;
+    const deltas = await pendingSizes(tdb, docId);
+    if (!deltas.length) return 0;
+    const ids = deltas.map(([id]) => id);
+    const [lenRow] = await tx
+      .select({ len: sql<number>`coalesce(char_length(${documents.content}), 0)` })
+      .from(documents)
+      .where(eq(documents.id, docId))
+      .limit(1);
+    const length = Number(lenRow?.len ?? 0);
+    if (length > 0 && joinedSize(length, deltas) <= MAX_CONTENT_CHARS) {
+      const texts = await fetcher(tdb)(ids);
+      const tail = texts.map((t) => `\n${t}`).join("");
+      await tx
+        .update(documents)
+        .set({ content: sql`${documents.content} || ${tail}` })
+        .where(eq(documents.id, docId));
+    } else {
+      let current: string | null = null;
+      if (length > 0) {
+        const [curRow] = await tx.select({ content: documents.content }).from(documents).where(eq(documents.id, docId)).limit(1);
+        current = curRow?.content ?? null;
+      }
+      const nextContent = await joined(current, deltas, fetcher(tdb));
+      await tx.update(documents).set({ content: nextContent }).where(eq(documents.id, docId));
+    }
+    await tx.delete(documentPendingDeltas).where(inArray(documentPendingDeltas.id, ids));
+    return deltas.length;
+  });
+}
+
+const MERGE_LOCK = 0x6d656d6d;
+
+export async function mergeDue(db: Db, budgetSeconds = 50): Promise<Record<string, unknown>> {
+  const deadline = performance.now() + budgetSeconds * 1000;
+  const stats: Record<string, unknown> = { documents: 0, deltas: 0 };
+  const got = (await db.execute(sql`SELECT pg_try_advisory_lock(${MERGE_LOCK}) AS ok`)) as unknown as { ok: boolean }[];
+  if (!got[0]?.ok) return { ...stats, busy: true };
+  try {
+    const due = (await db.execute(sql`
+      SELECT document_id FROM document_pending_deltas
+      GROUP BY document_id
+      HAVING max(created_at) <= now() - (${QUIET_SECONDS} * interval '1 second')
+          OR min(created_at) <= now() - (${MAX_WAIT_SECONDS} * interval '1 second')
+    `)) as unknown as { document_id: string }[];
+    for (const row of due) {
+      if (performance.now() >= deadline) break;
+      try {
+        const n = await mergePending(db, String(row.document_id));
+        if (n > 0) {
+          stats.documents = Number(stats.documents) + 1;
+          stats.deltas = Number(stats.deltas) + n;
+        }
+      } catch (e) {
+        console.warn("[content-staging] merge failed for", row.document_id, (e as Error).message);
+      }
+    }
+  } finally {
+    await db.execute(sql`SELECT pg_advisory_unlock(${MERGE_LOCK})`).catch(() => {});
+  }
+  return stats;
+}

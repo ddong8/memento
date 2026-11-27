@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `4ccae92a` · Updated: `2026-11-27`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `5e7e1373` · Updated: `2026-11-27`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,8 +16,8 @@
 - 规模 (Scale): 10 个子系统 · 44 组 API 路由 / 346 个接口 · 39 个前端页面 · 126 个数据模型 · 35 个服务模块 · 289 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `packages/server`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `4ccae92a` (2026-11-27): feat(server-ts): 切入 P2 入口并完成 P3 设备实时通信、任务、终端、预览、Git 审阅、额度与定时任务
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 75（✅ 75 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-CI-KUSTOMIZE-PINNED`, `R-DEPLOY-AFTER-CI`, `R-DEPLOY-BUMP-RACE`
+- 最近改动 (Latest): `5e7e1373` (2026-11-27): feat(server-ts): 切入 P3 入口并完成 P4 问答、编排、直连 Agent、心领神会与对话路由
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 77（✅ 77 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 12 · 状态 10
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -31,7 +31,7 @@
 | 8. Development & Verification Commands | L704-L721 |
 | 9. Recent Architectural Evolutions | L723-L730 |
 | 10. Key Environment Variables & Configuration | L732-L744 |
-| 11. 业务蓝图核对 (Business Blueprint Check) | L746-L753 |
+| 11. 业务蓝图核对 (Business Blueprint Check) | L746-L749 |
 
 ## 1. Project Overview & Tech Stack
 
@@ -691,15 +691,15 @@ erDiagram
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
 - [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (10 commits)
-- [`deploy/k8s/studio.yaml`](deploy/k8s/studio.yaml) (10 commits)
 - [`apps/web/src/components/ask/GitDiffDrawer.tsx`](apps/web/src/components/ask/GitDiffDrawer.tsx) (9 commits)
+- [`deploy/k8s/studio.yaml`](deploy/k8s/studio.yaml) (9 commits)
 - [`apps/mobile/src/app/index.tsx`](apps/mobile/src/app/index.tsx) (8 commits)
 - [`apps/web/src/lib/api-client.ts`](apps/web/src/lib/api-client.ts) (8 commits)
 - [`apps/web/test/glass-system.test.ts`](apps/web/test/glass-system.test.ts) (8 commits)
 - [`docs/ts-server-migration.md`](docs/ts-server-migration.md) (8 commits)
+- [`packages/server/scripts/contract.mts`](packages/server/scripts/contract.mts) (8 commits)
+- [`packages/server/src/app.ts`](packages/server/src/app.ts) (8 commits)
 - [`apps/web/src/app/globals.css`](apps/web/src/app/globals.css) (7 commits)
-- [`packages/server/scripts/contract.mts`](packages/server/scripts/contract.mts) (7 commits)
-- [`packages/server/src/app.ts`](packages/server/src/app.ts) (7 commits)
 
 ## 8. Development & Verification Commands
 
@@ -722,12 +722,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `5e7e1373` (2026-11-27): feat(server-ts): 切入 P3 入口并完成 P4 问答、编排、直连 Agent、心领神会与对话路由
 - `4ccae92a` (2026-11-27): feat(server-ts): 切入 P2 入口并完成 P3 设备实时通信、任务、终端、预览、Git 审阅、额度与定时任务
 - `dd0024dc` (2026-11-27): feat(server-ts): 切入 Batch 2 与媒体插件入口并完成 P2 采集、检索、会话与排除模块
 - `0ef14750` (2026-11-27): feat(server-ts): 切入 Batch 1 入口、补齐部署配置并完成 Batch 2 路由与底座
 - `7921c4bd` (2026-11-27): feat(server-ts): 迁移看板、层级、文档、媒体、技能、插件、更新与安装脚本接口（P1 首批，先部署暂不切入口）
 - `45375424` (2026-11-27): docs: 服务端 TS 迁移 P0 完成（五平台 pgvector 验证通过），P1 已迁待办、工具、公开统计
-- `33dde2b3` (2026-11-27): fix(server-ts): Linux x64 编 pgvector 前先升级 libgcc（镜像源版本不一致）；Windows 扩展目录按 share/extension 布局识别
 
 ## 10. Key Environment Variables & Configuration
 
@@ -745,12 +745,8 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 11. 业务蓝图核对 (Business Blueprint Check)
 
-- 业务蓝图：[BUSINESS_BLUEPRINT.md](BUSINESS_BLUEPRINT.md) · 规则 75（✅ 75 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
+- 业务蓝图：[BUSINESS_BLUEPRINT.md](BUSINESS_BLUEPRINT.md) · 规则 77（✅ 77 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 12 · 状态 10
 - 结论：✅ 没有失效或违规
-
-### 最近提交碰到的业务条目（改动后复查它们还成不成立）
-
-- `7921c4bd` feat(server-ts): 迁移看板、层级、文档、媒体、技能、插件、更新与安装脚本接口（P1 首批，先部署暂不切入口） → `R-CI-KUSTOMIZE-PINNED`, `R-DEPLOY-AFTER-CI`, `R-DEPLOY-BUMP-RACE`
 
 ---
 _Auto-maintained by `scripts/project_blueprint.mjs` (v20261126) & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._

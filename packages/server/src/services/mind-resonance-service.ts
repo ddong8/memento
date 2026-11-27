@@ -24,6 +24,7 @@ import { getPublishedProfile } from "./profile-read";
 import { splitProfileScopes } from "./profile-scopes";
 import { cleanText } from "./session-compactor";
 import { segment, STOPWORDS } from "./tokenize";
+import { warmUserBlueprint } from "./user-blueprint-service";
 
 export interface DomainScenario {
   id: string;
@@ -870,6 +871,7 @@ export async function senseResonance(
     cachedUserBp && typeof cachedUserBp === "object" && typeof (cachedUserBp as { markdown?: unknown }).markdown === "string"
       ? (cachedUserBp as { markdown: string }).markdown
       : "";
+  if (!ubpMd) warmUserBlueprint(db, () => redis, user);
   const userBlueprintSummary = ubpMd ? summarizeUserBlueprintMarkdown(ubpMd) : "";
 
   return {

@@ -407,6 +407,17 @@ export class Cluster {
     return token ? new Mutex(this, name, token, ttlSeconds) : null;
   }
 
+  async locked(name: string): Promise<boolean> {
+    const held = this.localLocks.get(name);
+    if (held && held[1] > performance.now() / 1000) return true;
+    if (!this.available || !this.cmd) return false;
+    try {
+      return Boolean(await this.cmd.exists(`${PREFIX}lock:${name}`));
+    } catch {
+      return false;
+    }
+  }
+
   async holdLease(name: string, ttlSeconds = 120): Promise<boolean> {
     if (!this.available || !this.cmd) return true;
     const key = `${PREFIX}lease:${name}`;

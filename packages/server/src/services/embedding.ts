@@ -397,3 +397,80 @@ export async function embedDocument(
   await finishEmbed(db, doc.id, "ok", doc.syncedAt);
   return { status: "ok", sent };
 }
+
+const SWEEP_LOCK = 0x6d656d62;
+
+export async function embedPendingDocuments(db: Db, settings: Settings, budgetSeconds = 50): Promise<Record<string, unknown>> {
+  const deadline = performance.now() + budgetSeconds * 1000;
+  const stats: Record<string, unknown> = { embedded: 0, skipped: 0, partial: 0, failed: 0, chunks: 0 };
+  const got = (await db.execute(sql`SELECT pg_try_advisory_lock(${SWEEP_LOCK}) AS ok`)) as unknown as { ok: boolean }[];
+  if (!got[0]?.ok) return { ...stats, busy: true };
+  try {
+    const tried = new Set<string>();
+    while (performance.now() < deadline) {
+      const nowIso = new Date().toISOString();
+      const quietIso = new Date(Date.now() - QUIET_SECONDS * 1000).toISOString();
+      const waitIso = new Date(Date.now() - MAX_WAIT_SECONDS * 1000).toISOString();
+      const rows = (await db.execute(sql`
+        SELECT id, tool_id, category, content_type, relative_path, synced_at, embedding_attempts
+        FROM documents
+        WHERE embedding_status IN ('pending', 'failed')
+          AND category IN (${sql.join(EMBED_CATEGORIES.map((c) => sql`${c}`), sql`, `)})
+          AND (embedding_next_at IS NULL OR embedding_next_at <= ${nowIso}::timestamptz)
+          AND (synced_at <= ${quietIso}::timestamptz OR embedded_at IS NULL OR embedded_at <= ${waitIso}::timestamptz)
+        ORDER BY embedding_status DESC, synced_at DESC
+        LIMIT 20
+      `)) as unknown as {
+        id: string;
+        tool_id: string;
+        category: string;
+        content_type: string;
+        relative_path: string;
+        synced_at: string;
+        embedding_attempts: number | null;
+      }[];
+      const docs = rows.filter((d) => !tried.has(String(d.id)));
+      if (!docs.length) break;
+      for (const doc of docs) {
+        if (performance.now() >= deadline) break;
+        const docId = String(doc.id);
+        const attempts = Number(doc.embedding_attempts ?? 0);
+        tried.add(docId);
+        try {
+          const res = await embedDocument(
+            db,
+            settings,
+            { id: docId, category: doc.category, contentType: doc.content_type, syncedAt: String(doc.synced_at) },
+            deadline,
+          );
+          stats.chunks = Number(stats.chunks) + res.sent;
+          const k = res.status === "ok" ? "embedded" : res.status;
+          stats[k] = Number(stats[k] ?? 0) + 1;
+        } catch (err) {
+          if (err instanceof EmbeddingRateLimited) {
+            const nextAt = new Date(Date.now() + 60_000).toISOString();
+            await db.update(documents).set({ embeddingNextAt: nextAt }).where(eq(documents.id, docId));
+            return { ...stats, rate_limited: true };
+          }
+          const nextAttempts = attempts + 1;
+          const delayMin = retryDelayMinutes(nextAttempts);
+          const nextAt = new Date(Date.now() + delayMin * 60_000).toISOString();
+          await db
+            .update(documents)
+            .set({ embeddingStatus: "failed", embeddingAttempts: nextAttempts, embeddingNextAt: nextAt })
+            .where(eq(documents.id, docId));
+          stats.failed = Number(stats.failed) + 1;
+          const msg = (err as Error).message || String(err);
+          const m = /HTTP (\d{3})/.exec(msg);
+          const status = m ? Number(m[1]) : 0;
+          if (!(status >= 400 && status < 500)) {
+            return { ...stats, provider_error: msg.slice(0, 200) };
+          }
+        }
+      }
+    }
+  } finally {
+    await db.execute(sql`SELECT pg_advisory_unlock(${SWEEP_LOCK})`).catch(() => {});
+  }
+  return stats;
+}

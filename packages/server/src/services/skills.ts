@@ -192,3 +192,76 @@ export async function skillCounts(db: Db, user: Pick<UserRow, "id">) {
     updates: Number(pending?.n ?? 0),
   };
 }
+
+export function appendEvidence(current: unknown, ev: Record<string, unknown>): Record<string, unknown>[] {
+  const prev = Array.isArray(current) ? (current as Record<string, unknown>[]) : [];
+  const filtered = prev.filter((e) => e?.doc_id !== ev.doc_id);
+  filtered.push(ev);
+  return filtered.slice(-EVIDENCE_KEEP);
+}
+
+export async function upsertMinedSkill(
+  db: Db,
+  user: Pick<UserRow, "id">,
+  candidate: Record<string, unknown>,
+  existing: SkillRow | null,
+  evidence: Record<string, unknown>,
+  slug: string,
+  nowIso: string,
+): Promise<{ skill: SkillRow; event: "new" | "refined" | "update_pending" | "seen" }> {
+  const title = oneLine(String(candidate.title ?? ""), TITLE_MAX);
+  const description = oneLine(String(candidate.description ?? ""), DESCRIPTION_MAX);
+  const body = cleanBody(String(candidate.body ?? ""));
+  const project = oneLine(String(candidate.project ?? ""), 120) || null;
+  const changes = oneLine(String(candidate.changes ?? ""), 300);
+
+  if (!existing) {
+    const [created] = await db
+      .insert(skills)
+      .values({
+        id: crypto.randomUUID(),
+        userId: user.id,
+        slug,
+        title: title || slug,
+        description,
+        body,
+        project,
+        status: "draft",
+        version: 0,
+        evidence: [evidence],
+        timesSeen: 1,
+        editedByUser: false,
+        firstSeenAt: nowIso,
+        lastSeenAt: nowIso,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+      })
+      .returning();
+    return { skill: created!, event: "new" };
+  }
+
+  const nextEvidence = appendEvidence(existing.evidence, evidence);
+  const basePatch: Partial<typeof skills.$inferInsert> = {
+    timesSeen: (existing.timesSeen || 0) + 1,
+    lastSeenAt: nowIso,
+    evidence: nextEvidence,
+    updatedAt: nowIso,
+  };
+  let event: "refined" | "update_pending" | "seen" = "seen";
+
+  if (existing.status !== "dismissed" && existing.status !== "retired" && description && body) {
+    if (existing.status === "draft" && !existing.editedByUser) {
+      basePatch.title = title || existing.title;
+      basePatch.description = description;
+      basePatch.body = body;
+      basePatch.project = project || existing.project;
+      event = "refined";
+    } else if (changes) {
+      basePatch.pendingUpdate = { description, body, reason: changes, at: nowIso };
+      event = "update_pending";
+    }
+  }
+
+  const [updated] = await db.update(skills).set(basePatch).where(eq(skills.id, existing.id)).returning();
+  return { skill: updated ?? existing, event };
+}

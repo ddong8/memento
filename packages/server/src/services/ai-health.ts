@@ -119,3 +119,132 @@ export async function getJson<T = unknown>(redis: Redis | null, name: string): P
     return null;
   }
 }
+
+export interface AiHealthCalls {
+  total: number;
+  ok: number;
+  fallback: number;
+  failed: number;
+}
+
+export interface AiHealthSummary {
+  available: boolean;
+  window_hours: number;
+  calls: AiHealthCalls;
+  by_kind: Record<string, { ok: number; fallback: number; failed: number }>;
+  models: { provider: string; model: string; ok: number; failed: number; avg_latency_ms: number | null }[];
+  reasons: { reason: string; label: string; count: number }[];
+  hourly: { hour: string; ok: number; fallback: number; failed: number }[];
+  recent_errors?: Record<string, unknown>[];
+}
+
+function emptyCalls() {
+  return { ok: 0, fallback: 0, failed: 0 };
+}
+
+function utcIso(d: Date): string {
+  return d.toISOString().replace(".000Z", "+00:00").replace("Z", "+00:00");
+}
+
+export function aggregate(buckets: [Date, Record<string, string>][]) {
+  const calls = emptyCalls();
+  const byKind: Record<string, { ok: number; fallback: number; failed: number }> = {};
+  const models: Record<string, { ok: number; fail: number; ms: number }> = {};
+  const reasons: Record<string, number> = {};
+  const hourly: { hour: string; ok: number; fallback: number; failed: number }[] = [];
+
+  for (const [hour, fields] of buckets) {
+    const hourCalls = emptyCalls();
+    for (const [field, raw] of Object.entries(fields || {})) {
+      const n = Number.parseInt(raw, 10);
+      if (!Number.isFinite(n)) continue;
+      const parts = field.split(":");
+      if (parts[0] === "calls" && parts.length === 3) {
+        const [, kind, outcome] = parts as [string, string, keyof typeof calls];
+        if (outcome in calls) {
+          calls[outcome] += n;
+          hourCalls[outcome] += n;
+          if (!byKind[kind]) byKind[kind] = emptyCalls();
+          byKind[kind]![outcome] += n;
+        }
+      } else if (parts[0] === "model" && parts.length >= 3) {
+        const name = parts.slice(1, -1).join(":");
+        const metric = parts[parts.length - 1]!;
+        if (!models[name]) models[name] = { ok: 0, fail: 0, ms: 0 };
+        if (metric === "ok" || metric === "fail" || metric === "ms") models[name]![metric] += n;
+      } else if (parts[0] === "reason" && parts.length === 2) {
+        reasons[parts[1]!] = (reasons[parts[1]!] ?? 0) + n;
+      }
+    }
+    hourly.push({ hour: utcIso(hour), ...hourCalls });
+  }
+
+  const modelRows = Object.entries(models)
+    .map(([name, m]) => {
+      const bar = name.indexOf("|");
+      const provider = bar >= 0 ? name.slice(0, bar) : name;
+      const model = bar >= 0 ? name.slice(bar + 1) : "";
+      return {
+        provider,
+        model,
+        ok: m.ok,
+        failed: m.fail,
+        avg_latency_ms: m.ok ? Math.round(m.ms / m.ok) : null,
+      };
+    })
+    .sort((a, b) => b.ok + b.failed - (a.ok + a.failed));
+
+  const reasonRows = Object.entries(reasons)
+    .sort((a, b) => b[1] - a[1])
+    .map(([r, c]) => ({ reason: r, label: REASON_LABELS[r] ?? r, count: c }));
+
+  return {
+    calls: { total: calls.ok + calls.fallback + calls.failed, ...calls },
+    by_kind: byKind,
+    models: modelRows,
+    reasons: reasonRows,
+    hourly,
+  };
+}
+
+export async function summary(redis: Redis | null, hours = 24): Promise<AiHealthSummary> {
+  const now = new Date();
+  now.setUTCMinutes(0, 0, 0);
+  const hoursList: Date[] = [];
+  for (let i = hours - 1; i >= 0; i--) {
+    hoursList.push(new Date(now.getTime() - i * 3600_000));
+  }
+  if (!redis) {
+    return { available: false, window_hours: hours, ...aggregate([]) };
+  }
+  try {
+    const pipe = redis.pipeline();
+    for (const h of hoursList) pipe.hgetall(bucketKey(h));
+    pipe.lrange(RECENT_KEY, 0, RECENT_KEEP - 1);
+    const res = await pipe.exec();
+    if (!res) return { available: false, window_hours: hours, ...aggregate([]) };
+    const buckets: [Date, Record<string, string>][] = [];
+    for (let i = 0; i < hoursList.length; i++) {
+      const [err, val] = res[i]!;
+      buckets.push([hoursList[i]!, !err && val && typeof val === "object" ? (val as Record<string, string>) : {}]);
+    }
+    const data = aggregate(buckets);
+    const [rErr, rawList] = res[hoursList.length]!;
+    const recent: Record<string, unknown>[] = [];
+    if (!rErr && Array.isArray(rawList)) {
+      for (const raw of rawList) {
+        try {
+          const item = JSON.parse(String(raw)) as Record<string, unknown>;
+          const reason = String(item.reason ?? "");
+          item.label = REASON_LABELS[reason] ?? reason;
+          recent.push(item);
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+    return { available: true, window_hours: hours, ...data, recent_errors: recent };
+  } catch {
+    return { available: false, window_hours: hours, ...aggregate([]) };
+  }
+}

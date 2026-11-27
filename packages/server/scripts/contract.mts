@@ -25,12 +25,24 @@ if (!PY || !TS || !email || !password) {
 }
 
 const MASK = new Set(["access_token"]);
+const NOW_TIME_KEYS = new Set(["generated_at", "end"]);
 function normalize(v: unknown): unknown {
   if (Array.isArray(v)) return v.map(normalize);
   if (v && typeof v === "object") {
     // Key order isn't part of the contract (a dict built from GROUP BY rows comes in the database's order)
     return Object.fromEntries(
-      Object.entries(v as Record<string, unknown>).sort(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0)).map(([k, x]) => [k, MASK.has(k) && typeof x === "string" ? `<${x.split(".").length}-part token>` : k === "input" ? "<input>" : normalize(x)]),
+      Object.entries(v as Record<string, unknown>)
+        .sort(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0))
+        .map(([k, x]) => [
+          k,
+          MASK.has(k) && typeof x === "string"
+            ? `<${x.split(".").length}-part token>`
+            : NOW_TIME_KEYS.has(k) && typeof x === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:/.test(x)
+              ? x.slice(0, 16)
+              : k === "input"
+                ? "<input>"
+                : normalize(x),
+        ]),
     );
   }
   return v;
@@ -114,10 +126,17 @@ function shape(v: unknown, ids: Map<string, string>): unknown {
 }
 
 async function account(base: string, tag: string): Promise<Record<string, string>> {
-  const e = `${tag}-${Date.now()}@example.com`;
-  await call(PY, { name: "register", method: "POST", path: "/api/auth/register", body: { email: e, password: "Contract-pass-123", name: tag } });
-  const r = await call(base, { name: "login", method: "POST", path: "/api/auth/login", body: { email: e, password: "Contract-pass-123" } });
-  return { authorization: `Bearer ${(r.body as { access_token: string }).access_token}` };
+  const e = `${tag}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}@example.com`;
+  const reg = await call(PY, { name: "register", method: "POST", path: "/api/auth/register", body: { email: e, password: "Contract-pass-123", name: tag } });
+  if (reg.status !== 200) throw new Error(`register ${e} failed: ${reg.status} ${JSON.stringify(reg.body)}`);
+  // FastAPI's get_db() commits on response teardown; retry briefly if login arrives on another connection first.
+  for (let i = 0; i < 6; i++) {
+    const r = await call(base, { name: "login", method: "POST", path: "/api/auth/login", body: { email: e, password: "Contract-pass-123" } });
+    const tok = (r.body as { access_token?: string })?.access_token;
+    if (r.status === 200 && tok) return { authorization: `Bearer ${tok}` };
+    await new Promise((res) => setTimeout(res, 100));
+  }
+  throw new Error(`login ${e} on ${base} failed after register`);
 }
 
 type Step = { name: string; method: string; path: string; body?: unknown };
@@ -283,12 +302,22 @@ if (dbUrl && redisUrl) {
     ["ask capabilities claude", "/api/ask/capabilities?tool=claude"],
     ["ask capabilities antigravity", "/api/ask/capabilities?tool=antigravity"],
     ["agent capabilities workbuddy", "/api/agent/capabilities?tool=workbuddy"],
+    ["learning corrections", "/api/learning/corrections"],
+    ["learning check", "/api/learning/check?query=deploy"],
+    ["learning check markdown", "/api/learning/check?query=deploy&format=markdown"],
+    ["learning reviews", "/api/learning/reviews"],
+    ["learning evals", "/api/learning/evals"],
+    ["learning outcomes", "/api/learning/outcomes"],
+    ["learning guard", "/api/learning/guard"],
+    ["health overview", "/api/health/overview"],
   ];
   for (const [who, headers] of [["owner", ownerAuth], ["viewer", viewerHeaders]] as const) {
+    // Pre-warm user blueprint so async warming triggered on cache miss doesn't race between Python and TS calls
+    await call(PY, { name: `warm ${who} blueprint`, method: "GET", path: "/api/profile/blueprint", headers });
     for (const [name, path] of reads) {
       // Each server computes it itself: drop the shared cache before each call (and wait out the other's 3 s L1)
       const fresh = async (base: string) => {
-        for (const pat of ["tools:list:*", "dashboard:*", "hierarchy:*", "skills:*", "daily:*", "life:*", "search:*", "devices:*", "ask_conv_*"]) {
+        for (const pat of ["tools:list:*", "dashboard:*", "hierarchy:*", "skills:*", "daily:*", "life:*", "search:*", "devices:*", "ask_conv_*", "learning:*"]) {
           const keys = await redis.keys(pat);
           if (keys.length) await redis.del(...keys);
         }

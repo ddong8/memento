@@ -20,9 +20,11 @@ import { documentRoutes } from "./routes/documents";
 import { eventRoutes } from "./routes/events";
 import { gitReviewRoutes } from "./routes/git-review";
 import { healthRoutes } from "./routes/health";
+import { healthOverviewRoutes } from "./routes/health-overview";
 import { hierarchyRoutes } from "./routes/hierarchy";
 import { ingestRoutes } from "./routes/ingest";
 import { installRoutes } from "./routes/install";
+import { learningRoutes } from "./routes/learning";
 import { lifeRoutes } from "./routes/life";
 import { llmRoutes } from "./routes/llm";
 import { mediaRoutes } from "./routes/media";
@@ -82,6 +84,8 @@ export const MIGRATED_PATHS = [
   "/api/ask",
   "/api/agent/capabilities",
   "/api/agent/models",
+  "/api/learning",
+  "/api/health/overview",
 ] as const;
 
 function skipStreamMiddleware(path: string): boolean {
@@ -154,6 +158,8 @@ export function createApp(deps: Deps) {
   app.route("/api/scheduled-tasks", scheduledTaskRoutes);
   app.route("/api/ask", askRoutes);
   app.route("/api/agent", agentCapabilitiesRoutes);
+  app.route("/api/learning", learningRoutes);
+  app.route("/api/health", healthOverviewRoutes);
   app.notFound((c) => c.json({ detail: "Not Found" }, 404));
   app.onError((err, c) => errorResponse(c, err));
   return app;

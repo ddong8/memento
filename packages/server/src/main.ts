@@ -14,6 +14,7 @@ import { recoverFinishedTaskHook } from "./services/ask-store";
 import { cluster } from "./services/cluster";
 import { renderMindResonanceMarkdown, senseResonance, startDynamicScenarioReloader, stopDynamicScenarioReloader } from "./services/mind-resonance-service";
 import { startScheduledTaskRunner, stopScheduledTaskRunner } from "./services/scheduled-tasks";
+import { scheduler } from "./services/scheduler";
 
 const settings = loadSettings();
 validateProduction(settings);
@@ -32,6 +33,7 @@ const busts = listenForBusts(settings.redisUrl);
 await cluster.start(settings.redisUrl);
 startScheduledTaskRunner(db);
 startDynamicScenarioReloader(db);
+scheduler.start(deps);
 
 const server = serve({ fetch: app.fetch, hostname: settings.host, port: settings.port }, (info) => {
   console.log(`memento server (ts) ${settings.buildSha} listening on ${info.address}:${info.port}`);
@@ -46,6 +48,7 @@ async function shutdown(signal: string) {
   wss.close();
   server.close();
   stopDynamicScenarioReloader();
+  scheduler.stop();
   await Promise.allSettled([askRuns.drain(), stopScheduledTaskRunner(), cluster.stop(), sql.end({ timeout: 10 }), closeRedis(), busts?.quit()]);
   process.exit(0);
 }

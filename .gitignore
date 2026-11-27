@@ -55,7 +55,9 @@ packages/daemon/assets/project_blueprint.mjs
 packages/daemon/assets/agy_cli.mjs
 node_modules/
 apps/desktop/dist/
+apps/desktop/dist-embedded/
 apps/desktop/release/
 apps/desktop/assets/
+dist-standalone/
 !apps/desktop/build/
 .agents/

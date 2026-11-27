@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Memento</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #fafafc;
+    --fg: #18181b;
+    --muted: #64748b;
+    --border: rgba(15, 23, 42, 0.1);
+    --accent: #2563eb;
+    --danger: #dc2626;
+    --card: #ffffff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0a0a12;
+      --fg: #f4f4f5;
+      --muted: #94a3b8;
+      --border: rgba(255, 255, 255, 0.1);
+      --accent: #60a5fa;
+      --danger: #f87171;
+      --card: #12121c;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    background: var(--bg);
+    color: var(--fg);
+    font: 14px/1.6 -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Segoe UI Variable", "Segoe UI", "Microsoft YaHei UI", sans-serif;
+    -webkit-app-region: drag;
+  }
+  main {
+    width: min(440px, 92vw);
+    padding: 32px 28px;
+    border-radius: 16px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    text-align: center;
+  }
+  .spinner {
+    width: 28px;
+    height: 28px;
+    margin: 0 auto 18px;
+    border-radius: 50%;
+    border: 2.5px solid var(--border);
+    border-top-color: var(--accent);
+    animation: spin 0.8s linear infinite;
+  }
+  .spinner.stopped { animation: none; border-color: var(--danger); }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  h1 { font-size: 18px; font-weight: 600; margin: 0 0 8px; }
+  #step { color: var(--muted); margin: 0 0 18px; min-height: 22px; word-break: break-word; }
+  #err { display: none; color: var(--danger); font-size: 13px; text-align: left; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border); margin: 0 0 16px; white-space: pre-wrap; word-break: break-word; }
+  .actions { display: none; gap: 10px; justify-content: center; -webkit-app-region: no-drag; }
+  .actions.show { display: flex; }
+  button {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 8px 16px;
+    font-size: 13.5px;
+    cursor: pointer;
+    background: transparent;
+    color: var(--fg);
+  }
+  button.primary {
+    border-color: transparent;
+    background: var(--accent);
+    color: #fff;
+  }
+</style>
+</head>
+<body>
+<main>
+  <div id="spinner" class="spinner"></div>
+  <h1 id="title">正在启动 Memento 本机服务</h1>
+  <p id="step">准备内置数据库与本地工作台…</p>
+  <div id="err"></div>
+  <div id="actions" class="actions">
+    <button id="retry" class="primary">重试启动</button>
+    <button id="cloud">改连云端服务</button>
+  </div>
+</main>
+<script>
+  const stepEl = document.getElementById("step");
+  const errEl = document.getElementById("err");
+  const titleEl = document.getElementById("title");
+  const spinnerEl = document.getElementById("spinner");
+  const actionsEl = document.getElementById("actions");
+
+  window.__mementoBootProgress = (line) => {
+    if (line) stepEl.textContent = String(line);
+  };
+  window.__mementoBootError = (msg) => {
+    titleEl.textContent = "本机服务启动失败";
+    stepEl.textContent = "可以重试本机启动，或切换到云端/私有化服务器。";
+    spinnerEl.classList.add("stopped");
+    errEl.textContent = String(msg || "未知错误");
+    errEl.style.display = "block";
+    actionsEl.classList.add("show");
+  };
+  if (window.mementoDesktop && window.mementoDesktop.localServer && window.mementoDesktop.localServer.onProgress) {
+    window.mementoDesktop.localServer.onProgress((line) => window.__mementoBootProgress(line));
+  }
+  document.getElementById("retry").onclick = () => {
+    errEl.style.display = "none";
+    actionsEl.classList.remove("show");
+    spinnerEl.classList.remove("stopped");
+    titleEl.textContent = "正在启动 Memento 本机服务";
+    stepEl.textContent = "重新启动内置数据库与服务…";
+    if (window.mementoDesktop && window.mementoDesktop.localServer && window.mementoDesktop.localServer.bootRetry) {
+      window.mementoDesktop.localServer.bootRetry();
+    } else {
+      location.reload();
+    }
+  };
+  document.getElementById("cloud").onclick = () => {
+    if (window.mementoDesktop && window.mementoDesktop.localServer && window.mementoDesktop.localServer.bootUseCloud) {
+      window.mementoDesktop.localServer.bootUseCloud();
+    } else {
+      location.href = "https://mem.ihasy.com/auth/login";
+    }
+  };
+</script>
+</body>
+</html>

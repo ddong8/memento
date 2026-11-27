@@ -2,7 +2,7 @@
   "expo": {
     "name": "Memento",
     "slug": "memento",
-    "version": "1.0.167",
+    "version": "1.0.168",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",

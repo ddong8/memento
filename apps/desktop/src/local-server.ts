@@ -10,7 +10,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync } from "n
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
-import { EmbeddedServer, type EmbeddedProcessHandle } from "./embedded-server";
+import { EmbeddedServer, type EmbeddedSpawner } from "./embedded-server";
 
 export const LOCAL_PROJECT = "memento-personal";
 /** Copied into the install folder on every start; the env template stays in the bundle (as env.example). */
@@ -128,10 +128,11 @@ export class LocalServer {
     private readonly bundleDir: string,
     dir = join(homedir(), ".memento", "local-server"),
     private readonly platform: NodeJS.Platform = process.platform,
-    spawnServer?: (entry: string, env: NodeJS.ProcessEnv, onLog: (line: string) => void) => EmbeddedProcessHandle,
+    spawnServer?: EmbeddedSpawner,
+    embeddedBundleDir?: string,
   ) {
     this.dir = dir;
-    this.embedded = new EmbeddedServer({ bundleDir: dirname(bundleDir), spawnServer });
+    this.embedded = new EmbeddedServer({ bundleDir: embeddedBundleDir ?? dirname(bundleDir), spawnServer });
   }
 
   private envFile(): string {

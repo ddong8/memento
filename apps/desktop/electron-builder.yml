@@ -8,15 +8,19 @@ files:
   - dist/**
   - assets/**
   - package.json
-# The daemon (utility process), embedded server and the MCP server run from disk.
+# The daemon (utility process) and MCP server run from disk.
 asarUnpack:
   - dist/daemon.mjs
   - dist/mcp.mjs
-  - dist/server/**
-  - dist/embedded-pg/**
-  - dist/pgvector/**
   - dist/node_modules/**
   - assets/**
+# Single-installer embedded runtime (server + Next.js standalone web + PG16 with pgvector)
+# Placed in extraResources so ASAR never strips nested node_modules or breaks deduplicated dylib symlinks.
+extraResources:
+  - from: dist-embedded
+    to: embedded
+    filter:
+      - "**/*"
 publish:
   provider: generic
   url: https://mem.ihasy.com/api/system/update

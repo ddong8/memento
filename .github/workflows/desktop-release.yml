@@ -50,7 +50,7 @@ jobs:
           cache-dependency-path: package-lock.json
 
       - name: Install
-        run: npm ci --workspace @memento/desktop --workspace @memento/daemon --workspace @memento/mcp --workspace @memento/core --workspace @memento/server --include-workspace-root
+        run: npm ci --workspace @memento/desktop --workspace @memento/daemon --workspace @memento/mcp --workspace @memento/core --workspace @memento/server --workspace web --include-workspace-root
 
       - name: Version from tag
         shell: bash
@@ -63,8 +63,34 @@ jobs:
           fi
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
 
-      - name: Build
-        run: npm run build -w @memento/desktop
+      - name: PostgreSQL 16 headers (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install postgresql16 --no-progress -y --params "/Password:ci-only /NoPath" | Out-Null
+          "PGROOT=C:\Program Files\PostgreSQL\16" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: MSVC (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Build pgvector (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: packages/server/embedded/build-pgvector.ps1
+
+      - name: Stage embedded PostgreSQL 16 + pgvector
+        run: node packages/server/embedded/stage-embedded.mjs
+
+      - name: Build bundled web & desktop single-installer
+        env:
+          MEMENTO_BUNDLE_EMBEDDED: "1"
+          GIT_SHA: ${{ github.sha }}
+        run: |
+          npm run build -w @memento/core
+          npm run build -w web
+          npm run build -w @memento/desktop
+          node packages/server/scripts/pack-standalone.mjs
 
       # Signing: with no certificates in the repository's secrets this builds exactly as before (macOS
       # ad-hoc signed by scripts/after-sign.cjs, Windows unsigned). With them, macOS is signed with the
@@ -111,6 +137,16 @@ jobs:
             apps/desktop/release/*.AppImage
             apps/desktop/release/*.blockmap
             apps/desktop/release/latest*.yml
+          if-no-files-found: error
+          retention-days: 2
+
+      - name: Upload standalone server archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: standalone-${{ matrix.name }}
+          path: |
+            dist-standalone/*.tar.gz
+            dist-standalone/*.zip
           if-no-files-found: error
           retention-days: 2
 
@@ -202,6 +238,22 @@ jobs:
               sleep 3
             done
           fi
+
+  attach-standalone:
+    name: Attach Standalone Zero-Docker Archives
+    needs: [build-electron, publish-release]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: standalone-*
+          path: standalone
+
+      - name: Upload standalone archives to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.publish-release.outputs.tag }}
+        run: gh release upload "$TAG" standalone/standalone-*/* --clobber --repo "${{ github.repository }}"
 
   attach-apk:
     name: Attach Android APK

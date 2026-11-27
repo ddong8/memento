@@ -1,7 +1,7 @@
 {
   "version": "1.0.167",
   "title": "Memento v1.0.167",
-  "release_notes": "1. 全面安全与权限隔离加固：收紧公开分享链接文件访问签名校验、隔离多用户设备文件缓存、消除 Mermaid 与 HTML/SVG 预览 XSS 风险、拦截已停用账号实时流订阅与桌面端非白名单媒体协议\n2. 并发与稳定性优化：消除异步文件流阻塞、规范 HTTP Range 解析、收敛多副本数据库连接池与后台任务托管、独立版本化数据库迁移模块\n3. 架构瘦身与防线升级：拆分 ask/page.tsx、projects.py、task-runner.ts 与 api-client.ts 核心模块，收紧 CI 静态检查与多端测试；手机端版本号与客户端统一为 1.0.146",
+  "release_notes": "1. 单机免 Docker 单安装包正式就绪：桌面端内置 PostgreSQL 16（UTF8 + 预编译 pgvector）、TypeScript 服务端与 Next.js 网页界面，新装打开默认直接启动本机单机版（零 Docker、零 Redis、零 MinIO）\n2. 支持单机版与云端/企业服务版一键双向全量迁移（迁移前自动保留本地时间戳备份 ZIP）\n3. 同步提供无界面零 Docker 单压缩包服务端（macOS / Windows / Linux），解压后单命令即可运行完整版 Memento",
   "platforms": {
     "windows": {
       "asset_name": "Memento-1.0.167-win-x64.zip",

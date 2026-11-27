@@ -1,6 +1,9 @@
-// Zero-Docker embedded Memento server for the desktop single-installer (docs/ts-server-migration.md P7).
-// Runs embedded PostgreSQL 16 (+ prebuilt pgvector) and the bundled @memento/server inside Electron's Node runtime
-// (utilityProcess.fork when available, child_process.fork otherwise), storing data in ~/.memento/server-data/.
+// Zero-Docker embedded Memento stack for the single-installer desktop app (docs/ts-server-migration.md P7).
+// Runs:
+//   1) Embedded PostgreSQL 16 (+ pre-installed pgvector) with UTF8 encoding
+//   2) Bundled Next.js standalone web UI (apps/web/server.js) on a local internal port
+//   3) Bundled @memento/server on http://127.0.0.1:8770 proxying non-API routes to the local Next.js server
+// All persistent data lives under ~/.memento/server-data/ (pg/, storage/, backups/, .env).
 // Also provides bidirectional account data migration (standalone <-> cloud/enterprise server) with local backup.
 import { execFile, fork, type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
@@ -11,15 +14,24 @@ import { join } from "node:path";
 
 import { parseEnv } from "./local-server";
 
+export type EmbeddedSpawner = (
+  entry: string,
+  env: NodeJS.ProcessEnv,
+  onLog: (line: string) => void,
+  cwd?: string,
+) => EmbeddedProcessHandle;
+
 export interface EmbeddedServerConfig {
-  /** Directory containing bundled server/main.mjs, server/schema.sql, and optional embedded-pg/ + pgvector/ */
+  /** Directory containing server/main.mjs, web/apps/web/server.js, embedded-pg/native/ */
   bundleDir: string;
   /** Persistent user data directory (default ~/.memento/server-data) */
   dataDir?: string;
-  /** Local HTTP port for the embedded API (default 8770) */
+  /** Local HTTP port for the unified single-origin server (default 8770) */
   port?: number;
+  /** Require bundled Next.js standalone web UI to mark embedded mode available (default true) */
+  requireWeb?: boolean;
   /** Optional custom spawner (e.g., Electron utilityProcess.fork) */
-  spawnServer?: (entry: string, env: NodeJS.ProcessEnv, onLog: (line: string) => void) => EmbeddedProcessHandle;
+  spawnServer?: EmbeddedSpawner;
 }
 
 export interface EmbeddedProcessHandle {
@@ -30,6 +42,7 @@ export interface EmbeddedProcessHandle {
 export interface EmbeddedStatus {
   available: boolean;
   hasEmbeddedPg: boolean;
+  hasEmbeddedWeb: boolean;
   hasExternalPg: boolean;
   installed: boolean;
   running: boolean;
@@ -81,7 +94,14 @@ async function pickFreePort(preferred: number): Promise<number> {
 }
 
 /** Generate persistent per-machine secrets and standalone server environment (0600, never leaves the machine). */
-export function buildEmbeddedEnv(opts: { port: number; pgPort: number; dataDir: string; existing?: Map<string, string>; rand?: (n: number) => string }): string {
+export function buildEmbeddedEnv(opts: {
+  port: number;
+  pgPort: number;
+  webPort?: number;
+  dataDir: string;
+  existing?: Map<string, string>;
+  rand?: (n: number) => string;
+}): string {
   const rand = opts.rand ?? ((n) => randomBytes(n).toString("hex"));
   const prev = opts.existing ?? new Map<string, string>();
   const pgPass = prev.get("POSTGRES_PASSWORD") || rand(24);
@@ -102,10 +122,13 @@ export function buildEmbeddedEnv(opts: { port: number; pgPort: number; dataDir: 
     ["MEMENTO_REMOTE_EXEC", "1"],
     ["MEMENTO_EMBEDDED_PG_PORT", String(opts.pgPort)],
   ];
+  if (opts.webPort) {
+    entries.push(["MEMENTO_WEB_UPSTREAM", `http://127.0.0.1:${opts.webPort}`]);
+  }
   return entries.map(([k, v]) => `${k}=${v}`).join("\n") + "\n";
 }
 
-/** Locate bundled native Postgres directory (dist/embedded-pg/native or node_modules/@embedded-postgres/<plat>/native). */
+/** Locate bundled native Postgres directory (embedded/embedded-pg/native or node_modules/@embedded-postgres/<plat>/native). */
 export function locateEmbeddedPgNative(bundleDir: string): string | null {
   const plat = `${process.platform === "win32" ? "windows" : process.platform}-${process.arch}`;
   const candidates = [
@@ -120,8 +143,26 @@ export function locateEmbeddedPgNative(bundleDir: string): string | null {
   return null;
 }
 
-/** Copy prebuilt pgvector library & extension SQL into the embedded Postgres native tree when present. */
+/** Locate bundled Next.js standalone server root (contains apps/web/server.js). */
+export function locateEmbeddedWebDir(bundleDir: string): string | null {
+  const candidates = [join(bundleDir, "web"), join(bundleDir, "..", "web")];
+  for (const dir of candidates) {
+    if (existsSync(join(dir, "apps", "web", "server.js"))) return dir;
+  }
+  return null;
+}
+
+/** Check whether pgvector extension SQL is already pre-installed in the native Postgres tree. */
+export function hasPgvectorInstalled(pgNativeDir: string): boolean {
+  return (
+    existsSync(join(pgNativeDir, "share", "postgresql", "extension", "vector.control")) ||
+    existsSync(join(pgNativeDir, "share", "extension", "vector.control"))
+  );
+}
+
+/** Copy prebuilt pgvector library & extension SQL into the embedded Postgres native tree when not already installed. */
 export function installBundledPgvector(bundleDir: string, pgNativeDir: string): boolean {
+  if (hasPgvectorInstalled(pgNativeDir)) return true;
   const plat = `${process.platform}-${process.arch}`;
   const srcCandidates = [join(bundleDir, "pgvector"), join(bundleDir, "pgvector", plat)];
   const src = srcCandidates.find((d) => existsSync(join(d, "lib")) && existsSync(join(d, "extension")));
@@ -145,8 +186,9 @@ export function installBundledPgvector(bundleDir: string, pgNativeDir: string): 
   }
 }
 
-function defaultSpawnServer(entry: string, env: NodeJS.ProcessEnv, onLog: (line: string) => void): EmbeddedProcessHandle {
+function defaultSpawnServer(entry: string, env: NodeJS.ProcessEnv, onLog: (line: string) => void, cwd?: string): EmbeddedProcessHandle {
   const child: ChildProcess = fork(entry, [], {
+    cwd,
     env,
     stdio: ["ignore", "pipe", "pipe", "ipc"],
   });
@@ -175,7 +217,9 @@ function defaultSpawnServer(entry: string, env: NodeJS.ProcessEnv, onLog: (line:
 export class EmbeddedServer {
   readonly dataDir: string;
   readonly port: number;
+  private readonly requireWeb: boolean;
   private proc: EmbeddedProcessHandle | null = null;
+  private webProc: EmbeddedProcessHandle | null = null;
   private pgNative: string | null = null;
   private pgDataDir: string;
   private starting: Promise<{ ok: boolean; url?: string; error?: string }> | null = null;
@@ -183,6 +227,7 @@ export class EmbeddedServer {
   constructor(private readonly opts: EmbeddedServerConfig) {
     this.dataDir = opts.dataDir ?? join(homedir(), ".memento", "server-data");
     this.port = opts.port ?? 8770;
+    this.requireWeb = opts.requireWeb ?? true;
     this.pgDataDir = join(this.dataDir, "pg");
   }
 
@@ -204,7 +249,10 @@ export class EmbeddedServer {
   }
 
   isAvailable(): boolean {
-    return existsSync(this.serverEntry()) && Boolean(locateEmbeddedPgNative(this.opts.bundleDir));
+    const hasEntry = existsSync(this.serverEntry());
+    const hasPg = Boolean(locateEmbeddedPgNative(this.opts.bundleDir));
+    const hasWeb = Boolean(locateEmbeddedWebDir(this.opts.bundleDir));
+    return hasEntry && hasPg && (!this.requireWeb || hasWeb);
   }
 
   async healthy(url = this.url()): Promise<boolean> {
@@ -217,13 +265,24 @@ export class EmbeddedServer {
     }
   }
 
+  private async webReady(url: string): Promise<boolean> {
+    try {
+      const res = await fetch(`${url}/auth/login`, { method: "HEAD", redirect: "manual", signal: AbortSignal.timeout(2500) });
+      return res.status > 0 && res.status < 500;
+    } catch {
+      return false;
+    }
+  }
+
   async status(): Promise<EmbeddedStatus> {
     const pgNative = locateEmbeddedPgNative(this.opts.bundleDir);
+    const webDir = locateEmbeddedWebDir(this.opts.bundleDir);
     const hasEntry = existsSync(this.serverEntry());
     const running = await this.healthy();
     return {
-      available: hasEntry && Boolean(pgNative),
+      available: hasEntry && Boolean(pgNative) && (!this.requireWeb || Boolean(webDir)),
       hasEmbeddedPg: Boolean(pgNative),
+      hasEmbeddedWeb: Boolean(webDir),
       hasExternalPg: false,
       installed: existsSync(this.envPath()),
       running,
@@ -253,6 +312,10 @@ export class EmbeddedServer {
     if (!pgNative) {
       return { ok: false, error: "当前安装包未包含内置 PostgreSQL 二进制，可切换 Docker 单机模式或连接外部服务器" };
     }
+    const webDir = locateEmbeddedWebDir(this.opts.bundleDir);
+    if (this.requireWeb && !webDir) {
+      return { ok: false, error: "当前安装包未包含内置 Web 界面，可切换 Docker 单机模式或连接外部服务器" };
+    }
     this.pgNative = pgNative;
     installBundledPgvector(this.opts.bundleDir, pgNative);
 
@@ -262,7 +325,8 @@ export class EmbeddedServer {
     const existing = existsSync(this.envPath()) ? parseEnv(readFileSync(this.envPath(), "utf8")) : new Map<string, string>();
     const pgPort = Number(existing.get("MEMENTO_EMBEDDED_PG_PORT")) || (await pickFreePort(54329));
     const httpPort = Number(existing.get("MEMENTO_PORT")) || (await pickFreePort(this.port));
-    const envText = buildEmbeddedEnv({ port: httpPort, pgPort, dataDir: this.dataDir, existing });
+    const webPort = webDir ? await pickFreePort(38770) : undefined;
+    const envText = buildEmbeddedEnv({ port: httpPort, pgPort, webPort, dataDir: this.dataDir, existing });
     writeFileSync(this.envPath(), envText, { mode: 0o600 });
     try {
       chmodSync(this.envPath(), 0o600);
@@ -319,12 +383,42 @@ export class EmbeddedServer {
       }
     }
 
-    // 3) Spawn bundled @memento/server (runs automatic idempotent DDL migrations on startup)
+    const spawner = this.opts.spawnServer ?? defaultSpawnServer;
+
+    // 3) Start bundled Next.js standalone Web UI on internal localhost port
+    if (webDir && webPort) {
+      progress("启动本机 Web 界面…");
+      const webEntry = join(webDir, "apps", "web", "server.js");
+      const webEnv: NodeJS.ProcessEnv = {
+        ...process.env,
+        NODE_ENV: "production",
+        HOSTNAME: "127.0.0.1",
+        PORT: String(webPort),
+      };
+      this.webProc = spawner(webEntry, webEnv, (line) => progress(`[web] ${line}`), webDir);
+      this.webProc.onExit(() => {
+        this.webProc = null;
+      });
+      const webBase = `http://127.0.0.1:${webPort}`;
+      let ready = false;
+      for (let i = 0; i < 40; i++) {
+        if (await this.webReady(webBase)) {
+          ready = true;
+          break;
+        }
+        await new Promise((r) => setTimeout(r, 250));
+      }
+      if (!ready) {
+        await this.stop();
+        return { ok: false, error: "本机 Web 界面启动超时" };
+      }
+    }
+
+    // 4) Spawn bundled @memento/server (runs automatic idempotent DDL migrations + proxies non-API pages to Next.js)
     progress("启动 Memento 内置服务端…");
     const procEnv: NodeJS.ProcessEnv = { ...process.env };
     for (const [k, v] of envMap) procEnv[k] = v;
-    const spawner = this.opts.spawnServer ?? defaultSpawnServer;
-    this.proc = spawner(entry, procEnv, progress);
+    this.proc = spawner(entry, procEnv, progress, join(this.opts.bundleDir, "server"));
     this.proc.onExit(() => {
       this.proc = null;
     });
@@ -337,6 +431,7 @@ export class EmbeddedServer {
       }
       await new Promise((r) => setTimeout(r, 500));
     }
+    await this.stop();
     return { ok: false, error: "内置服务端启动超时，请检查 ~/.memento/server-data/pg.log" };
   }
 
@@ -344,10 +439,15 @@ export class EmbeddedServer {
     if (this.proc) {
       this.proc.kill();
       this.proc = null;
-      await new Promise((r) => setTimeout(r, 500));
     }
-    if (this.pgNative && existsSync(join(this.pgDataDir, "PG_VERSION"))) {
-      const pgCtl = join(this.pgNative, "bin", PG_CTL_BIN);
+    if (this.webProc) {
+      this.webProc.kill();
+      this.webProc = null;
+    }
+    await new Promise((r) => setTimeout(r, 400));
+    const pgNative = this.pgNative ?? locateEmbeddedPgNative(this.opts.bundleDir);
+    if (pgNative && existsSync(join(this.pgDataDir, "PG_VERSION"))) {
+      const pgCtl = join(pgNative, "bin", PG_CTL_BIN);
       await runFile(pgCtl, ["-D", this.pgDataDir, "-m", "fast", "-w", "stop"]).catch(() => {});
     }
     return { ok: true };

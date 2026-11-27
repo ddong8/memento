@@ -69,6 +69,8 @@ export function loadSettings(env: Env = process.env) {
     oidcAdminGroup: s("oidc_admin_group"),
     scimToken: s("scim_token"),
     publicUrl: s("public_url"),
+    /** Optional Next.js standalone upstream URL (e.g. http://127.0.0.1:38770) for single-port standalone mode */
+    webUpstream: s("web_upstream").replace(/\/+$/, ""),
     /** Starlette matches the whole origin against it (re.fullmatch) */
     corsAllowOriginRegex: s("cors_allow_origin_regex", ".*"),
     // Studio / Updates

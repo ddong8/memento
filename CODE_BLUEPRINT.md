@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `caf28e8b` · Updated: `2026-11-27`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `52546bb5` · Updated: `2026-11-27`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -13,25 +13,25 @@
 - 类型 (Type): Monorepo (Workspaces)
 - 技术栈 (Stack): TypeScript/JavaScript, Python, Shell / Bash · React, Electron, Next.js, TailwindCSS, Model Context Protocol (MCP), Docker, Kubernetes / Fleet
 - 基础设施 (Infra): PostgreSQL, pgvector (Vector DB), Redis, MinIO / S3 Object Storage, Celery Task Queue
-- 规模 (Scale): 9 个子系统 · 39 个前端页面 · 84 个数据模型 · 35 个服务模块 · 150 个测试文件
+- 规模 (Scale): 9 个子系统 · 1 组 API 路由 / 2 个接口 · 39 个前端页面 · 84 个数据模型 · 35 个服务模块 · 150 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `packages/server`, `embedding`, `deploy`
 - 自测命令 (Verify): `npm test` ; `npx tsc --noEmit` ; `npm run lint` ; `npm run build`
-- 最近改动 (Latest): `caf28e8b` (2026-11-27): feat(deploy): 线上 100% 流量切换至 TypeScript 服务端 api-ts
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 77（✅ 77 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 12 · 状态 10 · 最近提交碰到 `T-RUN`, `T-PLAN`, `F-ASK`, `F-STOP`, `F-PLAN`, `R-STOP-ALL-AGENTS`, `R-ISLAND-CLEANUP`, `R-MULTI-DEVICE-STABLE`
+- 最近改动 (Latest): `05e94ed6` (2026-11-27): feat(server-ts): 完成 P7 迁移接管、移除 Python 服务端并支持桌面单机内置服务与双向迁移
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 77（✅ 77 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 12 · 状态 10 · 最近提交碰到 `F-BLUEPRINT`, `R-AGY-WORKDIR`, `R-ENT-SECRETS`, `R-ENT-DEVICE-POLICY`, `R-ENT-DEPLOY`, `R-CLAUDE-RESUME-IN-PLACE`, `R-APP-NAME`, `R-DOCS-WRITE-LIGHT`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
 | 1. Project Overview & Tech Stack | L36-L42 |
 | 2. High-Level Architecture Topology | L44-L67 |
 | 3. Subsystem Breakdown & Responsibilities | L69-L81 |
-| 4. Key Entry Points & API Endpoints | L83-L129 |
-| 5. Core Domain Services & Background Schedules | L131-L171 |
-| 6.5. AST Call Graph, DTO Schemas & CLI Entrypoints | L173-L215 |
-| 7. CI/CD Pipelines, Code Hotspots & Test Suites | L217-L262 |
-| 8. Development & Verification Commands | L264-L275 |
-| 9. Recent Architectural Evolutions | L277-L284 |
-| 10. Key Environment Variables & Configuration | L286-L298 |
-| 11. 业务蓝图核对 (Business Blueprint Check) | L300-L310 |
+| 4. Key Entry Points & API Endpoints | L83-L136 |
+| 5. Core Domain Services & Background Schedules | L138-L178 |
+| 6.5. AST Call Graph, DTO Schemas & CLI Entrypoints | L180-L222 |
+| 7. CI/CD Pipelines, Code Hotspots & Test Suites | L224-L268 |
+| 8. Development & Verification Commands | L270-L281 |
+| 9. Recent Architectural Evolutions | L283-L290 |
+| 10. Key Environment Variables & Configuration | L292-L304 |
+| 11. 业务蓝图核对 (Business Blueprint Check) | L306-L316 |
 
 ## 1. Project Overview & Tech Stack
 
@@ -123,6 +123,13 @@ flowchart TD
 - `/tasks/[id]`
 - `/tools`
 - `/tools/[tool]`
+
+### Registered API Routers & Endpoints
+
+#### `ipc://electron` (main.ts)
+
+- `IPC boot:retry`
+- `IPC boot:use-cloud`
 
 ### Core Database Models (`models.py`)
 
@@ -224,7 +231,7 @@ flowchart TD
 | GitHub Actions | `Auto Release` | [`.github/workflows/auto-release.yml`](.github/workflows/auto-release.yml) | Jobs: tag-and-release |
 | GitHub Actions | `CI` | [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | Jobs: ts-server, ts-client, ts-mobile, ts-web |
 | GitHub Actions | `Build & Deploy (k3s via Fleet)` | [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) | Jobs: changes, wait-ci, build, bump, verify |
-| GitHub Actions | `Desktop Release` | [`.github/workflows/desktop-release.yml`](.github/workflows/desktop-release.yml) | Jobs: build-electron, android, publish-release, attach-apk |
+| GitHub Actions | `Desktop Release` | [`.github/workflows/desktop-release.yml`](.github/workflows/desktop-release.yml) | Jobs: build-electron, android, publish-release, attach-standalone, attach-apk |
 | GitHub Actions | `Embedded Postgres + pgvector` | [`.github/workflows/embedded-pg.yml`](.github/workflows/embedded-pg.yml) | Jobs: build |
 | GitHub Actions | `Personal images (stable, multi-arch)` | [`.github/workflows/personal-images.yml`](.github/workflows/personal-images.yml) | Jobs: tags, arm64, stable |
 | K8s / GitOps | `gitrepo.yaml` | [`deploy/fleet/gitrepo.yaml`](deploy/fleet/gitrepo.yaml) | Resources: GitRepo |
@@ -242,11 +249,10 @@ flowchart TD
 | :--- | :--- | :--- | :--- |
 | apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 69 | `active-runs-chip.test.tsx`, `agent-modes.test.ts`, `api-client.test.ts`, `ask-performance-guards.test.tsx`, `ask-reading-and-persona-rules.test.tsx` |
 | packages/daemon/test (vitest / jest) | [`packages/daemon/test`](packages/daemon/test) | 67 | `acp-runner.test.ts`, `agent-args.test.ts`, `agent-login.test.ts`, `agent-stream.test.ts`, `agy-background.test.ts` |
-| apps/desktop/test (vitest / jest) | [`apps/desktop/test`](apps/desktop/test) | 4 | `embedded-server.test.ts`, `helpers.test.ts`, `local-server.test.ts`, `updater-and-daemon.test.ts` |
+| apps/desktop/test (vitest / jest) | [`apps/desktop/test`](apps/desktop/test) | 5 | `embedded-e2e.test.ts`, `embedded-server.test.ts`, `helpers.test.ts`, `local-server.test.ts`, `updater-and-daemon.test.ts` |
 | apps/mobile/test (vitest / jest) | [`apps/mobile/test`](apps/mobile/test) | 4 | `deeplink.test.ts`, `glass-surface.test.ts`, `injected-helpers.test.ts`, `webview-props.test.ts` |
 | packages/mcp/test (vitest / jest) | [`packages/mcp/test`](packages/mcp/test) | 3 | `remote-and-tools.test.ts`, `server.test.ts`, `task-tools.test.ts` |
 | packages/core/test (vitest / jest) | [`packages/core/test`](packages/core/test) | 2 | `ask-stream.test.ts`, `task-events.test.ts` |
-| packages/server/test (vitest / jest) | [`packages/server/test`](packages/server/test) | 1 | `auth-routes.test.ts` |
 
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
@@ -255,11 +261,11 @@ flowchart TD
 - [`packages/server/src/app.ts`](packages/server/src/app.ts) (10 commits)
 - [`apps/web/src/components/ask/GitDiffDrawer.tsx`](apps/web/src/components/ask/GitDiffDrawer.tsx) (9 commits)
 - [`deploy/k8s/ingress.yaml`](deploy/k8s/ingress.yaml) (9 commits)
+- [`docs/ts-server-migration.md`](docs/ts-server-migration.md) (9 commits)
 - [`apps/mobile/src/app/index.tsx`](apps/mobile/src/app/index.tsx) (8 commits)
 - [`apps/web/src/lib/api-client.ts`](apps/web/src/lib/api-client.ts) (8 commits)
 - [`apps/web/test/glass-system.test.ts`](apps/web/test/glass-system.test.ts) (8 commits)
-- [`deploy/k8s/studio.yaml`](deploy/k8s/studio.yaml) (8 commits)
-- [`docs/ts-server-migration.md`](docs/ts-server-migration.md) (8 commits)
+- [`packages/server/src/main.ts`](packages/server/src/main.ts) (8 commits)
 
 ## 8. Development & Verification Commands
 
@@ -276,12 +282,12 @@ npm run build
 
 ## 9. Recent Architectural Evolutions
 
+- `05e94ed6` (2026-11-27): feat(server-ts): 完成 P7 迁移接管、移除 Python 服务端并支持桌面单机内置服务与双向迁移
 - `caf28e8b` (2026-11-27): feat(deploy): 线上 100% 流量切换至 TypeScript 服务端 api-ts
 - `4604f1ed` (2026-11-27): feat(server-ts): 完成 P6 全量路由与后台运行器、对齐 ask-runs 集群协议并切流 P5
 - `2d6fc5f2` (2026-11-27): feat(server-ts): 完成 P5 后台智能、健康总览与 21 个定时任务并修复契约对照竞态
 - `5e7e1373` (2026-11-27): feat(server-ts): 切入 P3 入口并完成 P4 问答、编排、直连 Agent、心领神会与对话路由
 - `4ccae92a` (2026-11-27): feat(server-ts): 切入 P2 入口并完成 P3 设备实时通信、任务、终端、预览、Git 审阅、额度与定时任务
-- `dd0024dc` (2026-11-27): feat(server-ts): 切入 Batch 2 与媒体插件入口并完成 P2 采集、检索、会话与排除模块
 
 ## 10. Key Environment Variables & Configuration
 
@@ -304,10 +310,10 @@ npm run build
 
 ### 最近提交碰到的业务条目（改动后复查它们还成不成立）
 
+- `05e94ed6` feat(server-ts): 完成 P7 迁移接管、移除 Python 服务端并支持桌面单机内置服务与双向迁移 → `F-BLUEPRINT`, `R-AGY-WORKDIR`, `R-ENT-SECRETS`, `R-ENT-DEVICE-POLICY`, `R-ENT-DEPLOY`, `R-CLAUDE-RESUME-IN-PLACE`, `R-APP-NAME`, `R-DOCS-WRITE-LIGHT`, `R-PUBLIC-REPO-CLEAN`, `R-NO-CONFIGMAP-HOTFIX`, `R-CI-KUSTOMIZE-PINNED`, `R-DEPLOY-AFTER-CI`, `R-DEPLOY-BUMP-RACE`, `R-ALL-TYPESCRIPT`, `R-LOGIN-PERSIST`, `R-STUDIO-INLINE-PLAY`
 - `4604f1ed` feat(server-ts): 完成 P6 全量路由与后台运行器、对齐 ask-runs 集群协议并切流 P5 → `T-RUN`, `T-PLAN`, `F-ASK`, `F-STOP`, `F-PLAN`, `R-STOP-ALL-AGENTS`, `R-ISLAND-CLEANUP`, `R-MULTI-DEVICE-STABLE`, `R-BIZ-AUTO`, `R-ENT-ADMIN-SCOPE`, `R-ENT-SSO`, `R-ENT-AUDIT`, `R-RUN-OUTLIVES-PAGE`, `R-PLAN-QUOTA-GATE`, `R-REPLICA-STATE`, `R-CODE-BLUEPRINT-NAME`, `R-USER-BLUEPRINT-BUSINESS`, `R-SESSION-PREVIEW-WHOLE`, `R-STUDIO-INLINE-PLAY`, `R-STUDIO-SMOOTH-PLAY`, `R-STUDIO-PUBLISH-PULL`, `R-PLUGIN-MARKETPLACE`, `R-BUSINESS-CHECKED`, `S-RUN-STATE`, `S-QUOTA`, `S-LOGIN-TICKET`
 - `2d6fc5f2` feat(server-ts): 完成 P5 后台智能、健康总览与 21 个定时任务并修复契约对照竞态 → `R-BIZ-AUTO`, `R-ENT-AUDIT`, `R-WS-EXEC-REMIND`, `R-BLUEPRINT-NEWEST`, `R-USER-BLUEPRINT-BUSINESS`, `R-SELF-EVOLVE`, `R-UI-COMMERCIAL`, `R-BUSINESS-CHECKED`
 - `5e7e1373` feat(server-ts): 切入 P3 入口并完成 P4 问答、编排、直连 Agent、心领神会与对话路由 → `T-CONVERSATION`, `T-SESSION`, `T-RUN`, `T-COMPACT`, `T-BLUEPRINT`, `F-ASK`, `F-RESUME`, `F-STOP`, `F-DELETE`, `F-BLUEPRINT`, `R-STOP-ALL-AGENTS`, `R-ISLAND-CLEANUP`, `R-ENT-SECRETS`, `R-RUN-OUTLIVES-PAGE`, `R-SESSION-TIMELINE`, `R-RESTORE-CONFIG`, `R-DEVICE-SESSION-MAP`, `R-DEVICE-ENV-PROFILE`, `R-DELETE-GONE-EVERYWHERE`, `R-FOLLOWUP-NOT-LOST`, `R-NO-STDERR`, `R-CLAUDE-RESUME-IN-PLACE`, `R-NEWCHAT-WORKS`, `R-BLUEPRINT-NEWEST`, `R-CODE-BLUEPRINT-NAME`, `R-SELF-EVOLVE`, `S-CONV-LIST`, `S-RUN-STATE`, `S-MODEL-CHOICE`, `S-AGENT-SESSION`
-- `4ccae92a` feat(server-ts): 切入 P2 入口并完成 P3 设备实时通信、任务、终端、预览、Git 审阅、额度与定时任务 → `T-DEVICE`, `T-QUOTA`, `T-FOLLOWUP`, `F-ASK`, `F-FOLLOWUP`, `F-STOP`, `F-CLIENT-UPGRADE`, `R-AGY-WORKDIR`, `R-STOP-ALL-AGENTS`, `R-MULTI-DEVICE-STABLE`, `R-WS-EDIT-ONLY`, `R-ENT-ADMIN-SCOPE`, `R-ENT-AUDIT`, `R-WS-EXEC-STOP`, `R-WS-EXEC-REMIND`, `R-QUOTA-PANEL-TRUE`, `R-QUOTA-NO-RETRY`, `R-DEVICE-SESSION-MAP`, `R-DEVICE-ENV-PROFILE`, `R-FOLLOWUP-NOT-LOST`, `S-RUN-STATE`, `S-QUOTA`, `S-FOLLOWUPS`, `S-DEVICE-CONNECTION`
 
 ---
 _Auto-maintained by `scripts/project_blueprint.mjs` (v20261126) & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._

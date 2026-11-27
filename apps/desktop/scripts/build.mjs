@@ -109,10 +109,16 @@ for (const [from, to] of [["docker-compose.yml"], ["Caddyfile"], [".env.example"
   cpSync(join(root, "../../deploy/enterprise", from), join(dist, "local-server", to ?? from));
 }
 
-// 内置 TypeScript 服务端 (src/embedded-server.ts): bundled @memento/server + native @node-rs/jieba + optional embedded PG & pgvector
+// 内置单机三合一包 (dist-embedded -> electron-builder extraResources/embedded):
+// 1) @memento/server + @node-rs/jieba
+// 2) apps/web Next.js standalone (server.js + static + public)
+// 3) 内嵌 PostgreSQL 16 (+ 预装 pgvector，已去重动态库)
+const embeddedOut = join(root, "dist-embedded");
+rmSync(embeddedOut, { recursive: true, force: true });
+mkdirSync(embeddedOut, { recursive: true });
+
 const serverSrc = join(root, "../../packages/server/dist");
-const serverOut = join(dist, "server");
-rmSync(serverOut, { recursive: true, force: true });
+const serverOut = join(embeddedOut, "server");
 if (existsSync(join(serverSrc, "main.mjs"))) {
   mkdirSync(serverOut, { recursive: true });
   for (const f of ["main.mjs", "migrate.mjs", "schema.sql"]) {
@@ -123,13 +129,53 @@ if (existsSync(join(serverSrc, "main.mjs"))) {
     cpSync(jiebaRoot, join(serverOut, "node_modules/@node-rs"), { recursive: true, dereference: true });
   }
 }
+
+const webStandaloneSrc = join(root, "../../apps/web/.next/standalone");
+const webStaticSrc = join(root, "../../apps/web/.next/static");
+const webPublicSrc = join(root, "../../apps/web/public");
+const webOut = join(embeddedOut, "web");
+if (existsSync(join(webStandaloneSrc, "apps/web/server.js"))) {
+  cpSync(webStandaloneSrc, webOut, {
+    recursive: true,
+    dereference: true,
+    filter: (src) => !src.replace(/\\/g, "/").includes("/.next/cache"),
+  });
+  if (existsSync(webStaticSrc)) {
+    cpSync(webStaticSrc, join(webOut, "apps/web/.next/static"), { recursive: true, dereference: true });
+  }
+  if (existsSync(webPublicSrc)) {
+    cpSync(webPublicSrc, join(webOut, "apps/web/public"), { recursive: true, dereference: true });
+  }
+}
+
 const plat = `${process.platform}-${process.arch}`;
 const pgPlat = `${process.platform === "win32" ? "windows" : process.platform}-${process.arch}`;
-const pgvSrc = join(root, "../../packages/server/embedded/out", plat);
-if (existsSync(join(pgvSrc, "lib"))) {
-  cpSync(pgvSrc, join(dist, "pgvector"), { recursive: true, dereference: true });
-}
-const embPgSrc = join(root, "../../node_modules", `@embedded-postgres/${pgPlat}`, "native");
+const stagedPgSrc = join(root, "../../packages/server/embedded/staged", plat, "native");
+const fallbackPgSrc = join(root, "../../node_modules", `@embedded-postgres/${pgPlat}`, "native");
+const embPgSrc = existsSync(stagedPgSrc) ? stagedPgSrc : fallbackPgSrc;
 if (existsSync(embPgSrc)) {
-  cpSync(embPgSrc, join(dist, "embedded-pg/native"), { recursive: true, dereference: true });
+  // Preserve deduplicated shared-library symlinks on POSIX
+  cpSync(embPgSrc, join(embeddedOut, "embedded-pg/native"), { recursive: true, dereference: false });
+}
+const pgvSrc = join(root, "../../packages/server/embedded/out", plat);
+const alreadyPreinstalled =
+  existsSync(join(embeddedOut, "embedded-pg/native/share/postgresql/extension/vector.control")) ||
+  existsSync(join(embeddedOut, "embedded-pg/native/share/extension/vector.control"));
+if (!alreadyPreinstalled && existsSync(join(pgvSrc, "lib"))) {
+  cpSync(pgvSrc, join(embeddedOut, "pgvector"), { recursive: true, dereference: true });
+}
+
+if (process.env.MEMENTO_BUNDLE_EMBEDDED === "1") {
+  const pgCtl = process.platform === "win32" ? "pg_ctl.exe" : "pg_ctl";
+  const missing = [];
+  if (!existsSync(join(embeddedOut, "server/main.mjs"))) missing.push("dist-embedded/server/main.mjs");
+  if (!existsSync(join(embeddedOut, "web/apps/web/server.js"))) missing.push("dist-embedded/web/apps/web/server.js");
+  if (!existsSync(join(embeddedOut, "embedded-pg/native/bin", pgCtl))) missing.push(`dist-embedded/embedded-pg/native/bin/${pgCtl}`);
+  const hasVecExt =
+    existsSync(join(embeddedOut, "embedded-pg/native/share/postgresql/extension/vector.control")) ||
+    existsSync(join(embeddedOut, "embedded-pg/native/share/extension/vector.control"));
+  if (!hasVecExt) missing.push("pgvector extension (vector.control)");
+  if (missing.length) {
+    throw new Error(`MEMENTO_BUNDLE_EMBEDDED=1 要求完整单机产物，缺失：${missing.join(", ")}`);
+  }
 }

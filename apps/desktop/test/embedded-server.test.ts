@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 
-import { buildEmbeddedEnv, installBundledPgvector, locateEmbeddedPgNative, migrateServerData } from "../src/embedded-server";
+import { buildEmbeddedEnv, hasPgvectorInstalled, installBundledPgvector, locateEmbeddedPgNative, locateEmbeddedWebDir, migrateServerData } from "../src/embedded-server";
 import { parseEnv } from "../src/local-server";
 
 describe("embedded single-installer server helpers", () => {
@@ -20,36 +20,42 @@ describe("embedded single-installer server helpers", () => {
 
   it("builds persistent single-process standalone env without Docker or Redis", () => {
     const dir = mkTmp();
-    const text = buildEmbeddedEnv({ port: 8770, pgPort: 54329, dataDir: dir, rand: (n) => "a".repeat(n * 2) });
+    const text = buildEmbeddedEnv({ port: 8770, pgPort: 54329, webPort: 38770, dataDir: dir, rand: (n) => "a".repeat(n * 2) });
     const env = parseEnv(text);
     expect(env.get("MEMENTO_REDIS_URL")).toBe("");
     expect(env.get("MEMENTO_ENABLE_SCHEDULER")).toBe("true");
     expect(env.get("MEMENTO_HOST")).toBe("127.0.0.1");
     expect(env.get("MEMENTO_PORT")).toBe("8770");
+    expect(env.get("MEMENTO_WEB_UPSTREAM")).toBe("http://127.0.0.1:38770");
     expect(env.get("MEMENTO_STORAGE_DIR")).toBe(join(dir, "storage"));
     expect(env.get("MEMENTO_DATABASE_URL")).toContain("127.0.0.1:54329");
     expect(env.get("MEMENTO_SECRET_KEY")?.length).toBe(64);
     expect(env.get("MEMENTO_DATA_KEY")?.length).toBe(64);
 
     // Preserves existing secrets on restart
-    const text2 = buildEmbeddedEnv({ port: 8770, pgPort: 54329, dataDir: dir, existing: env, rand: (n) => "b".repeat(n * 2) });
+    const text2 = buildEmbeddedEnv({ port: 8770, pgPort: 54329, webPort: 38770, dataDir: dir, existing: env, rand: (n) => "b".repeat(n * 2) });
     const env2 = parseEnv(text2);
     expect(env2.get("MEMENTO_SECRET_KEY")).toBe(env.get("MEMENTO_SECRET_KEY"));
     expect(env2.get("POSTGRES_PASSWORD")).toBe(env.get("POSTGRES_PASSWORD"));
   });
 
-  it("locates embedded postgres native tree and copies prebuilt pgvector files", () => {
+  it("locates embedded postgres native tree, web standalone dir, and prebuilt pgvector files", () => {
     const bundle = mkTmp();
     const pgBin = join(bundle, "embedded-pg", "native", "bin");
     const pgLib = join(bundle, "embedded-pg", "native", "lib", "postgresql");
     const pgExt = join(bundle, "embedded-pg", "native", "share", "postgresql", "extension");
+    const webEntryDir = join(bundle, "web", "apps", "web");
     mkdirSync(pgBin, { recursive: true });
     mkdirSync(pgLib, { recursive: true });
     mkdirSync(pgExt, { recursive: true });
+    mkdirSync(webEntryDir, { recursive: true });
     writeFileSync(join(pgBin, process.platform === "win32" ? "pg_ctl.exe" : "pg_ctl"), "");
+    writeFileSync(join(webEntryDir, "server.js"), "");
 
     const found = locateEmbeddedPgNative(bundle);
     expect(found).toBe(join(bundle, "embedded-pg", "native"));
+    expect(locateEmbeddedWebDir(bundle)).toBe(join(bundle, "web"));
+    expect(hasPgvectorInstalled(found!)).toBe(false);
 
     mkdirSync(join(bundle, "pgvector", "lib"), { recursive: true });
     mkdirSync(join(bundle, "pgvector", "extension"), { recursive: true });
@@ -57,6 +63,7 @@ describe("embedded single-installer server helpers", () => {
     writeFileSync(join(bundle, "pgvector", "extension", "vector.control"), "ctrl");
 
     expect(installBundledPgvector(bundle, found!)).toBe(true);
+    expect(hasPgvectorInstalled(found!)).toBe(true);
     expect(existsSync(join(pgLib, "vector.so"))).toBe(true);
     expect(existsSync(join(pgExt, "vector.control"))).toBe(true);
   });

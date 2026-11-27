@@ -110,5 +110,6 @@
 - [x] P7 收尾与单安装包
   - [x] TS DDL 迁移器（packages/server/src/db/migrate.ts + dist/migrate.mjs）接管空库全量建表与老库幂等升级（已通过空 Postgres 库端到端测试与 --check 校验），接管 k8s initContainer 与 CI
   - [x] 移除 Python server/ 目录与 Celery / 旧 Python 部署清单，k8s、fleet-watchdog、企业 docker-compose、CI/CD 全部统一为纯 Node 22 TypeScript 服务端镜像
-  - [x] 桌面端单机内置引擎（apps/desktop/src/embedded-server.ts + local-server.ts）：零 Docker 启动内嵌 PostgreSQL 16（UTF8 + pgvector）+ Electron utilityProcess 运行 @memento/server + 本地对象存储
+  - [x] 服务端单端口托管 Web（MEMENTO_WEB_UPSTREAM 透明流式反代 + 无 Redis 深度健康检查），桌面端三合一内置引擎（apps/desktop/src/embedded-server.ts + main.ts）：内嵌 PG16（UTF8 + 预装 pgvector，动态库去重）+ Next.js standalone 网页 + @memento/server，新装首次打开默认直接启动本机单机版，复启自动拉起、退出优雅停库
+  - [x] 三平台桌面单安装包与无界面零 Docker 单压缩包接入发版流水线（desktop-release.yml + stage-embedded.mjs + pack-standalone.mjs）；本机 Apple Silicon 实测：零 Docker 全链路冷启动 2.65 秒通过（含首次注册、中文全文检索、全量导入导出），真实 macOS 安装包 207 MB（.dmg）/ 210 MB（.zip），从打包后的 Memento.app 内部冷启动验证 5.64 秒通过，无界面单压缩包 80.4 MB（.tar.gz）
   - [x] 单机版 ↔ 服务版双向全量数据迁移（/api/data/export?include_full=1 & /api/data/import + 桌面端 local-server:migrate + LocalServerCard 迁移面板），迁移前自动保留本地备份 ZIP

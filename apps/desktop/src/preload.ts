@@ -53,6 +53,8 @@ contextBridge.exposeInMainWorld("mementoDesktop", {
     stop: () => ipcRenderer.invoke("local-server:stop"),
     migrate: (options: { direction: "to-remote" | "to-local"; remoteUrl: string; remoteEmail?: string; remotePassword?: string; remoteToken?: string }) =>
       ipcRenderer.invoke("local-server:migrate", options),
+    bootRetry: () => ipcRenderer.invoke("boot:retry"),
+    bootUseCloud: () => ipcRenderer.invoke("boot:use-cloud"),
     onProgress: subscribe("local-server:progress"),
   },
   daemon: {

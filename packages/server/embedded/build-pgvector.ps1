@@ -7,7 +7,8 @@ Remove-Item -Recurse -Force $out -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force "$out\lib", "$out\extension" | Out-Null
 $pgroot = $env:PGROOT
 if (-not $pgroot -or -not (Test-Path "$pgroot\include\server")) { throw "PGROOT must point at a PostgreSQL 16 install with include\server" }
-$work = Join-Path $env:RUNNER_TEMP "pgvector"
+$tmpBase = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { $env:TEMP }
+$work = Join-Path $tmpBase "pgvector"
 Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force $work | Out-Null
 Invoke-WebRequest "https://github.com/pgvector/pgvector/archive/refs/tags/v$version.zip" -OutFile "$work\src.zip"

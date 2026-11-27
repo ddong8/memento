@@ -1,6 +1,8 @@
-// The Hono app: the routes moved over from server/ (Python) so far, behind the same middleware behavior
-// (CORS by the configured origin regex, gzip, ETags on GET). Which paths it serves in production is decided
-// by the entrance (deploy/k8s/ingress.yaml); everything else still goes to the Python server.
+// The Hono app: serves all Memento API routes, and in standalone mode (MEMENTO_WEB_UPSTREAM)
+// transparently proxies non-API page & static asset requests to the bundled Next.js server.
+import * as http from "node:http";
+import * as https from "node:https";
+
 import { Hono } from "hono";
 import { compress } from "hono/compress";
 import { cors } from "hono/cors";
@@ -117,8 +119,105 @@ function skipStreamMiddleware(path: string): boolean {
   );
 }
 
+const HOP_BY_HOP = new Set([
+  "connection",
+  "keep-alive",
+  "proxy-authenticate",
+  "proxy-authorization",
+  "te",
+  "trailer",
+  "transfer-encoding",
+  "upgrade",
+]);
+
+function isServerOwnedPath(path: string): boolean {
+  return (
+    path === "/health" ||
+    path.startsWith("/health/") ||
+    path === "/api" ||
+    path.startsWith("/api/") ||
+    path === "/install" ||
+    path.startsWith("/install/") ||
+    path === "/install.sh" ||
+    path === "/install.ps1" ||
+    path === "/agent/quotas" ||
+    path.startsWith("/agent/quotas/") ||
+    path === "/quotas" ||
+    path.startsWith("/quotas/")
+  );
+}
+
+function proxyToWebUpstream(req: Request, upstreamBase: string): Promise<Response> {
+  const incoming = new URL(req.url);
+  const target = new URL(`${incoming.pathname}${incoming.search}`, upstreamBase);
+  const headers: Record<string, string> = {};
+  req.headers.forEach((v, k) => {
+    const low = k.toLowerCase();
+    if (low === "host" || HOP_BY_HOP.has(low)) return;
+    headers[k] = v;
+  });
+  headers["x-forwarded-host"] = incoming.host;
+  headers["x-forwarded-proto"] = incoming.protocol.replace(/:$/, "");
+
+  const hasBody = req.method !== "GET" && req.method !== "HEAD";
+  return (hasBody ? req.arrayBuffer().then((ab) => Buffer.from(ab)) : Promise.resolve(null)).then(
+    (bodyBuf) =>
+      new Promise<Response>((resolve) => {
+        const mod = target.protocol === "https:" ? https : http;
+        if (bodyBuf) headers["content-length"] = String(bodyBuf.byteLength);
+        const upReq = mod.request(
+          target,
+          { method: req.method, headers, timeout: 60_000 },
+          (upRes) => {
+            const outHeaders = new Headers();
+            for (const [k, v] of Object.entries(upRes.headers)) {
+              if (!v || HOP_BY_HOP.has(k.toLowerCase())) continue;
+              if (Array.isArray(v)) {
+                for (const item of v) outHeaders.append(k, item);
+              } else {
+                outHeaders.set(k, v);
+              }
+            }
+            const status = upRes.statusCode ?? 502;
+            const bodyless = req.method === "HEAD" || status === 204 || status === 304;
+            if (bodyless) {
+              upRes.resume();
+              resolve(new Response(null, { status, headers: outHeaders }));
+              return;
+            }
+            const stream = new ReadableStream<Uint8Array>({
+              start(controller) {
+                upRes.on("data", (chunk: Buffer) => controller.enqueue(new Uint8Array(chunk)));
+                upRes.on("end", () => controller.close());
+                upRes.on("error", (err) => controller.error(err));
+              },
+              cancel() {
+                upRes.destroy();
+              },
+            });
+            resolve(new Response(stream, { status, headers: outHeaders }));
+          },
+        );
+        upReq.on("timeout", () => {
+          upReq.destroy(new Error("Web upstream timeout"));
+        });
+        upReq.on("error", (err) => {
+          resolve(
+            new Response(`Web upstream unavailable: ${err.message}`, {
+              status: 502,
+              headers: { "content-type": "text/plain; charset=utf-8" },
+            }),
+          );
+        });
+        if (bodyBuf && bodyBuf.byteLength > 0) upReq.write(bodyBuf);
+        upReq.end();
+      }),
+  );
+}
+
 export function createApp(deps: Deps) {
   const app = new Hono<AppEnv>();
+  const webUpstream = deps.settings.webUpstream;
   let originRe: RegExp;
   try {
     originRe = new RegExp(`^(?:${deps.settings.corsAllowOriginRegex})$`);
@@ -133,12 +232,19 @@ export function createApp(deps: Deps) {
   });
   app.use("*", cors({ origin: (origin) => (origin && originRe.test(origin) ? origin : null), credentials: true, allowMethods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"], allowHeaders: [], maxAge: 600 }));
   app.use("*", async (c, next) => {
-    if (skipStreamMiddleware(c.req.path)) return next();
+    if (skipStreamMiddleware(c.req.path) || (webUpstream && !isServerOwnedPath(c.req.path))) return next();
     return compress({ threshold: 1000 })(c, next);
   });
   app.use("*", async (c, next) => {
-    // Skip automatic ETag on streams, /api/devices, and /api/ask/conversations/:id (they compute their own ETag & 304)
-    if (skipStreamMiddleware(c.req.path) || c.req.path === "/api/devices" || c.req.path.startsWith("/api/ask/conversations/")) return next();
+    // Skip automatic ETag on streams, /api/devices, /api/ask/conversations/:id, and proxied web pages
+    if (
+      skipStreamMiddleware(c.req.path) ||
+      c.req.path === "/api/devices" ||
+      c.req.path.startsWith("/api/ask/conversations/") ||
+      (webUpstream && !isServerOwnedPath(c.req.path))
+    ) {
+      return next();
+    }
     return etag()(c, next);
   });
   app.route("/", healthRoutes);
@@ -189,6 +295,12 @@ export function createApp(deps: Deps) {
   app.route("/api/studio", studioRoutes);
   app.route("/api/plans", planRoutes);
   app.route("/api/missions", missionRoutes);
+  if (webUpstream) {
+    app.all("*", (c, next) => {
+      if (isServerOwnedPath(c.req.path)) return next();
+      return proxyToWebUpstream(c.req.raw, webUpstream);
+    });
+  }
   app.notFound((c) => c.json({ detail: "Not Found" }, 404));
   app.onError((err, c) => errorResponse(c, err));
   return app;

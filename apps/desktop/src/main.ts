@@ -3,7 +3,7 @@ import { autoUpdater } from "electron-updater";
 import { execFile, execFileSync, spawn } from "node:child_process";
 import { createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
-import { release as osRelease } from "node:os";
+import { homedir, release as osRelease } from "node:os";
 import { join, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
@@ -46,9 +46,9 @@ let tray: Tray | undefined;
 let quitting = false;
 let config: CollectorConfig;
 const daemon = new DaemonHost();
-// Zero-Docker embedded server (runs via Electron utilityProcess) with Docker compose fallback
-const spawnEmbeddedServer = (entry: string, env: NodeJS.ProcessEnv, onLog: (line: string) => void): EmbeddedProcessHandle => {
-  const child = utilityProcess.fork(entry, [], { env, stdio: "pipe" });
+// Zero-Docker embedded server (runs PG16 + Next.js standalone + @memento/server via Electron utilityProcess) with Docker compose fallback
+const spawnEmbeddedServer = (entry: string, env: NodeJS.ProcessEnv, onLog: (line: string) => void, cwd?: string): EmbeddedProcessHandle => {
+  const child = utilityProcess.fork(entry, [], { cwd, env, stdio: "pipe" });
   const forward = (buf: Buffer) => {
     for (const line of buf.toString("utf8").split(/[\r\n]+/)) {
       const t = line.trim();
@@ -70,7 +70,52 @@ const spawnEmbeddedServer = (entry: string, env: NodeJS.ProcessEnv, onLog: (line
     },
   };
 };
-const localServer = new LocalServer(join(__dirname, "local-server"), undefined, process.platform, spawnEmbeddedServer);
+const embeddedBundleDir = app.isPackaged
+  ? join(process.resourcesPath, "embedded")
+  : existsSync(join(__dirname, "..", "dist-embedded"))
+    ? join(__dirname, "..", "dist-embedded")
+    : __dirname;
+const localServer = new LocalServer(join(__dirname, "local-server"), undefined, process.platform, spawnEmbeddedServer, embeddedBundleDir);
+
+function isSameLocalOrigin(a: string | undefined, b: string | undefined): boolean {
+  if (!a || !b) return false;
+  try {
+    const ua = new URL(a);
+    const ub = new URL(b);
+    const localHost = (h: string) => h === "127.0.0.1" || h === "localhost" || h === "[::1]";
+    return localHost(ua.hostname) && localHost(ub.hostname) && (ua.port || "80") === (ub.port || "80");
+  } catch {
+    return false;
+  }
+}
+
+function hasSavedCollectorConfig(): boolean {
+  const dir = join(homedir(), ".memento");
+  return existsSync(join(dir, "collector.json")) || existsSync(join(dir, "config.json")) || existsSync(join(dir, "config.toml"));
+}
+
+async function bootEmbeddedAndLoad(): Promise<void> {
+  const sendProgress = (line: string) => {
+    if (win && !win.isDestroyed()) win.webContents.send("local-server:progress", line);
+  };
+  const res = await localServer.embedded.start(sendProgress);
+  if (res.ok && res.url) {
+    if ((config.serverUrl || "").replace(/\/+$/, "") !== res.url) {
+      config = { ...config, serverUrl: res.url, webUrl: undefined };
+      await saveConfig(config);
+    }
+    if (config.token && daemon.mode !== "running" && daemon.mode !== "external") {
+      await daemon.start();
+      refreshTray();
+    }
+    await loadApp();
+    return;
+  }
+  const msg = res.error || "内置服务启动失败";
+  if (win && !win.isDestroyed()) {
+    await win.webContents.executeJavaScript(`window.__mementoBootError && window.__mementoBootError(${JSON.stringify(msg)})`).catch(() => {});
+  }
+}
 
 /** Where the web app is: the server's origin, or a separate web URL on self-hosted setups. */
 const serverOrigin = () => new URL(config.webUrl || config.serverUrl).origin;
@@ -253,7 +298,7 @@ function updateTitleBarOverlay(): void {
   } catch {}
 }
 
-function createWindow(show: boolean): void {
+function createWindow(show: boolean, opts: { deferLoad?: boolean } = {}): void {
   const useNativeGlass = NATIVE_GLASS_SUPPORTED && isGlassEnabled();
   win = new BrowserWindow({
     width: 1280,
@@ -378,7 +423,11 @@ function createWindow(show: boolean): void {
     win?.webContents.executeJavaScript("window.dispatchEvent(new Event('memento_app_active')); window.dispatchEvent(new Event('memento_wake_stream')); true;").catch(() => {});
   });
 
-  void loadApp();
+  if (opts.deferLoad) {
+    void win.loadFile(join(__dirname, "static", "booting.html"));
+  } else {
+    void loadApp();
+  }
 }
 
 async function navigateApp(path?: string): Promise<void> {
@@ -1605,7 +1654,20 @@ function setupIpc(): void {
     await switchServer(cleanUrl, !!opt.resetAuth);
     return { ok: true };
   });
-  // 单机模式: run a personal server on this computer with Docker (src/local-server.ts)
+  ipcMain.handle("boot:retry", async (e) => {
+    const url = e.senderFrame?.url ?? "";
+    if (!url.startsWith("file:")) return { ok: false };
+    void bootEmbeddedAndLoad();
+    return { ok: true };
+  });
+  ipcMain.handle("boot:use-cloud", async (e) => {
+    const url = e.senderFrame?.url ?? "";
+    if (!url.startsWith("file:")) return { ok: false };
+    await switchServer(defaultServerUrl(), true);
+    return { ok: true };
+  });
+
+  // 单机模式: run a personal server on this computer (zero-Docker embedded or Docker compose)
   handle("local-server:status", () => localServer.status());
   handle("local-server:start", async (e) => {
     if (managedPolicy().serverUrl) return { ok: false, error: `这台电脑的管理员已指定服务器 ${managedPolicy().serverUrl}，不能改用本机服务` };
@@ -1828,10 +1890,8 @@ if (!app.requestSingleInstanceLock()) {
   app.on("second-instance", () => showWindow());
   app.on("before-quit", () => {
     quitting = true;
-    if (localServer.embedded.isAvailable()) {
-      void localServer.embedded.stop();
-    }
   });
+  let shuttingDownEmbedded = false;
   app.on("will-quit", (event) => {
     try {
       globalShortcut.unregisterAll();
@@ -1849,9 +1909,15 @@ if (!app.requestSingleInstanceLock()) {
       appSyncTimer = null;
     }
     void syncAppUsageToServer(true);
-    if (daemon.mode === "running" || daemon.mode === "starting") {
+    const needDaemonStop = daemon.mode === "running" || daemon.mode === "starting";
+    const needEmbeddedStop = !shuttingDownEmbedded && localServer.embedded.isAvailable();
+    if (needDaemonStop || needEmbeddedStop) {
       event.preventDefault();
-      void daemon.stop().finally(() => app.exit(0));
+      shuttingDownEmbedded = true;
+      const tasks: Promise<unknown>[] = [];
+      if (needDaemonStop) tasks.push(daemon.stop().catch(() => {}));
+      if (needEmbeddedStop) tasks.push(localServer.embedded.stop().catch(() => {}));
+      void Promise.allSettled(tasks).finally(() => app.exit(0));
     }
   });
   app.on("activate", () => showWindow());
@@ -1993,9 +2059,24 @@ if (!app.requestSingleInstanceLock()) {
     // Only start hidden if explicitly passed --hidden (e.g. silent auto-start at boot).
     // Avoid false positives from app.getLoginItemSettings().wasOpenedAtLogin on macOS.
     const hidden = process.argv.includes(HIDDEN_ARG);
-    createWindow(!hidden);
-    if (config.token) await daemon.start();
-    else daemon.mode = "no-token";
+    const managed = managedPolicy().serverUrl;
+    const embeddedUrl = localServer.embedded.url();
+    const isFreshStandalone = !hasSavedCollectorConfig() && !process.env.MEMENTO_SERVER_URL;
+    const shouldAutoStartEmbedded =
+      localServer.embedded.isAvailable() && !managed && (isFreshStandalone || isSameLocalOrigin(config.serverUrl, embeddedUrl));
+
+    if (shouldAutoStartEmbedded) {
+      if (isFreshStandalone) {
+        config = { ...config, serverUrl: embeddedUrl, webUrl: undefined };
+        await saveConfig(config);
+      }
+      createWindow(!hidden, { deferLoad: true });
+      void bootEmbeddedAndLoad();
+    } else {
+      createWindow(!hidden);
+      if (config.token) await daemon.start();
+      else daemon.mode = "no-token";
+    }
     refreshTray();
     setupUpdater();
     void startNotificationFeedPoller();

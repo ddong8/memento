@@ -19,7 +19,8 @@ const platPkg = `@embedded-postgres/${process.platform === "win32" ? "windows" :
 const nodeModules = require.resolve("embedded-postgres").split(/[\\/]node_modules[\\/]/)[0] + "/node_modules";
 const native = join(nodeModules, platPkg, "native");
 const pkglib = existsSync(join(native, "lib", "postgresql")) ? join(native, "lib", "postgresql") : join(native, "lib");
-const extDir = join(native, "share", "postgresql", "extension");
+// share/postgresql/extension on macOS and Linux, share/extension in the Windows layout
+const extDir = existsSync(join(native, "share", "postgresql", "extension")) ? join(native, "share", "postgresql", "extension") : join(native, "share", "extension");
 for (const f of readdirSync(join(built, "lib"))) cpSync(join(built, "lib", f), join(pkglib, f));
 for (const f of readdirSync(join(built, "extension"))) cpSync(join(built, "extension", f), join(extDir, f));
 console.log("installed into", native);

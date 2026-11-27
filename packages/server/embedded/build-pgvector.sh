@@ -27,7 +27,9 @@ else
     dnf -q -y install "https://download.postgresql.org/pub/repos/yum/reporpms/EL-8-$(uname -m)/pgdg-redhat-repo-latest.noarch.rpm" >/dev/null
     dnf -q -y module disable postgresql >/dev/null
     dnf -q -y install dnf-plugins-core >/dev/null && dnf config-manager --set-enabled powertools
-    dnf -q -y install gcc make redhat-rpm-config postgresql16-devel >/dev/null
+    # The image ships an older libgcc than appstream'"'"'s gcc wants (x86_64 mirrors, 2026-11-27): bring it up first
+    dnf -q -y upgrade libgcc libgomp >/dev/null || true
+    dnf -q -y install --nobest gcc make redhat-rpm-config postgresql16-devel >/dev/null
     # with_llvm=no: no JIT bitcode (needs clang, and the embedded server has no JIT anyway)
     make PG_CONFIG=/usr/pgsql-16/bin/pg_config OPTFLAGS="" with_llvm=no
     ldd --version | head -1'

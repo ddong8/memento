@@ -84,6 +84,98 @@ const cases: Case[] = [
 ];
 
 let failed = 0;
+const check = (name: string, ok: boolean, detail = "") => {
+  if (ok) console.log(`✓ ${name}`);
+  else {
+    failed++;
+    console.log(`✗ ${name}${detail ? "\n  " + detail : ""}`);
+  }
+};
+
+// ---- the same steps on each server, each with its own fresh account: ids and times compared by shape ----
+const ID_KEYS = new Set(["id", "source_doc_id"]);
+const TIME_KEYS = new Set(["created_at", "closed_at"]);
+function shape(v: unknown, ids: Map<string, string>): unknown {
+  if (Array.isArray(v)) return v.map((x) => shape(x, ids));
+  if (v && typeof v === "object") {
+    return Object.fromEntries(
+      Object.entries(v as Record<string, unknown>).map(([k, x]) => {
+        if (ID_KEYS.has(k) && typeof x === "string") {
+          if (!ids.has(x)) ids.set(x, `<id${ids.size + 1}>`);
+          return [k, ids.get(x)];
+        }
+        if (TIME_KEYS.has(k) && typeof x === "string") return [k, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{6})?\+00:00$/.test(x) ? "<time>" : `<bad time ${x}>`];
+        return [k, shape(x, ids)];
+      }),
+    );
+  }
+  return v;
+}
+
+async function account(base: string, tag: string): Promise<Record<string, string>> {
+  const e = `${tag}-${Date.now()}@example.com`;
+  await call(PY, { name: "register", method: "POST", path: "/api/auth/register", body: { email: e, password: "Contract-pass-123", name: tag } });
+  const r = await call(base, { name: "login", method: "POST", path: "/api/auth/login", body: { email: e, password: "Contract-pass-123" } });
+  return { authorization: `Bearer ${(r.body as { access_token: string }).access_token}` };
+}
+
+type Step = { name: string; method: string; path: string; body?: unknown };
+const todoSteps: Step[] = [
+  { name: "todos empty list", method: "GET", path: "/api/todos" },
+  { name: "todo create", method: "POST", path: "/api/todos", body: { title: "  给 memento  加分页 ", source: "mcp", due: "2026-12-01" } },
+  { name: "todo create same title", method: "POST", path: "/api/todos", body: { title: "给memento加分页！", project: "memento", detail: "d" } },
+  { name: "todo create no due", method: "POST", path: "/api/todos", body: { title: "第二件事", due: "2026-W53-1" } },
+  { name: "todo create empty", method: "POST", path: "/api/todos", body: { title: "   " } },
+  { name: "todo create missing title", method: "POST", path: "/api/todos", body: { detail: "x" } },
+  { name: "todo create wrong type", method: "POST", path: "/api/todos", body: { title: 5 } },
+  { name: "todo edit", method: "PUT", path: "/api/todos/{todo}", body: { title: "改过的标题", detail: "  补充  ", project: "", due: "" } },
+  { name: "todo done", method: "PUT", path: "/api/todos/{todo}", body: { status: "done" } },
+  { name: "todo bad status", method: "PUT", path: "/api/todos/{todo}", body: { status: "later" } },
+  { name: "todo not mine", method: "PUT", path: "/api/todos/00000000-0000-0000-0000-000000000000", body: { title: "x" } },
+  { name: "todo bad id", method: "PUT", path: "/api/todos/abc", body: { title: "x" } },
+  { name: "todos list after", method: "GET", path: "/api/todos" },
+  { name: "todos list by project", method: "GET", path: "/api/todos?project=MEM" },
+  { name: "todo reopen", method: "PUT", path: "/api/todos/{todo}", body: { status: "open" } },
+];
+const runs: Record<string, { status: number; body: unknown }[]> = {};
+for (const [side, base] of [["python", PY], ["ts", TS]] as const) {
+  const headers = await account(base, `contract-${side}`);
+  let todoId = "";
+  runs[side] = [];
+  for (const st of todoSteps) {
+    const r = await call(base, { ...st, path: st.path.replace("{todo}", todoId), headers });
+    const id = (r.body as { todo?: { id?: string } })?.todo?.id;
+    if (st.name === "todo create" && id) todoId = id;
+    runs[side]!.push(r);
+  }
+}
+const idsPy = new Map<string, string>();
+const idsTs = new Map<string, string>();
+todoSteps.forEach((st, i) => {
+  const a = runs.python![i]!;
+  const b = runs.ts![i]!;
+  const sa = JSON.stringify(normalize(shape(a.body, idsPy)));
+  const sb = JSON.stringify(normalize(shape(b.body, idsTs)));
+  check(`${st.name} (${a.status})`, a.status === b.status && sa === sb, `python: ${a.status} ${sa}\n  ts:     ${b.status} ${sb}`);
+});
+
+// ---- one account, both servers: what one writes the other reads at once (cache busts cross over) ----
+{
+  const headers = await account(PY, "contract-cross");
+  const titles = async (base: string) => ((await call(base, { name: "", method: "GET", path: "/api/todos", headers })).body as { open: { title: string }[] }).open.map((t) => t.title);
+  await titles(TS);
+  await titles(PY); // both caches warm
+  const made = await call(PY, { name: "", method: "POST", path: "/api/todos", headers, body: { title: "python 建的" } });
+  const seenOnTs = await titles(TS);
+  check("written on python, read on ts at once", seenOnTs.includes("python 建的"), `ts sees ${JSON.stringify(seenOnTs)}`);
+  const id = (made.body as { todo: { id: string } }).todo.id;
+  await call(TS, { name: "", method: "PUT", path: `/api/todos/${id}`, headers, body: { status: "done" } });
+  const seenOnPy = await titles(PY);
+  check("closed on ts, gone from python's open list at once", !seenOnPy.includes("python 建的"), `python sees ${JSON.stringify(seenOnPy)}`);
+  await call(TS, { name: "", method: "POST", path: "/api/todos", headers, body: { title: "ts 建的" } });
+  check("written on ts, read on python at once", (await titles(PY)).includes("ts 建的"));
+}
+
 for (const c of cases) {
   const [a, b] = [await call(PY, c), await call(TS, c)];
   const errTypes = (x: unknown) => JSON.stringify(((x as { detail?: { type?: string }[] })?.detail ?? []).map((d) => d.type));
@@ -96,5 +188,6 @@ for (const c of cases) {
     console.log(`✗ ${c.name}\n  python: ${a.status} ${a.ctype} ${JSON.stringify(normalize(a.body))}\n  ts:     ${b.status} ${b.ctype} ${JSON.stringify(normalize(b.body))}`);
   }
 }
-console.log(failed ? `\n${failed} of ${cases.length} differ` : `\nall ${cases.length} cases match`);
+const total = cases.length + todoSteps.length + 3;
+console.log(failed ? `\n${failed} of ${total} differ` : `\nall ${total} cases match`);
 process.exit(failed ? 1 : 0);

@@ -10,6 +10,7 @@ import type { AppEnv, Deps } from "./context";
 import { errorResponse, HttpError } from "./http";
 import { authRoutes } from "./routes/auth";
 import { healthRoutes } from "./routes/health";
+import { todoRoutes } from "./routes/todos";
 
 /** Paths this server answers, for the entrance and the contract check (scripts/contract.mts). */
 export const MIGRATED_PATHS = [
@@ -18,6 +19,7 @@ export const MIGRATED_PATHS = [
   "/api/auth/token-exchange",
   "/api/auth/registration-mode",
   "/api/auth/me",
+  "/api/todos",
 ] as const;
 
 export function createApp(deps: Deps) {
@@ -39,6 +41,7 @@ export function createApp(deps: Deps) {
   app.use("*", etag());
   app.route("/", healthRoutes);
   app.route("/api/auth", authRoutes);
+  app.route("/api/todos", todoRoutes);
   app.notFound((c) => c.json({ detail: "Not Found" }, 404));
   app.onError((err, c) => errorResponse(c, err));
   return app;

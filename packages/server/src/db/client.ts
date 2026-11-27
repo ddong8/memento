@@ -14,6 +14,8 @@ export function createDb(url: string, max = Number(process.env.MEMENTO_DB_POOL_S
     connect_timeout: 10,
     prepare: true,
     onnotice: () => {},
+    // timestamptz comes back as UTC text, turned into Python's isoformat by pytime.ts
+    connection: { TimeZone: "UTC" },
   });
   return { sql, db: drizzle(sql, { schema }) };
 }

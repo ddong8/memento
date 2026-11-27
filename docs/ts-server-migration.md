@@ -92,7 +92,7 @@
   - [x] 登录相关 5 个接口 + /health、/health/deep；本地契约对照 20 个用例全部一致
   - [x] CI：TS 测试连真实 Postgres、两边起服务跑契约对照
   - [x] 部署：api-ts（镜像在公开的 memento-server 包，ts-<提交号>）
-  - [ ] 入口把 5 个路径切到 api-ts，上线验证看 x-memento-server 头
+  - [x] 入口把 5 个路径切到 api-ts（1313d568，2026-11-27 上线；切前集群内真实数据对照 9 个用例一致），上线验证看 x-memento-server 头
   - [ ] Windows / Linux / Mac Intel 上编译 pgvector 进 CI
 - [ ] P1 简单接口
 - [ ] P2 采集与检索

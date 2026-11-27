@@ -291,6 +291,9 @@ export function tabBarInsetScript(l: TabBarLayout): string {
 
 // Tab bar shrunk while reading: one round pill holding the current tab (iOS 26 minimized tab bar)
 const COMPACT_TAB_SIZE = 50;
+/** Full bar height: close to iOS 26's own floating tab bar, with 50pt touch targets inside. */
+const FULL_TAB_HEIGHT = 60;
+const FULL_TAB_RADIUS = FULL_TAB_HEIGHT / 2;
 
 type ShouldStartLoadRequest = Parameters<NonNullable<WebViewProps["onShouldStartLoadWithRequest"]>>[0];
 
@@ -680,7 +683,7 @@ export default function WebShell() {
   const compactTabBar = tabBarCompact && !keyboardVisible;
   const tabBarLayout = useMemo<TabBarLayout>(
     () => ({
-      inset: keyboardVisible ? 0 : (compactTabBar ? COMPACT_TAB_SIZE : 54) + tabBarBottom + 8,
+      inset: keyboardVisible ? 0 : (compactTabBar ? COMPACT_TAB_SIZE : FULL_TAB_HEIGHT) + tabBarBottom + 8,
       compact: compactTabBar,
       side: compactTabBar ? COMPACT_TAB_SIZE + 8 : 0,
       bottom: tabBarBottom,
@@ -819,7 +822,7 @@ export default function WebShell() {
             style={[
               styles.tabBarShadow,
               {
-                borderRadius: compactTabBar ? COMPACT_TAB_SIZE / 2 : 27,
+                borderRadius: compactTabBar ? COMPACT_TAB_SIZE / 2 : FULL_TAB_RADIUS,
                 shadowColor: dark ? "#000000" : "#18142B",
                 shadowOpacity: dark ? 0.42 : 0.12,
               },
@@ -895,7 +898,7 @@ export default function WebShell() {
                       ]}
                       hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
                     >
-                      <Icon name={tab.icon} size={19} color={color} strokeWidth={isActive ? 2.2 : 1.85} />
+                      <Icon name={tab.icon} size={21} color={color} strokeWidth={isActive ? 2.2 : 1.85} />
                       <Text style={[styles.tabLabel, { color, fontWeight: isActive ? "600" : "500" }]} numberOfLines={1}>
                         {tab.label}
                       </Text>
@@ -927,14 +930,14 @@ const styles = StyleSheet.create({
     zIndex: 40,
   },
   tabBarShadow: {
-    borderRadius: 27,
+    borderRadius: FULL_TAB_RADIUS,
     backgroundColor: "transparent",
     shadowOffset: { width: 0, height: 6 },
     shadowRadius: 16,
     elevation: 10,
   },
   tabBarDock: {
-    borderRadius: 27,
+    borderRadius: FULL_TAB_RADIUS,
   },
   tabBarDockCompact: {
     width: COMPACT_TAB_SIZE,
@@ -942,7 +945,7 @@ const styles = StyleSheet.create({
     borderRadius: COMPACT_TAB_SIZE / 2,
   },
   tabBarRow: {
-    height: 54,
+    height: FULL_TAB_HEIGHT,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
@@ -951,11 +954,11 @@ const styles = StyleSheet.create({
   },
   tabItem: {
     flex: 1,
-    height: 44,
-    borderRadius: 22,
+    height: FULL_TAB_HEIGHT - 10,
+    borderRadius: (FULL_TAB_HEIGHT - 10) / 2,
     alignItems: "center",
     justifyContent: "center",
-    gap: 2,
+    gap: 3,
     paddingHorizontal: 3,
   },
   compactTab: {
@@ -965,8 +968,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   tabLabel: {
-    fontSize: 10.5,
-    lineHeight: 13,
+    fontSize: 11,
+    lineHeight: 14,
     letterSpacing: -0.2,
   },
 });

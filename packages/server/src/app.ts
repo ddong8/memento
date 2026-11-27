@@ -9,13 +9,20 @@ import { etag } from "hono/etag";
 import type { AppEnv, Deps } from "./context";
 import { errorResponse, HttpError } from "./http";
 import { authRoutes } from "./routes/auth";
+import { dailyRoutes } from "./routes/daily";
 import { dashboardRoutes } from "./routes/dashboard";
+import { dataIoRoutes } from "./routes/data-io";
 import { documentRoutes } from "./routes/documents";
+import { eventRoutes } from "./routes/events";
 import { healthRoutes } from "./routes/health";
 import { hierarchyRoutes } from "./routes/hierarchy";
 import { installRoutes } from "./routes/install";
+import { lifeRoutes } from "./routes/life";
+import { llmRoutes } from "./routes/llm";
 import { mediaRoutes } from "./routes/media";
+import { notifyRoutes } from "./routes/notify";
 import { pluginRoutes } from "./routes/plugins";
+import { proactiveRoutes } from "./routes/proactive";
 import { skillRoutes } from "./routes/skills";
 import { todoRoutes } from "./routes/todos";
 import { publicRoutes, toolRoutes } from "./routes/tools";
@@ -39,6 +46,13 @@ export const MIGRATED_PATHS = [
   "/api/plugins",
   "/api/system/update",
   "/install",
+  "/api/events",
+  "/api/notify",
+  "/api/profile/llm",
+  "/api/daily",
+  "/api/life",
+  "/api/proactive",
+  "/api/data",
 ] as const;
 
 export function createApp(deps: Deps) {
@@ -56,8 +70,15 @@ export function createApp(deps: Deps) {
     c.header("x-memento-server", `ts ${deps.settings.buildSha}`);
   });
   app.use("*", cors({ origin: (origin) => (origin && originRe.test(origin) ? origin : null), credentials: true, allowMethods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"], allowHeaders: [], maxAge: 600 }));
-  app.use("*", compress({ threshold: 1000 }));
-  app.use("*", etag());
+  app.use("*", async (c, next) => {
+    // Never gzip SSE streams (buffering breaks real-time delivery)
+    if (c.req.path === "/api/events/stream" || c.req.path.endsWith("/stream")) return next();
+    return compress({ threshold: 1000 })(c, next);
+  });
+  app.use("*", async (c, next) => {
+    if (c.req.path === "/api/events/stream" || c.req.path.endsWith("/stream")) return next();
+    return etag()(c, next);
+  });
   app.route("/", healthRoutes);
   app.route("/", installRoutes);
   app.route("/api/auth", authRoutes);
@@ -71,6 +92,13 @@ export function createApp(deps: Deps) {
   app.route("/api/skills", skillRoutes);
   app.route("/api/plugins", pluginRoutes);
   app.route("/api/system/update", updateRoutes);
+  app.route("/api/events", eventRoutes);
+  app.route("/api/notify", notifyRoutes);
+  app.route("/api/profile/llm", llmRoutes);
+  app.route("/api/daily", dailyRoutes);
+  app.route("/api/life", lifeRoutes);
+  app.route("/api/proactive", proactiveRoutes);
+  app.route("/api/data", dataIoRoutes);
   app.notFound((c) => c.json({ detail: "Not Found" }, 404));
   app.onError((err, c) => errorResponse(c, err));
   return app;

@@ -34,6 +34,21 @@ spec:
           - path: /api/public
             pathType: Prefix
             backend: { service: { name: api-ts, port: { number: 8000 } } }
+          - path: /api/dashboard
+            pathType: Prefix
+            backend: { service: { name: api-ts, port: { number: 8000 } } }
+          - path: /api/hierarchy
+            pathType: Prefix
+            backend: { service: { name: api-ts, port: { number: 8000 } } }
+          - path: /api/documents
+            pathType: Prefix
+            backend: { service: { name: api-ts, port: { number: 8000 } } }
+          - path: /api/skills
+            pathType: Prefix
+            backend: { service: { name: api-ts, port: { number: 8000 } } }
+          - path: /api/system/update
+            pathType: Prefix
+            backend: { service: { name: api-ts, port: { number: 8000 } } }
           - path: /api
             pathType: Prefix
             backend: { service: { name: api, port: { number: 8000 } } }
@@ -48,7 +63,7 @@ spec:
             backend: { service: { name: api, port: { number: 8000 } } }
           - path: /install
             pathType: Prefix
-            backend: { service: { name: api, port: { number: 8000 } } }
+            backend: { service: { name: api-ts, port: { number: 8000 } } }
           - path: /
             pathType: Prefix
             backend: { service: { name: web, port: { number: 3000 } } }

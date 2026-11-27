@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `45375424` · Updated: `2026-11-27`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `7921c4bd` · Updated: `2026-11-27`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,8 +16,8 @@
 - 规模 (Scale): 10 个子系统 · 44 组 API 路由 / 346 个接口 · 39 个前端页面 · 126 个数据模型 · 35 个服务模块 · 289 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `packages/server`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `45375424` (2026-11-27): docs: 服务端 TS 迁移 P0 完成（五平台 pgvector 验证通过），P1 已迁待办、工具、公开统计
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 77（✅ 77 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 12 · 状态 10 · 最近提交碰到 `R-CI-KUSTOMIZE-PINNED`, `R-DEPLOY-AFTER-CI`, `R-DEPLOY-BUMP-RACE`, `F-BLUEPRINT`
+- 最近改动 (Latest): `7921c4bd` (2026-11-27): feat(server-ts): 迁移看板、层级、文档、媒体、技能、插件、更新与安装脚本接口（P1 首批，先部署暂不切入口）
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 75（✅ 75 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-CI-KUSTOMIZE-PINNED`, `R-DEPLOY-AFTER-CI`, `R-DEPLOY-BUMP-RACE`, `F-BLUEPRINT`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -31,7 +31,7 @@
 | 8. Development & Verification Commands | L704-L721 |
 | 9. Recent Architectural Evolutions | L723-L730 |
 | 10. Key Environment Variables & Configuration | L732-L744 |
-| 11. 业务蓝图核对 (Business Blueprint Check) | L746-L754 |
+| 11. 业务蓝图核对 (Business Blueprint Check) | L746-L755 |
 
 ## 1. Project Overview & Tech Stack
 
@@ -722,12 +722,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `7921c4bd` (2026-11-27): feat(server-ts): 迁移看板、层级、文档、媒体、技能、插件、更新与安装脚本接口（P1 首批，先部署暂不切入口）
 - `45375424` (2026-11-27): docs: 服务端 TS 迁移 P0 完成（五平台 pgvector 验证通过），P1 已迁待办、工具、公开统计
 - `33dde2b3` (2026-11-27): fix(server-ts): Linux x64 编 pgvector 前先升级 libgcc（镜像源版本不一致）；Windows 扩展目录按 share/extension 布局识别
 - `91f55355` (2026-11-27): fix(server-ts): Windows 上经 pg_ctl 启动内嵌 Postgres（管理员账号不能直接启动 postgres）；记录多平台编译结果
 - `b24876cc` (2026-11-27): feat(server-ts): 入口把 /api/tools 与 /api/public 切到 TypeScript 服务端；修多平台 pgvector 编译
 - `99808b74` (2026-11-27): feat(server-ts): 工具浏览与公开统计接口迁到 TypeScript（先部署，入口下一步再切）
-- `f228e002` (2026-11-27): feat(server-ts): 入口把 /api/todos 切到 TypeScript 服务端；CI 在五个平台编译 pgvector 并在内嵌 Postgres 里验证
 
 ## 10. Key Environment Variables & Configuration
 
@@ -745,11 +745,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 11. 业务蓝图核对 (Business Blueprint Check)
 
-- 业务蓝图：[BUSINESS_BLUEPRINT.md](BUSINESS_BLUEPRINT.md) · 规则 77（✅ 77 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 12 · 状态 10
+- 业务蓝图：[BUSINESS_BLUEPRINT.md](BUSINESS_BLUEPRINT.md) · 规则 75（✅ 75 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9
 - 结论：✅ 没有失效或违规
 
 ### 最近提交碰到的业务条目（改动后复查它们还成不成立）
 
+- `7921c4bd` feat(server-ts): 迁移看板、层级、文档、媒体、技能、插件、更新与安装脚本接口（P1 首批，先部署暂不切入口） → `R-CI-KUSTOMIZE-PINNED`, `R-DEPLOY-AFTER-CI`, `R-DEPLOY-BUMP-RACE`
 - `b24876cc` feat(server-ts): 入口把 /api/tools 与 /api/public 切到 TypeScript 服务端；修多平台 pgvector 编译 → `R-CI-KUSTOMIZE-PINNED`, `R-DEPLOY-AFTER-CI`, `R-DEPLOY-BUMP-RACE`
 - `99808b74` feat(server-ts): 工具浏览与公开统计接口迁到 TypeScript（先部署，入口下一步再切） → `F-BLUEPRINT`
 

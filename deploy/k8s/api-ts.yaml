@@ -22,6 +22,21 @@ spec:
           envFrom:
             - configMapRef: { name: memento-config }
             - secretRef: { name: memento-secret }
+          env:
+            - name: MEMENTO_S3_ACCESS_KEY
+              valueFrom: { secretKeyRef: { name: memento-secret, key: MINIO_ROOT_USER } }
+            - name: MEMENTO_S3_SECRET_KEY
+              valueFrom: { secretKeyRef: { name: memento-secret, key: MINIO_ROOT_PASSWORD } }
+            - name: MEMENTO_APNS_AUTH_KEY
+              valueFrom: { secretKeyRef: { name: memento-apns, key: auth_key, optional: true } }
+            - name: MEMENTO_APNS_KEY_ID
+              valueFrom: { secretKeyRef: { name: memento-apns, key: key_id, optional: true } }
+            - name: MEMENTO_APNS_TEAM_ID
+              valueFrom: { secretKeyRef: { name: memento-apns, key: team_id, optional: true } }
+            - name: MEMENTO_APNS_BUNDLE_ID
+              valueFrom: { secretKeyRef: { name: memento-apns, key: bundle_id, optional: true } }
+            - name: MEMENTO_STUDIO_FILMKIT_TOKEN
+              valueFrom: { secretKeyRef: { name: memento-studio, key: filmkit_token, optional: true } }
           ports:
             - containerPort: 8000
           readinessProbe:
@@ -39,8 +54,15 @@ spec:
             preStop:
               sleep: { seconds: 10 }
           resources:
-            requests: { cpu: 50m, memory: 96Mi }
-            limits: { cpu: "1", memory: 512Mi }
+            requests: { cpu: 50m, memory: 128Mi }
+            limits: { cpu: "1", memory: 1Gi }
+          volumeMounts:
+            - name: media-cache
+              mountPath: /data2
+      volumes:
+        - name: media-cache
+          emptyDir:
+            sizeLimit: 10Gi
 ---
 apiVersion: v1
 kind: Service

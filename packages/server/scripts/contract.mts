@@ -248,12 +248,23 @@ if (dbUrl && redisUrl) {
     ["install.sh", "/install.sh"],
     ["install.ps1", "/install.ps1"],
     ["install executor.sh", "/install/executor.sh"],
+    ["notify settings", "/api/notify/settings"],
+    ["notify feed", "/api/notify/feed"],
+    ["llm settings", "/api/profile/llm"],
+    ["llm agent settings", "/api/profile/llm/agent"],
+    ["proactive settings", "/api/proactive/settings"],
+    ["daily dates", "/api/daily?days=30&tz_offset=-480"],
+    ["daily detail", "/api/daily/2026-11-27?tz_offset=-480"],
+    ["daily bad date", "/api/daily/not-a-date"],
+    ["daily messages", "/api/daily/2026-11-27/messages?tz_offset=-480"],
+    ["daily summary missing", "/api/daily/2026-11-27/summary"],
+    ["life rhythm", "/api/life/rhythm?days=7&tz_offset=-480"],
   ];
   for (const [who, headers] of [["owner", ownerAuth], ["viewer", viewerHeaders]] as const) {
     for (const [name, path] of reads) {
       // Each server computes it itself: drop the shared cache before each call (and wait out the other's 3 s L1)
       const fresh = async (base: string) => {
-        for (const pat of ["tools:list:*", "dashboard:*", "hierarchy:*", "skills:*"]) {
+        for (const pat of ["tools:list:*", "dashboard:*", "hierarchy:*", "skills:*", "daily:*", "life:*"]) {
           const keys = await redis.keys(pat);
           if (keys.length) await redis.del(...keys);
         }
@@ -282,6 +293,6 @@ for (const c of cases) {
     console.log(`✗ ${c.name}\n  python: ${a.status} ${a.ctype} ${JSON.stringify(normalize(a.body))}\n  ts:     ${b.status} ${b.ctype} ${JSON.stringify(normalize(b.body))}`);
   }
 }
-const total = cases.length + todoSteps.length + 3 + (dbUrl && redisUrl ? 68 : 0);
+const total = cases.length + todoSteps.length + 3 + (dbUrl && redisUrl ? 90 : 0);
 console.log(failed ? `\n${failed} of ${total} differ` : `\nall ${total} cases match`);
 process.exit(failed ? 1 : 0);

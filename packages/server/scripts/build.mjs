@@ -1,4 +1,4 @@
-// One bundled file, dependencies included (no node_modules in the image): dist/main.mjs.
+// One bundled file, dependencies included (native @node-rs/jieba stays external): dist/main.mjs.
 import { build } from "esbuild";
 
 await build({
@@ -9,7 +9,8 @@ await build({
   target: "node22",
   format: "esm",
   sourcemap: true,
-  // ioredis/postgres use require() in places: give the ESM bundle one
+  external: ["@node-rs/jieba", "@node-rs/jieba/*", "@node-rs/jieba-*"],
+  // ioredis/postgres/jieba use require() in places: give the ESM bundle one
   banner: { js: "import { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);" },
   logLevel: "info",
 });

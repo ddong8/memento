@@ -28,8 +28,9 @@ const MASK = new Set(["access_token"]);
 function normalize(v: unknown): unknown {
   if (Array.isArray(v)) return v.map(normalize);
   if (v && typeof v === "object") {
+    // Key order isn't part of the contract (a dict built from GROUP BY rows comes in the database's order)
     return Object.fromEntries(
-      Object.entries(v as Record<string, unknown>).map(([k, x]) => [k, MASK.has(k) && typeof x === "string" ? `<${x.split(".").length}-part token>` : k === "input" ? "<input>" : normalize(x)]),
+      Object.entries(v as Record<string, unknown>).sort(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0)).map(([k, x]) => [k, MASK.has(k) && typeof x === "string" ? `<${x.split(".").length}-part token>` : k === "input" ? "<input>" : normalize(x)]),
     );
   }
   return v;
@@ -176,6 +177,69 @@ todoSteps.forEach((st, i) => {
   check("written on ts, read on python at once", (await titles(PY)).includes("ts 建的"));
 }
 
+// ---- read-only endpoints over seeded data, as an owner (sees all) and as a viewer (only their devices) ----
+const dbUrl = args.get("db");
+const redisUrl = args.get("redis");
+if (dbUrl && redisUrl) {
+  const { default: postgres } = await import("postgres");
+  const { Redis } = await import("ioredis");
+  const sqlc = postgres(dbUrl.replace(/^postgresql\+[a-z]+:/, "postgres:"), { max: 2, onnotice: () => {} });
+  const redis = new Redis(redisUrl);
+  const viewerHeaders = await account(PY, "contract-viewer");
+  const ownerId = (me as unknown as { id: string }).id;
+  const viewerId = ((await call(PY, { name: "", method: "GET", path: "/api/auth/me", headers: viewerHeaders })).body as { id: string }).id;
+  await sqlc`INSERT INTO tools (id, display_name, icon, total_files, total_size_bytes, last_sync_at) VALUES
+    ('claude_code', 'Claude Code', 'claude', 3, 4096, '2026-11-27 05:00:00.123+00'), ('codex', 'Codex', NULL, 1, 10, NULL)
+    ON CONFLICT (id) DO NOTHING`;
+  const m1 = "11111111-1111-1111-1111-111111111111";
+  const m2 = "22222222-2222-2222-2222-222222222222";
+  await sqlc`INSERT INTO machines (id, name, collector_token_hash, user_id) VALUES
+    (${m1}, 'owner-mac', 'hash-owner', ${ownerId}), (${m2}, 'viewer-pc', 'hash-viewer', ${viewerId})
+    ON CONFLICT (id) DO NOTHING`;
+  const doc = (n: number, tool: string, cat: string, m: string, at: string) => sqlc`INSERT INTO documents
+    (id, tool_id, relative_path, category, content_type, content_hash, file_size_bytes, metadata, visibility, needs_review,
+     embedding_status, embedding_attempts, knowledge_status, knowledge_attempts, machine_id, title, ai_summary, synced_at)
+    VALUES (${`00000000-0000-0000-0000-00000000000${n}`}, ${tool}, ${`p/${n}.jsonl`}, ${cat}, 'jsonl', ${`h${n}`}, ${n * 100}, '{}', 'private', false,
+     'done', 0, 'done', 0, ${m}, ${`标题 ${n}`}, ${n % 2 ? "摘要" : null}, ${at})
+    ON CONFLICT (id) DO NOTHING`;
+  await doc(1, "claude_code", "conversation", m1, "2026-11-27 05:00:00.5+00");
+  await doc(2, "claude_code", "conversation", m2, "2026-11-27 06:00:00+00");
+  await doc(3, "claude_code", "memory", m1, "2026-11-27 07:00:00.000123+00");
+  await doc(4, "codex", "conversation", m2, "2026-11-26 07:00:00+00");
+  const ownerAuth = { authorization: `Bearer ${token}` };
+  const reads: [string, string][] = [
+    ["tools", "/api/tools"],
+    ["tools of a device", "/api/tools?device_id=hash-owner"],
+    ["tool", "/api/tools/claude_code"],
+    ["tool of a device", "/api/tools/claude_code?device_id=hash-viewer"],
+    ["unknown tool", "/api/tools/nope"],
+    ["tool files", "/api/tools/claude_code/files"],
+    ["tool files paged", "/api/tools/claude_code/files?category=conversation&limit=1&offset=1"],
+    ["tool files limit 0", "/api/tools/claude_code/files?limit=0"],
+    ["tool files limit 201", "/api/tools/claude_code/files?limit=201"],
+    ["tool files offset -1", "/api/tools/claude_code/files?offset=-1"],
+    ["tool files limit abc", "/api/tools/claude_code/files?limit=abc"],
+    ["public stats", "/api/public/stats"],
+  ];
+  for (const [who, headers] of [["owner", ownerAuth], ["viewer", viewerHeaders]] as const) {
+    for (const [name, path] of reads) {
+      // Each server computes it itself: drop the shared cache before each call (and wait out the other's 3 s L1)
+      const fresh = async (base: string) => {
+        const keys = await redis.keys("tools:list:*");
+        if (keys.length) await redis.del(...keys);
+        return call(base, { name, method: "GET", path, headers });
+      };
+      const a = await fresh(PY);
+      const b = await fresh(TS);
+      const sa = JSON.stringify(normalize(a.body));
+      const sb = JSON.stringify(normalize(b.body));
+      check(`${who}: ${name} (${a.status})`, a.status === b.status && sa === sb, `python: ${a.status} ${sa}\n  ts:     ${b.status} ${sb}`);
+    }
+  }
+  await sqlc.end();
+  redis.disconnect();
+}
+
 for (const c of cases) {
   const [a, b] = [await call(PY, c), await call(TS, c)];
   const errTypes = (x: unknown) => JSON.stringify(((x as { detail?: { type?: string }[] })?.detail ?? []).map((d) => d.type));
@@ -188,6 +252,6 @@ for (const c of cases) {
     console.log(`✗ ${c.name}\n  python: ${a.status} ${a.ctype} ${JSON.stringify(normalize(a.body))}\n  ts:     ${b.status} ${b.ctype} ${JSON.stringify(normalize(b.body))}`);
   }
 }
-const total = cases.length + todoSteps.length + 3;
+const total = cases.length + todoSteps.length + 3 + (dbUrl && redisUrl ? 24 : 0);
 console.log(failed ? `\n${failed} of ${total} differ` : `\nall ${total} cases match`);
 process.exit(failed ? 1 : 0);

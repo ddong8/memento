@@ -63,3 +63,20 @@ export async function jsonBody<R extends string, O extends string>(
   if (errors.length) throw new HttpError(422, errors);
   return out as Record<R, string> & Partial<Record<O, string | null>>;
 }
+
+/** An integer query parameter with FastAPI's Query(default, ge=, le=) checks and 422s. */
+export function queryInt(c: Context, name: string, fallback: number, bounds: { ge?: number; le?: number } = {}): number {
+  const raw = c.req.query(name);
+  if (raw === undefined) return fallback;
+  if (!/^\s*[+-]?\d+\s*$/.test(raw)) {
+    throw new HttpError(422, [{ type: "int_parsing", loc: ["query", name], msg: "Input should be a valid integer, unable to parse string as an integer", input: raw }]);
+  }
+  const n = Number(raw.trim());
+  if (bounds.ge !== undefined && n < bounds.ge) {
+    throw new HttpError(422, [{ type: "greater_than_equal", loc: ["query", name], msg: `Input should be greater than or equal to ${bounds.ge}`, input: raw, ctx: { ge: bounds.ge } }]);
+  }
+  if (bounds.le !== undefined && n > bounds.le) {
+    throw new HttpError(422, [{ type: "less_than_equal", loc: ["query", name], msg: `Input should be less than or equal to ${bounds.le}`, input: raw, ctx: { le: bounds.le } }]);
+  }
+  return n;
+}

@@ -169,6 +169,7 @@ jobs:
             -d '{"email":"contract@example.com","password":"Contract-pass-123","name":"对照"}' >/dev/null
           node packages/server/scripts/contract.mts --py http://127.0.0.1:18001 --ts http://127.0.0.1:18002 \
             --email contract@example.com --password Contract-pass-123 \
+            --db postgres://postgres:test@localhost:5432/memento --redis redis://localhost:6379/0 \
             || { echo "--- python"; tail -50 /tmp/py.log; echo "--- ts"; tail -50 /tmp/ts.log; exit 1; }
 
   ts-client:

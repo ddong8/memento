@@ -37,6 +37,8 @@ export function loadSettings(env: Env = process.env) {
     port: parseIntStrict(s("port"), 8000, "PORT"),
     debug: parseBool(s("debug"), false),
     registrationMode: s("registration_mode", "open"),
+    /** own: admins see only their own data; all (default): everyone's (enterprise_policy.sees_all) */
+    adminScope: s("admin_scope", "all"),
     passwordLogin: parseBool(s("password_login"), true),
     githubClientId: s("github_client_id"),
     githubClientSecret: s("github_client_secret"),

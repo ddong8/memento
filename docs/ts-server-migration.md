@@ -70,9 +70,17 @@
 | 内嵌 Postgres 的 pgvector 没有现成三平台包 | P0 在 CI 里自己编译（与现在打安装包同一套流水线），验证不过就停下来重新评估 |
 | 周期长，期间新功能两边都要写 | 新功能一律只写 TypeScript：所在前缀还没迁的，先把那块迁过来再加 |
 
-## 5. 进度
+## 5. P0 技术验证结果（2026-11-27，本机 Apple 芯片 Mac）
 
-- [ ] P0 地基与单安装包技术验证
+1) 中文分词：@node-rs/jieba 2.0.4（自带词典、cutForSearch 开 HMM）和服务端的 jieba 0.42.1 对照，用仓库里 27 万字符的中英混排文档（README、业务蓝图、docs 等）按服务端同样的标点规则切成 25,717 段，逐段结果完全一致。老的全文索引迁移后直接可用，不用重建。
+2) 内嵌数据库：embedded-postgres 16.16（npm 预编译包，和线上同为 PG16）半秒启动；它不带 pgvector，用 PG16 头文件自己编译 pgvector 0.8.1（只依赖系统库），把 vector.dylib 放进 lib/postgresql、控制文件和 SQL 放进 share/postgresql/extension 后，向量列、HNSW 索引、余弦距离查询、jsonb、GIN 全文索引都正常。
+3) 必须注意：内嵌包默认用 SQL_ASCII 初始化，中文进不了全文索引（to_tsvector 结果为空、查不到）。初始化必须带 `--encoding=UTF8 --locale=C`，改后中文检索正常。
+4) 体积：这一版 Mac 包里库文件有重复副本，去重后 136 MB、压缩后约 48 MB（大头是 ICU 数据 55 MB）。
+5) 还要做：Windows（x64）、Linux（x64 / arm64）、Mac Intel 上同样编译 pgvector 并验证，放进 CI；npm 上没有现成的三平台 pgvector 包。
+
+## 6. 进度
+
+- [ ] P0 地基与单安装包技术验证（分词一致性、Mac 上内嵌 Postgres + pgvector 已验证通过，见第 5 节）
 - [ ] P1 简单接口
 - [ ] P2 采集与检索
 - [ ] P3 设备与实时

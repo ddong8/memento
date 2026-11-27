@@ -89,11 +89,34 @@ export function dockerPath(docker: string, platform: NodeJS.Platform = process.p
   return [...new Set([...own, ...extra, ...current.split(sep).filter(Boolean)])].join(sep);
 }
 
+/** Where the compose plugin may be (an isolated DOCKER_CONFIG would otherwise lose ~/.docker/cli-plugins). */
+export function pluginDirs(platform: NodeJS.Platform = process.platform, home = homedir(), dockerConfig = process.env.DOCKER_CONFIG): string[] {
+  const own = [join(dockerConfig || join(home, ".docker"), "cli-plugins"), join(home, ".docker", "cli-plugins")];
+  const system =
+    platform === "win32"
+      ? ["C:\\Program Files\\Docker\\cli-plugins", "C:\\Program Files\\Docker\\Docker\\resources\\cli-plugins"]
+      : platform === "darwin"
+        ? ["/Applications/Docker.app/Contents/Resources/cli-plugins", "/usr/local/lib/docker/cli-plugins", "/opt/homebrew/lib/docker/cli-plugins"]
+        : ["/usr/local/lib/docker/cli-plugins", "/usr/libexec/docker/cli-plugins", "/usr/lib/docker/cli-plugins"];
+  return [...new Set([...own, ...system])];
+}
+
+/**
+ * The docker config the personal stack runs with: no credential store, the user's plugin folders.
+ * Its images are public, and Docker Desktop's credential helper (docker-credential-desktop) can hang waiting on
+ * the keychain, which stalls every pull with no output (seen 2026-11-27: an hour without one layer).
+ */
+export function isolatedDockerConfig(platform: NodeJS.Platform = process.platform, home = homedir(), dockerConfig = process.env.DOCKER_CONFIG): string {
+  return JSON.stringify({ cliPluginsExtraDirs: pluginDirs(platform, home, dockerConfig) }, null, 2) + "\n";
+}
+
 const stripAnsi = (s: string) => s.replace(/\u001b\[[0-9;?]*[A-Za-z]/g, "");
 
 export class LocalServer {
   readonly dir: string;
   private docker: string | null = null;
+  /** Env for compose: the isolated docker config pointed at the engine the user's context uses. */
+  private composeEnv: NodeJS.ProcessEnv | null = null;
   private starting: Promise<{ ok: boolean; url?: string; error?: string; code?: string }> | null = null;
 
   constructor(
@@ -191,6 +214,24 @@ export class LocalServer {
     }
   }
 
+  private async prepareComposeEnv(): Promise<NodeJS.ProcessEnv> {
+    const docker = this.docker ?? "docker";
+    const base: NodeJS.ProcessEnv = { ...process.env, PATH: dockerPath(docker, this.platform) };
+    let host = process.env.DOCKER_HOST?.trim();
+    if (!host) {
+      const r = await this.run(["context", "inspect", "--format", "{{.Endpoints.docker.Host}}"], 10_000);
+      if (r.code === 0) host = r.out.trim().split(/\r?\n/)[0]?.trim();
+    }
+    // Can't tell where the engine is: keep the user's own config rather than lose the connection
+    if (!host || !/^(unix|npipe|tcp|ssh):\/\//.test(host)) return base;
+    const cfg = join(this.dir, "docker-config");
+    mkdirSync(cfg, { recursive: true, mode: 0o700 });
+    writeFileSync(join(cfg, "config.json"), isolatedDockerConfig(this.platform));
+    const env: NodeJS.ProcessEnv = { ...base, DOCKER_CONFIG: cfg, DOCKER_HOST: host };
+    delete env.DOCKER_CONTEXT;
+    return env;
+  }
+
   /** One `docker compose` command in the install folder, its output line by line to `progress`. */
   private compose(args: string[], progress: (line: string) => void, timeoutMs: number): Promise<{ code: number; tail: string }> {
     const docker = this.docker ?? "docker";
@@ -198,7 +239,7 @@ export class LocalServer {
       const child = spawn(docker, ["compose", "--ansi", "never", "-p", LOCAL_PROJECT, "--project-directory", this.dir, "-f", join(this.dir, "docker-compose.yml"), ...args], {
         cwd: this.dir,
         windowsHide: true,
-        env: { ...process.env, PATH: dockerPath(docker, this.platform) },
+        env: this.composeEnv ?? { ...process.env, PATH: dockerPath(docker, this.platform) },
       });
       const tail: string[] = [];
       let last = 0;
@@ -248,6 +289,7 @@ export class LocalServer {
     }
     docker = "ready";
     this.writeFiles();
+    this.composeEnv = await this.prepareComposeEnv();
     progress("下载最新的镜像（第一次约 1.5 GB）…");
     const pull = await this.compose(["pull", "--ignore-pull-failures"], progress, 40 * 60_000);
     if (pull.code !== 0) progress("部分镜像没下载成功，先用已有的启动");
@@ -268,6 +310,7 @@ export class LocalServer {
 
   async stop(): Promise<{ ok: boolean; error?: string }> {
     if ((await this.dockerState()) !== "ready") return { ok: true };
+    this.composeEnv ??= await this.prepareComposeEnv();
     const r = await this.compose(["stop"], () => {}, 120_000);
     return r.code === 0 ? { ok: true } : { ok: false, error: r.tail };
   }

@@ -52,8 +52,11 @@ services:
       timeout: 5s
       retries: 10
 
+  # MinIO stopped publishing free images in 2025-10 (minio/minio is gone from Docker Hub, Quay needs a login):
+  # Chainguard's free build of it, amd64 + arm64. Run as root so volumes made by the old image stay writable.
   minio:
-    image: ${MINIO_IMAGE:-minio/minio:latest}
+    image: ${MINIO_IMAGE:-cgr.dev/chainguard/minio:latest}
+    user: "0:0"
     restart: unless-stopped
     command: server /data
     environment:

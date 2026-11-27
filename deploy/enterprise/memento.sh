@@ -15,6 +15,17 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 DC=(docker compose)
+
+# 单机模式（.env 里 DEPLOY_MODE=personal）：镜像都是公开的，docker 改用不带凭据存储的独立配置。
+# Docker Desktop 的凭据助手（docker-credential-desktop）会卡在钥匙串上，拉取一直没有输出（2026-11-27 实测卡了一小时）
+if grep -q '^DEPLOY_MODE=personal$' .env 2>/dev/null && [ -z "${DOCKER_CONFIG:-}" ] && command -v docker >/dev/null 2>&1; then
+  docker_host="${DOCKER_HOST:-$(docker context inspect --format '{{.Endpoints.docker.Host}}' 2>/dev/null || true)}"
+  if [ -n "$docker_host" ]; then
+    mkdir -p docker-config
+    printf '{"cliPluginsExtraDirs":["%s","/Applications/Docker.app/Contents/Resources/cli-plugins","/usr/local/lib/docker/cli-plugins","/opt/homebrew/lib/docker/cli-plugins","/usr/libexec/docker/cli-plugins","/usr/lib/docker/cli-plugins"]}\n' "$HOME/.docker/cli-plugins" > docker-config/config.json
+    export DOCKER_CONFIG="$PWD/docker-config" DOCKER_HOST="$docker_host"
+  fi
+fi
 KUSTOMIZATION="../k8s/kustomization.yaml"
 
 say()  { printf '· %s\n' "$*"; }
@@ -181,7 +192,7 @@ images() {
   s="$(get_env MEMENTO_SERVER_IMAGE)"; s="${s:-ghcr.io/ddong8/memento-server}:$(get_env MEMENTO_SERVER_TAG)"
   w="$(get_env MEMENTO_WEB_IMAGE)"; w="${w:-ghcr.io/ddong8/memento-web}:$(get_env MEMENTO_WEB_TAG)"
   printf '%s\n' "$s" "$w" "${POSTGRES_IMAGE:-pgvector/pgvector:pg16}" "${REDIS_IMAGE:-redis:7-alpine}" \
-    "${MINIO_IMAGE:-minio/minio:latest}" "${CADDY_IMAGE:-caddy:2-alpine}" "alpine:3"
+    "${MINIO_IMAGE:-cgr.dev/chainguard/minio:latest}" "${CADDY_IMAGE:-caddy:2-alpine}" "alpine:3"
 }
 
 cmd_bundle() {

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { buildPersonalEnv, dockerCandidates, dockerPath, localServerUrl, parseEnv } from "../src/local-server";
+import { buildPersonalEnv, dockerCandidates, dockerPath, isolatedDockerConfig, localServerUrl, parseEnv, pluginDirs } from "../src/local-server";
 
 const enterprise = join(__dirname, "../../../deploy/enterprise");
 const example = readFileSync(join(enterprise, ".env.example"), "utf8");
@@ -62,5 +62,19 @@ describe("finding docker", () => {
     expect(dockerCandidates("darwin")).toContain("/Applications/Docker.app/Contents/Resources/bin/docker");
     expect(dockerCandidates("win32")).toContain("C:\\Program Files\\Docker\\Docker\\resources\\bin\\docker.exe");
     expect(dockerPath("/Applications/Docker.app/Contents/Resources/bin/docker", "darwin", "/usr/bin").split(":")[0]).toBe("/Applications/Docker.app/Contents/Resources/bin");
+  });
+});
+
+describe("the docker config the personal stack runs with", () => {
+  it("has no credential store (public images; Docker Desktop's helper can hang on the keychain) and keeps the plugin folders", () => {
+    const cfg = JSON.parse(isolatedDockerConfig("darwin", "/Users/u", undefined));
+    expect(cfg.credsStore).toBeUndefined();
+    expect(cfg.auths).toBeUndefined();
+    expect(cfg.cliPluginsExtraDirs).toContain("/Users/u/.docker/cli-plugins");
+    expect(cfg.cliPluginsExtraDirs).toContain("/Applications/Docker.app/Contents/Resources/cli-plugins");
+  });
+  it("a custom DOCKER_CONFIG's plugins come first", () => {
+    expect(pluginDirs("linux", "/home/u", "/opt/dc")[0]).toBe("/opt/dc/cli-plugins");
+    expect(pluginDirs("linux", "/home/u", undefined)).toContain("/usr/libexec/docker/cli-plugins");
   });
 });

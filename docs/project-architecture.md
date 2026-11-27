@@ -45,7 +45,7 @@ Memento 是一个三层架构的个人 AI 编程记忆平台:自动采集 AI 编
 services:
   postgres      # pgvector/pgvector:pg16  :5433  数据库 + 向量搜索
   redis         # redis:7-alpine          :6380  缓存 + Celery 消息队列
-  minio         # minio/minio             :9000  S3 兼容存储（大文件）
+  minio         # cgr.dev/chainguard/minio :9000  S3 兼容存储（大文件）
   api           # 自建镜像                :8001  FastAPI 服务端
   celery-worker # 同 api 镜像                    异步任务（AI 总结）
   celery-beat   # 同 api 镜像                    定时任务（每日摘要）

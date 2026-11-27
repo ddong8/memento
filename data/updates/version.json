@@ -1,25 +1,25 @@
 {
-  "version": "1.0.169",
-  "title": "Memento v1.0.169",
+  "version": "1.0.170",
+  "title": "Memento v1.0.170",
   "release_notes": "1. 单机免 Docker 单安装包正式就绪：桌面端内置 PostgreSQL 16（UTF8 + 预编译 pgvector）、TypeScript 服务端与 Next.js 网页界面，新装打开默认直接启动本机单机版（零 Docker、零 Redis、零 MinIO）\n2. 支持单机版与云端/企业服务版一键双向全量迁移（迁移前自动保留本地时间戳备份 ZIP）\n3. 同步提供无界面零 Docker 单压缩包服务端（macOS / Windows / Linux），解压后单命令即可运行完整版 Memento",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.169-win-x64.zip",
-      "size": 224978560,
-      "sha256": "ee1715ec904fba756c9ae70d0a8b5cc9fcc329157803a3d4715a2c12e67d2115",
-      "sha512": "SBzzvzpZoUNdvaPYltkZluqpXruwmsjaQiAUNoTaqvhG5pD1wqjCBMdyn8iI+1KK9drB2mkNbDh4t9GN4moSLw=="
+      "asset_name": "Memento-1.0.170-win-x64.zip",
+      "size": 224987591,
+      "sha256": "d5dfdfda2b708ef6f427d434db1299aab31748f49e42839ac953032cc2ca5233",
+      "sha512": "6q3QfUoTO53KtxIKBcUCDraD2ivKxUdOQy3jZeZppNELP4+IZ3+FdvDnPPEd2tAGMWYchTsdAzFFrxkiXGpnmg=="
     },
     "macos": {
-      "asset_name": "Memento-1.0.169-mac-arm64.zip",
-      "size": 219955068,
-      "sha256": "6e49092507ab46451fd61ea6db7dceedd99635c7ae422e1e7b1291473193b738",
-      "sha512": "cEyF1RVNgYzYFPwpaPIEO2M+9k1S7W0LvnyhM8sW75CDw5r1KcMSfthixXOudeIylvS25tkUWovCk1AlXjBPBg=="
+      "asset_name": "Memento-1.0.170-mac-arm64.zip",
+      "size": 219962822,
+      "sha256": "75a0eebededcf721502cfecd747a4001bd22dd0448e69bec078956d7e89526f3",
+      "sha512": "8jjKcpEYRYh0UAYLLNdFEaqIcbUNxdbntULtvkb+43vFeqvTLakpQQRn1rf5YFO4Br34HqweJIQ9pRYh55+10g=="
     },
     "linux": {
-      "asset_name": "Memento-1.0.169-linux-x64.tar.gz",
-      "size": 192791225,
-      "sha256": "279904edee0abf848f1a43392ef201861a551faa8476f5f1b892c5b7a0b28331",
-      "sha512": "eyFlrfX9pzKDClfASUCYB8tYIMoco54TCIq+hbNwwkVYzGJzXO78qbcLQLcV9hnnpv44B91E4YdFGGGYINUpdw=="
+      "asset_name": "Memento-1.0.170-linux-x64.tar.gz",
+      "size": 192802547,
+      "sha256": "e8f077b4690a500aad5f18f5eb430e2dd925d80797afa85481d979299fd5b39b",
+      "sha512": "vg2I6Tj8yPznQ28JfS9BcX0RJlPRHR0NqJzg7DAURzrPSNKIfKP6fRCcyb2p3b9KGz7jnnXs/m6VaWpRBFYlPw=="
     }
   }
 }

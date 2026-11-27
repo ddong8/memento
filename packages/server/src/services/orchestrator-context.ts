@@ -81,7 +81,10 @@ function summarizeTurnForCompaction(t: HistoryTurn): string {
   const text = cleanText(String(t.content || "")).trim();
   const limit = role === "用户" ? 1200 : 1800;
   const clipped = text.length > limit ? `${text.slice(0, limit)}…` : text;
-  const steps = Array.isArray(t.steps) && t.steps.length ? ` [调用了 ${t.steps.length} 步工具]` : "";
+  const tcCount = Array.isArray(t.toolCalls) ? t.toolCalls.length : 0;
+  const stCount = Array.isArray(t.steps) ? t.steps.length : 0;
+  const nTools = tcCount || stCount;
+  const steps = nTools ? ` [调用了 ${nTools} 步工具]` : "";
   return `${role}${steps}: ${clipped}`;
 }
 

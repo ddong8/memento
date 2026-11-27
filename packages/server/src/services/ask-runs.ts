@@ -228,15 +228,52 @@ export class AskRun {
       this.checkpoint = { ...this.checkpoint, ...(ev.data as Record<string, unknown>) };
       return;
     }
-    if (t === "task_started" || t === "device_task") {
-      if (typeof ev.task_id === "string") this.checkpoint.task_id = ev.task_id;
-      if (typeof ev.session_id === "string") this.checkpoint.session_id = ev.session_id;
+    if (t === "task_started" || t === "device_task" || t === "task_progress") {
+      if (typeof ev.task_id === "string" && ev.task_id) this.checkpoint.task_id = ev.task_id;
+      if (typeof ev.session_id === "string" && ev.session_id) this.checkpoint.session_id = ev.session_id;
+      if (t === "task_progress" && typeof ev.status === "string" && ev.status) {
+        this.stepType = "executing";
+        this.currentStep = ev.status === "running" ? "正在设备上执行..." : ev.status.slice(0, 60);
+      }
+    }
+    if (t === "task_event" && ev.event && typeof ev.event === "object") {
+      const inner = ev.event as Record<string, unknown>;
+      const kind = String(inner.kind ?? "");
+      if (kind === "session" && typeof inner.session_id === "string" && inner.session_id) {
+        this.checkpoint.session_id = inner.session_id;
+      } else if (kind === "thinking") {
+        this.stepType = "thinking";
+        this.currentStep = "正在深度思考与推演...";
+      } else if (kind === "tool") {
+        this.stepCount++;
+        this.stepType = "tool";
+        const toolName = String(inner.name || this.lastToolName || "tool");
+        this.lastToolName = toolName;
+        const detail = typeof inner.detail === "string" ? inner.detail.replace(/\s+/g, " ").trim().slice(0, 40) : "";
+        this.currentStep = detail ? `${toolName}: ${detail}` : `调用工具: ${toolName}`;
+        const nowMs = Date.now();
+        if (nowMs - this.lastIslandPushMs >= 5000) {
+          this.lastIslandPushMs = nowMs;
+          void pushLiveActivityEvent(this.deps, this.userId, this.conversationId, "update", {
+            status: "running",
+            currentStep: this.currentStep,
+            stepCount: this.stepCount,
+            toolName: this.lastToolName || null,
+            elapsedSeconds: Math.max(0, Math.round(nowSec() - this.startedAt)),
+            title: this.title || this.question.slice(0, 40),
+            engine: this.executionMode || "AI",
+            deviceName: this.deviceName || "云端",
+            startedAtEpoch: this.startedAt,
+          });
+        }
+      }
+      return;
     }
     if (t === "tool_start" || t === "tool_call" || t === "step") {
       this.stepCount++;
       this.stepType = "tool";
       this.lastToolName = String(ev.tool || ev.name || this.lastToolName || "");
-      this.currentStep = String(ev.summary || ev.tool || ev.name || "正在执行步骤");
+      this.currentStep = String(ev.summary || (ev.name === "run_on_device" ? "正在设备上执行智能体任务..." : ev.tool || ev.name) || "正在执行步骤");
       const nowMs = Date.now();
       if (nowMs - this.lastIslandPushMs >= 5000) {
         this.lastIslandPushMs = nowMs;

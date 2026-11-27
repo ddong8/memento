@@ -26,7 +26,7 @@ import {
 } from "../services/ask-store";
 import { isInvalidProjectName, isJunkOrUuidTitle } from "../services/ingest-service";
 import { buildAiContextStats, compactAiConversation, type CompactState, type HistoryTurn } from "../services/orchestrator-context";
-import { syncQuietly } from "../services/session-timeline";
+import { messagesToTurns, syncQuietly } from "../services/session-timeline";
 import { findMachineByIdOrHash } from "../services/user-filter";
 
 export const CHECKPOINT_CONFIG_KEY = "_ai_compact";
@@ -488,17 +488,19 @@ askConversationRoutes.get("/conversations/:conv_id", async (c) => {
     if (!doc) throw new HttpError(404, "Conversation not found");
 
     const msgs = await deps.db
-      .select({ role: conversationMessages.role, content: conversationMessages.content, timestamp: conversationMessages.timestamp })
+      .select({
+        lineNumber: conversationMessages.lineNumber,
+        role: conversationMessages.role,
+        messageType: conversationMessages.messageType,
+        content: conversationMessages.content,
+        metadata: conversationMessages.metadata,
+        timestamp: conversationMessages.timestamp,
+      })
       .from(conversationMessages)
       .where(eq(conversationMessages.documentId, doc.id))
       .orderBy(asc(conversationMessages.lineNumber));
 
-    const initTurns = msgs.map((m) => ({
-      role: m.role || "user",
-      content: m.content || "",
-      toolCalls: [],
-      created_at: pgToIso(m.timestamp) || new Date().toISOString(),
-    }));
+    const initTurns = sanitizeTurnsForResponse(messagesToTurns(msgs, doc.toolId || "agent"), deps.settings.secretKey);
     const meta = (doc.metadata && typeof doc.metadata === "object" ? doc.metadata : {}) as Record<string, unknown>;
     let convDev: string | null = null;
     if (doc.machineId) {

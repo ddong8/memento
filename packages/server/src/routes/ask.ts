@@ -409,24 +409,36 @@ askRoutes.post("/", async (c) => {
     if (!targetDevice) throw new HttpError(400, "直接调度本地智能体模式必须指定目标设备 (device_id)");
     const effCwd = cwd || conv.cwd || (typeof effCfg.cwd === "string" ? effCfg.cwd : null);
     const effSid = sessionId ?? (typeof effCfg.session_id === "string" && effCfg.session_id ? effCfg.session_id : null);
+    const effort = typeof body.effort === "string" ? body.effort.trim() || null : typeof effCfg.effort === "string" ? effCfg.effort || null : null;
+    const fork = typeof body.fork === "boolean" ? body.fork : null;
+    const worktree = typeof body.worktree === "boolean" ? body.worktree : Boolean(effCfg.worktree);
+    const timeoutSeconds = typeof body.timeout_seconds === "number" && Number.isFinite(body.timeout_seconds) ? body.timeout_seconds : undefined;
+    const userCreatedAt = new Date().toISOString();
 
     const factory: RunStreamFactory = async function* (runDeps, runUser, signal) {
-      yield `data: ${JSON.stringify({ type: "conversation_id", id: convId, title: convTitle })}\n\n`;
+      yield `data: ${JSON.stringify({ type: "conversation_id", id: convId, title: convTitle, execution_mode: effMode, user_created_at: userCreatedAt })}\n\n`;
       for await (const frame of directAgentStream(
         runDeps,
         runUser,
         {
           convId,
+          convTitle,
           question,
           device: targetDevice,
-          executionMode: effMode === "shell" ? "claude" : effMode,
+          executionMode: effMode === "shell" ? "shell" : effMode,
           action: effMode === "shell" ? "shell" : "agent",
           cwd: effCwd,
           sessionId: effSid,
           permissionMode,
           model,
+          effort,
+          projectId,
+          fork,
+          worktree,
+          timeoutSeconds,
           images,
           liveRules,
+          checkpoint: { user_created_at: userCreatedAt },
         },
         signal,
       )) {
@@ -445,6 +457,7 @@ askRoutes.post("/", async (c) => {
         kind: "direct_agent",
         kwargs: {
           conv_id: convId,
+          conv_title: convTitle,
           question,
           device: targetDevice,
           execution_mode: effMode,
@@ -452,6 +465,8 @@ askRoutes.post("/", async (c) => {
           session_id: effSid,
           permission_mode: permissionMode,
           model,
+          effort,
+          project_id: projectId,
         },
       },
       signal: c.req.raw.signal,
@@ -464,10 +479,11 @@ askRoutes.post("/", async (c) => {
     const factory: RunStreamFactory = async function* (runDeps, runUser, signal) {
       const started = Date.now();
       const userCreatedAt = new Date().toISOString();
-      yield `data: ${JSON.stringify({ type: "conversation_id", id: convId, title: convTitle })}\n\n`;
+      yield `data: ${JSON.stringify({ type: "conversation_id", id: convId, title: convTitle, execution_mode: "ai", user_created_at: userCreatedAt })}\n\n`;
 
       let answer = "";
       let thinking = "";
+      let toolCalls: Record<string, unknown>[] = [];
       let steps: Record<string, unknown>[] = [];
       let sources: Record<string, unknown>[] = [];
       let assistantAt = new Date().toISOString();
@@ -495,6 +511,7 @@ askRoutes.post("/", async (c) => {
           if (next.done) {
             answer = next.value.answer;
             thinking = next.value.thinking;
+            toolCalls = next.value.toolCalls;
             steps = next.value.steps;
             sources = next.value.sources;
             break;
@@ -507,18 +524,22 @@ askRoutes.post("/", async (c) => {
         return;
       } finally {
         durationMs = Date.now() - started;
-        if (answer || thinking || steps.length) {
+        if (answer || thinking || toolCalls.length || steps.length) {
           const saved = await appendConversationTurns(runDeps.db, convId, {
             settings: runDeps.settings,
             userId: runUser.id,
             question,
             answer: answer || "已完成处理。",
             thinking: thinking || null,
+            toolCalls: toolCalls.length ? toolCalls : null,
             steps: steps.length ? steps : null,
             sources: sources.length ? sources : null,
             images,
             userCreatedAt,
+            startedAt: userCreatedAt,
             durationMs,
+            model,
+            executionMode: "ai",
           });
           assistantAt = saved.assistantCreatedAt;
           await bustConvList(runDeps, runUser.id);

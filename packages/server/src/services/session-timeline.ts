@@ -30,14 +30,162 @@ export interface TimelineTurn {
   role: string;
   content: string;
   created_at?: string | null;
+  started_at?: string | null;
   line_number?: number;
   thinking?: string;
+  toolCalls?: Record<string, unknown>[];
   steps?: Record<string, unknown>[];
+  sources?: Record<string, unknown>[];
   images?: string[];
   duration_ms?: number | null;
   task_id?: string | null;
   agent_session_id?: string | null;
+  model?: string | null;
+  execution_mode?: string | null;
+  origin?: string;
+  origin_line?: number;
   [k: string]: unknown;
+}
+
+const BINARY_OF_TOOL: Record<string, string> = {
+  claude_code: "claude",
+  codex: "codex",
+  antigravity: "agy",
+  workbuddy: "workbuddy",
+};
+
+const TIMELINE_FMT_VERSION = 2;
+
+const TOOL_DETAIL_KEYS = [
+  "command",
+  "cmd",
+  "CommandLine",
+  "Command",
+  "file_path",
+  "notebook_path",
+  "path",
+  "filePath",
+  "file",
+  "target_file",
+  "TargetFile",
+  "AbsolutePath",
+  "Path",
+  "File",
+  "url",
+  "Url",
+  "query",
+  "Query",
+  "q",
+  "pattern",
+  "Pattern",
+  "SearchPath",
+  "DirectoryPath",
+  "description",
+  "skill",
+  "name",
+  "title",
+  "prompt",
+  "message",
+];
+
+function extractToolDetail(rawInput: unknown): string {
+  if (!rawInput) return "";
+  if (typeof rawInput === "string") {
+    const trimmed = rawInput.trim();
+    if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+      try {
+        const parsed = JSON.parse(trimmed) as Record<string, unknown>;
+        return extractToolDetail(parsed);
+      } catch {
+        /* use raw string */
+      }
+    }
+    return trimmed.slice(0, TOOL_DETAIL_MAX);
+  }
+  if (typeof rawInput === "object" && !Array.isArray(rawInput)) {
+    const rec = rawInput as Record<string, unknown>;
+    for (const k of TOOL_DETAIL_KEYS) {
+      const v = rec[k];
+      if (typeof v === "string" && v.trim()) return v.trim().slice(0, TOOL_DETAIL_MAX);
+    }
+    return JSON.stringify(rec).slice(0, TOOL_DETAIL_MAX);
+  }
+  return String(rawInput).slice(0, TOOL_DETAIL_MAX);
+}
+
+function cleanToolOutput(text: string): { stdout: string; exitCode: number } {
+  let rest = (text || "").replace(/\r\n/g, "\n");
+  while (true) {
+    const m = /^\s*(?:Created At|Completed At):[^\n]*\n?/.exec(rest);
+    if (!m) break;
+    rest = rest.slice(m[0].length);
+  }
+  let exitCode = 0;
+  const cm = /^\s*Command exited with code (-?\d+)\.?[^\n]*\n?/.exec(rest);
+  if (cm) {
+    exitCode = Number(cm[1]);
+    rest = rest.slice(cm[0].length).replace(/^\s*Command output:[^\n]*\n?/, "");
+  }
+  return { stdout: rest.replace(/^\n+/, "").trimEnd(), exitCode };
+}
+
+export function stepsToToolCalls(
+  steps: Record<string, unknown>[],
+  opts: { idPrefix?: string; origin?: string; prompt?: string; stdout?: string } = {},
+): Record<string, unknown>[] {
+  if (!steps.length) return [];
+  const origin = opts.origin || "agent";
+  const binary = BINARY_OF_TOOL[origin] ?? origin;
+  const idPrefix = opts.idPrefix || `session_${origin}`;
+  const events: Record<string, unknown>[] = [];
+  for (let i = 0; i < steps.length; i++) {
+    const s = steps[i]!;
+    const name = String(s.name || s.tool || "tool");
+    const detail = typeof s.detail === "string" ? s.detail : extractToolDetail(s.args);
+    const outRaw = typeof s.output === "string" ? s.output : "";
+    const status = s.status === "failed" || (typeof s.exit_code === "number" && s.exit_code !== 0) ? "failed" : "done";
+    const ev: Record<string, unknown> = {
+      kind: "tool",
+      id: `${idPrefix}_${i}`,
+      name,
+      status,
+    };
+    if (detail) ev.detail = detail.slice(0, TOOL_DETAIL_MAX);
+    if (outRaw) ev.output = outRaw.slice(-TOOL_OUTPUT_MAX);
+    if (typeof s.at === "string" && s.at) ev.at = s.at;
+    events.push(ev);
+  }
+  return [
+    {
+      id: idPrefix,
+      tool_call_id: idPrefix,
+      name: "run_on_device",
+      action: "agent",
+      binary,
+      args: { action: "agent", binary, prompt: opts.prompt || "" },
+      status: "executed",
+      result: {
+        status: "succeeded",
+        exit_code: 0,
+        stdout: opts.stdout || "",
+        events,
+      },
+    },
+  ];
+}
+
+function turnStepCount(t: TimelineTurn | undefined): number {
+  if (!t) return 0;
+  if (Array.isArray(t.toolCalls) && t.toolCalls.length) {
+    let n = 0;
+    for (const tc of t.toolCalls) {
+      const res = tc && typeof tc === "object" ? ((tc as Record<string, unknown>).result as Record<string, unknown> | undefined) : undefined;
+      if (Array.isArray(res?.events) && res.events.length) n += res.events.length;
+      else n += 1;
+    }
+    return n;
+  }
+  return Array.isArray(t.steps) ? t.steps.length : 0;
 }
 
 function normKey(text: string): string {
@@ -51,21 +199,24 @@ function toMs(ts: string | null | undefined): number | null {
   return Number.isNaN(n) ? null : n;
 }
 
-function parseToolCall(content: string, meta: Record<string, unknown>): Record<string, unknown> {
+function parseToolCall(content: string, meta: Record<string, unknown>, at: string | null): Record<string, unknown> {
   const toolName = String(meta.tool_name || content.replace(/^\[Tool:\s*|^\[|\]$/g, "").split("\n")[0] || "tool").trim();
-  let detail = typeof meta.tool_input === "string" ? meta.tool_input : meta.tool_input ? JSON.stringify(meta.tool_input) : "";
-  if (!detail && content.includes("\n")) detail = content.slice(content.indexOf("\n") + 1);
+  let detail = extractToolDetail(meta.tool_input);
+  if (!detail && content.includes("\n")) detail = content.slice(content.indexOf("\n") + 1).trim();
   return {
     type: "tool_call",
     tool: toolName,
     name: toolName,
     detail: detail.slice(0, TOOL_DETAIL_MAX),
+    ...(at ? { at } : {}),
   };
 }
 
-export function foldExchange(msgs: RawMessageRow[]): TimelineTurn[] {
+export function foldExchange(msgs: RawMessageRow[], origin = "agent"): TimelineTurn[] {
   const turns: TimelineTurn[] = [];
   let curAssistant: TimelineTurn | null = null;
+  let lastUserPrompt = "";
+  let lastUserTs: string | null = null;
   let thinkingBuf: string[] = [];
   let stepsBuf: Record<string, unknown>[] = [];
   let textBuf: string[] = [];
@@ -83,10 +234,18 @@ export function foldExchange(msgs: RawMessageRow[]): TimelineTurn[] {
       role: "assistant",
       content: content || (stepsBuf.length ? `已完成 ${stepsBuf.length} 步工具调用。` : ""),
       created_at: assistTs,
+      ...(lastUserTs ? { started_at: lastUserTs } : {}),
     };
     if (assistLine !== undefined) turn.line_number = assistLine;
     if (thinking) turn.thinking = thinking;
-    if (stepsBuf.length) turn.steps = stepsBuf;
+    if (stepsBuf.length) {
+      turn.toolCalls = stepsToToolCalls(stepsBuf, {
+        idPrefix: `session_${origin}_${assistLine ?? turns.length}`,
+        origin,
+        prompt: lastUserPrompt,
+        stdout: content,
+      });
+    }
     turns.push(turn);
     curAssistant = null;
     thinkingBuf = [];
@@ -105,53 +264,86 @@ export function foldExchange(msgs: RawMessageRow[]): TimelineTurn[] {
 
     if (role === "user") {
       if (raw.startsWith("[Result]")) {
-        const body = raw.slice("[Result]".length).trim();
+        const cleanedOut = cleanToolOutput(raw.slice("[Result]".length).trim());
         if (stepsBuf.length) {
           const last = stepsBuf[stepsBuf.length - 1]!;
-          if (!last.output) last.output = body.slice(0, TOOL_OUTPUT_MAX);
+          if (!last.output) {
+            last.output = cleanedOut.stdout.slice(-TOOL_OUTPUT_MAX);
+            last.exit_code = cleanedOut.exitCode;
+            if (cleanedOut.exitCode !== 0) last.status = "failed";
+          }
         } else {
-          stepsBuf.push({ type: "tool_result", output: body.slice(0, TOOL_OUTPUT_MAX) });
+          stepsBuf.push({
+            type: "tool_result",
+            name: "tool",
+            output: cleanedOut.stdout.slice(-TOOL_OUTPUT_MAX),
+            exit_code: cleanedOut.exitCode,
+            status: cleanedOut.exitCode === 0 ? "done" : "failed",
+            ...(ts ? { at: ts } : {}),
+          });
         }
         continue;
       }
       flushAssistant();
       const cleaned = stripInjectedContext(raw).trim();
       if (!cleaned) continue;
+      lastUserPrompt = cleaned;
+      lastUserTs = ts;
       turns.push({ role: "user", content: cleaned, created_at: ts, line_number: m.lineNumber });
       continue;
     }
 
     if (role === "tool") {
-      if (mtype === "tool_call") {
+      if (mtype === "tool_call" || meta.tool_name) {
         if (!assistTs) assistTs = ts;
         if (assistLine === undefined) assistLine = m.lineNumber;
-        stepsBuf.push(parseToolCall(raw, meta));
+        stepsBuf.push(parseToolCall(raw, meta, ts));
       } else {
-        const body = raw.slice(0, TOOL_OUTPUT_MAX);
+        const cleanedOut = cleanToolOutput(raw);
         if (stepsBuf.length && !stepsBuf[stepsBuf.length - 1]!.output) {
-          stepsBuf[stepsBuf.length - 1]!.output = body;
+          const last = stepsBuf[stepsBuf.length - 1]!;
+          last.output = cleanedOut.stdout.slice(-TOOL_OUTPUT_MAX);
+          last.exit_code = cleanedOut.exitCode;
+          if (cleanedOut.exitCode !== 0) last.status = "failed";
         } else {
-          stepsBuf.push({ type: "tool_result", output: body });
+          stepsBuf.push({
+            type: "tool_result",
+            name: "tool",
+            output: cleanedOut.stdout.slice(-TOOL_OUTPUT_MAX),
+            exit_code: cleanedOut.exitCode,
+            status: cleanedOut.exitCode === 0 ? "done" : "failed",
+            ...(ts ? { at: ts } : {}),
+          });
         }
       }
+      if (ts) assistTs = ts;
       continue;
     }
 
     if (role === "assistant") {
       if (!assistTs) assistTs = ts;
+      else if (ts) assistTs = ts;
       if (assistLine === undefined) assistLine = m.lineNumber;
+      const metaThinking = typeof meta.thinking === "string" ? meta.thinking.trim() : "";
+      if (metaThinking) thinkingBuf.push(metaThinking);
       if (THINKING_TYPES.has(mtype)) {
-        if (raw.trim()) thinkingBuf.push(raw.trim());
+        if (raw.trim() && raw.trim() !== metaThinking) thinkingBuf.push(raw.trim());
         continue;
       }
       if (meta.tool_name) {
-        stepsBuf.push(parseToolCall(raw, meta));
+        stepsBuf.push(parseToolCall(raw, meta, ts));
       }
       const parts = raw.split(/\[Tool: ([^\]]+)\]\n?/);
       const lead = parts[0]?.trim();
       if (lead) textBuf.push(lead);
       for (let i = 1; i < parts.length - 1; i += 2) {
-        stepsBuf.push({ type: "tool_call", tool: parts[i]!.trim(), name: parts[i]!.trim(), detail: (parts[i + 1] || "").slice(0, TOOL_DETAIL_MAX) });
+        stepsBuf.push({
+          type: "tool_call",
+          tool: parts[i]!.trim(),
+          name: parts[i]!.trim(),
+          detail: (parts[i + 1] || "").slice(0, TOOL_DETAIL_MAX),
+          ...(ts ? { at: ts } : {}),
+        });
       }
       curAssistant = { role: "assistant", content: "" };
     }
@@ -160,8 +352,8 @@ export function foldExchange(msgs: RawMessageRow[]): TimelineTurn[] {
   return turns;
 }
 
-export function messagesToTurns(msgs: RawMessageRow[]): TimelineTurn[] {
-  return foldExchange(msgs);
+export function messagesToTurns(msgs: RawMessageRow[], origin = "agent"): TimelineTurn[] {
+  return foldExchange(msgs, origin);
 }
 
 function turnFingerprint(t: TimelineTurn): string {
@@ -211,8 +403,24 @@ export function mergeSession(existingTurns: TimelineTurn[], incomingTurns: Timel
     if (typeof inc.line_number === "number" && existingByLine.has(inc.line_number)) {
       const idx = existingByLine.get(inc.line_number)!;
       const cur = merged[idx]!;
-      if ((inc.content?.length ?? 0) > (cur.content?.length ?? 0) || ((inc.steps?.length ?? 0) > (cur.steps?.length ?? 0))) {
-        merged[idx] = { ...cur, ...inc, images: cur.images ?? inc.images, task_id: cur.task_id ?? inc.task_id };
+      const incSteps = turnStepCount(inc);
+      const curSteps = turnStepCount(cur);
+      const needsToolCallsUpgrade = Boolean(inc.toolCalls?.length) && !(Array.isArray(cur.toolCalls) && cur.toolCalls.length);
+      const needsThinking = Boolean(inc.thinking) && !cur.thinking;
+      if ((inc.content?.length ?? 0) > (cur.content?.length ?? 0) || incSteps > curSteps || needsToolCallsUpgrade || needsThinking) {
+        const next: TimelineTurn = {
+          ...cur,
+          ...inc,
+          content: (inc.content?.length ?? 0) >= (cur.content?.length ?? 0) ? inc.content : cur.content,
+          thinking: cur.thinking || inc.thinking,
+          toolCalls: Array.isArray(cur.toolCalls) && cur.toolCalls.length && curSteps >= incSteps ? cur.toolCalls : inc.toolCalls ?? cur.toolCalls,
+          images: cur.images ?? inc.images,
+          task_id: cur.task_id ?? inc.task_id,
+          duration_ms: cur.duration_ms ?? inc.duration_ms,
+          agent_session_id: cur.agent_session_id ?? inc.agent_session_id,
+        };
+        if (next.toolCalls?.length) delete next.steps;
+        merged[idx] = next;
         changed = true;
       }
       continue;
@@ -229,15 +437,21 @@ export function mergeSession(existingTurns: TimelineTurn[], incomingTurns: Timel
         const nextCur = merged[match.idx + 1];
         if (nextInc?.role === "assistant" && nextCur?.role === "assistant") {
           const betterContent = (nextInc.content?.length ?? 0) > (nextCur.content?.length ?? 0);
-          const betterSteps = (nextInc.steps?.length ?? 0) > (nextCur.steps?.length ?? 0);
-          if (betterContent || betterSteps) {
-            merged[match.idx + 1] = {
+          const incSteps = turnStepCount(nextInc);
+          const curSteps = turnStepCount(nextCur);
+          const needsToolCallsUpgrade = Boolean(nextInc.toolCalls?.length) && !(Array.isArray(nextCur.toolCalls) && nextCur.toolCalls.length);
+          const betterTools = incSteps > curSteps || needsToolCallsUpgrade;
+          const betterThinking = Boolean(nextInc.thinking) && !nextCur.thinking;
+          if (betterContent || betterTools || betterThinking) {
+            const next: TimelineTurn = {
               ...nextCur,
               ...(betterContent ? { content: nextInc.content } : {}),
-              ...(betterSteps ? { steps: nextInc.steps } : {}),
-              ...(nextInc.thinking && !nextCur.thinking ? { thinking: nextInc.thinking } : {}),
+              ...(betterTools && nextInc.toolCalls?.length ? { toolCalls: nextInc.toolCalls } : {}),
+              ...(betterThinking ? { thinking: nextInc.thinking } : {}),
               line_number: nextInc.line_number ?? nextCur.line_number,
             };
+            if (next.toolCalls?.length) delete next.steps;
+            merged[match.idx + 1] = next;
             changed = true;
           }
           i++;
@@ -271,6 +485,7 @@ export async function syncConversation(
   let docId = opts.docId ?? (typeof cfg.document_id === "string" ? cfg.document_id : null);
   let docTitle: string | null = null;
   let docHash: string | null = null;
+  let docToolId = "agent";
 
   if (!docId && sid) {
     const conds = [
@@ -282,7 +497,7 @@ export async function syncConversation(
       if (mids.length) conds.push(inArray(documents.machineId, mids));
     }
     const [doc] = await db
-      .select({ id: documents.id, title: documents.title, contentHash: documents.contentHash })
+      .select({ id: documents.id, title: documents.title, contentHash: documents.contentHash, toolId: documents.toolId })
       .from(documents)
       .where(and(...conds))
       .orderBy(desc(documents.syncedAt))
@@ -291,21 +506,23 @@ export async function syncConversation(
       docId = doc.id;
       docTitle = doc.title;
       docHash = doc.contentHash;
+      docToolId = doc.toolId || "agent";
     }
   } else if (docId) {
     const [doc] = await db
-      .select({ id: documents.id, title: documents.title, contentHash: documents.contentHash })
+      .select({ id: documents.id, title: documents.title, contentHash: documents.contentHash, toolId: documents.toolId })
       .from(documents)
       .where(eq(documents.id, docId))
       .limit(1);
     if (doc) {
       docTitle = doc.title;
       docHash = doc.contentHash;
+      docToolId = doc.toolId || "agent";
     }
   }
 
   if (!docId) return false;
-  if (docHash && cfg._timeline_hash === docHash) return false;
+  if (docHash && cfg._timeline_hash === docHash && cfg._timeline_fmt === TIMELINE_FMT_VERSION) return false;
 
   const rows = await db
     .select({
@@ -321,12 +538,12 @@ export async function syncConversation(
     .orderBy(asc(conversationMessages.lineNumber));
 
   if (!rows.length) return false;
-  const incoming = messagesToTurns(rows);
+  const incoming = messagesToTurns(rows, docToolId);
   const currentTurns = Array.isArray(conv.turns) ? (conv.turns as TimelineTurn[]) : [];
   const { turns: merged, changed } = mergeSession(currentTurns, incoming);
 
   const hash = docHash || createHash("sha1").update(String(rows.length)).digest("hex");
-  const nextCfg = { ...cfg, document_id: docId, _timeline_hash: hash };
+  const nextCfg = { ...cfg, document_id: docId, _timeline_hash: hash, _timeline_fmt: TIMELINE_FMT_VERSION };
   const patch: Partial<typeof askConversations.$inferInsert> = { config: withoutNul(nextCfg) };
 
   if (changed) {

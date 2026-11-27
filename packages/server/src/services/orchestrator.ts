@@ -214,40 +214,90 @@ export async function runOnDevice(
     if (!delivered) {
       return { status: "failed", task_id: taskId, error: `设备「${machine.name}」当前离线或无法连接。` };
     }
-    opts.onEvent?.({ type: "task_started", task_id: taskId, device: machine.name, action: opts.action });
+    opts.onEvent?.({
+      type: "task_progress",
+      task_id: taskId,
+      device_id: deviceId,
+      device_name: machine.name,
+      action: opts.action,
+      status: "running",
+    });
 
+    const liveEvents: Record<string, unknown>[] = [];
     const deadline = Date.now() + timeoutSec * 1000;
     while (Date.now() < deadline) {
       if (opts.signal?.aborted) {
         await wsManager.sendCancel(deviceId, taskId);
         await db.update(deviceTasks).set({ status: "cancelled", error: "Cancelled by user", finishedAt: new Date().toISOString() }).where(eq(deviceTasks.id, taskId));
-        return { status: "cancelled", task_id: taskId, error: "Cancelled by user" };
+        return {
+          status: "cancelled",
+          task_id: taskId,
+          device_id: deviceId,
+          device_name: machine.name,
+          action: opts.action,
+          error: "Cancelled by user",
+          events: liveEvents.slice(-800),
+        };
       }
       const ev = await streamQ.get(3000);
       if (ev) {
-        opts.onEvent?.(ev);
-        if (ev.type === "task_result") {
-          const result = markUsageLimit({ ...ev, task_id: taskId, action: opts.action });
-          return result;
+        const t = String(ev.type ?? "");
+        if (t === "task_event" && ev.event && typeof ev.event === "object") {
+          liveEvents.push(ev.event as Record<string, unknown>);
+          if (liveEvents.length > 800) liveEvents.shift();
+          opts.onEvent?.({ type: "task_event", task_id: taskId, event: ev.event });
+        } else if (t === "task_chunk") {
+          opts.onEvent?.({ type: "task_chunk", task_id: taskId, device_name: machine.name, stream: ev.stream ?? "stdout", text: ev.text ?? "" });
+        } else if (t === "task_progress") {
+          opts.onEvent?.({ type: "task_progress", task_id: taskId, device_id: deviceId, device_name: machine.name, action: opts.action, status: ev.status ?? "running" });
+        } else if (t === "task_alert") {
+          opts.onEvent?.({ type: "task_alert", task_id: taskId, device_name: machine.name, alert: ev.alert });
+        } else if (t === "task_finished" || t === "task_result") {
+          const raw = t === "task_finished" && ev.result && typeof ev.result === "object" ? (ev.result as Record<string, unknown>) : ev;
+          const events = Array.isArray(raw.events) && raw.events.length ? raw.events.slice(-800) : liveEvents.slice(-800);
+          return markUsageLimit({
+            ...raw,
+            task_id: taskId,
+            device_id: deviceId,
+            device_name: machine.name,
+            action: opts.action,
+            ...(opts.binary ? { binary: opts.binary } : {}),
+            alerts: Array.isArray(raw.alerts) ? raw.alerts : [],
+            events,
+          });
         }
       } else {
         // Fallback DB check in case task finished on another replica
         const [fresh] = await db.select().from(deviceTasks).where(eq(deviceTasks.id, taskId)).limit(1);
         if (fresh && fresh.finishedAt) {
+          const events = Array.isArray(fresh.events) && fresh.events.length ? fresh.events.slice(-800) : liveEvents.slice(-800);
           return markUsageLimit({
             task_id: taskId,
+            device_id: deviceId,
+            device_name: machine.name,
             action: opts.action,
+            ...(opts.binary ? { binary: opts.binary } : {}),
             status: fresh.status,
             exit_code: fresh.exitCode,
             stdout: fresh.stdout || "",
             stderr: fresh.stderr || "",
             error: fresh.error,
             session_id: fresh.sessionId,
+            alerts: Array.isArray(fresh.alerts) ? fresh.alerts : [],
+            events,
           });
         }
       }
     }
-    return { status: "timeout", task_id: taskId, error: `任务执行超过 ${timeoutSec} 秒超时` };
+    return {
+      status: "timeout",
+      task_id: taskId,
+      device_id: deviceId,
+      device_name: machine.name,
+      action: opts.action,
+      error: `任务执行超过 ${timeoutSec} 秒超时`,
+      events: liveEvents.slice(-800),
+    };
   } finally {
     wsManager.unsubscribeTask(taskId);
   }
@@ -276,7 +326,19 @@ export async function stopOrphanedAgentTasks(deps: Deps, userId: string, convId:
 }
 
 export interface AgentLoopEvent {
-  type: "thinking" | "delta" | "tool_start" | "tool_end" | "sources" | "compact" | "error" | "done";
+  type:
+    | "thinking"
+    | "delta"
+    | "tool_call"
+    | "tool_result"
+    | "task_progress"
+    | "task_chunk"
+    | "task_event"
+    | "task_alert"
+    | "sources"
+    | "context_compacted"
+    | "error"
+    | "done";
   [k: string]: unknown;
 }
 
@@ -296,7 +358,11 @@ export async function* runAgentLoop(
     signal?: AbortSignal;
     onCompactUpdate?: (state: CompactState) => Promise<void>;
   },
-): AsyncGenerator<AgentLoopEvent, { answer: string; thinking: string; steps: Record<string, unknown>[]; sources: Record<string, unknown>[] }, void> {
+): AsyncGenerator<
+  AgentLoopEvent,
+  { answer: string; thinking: string; toolCalls: Record<string, unknown>[]; steps: Record<string, unknown>[]; sources: Record<string, unknown>[] },
+  void
+> {
   const { db, settings } = deps;
   const redis = deps.redis();
 
@@ -320,7 +386,13 @@ export async function* runAgentLoop(
   });
   if (prep.autoCompacted && prep.newCompactState) {
     await opts.onCompactUpdate?.(prep.newCompactState);
-    yield { type: "compact", covered_turns: prep.newCompactState.covered_turns, summary_chars: prep.newCompactState.summary?.length ?? 0 };
+    yield {
+      type: "context_compacted",
+      scope: "history",
+      mode: "auto",
+      compacted_turns: prep.newCompactState.covered_turns,
+      summary: prep.newCompactState.summary,
+    };
   }
 
   let messages: Record<string, unknown>[] = [{ role: "system", content: sysParts.join("\n") }, ...prep.messages];
@@ -338,6 +410,7 @@ export async function* runAgentLoop(
 
   const tools = opts.enableDeviceTools !== false && settings.remoteExec ? [...KNOWLEDGE_TOOLS_SCHEMA, ...DEVICE_TOOLS_SCHEMA] : KNOWLEDGE_TOOLS_SCHEMA;
   const steps: Record<string, unknown>[] = [];
+  const toolCallsSaved: Record<string, unknown>[] = [];
   const allSources: Record<string, unknown>[] = [];
   const thinkingParts: string[] = [];
   const callCounts = new Map<string, number>();
@@ -409,21 +482,50 @@ export async function* runAgentLoop(
       return { id: String(tc.id ?? randomUUID()), name, args };
     });
 
-    const allReadOnly = parsedCalls.every((c) => READ_ONLY_TOOL_NAMES.has(c.name));
-    const runOne = async (c: { id: string; name: string; args: Record<string, unknown> }) => {
+    for (const c of parsedCalls) {
+      const devHint = typeof c.args.device === "string" ? c.args.device : typeof c.args.device_id === "string" ? c.args.device_id : undefined;
+      yield {
+        type: "tool_call",
+        id: c.id,
+        tool_call_id: c.id,
+        name: c.name,
+        args: c.args,
+        ...(devHint ? { device_name: devHint } : {}),
+      };
+    }
+
+    const runOne = async (
+      c: { id: string; name: string; args: Record<string, unknown> },
+      onLive?: (ev: AgentLoopEvent) => void,
+    ): Promise<{
+      id: string;
+      name: string;
+      args: Record<string, unknown>;
+      output: string;
+      resultObj: Record<string, unknown>;
+      deviceName?: string;
+      sources?: Record<string, unknown>[];
+    }> => {
       const sig = `${c.name}:${JSON.stringify(c.args)}`;
       const cnt = (callCounts.get(sig) ?? 0) + 1;
       callCounts.set(sig, cnt);
       if (cnt > REPEAT_TOOL_LIMIT) {
-        return { id: c.id, name: c.name, args: c.args, output: "检测到重复调用同一工具与参数，已熔断。请基于已有信息直接给出结论。", sources: undefined as Record<string, unknown>[] | undefined };
+        const msgTxt = "检测到重复调用同一工具与参数，已熔断。请基于已有信息直接给出结论。";
+        return { id: c.id, name: c.name, args: c.args, output: msgTxt, resultObj: { error: msgTxt } };
       }
       if (c.name === "list_devices") {
         const list = await listUserDevices(deps, user, opts.question);
-        return { id: c.id, name: c.name, args: c.args, output: JSON.stringify(list, null, 2), sources: undefined };
+        return {
+          id: c.id,
+          name: c.name,
+          args: c.args,
+          output: JSON.stringify(list, null, 2),
+          resultObj: { devices: list },
+        };
       }
       if (c.name === "run_on_device") {
         const res = await runOnDevice(deps, user, {
-          device: String(c.args.device ?? ""),
+          device: String(c.args.device ?? c.args.device_id ?? ""),
           action: c.args.action === "agent" ? "agent" : "shell",
           command: typeof c.args.command === "string" ? c.args.command : undefined,
           prompt: typeof c.args.prompt === "string" ? c.args.prompt : undefined,
@@ -433,20 +535,92 @@ export async function* runAgentLoop(
           conversationId: opts.conversationId ?? null,
           timeoutSeconds: typeof c.args.timeout_seconds === "number" ? c.args.timeout_seconds : 600,
           signal: opts.signal,
+          onEvent: (rawEv) => {
+            if (!onLive) return;
+            const rt = String(rawEv.type ?? "");
+            if (rt === "task_event" && rawEv.event && typeof rawEv.event === "object") {
+              const inner = rawEv.event as Record<string, unknown>;
+              if (inner.kind === "thinking" && typeof inner.text === "string" && inner.text) {
+                thinkingParts.push(inner.text);
+                onLive({ type: "thinking", text: inner.text });
+              }
+              onLive({ type: "task_event", task_id: rawEv.task_id, tool_call_id: c.id, event: inner });
+            } else if (rt === "task_chunk" || rt === "task_progress" || rt === "task_alert") {
+              onLive({ ...(rawEv as AgentLoopEvent), tool_call_id: c.id });
+            }
+          },
         });
-        return { id: c.id, name: c.name, args: c.args, output: JSON.stringify(res, null, 2).slice(0, 12_000), sources: undefined };
+        const forLlm: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(res)) {
+          if (k !== "events") forLlm[k] = v;
+        }
+        return {
+          id: c.id,
+          name: c.name,
+          args: c.args,
+          output: JSON.stringify(forLlm, null, 2).slice(0, 12_000),
+          resultObj: res,
+          deviceName: typeof res.device_name === "string" ? res.device_name : undefined,
+        };
       }
       const res = await executeKnowledgeTool(deps, user, c.name, c.args, { userQuestion: opts.question, projectHint: opts.project });
-      return { id: c.id, name: c.name, args: c.args, output: res.output, sources: res.sources };
+      return {
+        id: c.id,
+        name: c.name,
+        args: c.args,
+        output: res.output,
+        resultObj: {
+          content: res.output,
+          ...(res.sources?.length ? { results: res.sources } : {}),
+        },
+        sources: res.sources,
+      };
     };
 
-    for (const c of parsedCalls) {
-      yield { type: "tool_start", tool: c.name, args: c.args, id: c.id };
-    }
-
-    const results = allReadOnly ? await Promise.all(parsedCalls.map(runOne)) : [];
-    if (!allReadOnly) {
-      for (const c of parsedCalls) results.push(await runOne(c));
+    const allReadOnly = parsedCalls.every((c) => READ_ONLY_TOOL_NAMES.has(c.name));
+    const results: Awaited<ReturnType<typeof runOne>>[] = [];
+    if (allReadOnly) {
+      results.push(...(await Promise.all(parsedCalls.map((c) => runOne(c)))));
+    } else {
+      for (const c of parsedCalls) {
+        if (c.name === "run_on_device") {
+          const liveQ: AgentLoopEvent[] = [];
+          let wake: (() => void) | null = null;
+          let done = false;
+          let callRes!: Awaited<ReturnType<typeof runOne>>;
+          let callErr: unknown = null;
+          const p = runOne(c, (ev) => {
+            liveQ.push(ev);
+            wake?.();
+            wake = null;
+          })
+            .then((r) => {
+              callRes = r;
+            })
+            .catch((e) => {
+              callErr = e;
+            })
+            .finally(() => {
+              done = true;
+              wake?.();
+              wake = null;
+            });
+          while (!done || liveQ.length > 0) {
+            if (liveQ.length > 0) {
+              yield liveQ.shift()!;
+            } else {
+              await new Promise<void>((resolve) => {
+                wake = resolve;
+              });
+            }
+          }
+          await p;
+          if (callErr) throw callErr;
+          results.push(callRes);
+        } else {
+          results.push(await runOne(c));
+        }
+      }
     }
 
     for (const r of results) {
@@ -456,7 +630,23 @@ export async function* runAgentLoop(
       }
       const preview = r.output.slice(0, 500);
       steps.push({ type: "tool_call", tool: r.name, name: r.name, args: r.args, output: preview });
-      yield { type: "tool_end", tool: r.name, id: r.id, output: preview };
+      const devName = r.deviceName || (typeof r.args.device === "string" ? r.args.device : undefined);
+      toolCallsSaved.push({
+        id: r.id,
+        tool_call_id: r.id,
+        name: r.name,
+        args: r.args,
+        ...(devName ? { device_name: devName } : {}),
+        status: r.resultObj.error || r.resultObj.status === "failed" ? "failed" : "executed",
+        result: r.resultObj,
+      });
+      yield {
+        type: "tool_result",
+        id: r.id,
+        tool_call_id: r.id,
+        name: r.name,
+        result: r.resultObj,
+      };
       messages.push({ role: "tool", tool_call_id: r.id, content: r.output.slice(0, 12_000) });
     }
   }
@@ -483,5 +673,5 @@ export async function* runAgentLoop(
     finalAnswer = cleanGuardrailOutput(buf);
   }
 
-  return { answer: finalAnswer, thinking: thinkingParts.join("\n\n").trim(), steps, sources: allSources };
+  return { answer: finalAnswer, thinking: thinkingParts.join("\n\n").trim(), toolCalls: toolCallsSaved, steps, sources: allSources };
 }

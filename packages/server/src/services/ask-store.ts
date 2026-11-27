@@ -13,9 +13,10 @@ import { pgToIso } from "../pytime";
 import { cleanSessionId } from "./agent-ids";
 import { storeImages } from "./chat-images";
 import { isJunkOrUuidTitle } from "./ingest-service";
-import { dropCopiesOfRun, type TimelineTurn } from "./session-timeline";
+import { dropCopiesOfRun, stepsToToolCalls, type TimelineTurn } from "./session-timeline";
 import { signMediaUrl, signVideoLinksInText } from "./storage";
 import { normalizeDeviceName } from "./user-filter";
+import { markUsageLimit } from "./agent-limits";
 
 export type AskConversationRow = typeof askConversations.$inferSelect;
 
@@ -68,11 +69,103 @@ export async function sliceTurns(db: Db, convId: string, before: number | null, 
   };
 }
 
+const MAX_TASK_EVENTS = 800;
+const SLIM_OUTPUT_CHARS = 20_000;
+
+export function extractThinkingFromEvents(events: unknown): string {
+  if (!Array.isArray(events) || !events.length) return "";
+  const parts: string[] = [];
+  for (const ev of events) {
+    if (!ev || typeof ev !== "object") continue;
+    const rec = ev as Record<string, unknown>;
+    if (rec.kind === "thinking" && typeof rec.text === "string" && rec.text) {
+      if (parts.length && parts[parts.length - 1] === rec.text) continue;
+      parts.push(rec.text);
+    }
+  }
+  if (!parts.length) return "";
+  const allSeparateParagraphs = parts.length > 1 && parts.every((p) => !p.endsWith("\n") && p.length > 24);
+  return (allSeparateParagraphs ? parts.join("\n\n") : parts.join("")).trim();
+}
+
+export function sanitizeToolCallEntry(tc: Record<string, unknown>): Record<string, unknown> {
+  const copy: Record<string, unknown> = { ...tc };
+  if (copy.args && typeof copy.args === "object" && !Array.isArray(copy.args)) {
+    const args = { ...(copy.args as Record<string, unknown>) };
+    if ("images" in args) {
+      if (Array.isArray(args.images)) {
+        args.images = args.images.map((_, i) => `<image attachment ${i + 1}>`);
+      } else {
+        delete args.images;
+      }
+    }
+    copy.args = args;
+  }
+  return copy;
+}
+
+function slimToolCallEntry(tc: Record<string, unknown>): Record<string, unknown> {
+  const res = tc.result;
+  if (!res || typeof res !== "object" || Array.isArray(res)) return tc;
+  const slimRes: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(res as Record<string, unknown>)) {
+    if (k === "events") continue;
+    if ((k === "stdout" || k === "stderr") && typeof v === "string" && v.length > SLIM_OUTPUT_CHARS) {
+      slimRes[k] = v.slice(-SLIM_OUTPUT_CHARS);
+    } else {
+      slimRes[k] = v;
+    }
+  }
+  return { ...tc, result: slimRes };
+}
+
+export function buildToolCallFromDeviceTask(
+  task: typeof deviceTasks.$inferSelect,
+  deviceName?: string | null,
+): { toolCall: Record<string, unknown>; thinking: string } {
+  const pl = (task.payload && typeof task.payload === "object" ? task.payload : {}) as Record<string, unknown>;
+  const cleanPl: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(pl)) {
+    if (k === "images" || k === "system_prompt_append") continue;
+    cleanPl[k] = v;
+  }
+  const callId = `direct_${String(task.id).replaceAll("-", "").slice(0, 8)}`;
+  const events = Array.isArray(task.events) ? task.events.slice(-MAX_TASK_EVENTS) : [];
+  const devDisplay = deviceName || task.deviceId || "auto";
+  const result = markUsageLimit({
+    task_id: String(task.id),
+    device_id: task.deviceId,
+    device_name: devDisplay,
+    action: task.action,
+    ...(typeof pl.binary === "string" && pl.binary ? { binary: pl.binary } : {}),
+    status: task.status,
+    exit_code: task.exitCode,
+    stdout: task.stdout || "",
+    stderr: task.stderr || "",
+    error: task.error,
+    session_id: task.sessionId,
+    alerts: Array.isArray(task.alerts) ? task.alerts : [],
+    events,
+  });
+  const toolCall: Record<string, unknown> = {
+    id: callId,
+    tool_call_id: callId,
+    name: "run_on_device",
+    device_name: devDisplay,
+    args: cleanPl,
+    action: task.action,
+    ...(typeof pl.binary === "string" && pl.binary ? { binary: pl.binary } : {}),
+    status: result.status === "succeeded" || result.status === "still_running" ? "executed" : "failed",
+    result,
+  };
+  return { toolCall, thinking: extractThinkingFromEvents(events) };
+}
+
 export function sanitizeTurnsForResponse(turns: unknown, secretKey?: string): TimelineTurn[] {
   if (!Array.isArray(turns)) return [];
   return turns
     .filter((t): t is TimelineTurn => Boolean(t && typeof t === "object"))
-    .map((t) => {
+    .map((t, idx) => {
       const out: TimelineTurn = { ...t };
       if (Array.isArray(out.images)) {
         const imgs = out.images.filter((img): img is string => typeof img === "string" && !img.startsWith("data:")).slice(0, 12);
@@ -80,6 +173,16 @@ export function sanitizeTurnsForResponse(turns: unknown, secretKey?: string): Ti
       }
       if (secretKey && typeof out.content === "string") {
         out.content = signVideoLinksInText(out.content, secretKey);
+      }
+      if (Array.isArray(out.toolCalls) && out.toolCalls.length) {
+        out.toolCalls = out.toolCalls.map((tc) => (tc && typeof tc === "object" ? sanitizeToolCallEntry(tc as Record<string, unknown>) : tc));
+      } else if (Array.isArray(out.steps) && out.steps.length) {
+        // Legacy TS turns saved with `steps` instead of `toolCalls`: normalize on read so ExecutionCard renders them.
+        out.toolCalls = stepsToToolCalls(out.steps, {
+          idPrefix: `legacy_${idx}`,
+          origin: typeof out.execution_mode === "string" && out.execution_mode ? out.execution_mode : "agent",
+          stdout: typeof out.content === "string" ? out.content : "",
+        });
       }
       return out;
     });
@@ -216,14 +319,19 @@ export async function appendConversationTurns(
     question: string;
     answer: string;
     thinking?: string | null;
+    toolCalls?: Record<string, unknown>[] | null;
     steps?: Record<string, unknown>[] | null;
     sources?: Record<string, unknown>[] | null;
     images?: string[] | null;
     userCreatedAt?: string | null;
+    startedAt?: string | null;
     assistantCreatedAt?: string | null;
     durationMs?: number | null;
     taskId?: string | null;
     agentSessionId?: string | null;
+    model?: string | null;
+    executionMode?: string | null;
+    forgetSession?: boolean;
     configPatch?: Record<string, unknown> | null;
     deviceId?: string | null;
     cwd?: string | null;
@@ -249,30 +357,48 @@ export async function appendConversationTurns(
   const startMs = opts.userCreatedAt ? Date.parse(opts.userCreatedAt) : Date.now();
   const baseTurns = dropCopiesOfRun(existingTurns, opts.question, opts.answer, Number.isFinite(startMs) ? startMs : null);
 
+  const cleanToolCalls = Array.isArray(opts.toolCalls) && opts.toolCalls.length
+    ? opts.toolCalls.map((tc) => sanitizeToolCallEntry(tc))
+    : Array.isArray(opts.steps) && opts.steps.length
+      ? stepsToToolCalls(opts.steps, {
+          idPrefix: `run_${randomUUID().slice(0, 8)}`,
+          origin: opts.executionMode || "agent",
+          prompt: opts.question,
+          stdout: opts.answer,
+        })
+      : [];
+
+  const userAt = opts.userCreatedAt || nowIso;
   const userTurn: TimelineTurn = {
     role: "user",
     content: opts.question,
-    created_at: opts.userCreatedAt || nowIso,
+    created_at: userAt,
     ...(storedImgs?.length ? { images: storedImgs } : {}),
   };
-  const assistTurn: TimelineTurn = {
+  const buildAssistTurn = (calls: Record<string, unknown>[]): TimelineTurn => ({
     role: "assistant",
     content: opts.answer,
+    started_at: opts.startedAt || userAt,
     created_at: assistantAt,
     ...(opts.thinking ? { thinking: opts.thinking } : {}),
-    ...(opts.steps?.length ? { steps: opts.steps } : {}),
+    ...(calls.length ? { toolCalls: calls } : {}),
     ...(opts.sources?.length ? { sources: opts.sources } : {}),
     ...(opts.durationMs != null ? { duration_ms: opts.durationMs } : {}),
     ...(opts.taskId ? { task_id: opts.taskId } : {}),
     ...(opts.agentSessionId ? { agent_session_id: opts.agentSessionId } : {}),
-  };
+    ...(opts.model ? { model: opts.model } : {}),
+    ...(opts.executionMode ? { execution_mode: opts.executionMode } : {}),
+  });
 
-  const nextTurns = [...baseTurns, userTurn, assistTurn];
   const curCfg = (conv.config && typeof conv.config === "object" ? conv.config : {}) as Record<string, unknown>;
   const nextCfg: Record<string, unknown> = {
     ...curCfg,
     ...(opts.configPatch || {}),
-    ...(opts.agentSessionId ? { session_id: opts.agentSessionId, agent_session_id: opts.agentSessionId } : {}),
+    ...(opts.forgetSession
+      ? { session_id: "", agent_session_id: "" }
+      : opts.agentSessionId
+        ? { session_id: opts.agentSessionId, agent_session_id: opts.agentSessionId }
+        : {}),
     compact_mode: false,
   };
 
@@ -282,20 +408,31 @@ export async function appendConversationTurns(
     if (cand && !isJunkOrUuidTitle(cand)) nextTitle = cand;
   }
 
-  await db
-    .update(askConversations)
-    .set({
-      title: nextTitle,
-      turns: withoutNul(nextTurns),
-      messageCount: nextTurns.length,
-      config: withoutNul(nextCfg),
-      ...(opts.deviceId ? { deviceId: opts.deviceId.slice(0, 255) } : {}),
-      ...(opts.cwd ? { cwd: opts.cwd.slice(0, 500) } : {}),
-      updatedAt: nowIso,
-    })
-    .where(eq(askConversations.id, convId));
+  const writeTurns = async (calls: Record<string, unknown>[]) => {
+    const nextTurns = [...baseTurns, userTurn, buildAssistTurn(calls)];
+    await db
+      .update(askConversations)
+      .set({
+        title: nextTitle,
+        turns: withoutNul(nextTurns),
+        messageCount: nextTurns.length,
+        config: withoutNul(nextCfg),
+        ...(opts.deviceId ? { deviceId: opts.deviceId.slice(0, 255) } : {}),
+        ...(opts.cwd ? { cwd: opts.cwd.slice(0, 500) } : {}),
+        updatedAt: nowIso,
+      })
+      .where(eq(askConversations.id, convId));
+    return nextTurns.length;
+  };
 
-  return { assistantCreatedAt: assistantAt, messageCount: nextTurns.length };
+  try {
+    const messageCount = await writeTurns(cleanToolCalls);
+    return { assistantCreatedAt: assistantAt, messageCount };
+  } catch {
+    // Fallback without heavy event logs so the reply itself is never lost.
+    const messageCount = await writeTurns(cleanToolCalls.map(slimToolCallEntry));
+    return { assistantCreatedAt: assistantAt, messageCount };
+  }
 }
 
 export async function reconcileSession(db: Db, convId: string, sessionId: string | null | undefined, binary?: string | null): Promise<void> {
@@ -320,21 +457,39 @@ export async function recordStoppedOrphans(
   const [conv] = await db.select().from(askConversations).where(eq(askConversations.id, convId)).limit(1);
   if (!conv) return;
   const turns = Array.isArray(conv.turns) ? [...(conv.turns as TimelineTurn[])] : [];
-  const recorded = new Set(turns.map((t) => t.task_id).filter(Boolean));
+  const recorded = new Set<string>();
+  for (const t of turns) {
+    if (t.task_id) recorded.add(t.task_id);
+    if (Array.isArray(t.toolCalls)) {
+      for (const tc of t.toolCalls) {
+        const tid = (tc?.result as Record<string, unknown> | undefined)?.task_id;
+        if (typeof tid === "string" && tid) recorded.add(tid);
+      }
+    }
+  }
   let changed = false;
   for (const tid of taskIds) {
     if (recorded.has(tid)) continue;
     const [task] = await db.select().from(deviceTasks).where(eq(deviceTasks.id, tid)).limit(1);
     if (!task) continue;
     const payload = (task.payload && typeof task.payload === "object" ? task.payload : {}) as Record<string, unknown>;
-    const prompt = String(payload.prompt || payload.command || "").trim();
+    const prompt = String(payload.user_question || payload.prompt || payload.command || "").trim();
     const out = extractRealAssistantContent(task.stdout, Array.isArray(task.events) ? task.events : []);
-    if (prompt) turns.push({ role: "user", content: prompt, created_at: pgToIso(task.createdAt), task_id: tid });
+    const startIso = pgToIso(task.dispatchedAt || task.createdAt) || new Date().toISOString();
+    const endIso = pgToIso(task.finishedAt) || new Date().toISOString();
+    const { toolCall, thinking } = buildToolCallFromDeviceTask(task);
+    if (prompt) turns.push({ role: "user", content: prompt, created_at: startIso, task_id: tid });
     turns.push({
       role: "assistant",
       content: out ? `${out}\n\n> ⏹ ${reason}` : `⏹ ${reason}`,
-      created_at: pgToIso(task.finishedAt) || new Date().toISOString(),
+      started_at: startIso,
+      created_at: endIso,
+      ...(thinking ? { thinking } : {}),
+      toolCalls: [toolCall],
       task_id: tid,
+      ...(task.sessionId ? { agent_session_id: task.sessionId } : {}),
+      ...(typeof payload.model === "string" && payload.model ? { model: payload.model } : {}),
+      execution_mode: typeof payload.execution_mode === "string" ? payload.execution_mode : typeof payload.binary === "string" ? payload.binary : task.action,
     });
     changed = true;
   }
@@ -350,7 +505,16 @@ export async function recoverOrphanedTasksForConv(db: Db, convId: string): Promi
   const [conv] = await db.select().from(askConversations).where(eq(askConversations.id, convId)).limit(1);
   if (!conv) return 0;
   const turns = Array.isArray(conv.turns) ? [...(conv.turns as TimelineTurn[])] : [];
-  const existingTaskIds = new Set(turns.map((t) => t.task_id).filter(Boolean));
+  const existingTaskIds = new Set<string>();
+  for (const t of turns) {
+    if (t.task_id) existingTaskIds.add(t.task_id);
+    if (Array.isArray(t.toolCalls)) {
+      for (const tc of t.toolCalls) {
+        const tid = (tc?.result as Record<string, unknown> | undefined)?.task_id;
+        if (typeof tid === "string" && tid) existingTaskIds.add(tid);
+      }
+    }
+  }
 
   const tasks = await db
     .select()
@@ -358,36 +522,58 @@ export async function recoverOrphanedTasksForConv(db: Db, convId: string): Promi
     .where(
       and(
         sql`${deviceTasks.payload}->>'conversation_id' = ${convId}`,
-        inArray(deviceTasks.status, ["succeeded", "failed", "timeout", "cancelled"]),
+        inArray(deviceTasks.status, ["succeeded", "failed", "timeout", "cancelled", "still_running"]),
       ),
     )
     .orderBy(desc(deviceTasks.finishedAt))
     .limit(10);
 
   let recovered = 0;
+  let nextSession: string | null = null;
   for (const t of tasks.reverse()) {
     if (existingTaskIds.has(t.id)) continue;
     const pl = (t.payload && typeof t.payload === "object" ? t.payload : {}) as Record<string, unknown>;
-    const prompt = String(pl.prompt || pl.command || "").trim();
+    const prompt = String(pl.user_question || pl.prompt || pl.command || "").trim();
     const answer = extractRealAssistantContent(t.stdout, Array.isArray(t.events) ? t.events : []) || t.error || `任务状态：${t.status}`;
+    const startIso = pgToIso(t.dispatchedAt || t.createdAt) || new Date().toISOString();
+    const endIso = pgToIso(t.finishedAt) || new Date().toISOString();
+    const durMs = Math.max(0, Date.parse(endIso) - Date.parse(startIso));
+    const { toolCall, thinking } = buildToolCallFromDeviceTask(t);
     if (prompt && !turns.slice(-4).some((x) => x.role === "user" && x.content.trim() === prompt)) {
-      turns.push({ role: "user", content: prompt, created_at: pgToIso(t.createdAt), task_id: t.id });
+      turns.push({ role: "user", content: prompt, created_at: startIso, task_id: t.id });
     }
     turns.push({
       role: "assistant",
       content: answer,
-      created_at: pgToIso(t.finishedAt) || new Date().toISOString(),
+      started_at: startIso,
+      created_at: endIso,
+      ...(Number.isFinite(durMs) ? { duration_ms: durMs } : {}),
+      ...(thinking ? { thinking } : {}),
+      toolCalls: [toolCall],
       task_id: t.id,
       ...(t.sessionId ? { agent_session_id: t.sessionId } : {}),
+      ...(typeof pl.model === "string" && pl.model ? { model: pl.model } : {}),
+      execution_mode: typeof pl.execution_mode === "string" ? pl.execution_mode : typeof pl.binary === "string" ? pl.binary : t.action,
     });
+    if (t.sessionId) nextSession = t.sessionId;
     existingTaskIds.add(t.id);
     recovered++;
   }
 
   if (recovered > 0) {
+    const cfg = { ...((conv.config && typeof conv.config === "object" ? conv.config : {}) as Record<string, unknown>) };
+    if (nextSession) {
+      cfg.session_id = nextSession;
+      cfg.agent_session_id = nextSession;
+    }
     await db
       .update(askConversations)
-      .set({ turns: withoutNul(turns), messageCount: turns.length, updatedAt: new Date().toISOString() })
+      .set({
+        turns: withoutNul(turns),
+        messageCount: turns.length,
+        config: withoutNul(cfg),
+        updatedAt: new Date().toISOString(),
+      })
       .where(eq(askConversations.id, convId));
   }
   return recovered;

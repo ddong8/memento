@@ -40,14 +40,20 @@ describe("P4 pure unit checks", () => {
     expect(classifyContinuation("第一个再展开下", [{ role: "user", content: "hi" }])).toBe("followup");
     expect(classifyContinuation("帮我查一下 memento 昨天的提交", [{ role: "user", content: "hi" }])).toBe("none");
 
-    const turns = messagesToTurns([
-      { lineNumber: 1, role: "user", messageType: "text", content: "你好", metadata: {}, timestamp: "2026-11-27T01:00:00Z" },
-      { lineNumber: 2, role: "tool", messageType: "tool_call", content: "[Bash]", metadata: { tool_name: "Bash", tool_input: "ls" }, timestamp: "2026-11-27T01:00:01Z" },
-      { lineNumber: 3, role: "tool", messageType: "tool_result", content: "file.txt", metadata: {}, timestamp: "2026-11-27T01:00:02Z" },
-      { lineNumber: 4, role: "assistant", messageType: "text", content: "已查看目录", metadata: {}, timestamp: "2026-11-27T01:00:03Z" },
-    ]);
+    const turns = messagesToTurns(
+      [
+        { lineNumber: 1, role: "user", messageType: "text", content: "你好", metadata: {}, timestamp: "2026-11-27T01:00:00Z" },
+        { lineNumber: 2, role: "tool", messageType: "tool_call", content: "[Bash]", metadata: { tool_name: "Bash", tool_input: "ls" }, timestamp: "2026-11-27T01:00:01Z" },
+        { lineNumber: 3, role: "tool", messageType: "tool_result", content: "file.txt", metadata: {}, timestamp: "2026-11-27T01:00:02Z" },
+        { lineNumber: 4, role: "assistant", messageType: "PLANNER_RESPONSE", content: "已查看目录", metadata: { thinking: "先列出目录看看文件" }, timestamp: "2026-11-27T01:00:03Z" },
+      ],
+      "antigravity",
+    );
     expect(turns).toHaveLength(2);
-    expect(turns[1]!.steps?.length).toBe(1);
+    expect(turns[1]!.thinking).toBe("先列出目录看看文件");
+    expect(turns[1]!.toolCalls?.length).toBe(1);
+    const tcResult = (turns[1]!.toolCalls![0] as { result?: { events?: unknown[] } }).result;
+    expect(tcResult?.events?.length).toBe(1);
 
     const { turns: merged, changed } = mergeSession(turns, [
       ...turns,

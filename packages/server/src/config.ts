@@ -52,6 +52,7 @@ export function loadSettings(env: Env = process.env) {
     allowedModelHosts: s("allowed_model_hosts"),
     passwordLogin: parseBool(s("password_login"), true),
     auditRetentionDays: parseIntStrict(s("audit_retention_days"), 365, "AUDIT_RETENTION_DAYS"),
+    remoteExec: (env.MEMENTO_REMOTE_EXEC ?? "").trim() === "1",
     remoteExecPolicy: s("remote_exec_policy", "off"),
     // OAuth / SSO / SCIM
     githubClientId: s("github_client_id"),
@@ -86,6 +87,14 @@ export function loadSettings(env: Env = process.env) {
     apnsTeamId: s("apns_team_id", "WHNZV34GK4"),
     apnsBundleId: s("apns_bundle_id", "com.ihasy.memento"),
     apnsProduction: parseBool(s("apns_production"), true),
+    // Embeddings (local BGE-M3 or OpenAI-compatible such as SiliconFlow)
+    embeddingDim: parseIntStrict(s("embedding_dim"), 1024, "EMBEDDING_DIM"),
+    embeddingProvider: s("embedding_provider", "local").trim().toLowerCase(),
+    embeddingServerUrl: s("embedding_server_url", "http://host.docker.internal:8002").replace(/\/+$/, ""),
+    embeddingApiUrl: s("embedding_api_url", "https://api.siliconflow.cn/v1").replace(/\/+$/, ""),
+    embeddingApiKey: s("embedding_api_key"),
+    embeddingModel: s("embedding_model", "BAAI/bge-m3"),
+    sessionHeavyTokens: parseIntStrict(s("session_heavy_tokens"), 150000, "SESSION_HEAVY_TOKENS"),
     /** The commit this build is from; /health reports it (the deploy job waits for it). */
     buildSha: env.MEMENTO_BUILD_SHA ?? "dev",
   };

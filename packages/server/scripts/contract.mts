@@ -180,6 +180,7 @@ todoSteps.forEach((st, i) => {
 // ---- read-only endpoints over seeded data, as an owner (sees all) and as a viewer (only their devices) ----
 const dbUrl = args.get("db");
 const redisUrl = args.get("redis");
+let readChecks = 0;
 if (dbUrl && redisUrl) {
   const { default: postgres } = await import("postgres");
   const { Redis } = await import("ioredis");
@@ -259,12 +260,20 @@ if (dbUrl && redisUrl) {
     ["daily messages", "/api/daily/2026-11-27/messages?tz_offset=-480"],
     ["daily summary missing", "/api/daily/2026-11-27/summary"],
     ["life rhythm", "/api/life/rhythm?days=7&tz_offset=-480"],
+    ["search keyword", "/api/search?q=%E6%A0%87%E9%A2%98&semantic=false"],
+    ["search limit 0", "/api/search?q=a&limit=0"],
+    ["search empty q", "/api/search?q="],
+    ["conversation get", "/api/conversations/00000000-0000-0000-0000-000000000001"],
+    ["conversation messages", "/api/conversations/00000000-0000-0000-0000-000000000001/messages?limit=10&offset=0"],
+    ["conversation stats", "/api/conversations/00000000-0000-0000-0000-000000000001/stats"],
+    ["exclusions list", "/api/collect/exclusions"],
+    ["exclusions preview", "/api/collect/exclusions/preview?name=nonexistent"],
   ];
   for (const [who, headers] of [["owner", ownerAuth], ["viewer", viewerHeaders]] as const) {
     for (const [name, path] of reads) {
       // Each server computes it itself: drop the shared cache before each call (and wait out the other's 3 s L1)
       const fresh = async (base: string) => {
-        for (const pat of ["tools:list:*", "dashboard:*", "hierarchy:*", "skills:*", "daily:*", "life:*"]) {
+        for (const pat of ["tools:list:*", "dashboard:*", "hierarchy:*", "skills:*", "daily:*", "life:*", "search:*"]) {
           const keys = await redis.keys(pat);
           if (keys.length) await redis.del(...keys);
         }
@@ -275,6 +284,7 @@ if (dbUrl && redisUrl) {
       const sa = JSON.stringify(normalize(a.body));
       const sb = JSON.stringify(normalize(b.body));
       check(`${who}: ${name} (${a.status})`, a.status === b.status && sa === sb, `python: ${a.status} ${sa}\n  ts:     ${b.status} ${sb}`);
+      readChecks++;
     }
   }
   await sqlc.end();
@@ -293,6 +303,6 @@ for (const c of cases) {
     console.log(`✗ ${c.name}\n  python: ${a.status} ${a.ctype} ${JSON.stringify(normalize(a.body))}\n  ts:     ${b.status} ${b.ctype} ${JSON.stringify(normalize(b.body))}`);
   }
 }
-const total = cases.length + todoSteps.length + 3 + (dbUrl && redisUrl ? 90 : 0);
+const total = cases.length + todoSteps.length + 3 + readChecks;
 console.log(failed ? `\n${failed} of ${total} differ` : `\nall ${total} cases match`);
 process.exit(failed ? 1 : 0);

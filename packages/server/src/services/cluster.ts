@@ -76,6 +76,15 @@ export class Cluster {
     this.ops.set(name, handler);
   }
 
+  /** Run a detached background coroutine safely (matches Python cluster.spawn). */
+  spawn(fn: () => Promise<void>): void {
+    void Promise.resolve()
+      .then(fn)
+      .catch((err) => {
+        console.error("[cluster.spawn]", err);
+      });
+  }
+
   on(channel: string, handler: ChannelHandler): void {
     this.channels.set(channel, handler);
     if (this.sub && this.available) void this.sub.subscribe(channel).catch(() => {});

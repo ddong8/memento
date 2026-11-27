@@ -49,6 +49,33 @@ spec:
           - path: /api/system/update
             pathType: Prefix
             backend: { service: { name: api-ts, port: { number: 8000 } } }
+          - path: /api/media
+            pathType: Prefix
+            backend: { service: { name: api-ts, port: { number: 8000 } } }
+          - path: /api/plugins
+            pathType: Prefix
+            backend: { service: { name: api-ts, port: { number: 8000 } } }
+          - path: /api/events
+            pathType: Prefix
+            backend: { service: { name: api-ts, port: { number: 8000 } } }
+          - path: /api/notify
+            pathType: Prefix
+            backend: { service: { name: api-ts, port: { number: 8000 } } }
+          - path: /api/profile/llm
+            pathType: Prefix
+            backend: { service: { name: api-ts, port: { number: 8000 } } }
+          - path: /api/daily
+            pathType: Prefix
+            backend: { service: { name: api-ts, port: { number: 8000 } } }
+          - path: /api/life
+            pathType: Prefix
+            backend: { service: { name: api-ts, port: { number: 8000 } } }
+          - path: /api/proactive
+            pathType: Prefix
+            backend: { service: { name: api-ts, port: { number: 8000 } } }
+          - path: /api/data
+            pathType: Prefix
+            backend: { service: { name: api-ts, port: { number: 8000 } } }
           - path: /api
             pathType: Prefix
             backend: { service: { name: api, port: { number: 8000 } } }

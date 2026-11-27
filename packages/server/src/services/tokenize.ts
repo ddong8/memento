@@ -26,7 +26,7 @@ function getJieba(): Jieba {
   return (jiebaInst ??= Jieba.withDict(defaultDict));
 }
 
-function segment(text: string): string[] {
+export function segment(text: string): string[] {
   if (!text) return [];
   const jb = getJieba();
   const tokens: string[] = [];

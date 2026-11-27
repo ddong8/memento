@@ -2,13 +2,39 @@
 import { asc, eq, inArray, sql } from "drizzle-orm";
 
 import type { Db } from "../db/client";
-import { documentPendingDeltas } from "../db/pulled/schema";
+import { documentPendingDeltas, documents } from "../db/pulled/schema";
+import { MAX_INPUT_CHARS } from "./tokenize";
 
 export const STAGE_MIN_BYTES = 1 << 20;
 export const QUIET_SECONDS = 600;
 export const MAX_WAIT_SECONDS = 3600;
 export const MAX_CONTENT_CHARS = 10_000_000;
 export const HEAD_CHARS = 1_000_000;
+
+export function pastIndex(content: string | null | undefined): boolean {
+  return !!content && content.length >= MAX_INPUT_CHARS;
+}
+
+export async function shouldStage(db: Db, docId: string): Promise<boolean> {
+  const [row] = await db
+    .select({
+      len: sql<number>`coalesce(octet_length(${documents.content}), 0)`,
+      hasPending: sql<boolean>`exists(select 1 from document_pending_deltas where document_id = ${docId})`,
+    })
+    .from(documents)
+    .where(eq(documents.id, docId))
+    .limit(1);
+  if (!row) return false;
+  return Boolean(row.hasPending) || Number(row.len) >= STAGE_MIN_BYTES;
+}
+
+export async function stageDelta(db: Db, docId: string, delta: string): Promise<void> {
+  await db.insert(documentPendingDeltas).values({ documentId: docId, content: delta });
+}
+
+export async function dropPending(db: Db, docId: string): Promise<void> {
+  await db.delete(documentPendingDeltas).where(eq(documentPendingDeltas.documentId, docId));
+}
 
 export function capContent(content: string): string {
   if (content.length <= MAX_CONTENT_CHARS) return content;

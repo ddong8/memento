@@ -9,6 +9,8 @@ import { etag } from "hono/etag";
 import type { AppEnv, Deps } from "./context";
 import { errorResponse, HttpError } from "./http";
 import { authRoutes } from "./routes/auth";
+import { collectExclusionRoutes } from "./routes/collect-exclusions";
+import { conversationRoutes } from "./routes/conversations";
 import { dailyRoutes } from "./routes/daily";
 import { dashboardRoutes } from "./routes/dashboard";
 import { dataIoRoutes } from "./routes/data-io";
@@ -16,6 +18,7 @@ import { documentRoutes } from "./routes/documents";
 import { eventRoutes } from "./routes/events";
 import { healthRoutes } from "./routes/health";
 import { hierarchyRoutes } from "./routes/hierarchy";
+import { ingestRoutes } from "./routes/ingest";
 import { installRoutes } from "./routes/install";
 import { lifeRoutes } from "./routes/life";
 import { llmRoutes } from "./routes/llm";
@@ -23,6 +26,7 @@ import { mediaRoutes } from "./routes/media";
 import { notifyRoutes } from "./routes/notify";
 import { pluginRoutes } from "./routes/plugins";
 import { proactiveRoutes } from "./routes/proactive";
+import { searchRoutes } from "./routes/search";
 import { skillRoutes } from "./routes/skills";
 import { todoRoutes } from "./routes/todos";
 import { publicRoutes, toolRoutes } from "./routes/tools";
@@ -53,6 +57,10 @@ export const MIGRATED_PATHS = [
   "/api/life",
   "/api/proactive",
   "/api/data",
+  "/api/search",
+  "/api/ingest",
+  "/api/conversations",
+  "/api/collect/exclusions",
 ] as const;
 
 export function createApp(deps: Deps) {
@@ -99,6 +107,10 @@ export function createApp(deps: Deps) {
   app.route("/api/life", lifeRoutes);
   app.route("/api/proactive", proactiveRoutes);
   app.route("/api/data", dataIoRoutes);
+  app.route("/api/search", searchRoutes);
+  app.route("/api/ingest", ingestRoutes);
+  app.route("/api/conversations", conversationRoutes);
+  app.route("/api/collect/exclusions", collectExclusionRoutes);
   app.notFound((c) => c.json({ detail: "Not Found" }, 404));
   app.onError((err, c) => errorResponse(c, err));
   return app;

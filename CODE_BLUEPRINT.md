@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `7921c4bd` · Updated: `2026-11-27`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `0ef14750` · Updated: `2026-11-27`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,8 +16,8 @@
 - 规模 (Scale): 10 个子系统 · 44 组 API 路由 / 346 个接口 · 39 个前端页面 · 126 个数据模型 · 35 个服务模块 · 289 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `packages/server`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `7921c4bd` (2026-11-27): feat(server-ts): 迁移看板、层级、文档、媒体、技能、插件、更新与安装脚本接口（P1 首批，先部署暂不切入口）
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 75（✅ 75 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-CI-KUSTOMIZE-PINNED`, `R-DEPLOY-AFTER-CI`, `R-DEPLOY-BUMP-RACE`, `F-BLUEPRINT`
+- 最近改动 (Latest): `0ef14750` (2026-11-27): feat(server-ts): 切入 Batch 1 入口、补齐部署配置并完成 Batch 2 路由与底座
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 75（✅ 75 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 11 · 状态 9 · 最近提交碰到 `R-CI-KUSTOMIZE-PINNED`, `R-DEPLOY-AFTER-CI`, `R-DEPLOY-BUMP-RACE`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -31,7 +31,7 @@
 | 8. Development & Verification Commands | L704-L721 |
 | 9. Recent Architectural Evolutions | L723-L730 |
 | 10. Key Environment Variables & Configuration | L732-L744 |
-| 11. 业务蓝图核对 (Business Blueprint Check) | L746-L755 |
+| 11. 业务蓝图核对 (Business Blueprint Check) | L746-L754 |
 
 ## 1. Project Overview & Tech Stack
 
@@ -722,12 +722,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `0ef14750` (2026-11-27): feat(server-ts): 切入 Batch 1 入口、补齐部署配置并完成 Batch 2 路由与底座
 - `7921c4bd` (2026-11-27): feat(server-ts): 迁移看板、层级、文档、媒体、技能、插件、更新与安装脚本接口（P1 首批，先部署暂不切入口）
 - `45375424` (2026-11-27): docs: 服务端 TS 迁移 P0 完成（五平台 pgvector 验证通过），P1 已迁待办、工具、公开统计
 - `33dde2b3` (2026-11-27): fix(server-ts): Linux x64 编 pgvector 前先升级 libgcc（镜像源版本不一致）；Windows 扩展目录按 share/extension 布局识别
 - `91f55355` (2026-11-27): fix(server-ts): Windows 上经 pg_ctl 启动内嵌 Postgres（管理员账号不能直接启动 postgres）；记录多平台编译结果
 - `b24876cc` (2026-11-27): feat(server-ts): 入口把 /api/tools 与 /api/public 切到 TypeScript 服务端；修多平台 pgvector 编译
-- `99808b74` (2026-11-27): feat(server-ts): 工具浏览与公开统计接口迁到 TypeScript（先部署，入口下一步再切）
 
 ## 10. Key Environment Variables & Configuration
 
@@ -752,7 +752,6 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 - `7921c4bd` feat(server-ts): 迁移看板、层级、文档、媒体、技能、插件、更新与安装脚本接口（P1 首批，先部署暂不切入口） → `R-CI-KUSTOMIZE-PINNED`, `R-DEPLOY-AFTER-CI`, `R-DEPLOY-BUMP-RACE`
 - `b24876cc` feat(server-ts): 入口把 /api/tools 与 /api/public 切到 TypeScript 服务端；修多平台 pgvector 编译 → `R-CI-KUSTOMIZE-PINNED`, `R-DEPLOY-AFTER-CI`, `R-DEPLOY-BUMP-RACE`
-- `99808b74` feat(server-ts): 工具浏览与公开统计接口迁到 TypeScript（先部署，入口下一步再切） → `F-BLUEPRINT`
 
 ---
 _Auto-maintained by `scripts/project_blueprint.mjs` (v20261126) & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._

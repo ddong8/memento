@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `52546bb5` · Updated: `2026-11-27`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `aa0ddece` · Updated: `2026-11-27`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,8 +16,8 @@
 - 规模 (Scale): 9 个子系统 · 1 组 API 路由 / 2 个接口 · 39 个前端页面 · 84 个数据模型 · 35 个服务模块 · 150 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `packages/server`, `embedding`, `deploy`
 - 自测命令 (Verify): `npm test` ; `npx tsc --noEmit` ; `npm run lint` ; `npm run build`
-- 最近改动 (Latest): `05e94ed6` (2026-11-27): feat(server-ts): 完成 P7 迁移接管、移除 Python 服务端并支持桌面单机内置服务与双向迁移
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 77（✅ 77 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 12 · 状态 10 · 最近提交碰到 `F-BLUEPRINT`, `R-AGY-WORKDIR`, `R-ENT-SECRETS`, `R-ENT-DEVICE-POLICY`, `R-ENT-DEPLOY`, `R-CLAUDE-RESUME-IN-PLACE`, `R-APP-NAME`, `R-DOCS-WRITE-LIGHT`
+- 最近改动 (Latest): `aa0ddece` (2026-11-27): feat(desktop): 完成单机免 Docker 三合一单安装包与无界面单机包并发布 1.0.168
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 77（✅ 77 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 12 · 状态 10 · 最近提交碰到 `R-ENT-DEVICE-POLICY`, `R-ENT-DEPLOY`, `R-WS-EXEC-REMIND`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `R-MAC-TRAY`, `S-CLIENT-VERSION`, `F-BLUEPRINT`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -256,12 +256,12 @@ flowchart TD
 
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
+- [`packages/server/src/app.ts`](packages/server/src/app.ts) (11 commits)
 - [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (10 commits)
+- [`docs/ts-server-migration.md`](docs/ts-server-migration.md) (10 commits)
 - [`packages/server/scripts/contract.mts`](packages/server/scripts/contract.mts) (10 commits)
-- [`packages/server/src/app.ts`](packages/server/src/app.ts) (10 commits)
 - [`apps/web/src/components/ask/GitDiffDrawer.tsx`](apps/web/src/components/ask/GitDiffDrawer.tsx) (9 commits)
 - [`deploy/k8s/ingress.yaml`](deploy/k8s/ingress.yaml) (9 commits)
-- [`docs/ts-server-migration.md`](docs/ts-server-migration.md) (9 commits)
 - [`apps/mobile/src/app/index.tsx`](apps/mobile/src/app/index.tsx) (8 commits)
 - [`apps/web/src/lib/api-client.ts`](apps/web/src/lib/api-client.ts) (8 commits)
 - [`apps/web/test/glass-system.test.ts`](apps/web/test/glass-system.test.ts) (8 commits)
@@ -282,12 +282,12 @@ npm run build
 
 ## 9. Recent Architectural Evolutions
 
+- `aa0ddece` (2026-11-27): feat(desktop): 完成单机免 Docker 三合一单安装包与无界面单机包并发布 1.0.168
 - `05e94ed6` (2026-11-27): feat(server-ts): 完成 P7 迁移接管、移除 Python 服务端并支持桌面单机内置服务与双向迁移
 - `caf28e8b` (2026-11-27): feat(deploy): 线上 100% 流量切换至 TypeScript 服务端 api-ts
 - `4604f1ed` (2026-11-27): feat(server-ts): 完成 P6 全量路由与后台运行器、对齐 ask-runs 集群协议并切流 P5
 - `2d6fc5f2` (2026-11-27): feat(server-ts): 完成 P5 后台智能、健康总览与 21 个定时任务并修复契约对照竞态
 - `5e7e1373` (2026-11-27): feat(server-ts): 切入 P3 入口并完成 P4 问答、编排、直连 Agent、心领神会与对话路由
-- `4ccae92a` (2026-11-27): feat(server-ts): 切入 P2 入口并完成 P3 设备实时通信、任务、终端、预览、Git 审阅、额度与定时任务
 
 ## 10. Key Environment Variables & Configuration
 
@@ -310,10 +310,10 @@ npm run build
 
 ### 最近提交碰到的业务条目（改动后复查它们还成不成立）
 
+- `aa0ddece` feat(desktop): 完成单机免 Docker 三合一单安装包与无界面单机包并发布 1.0.168 → `R-ENT-DEVICE-POLICY`, `R-ENT-DEPLOY`, `R-WS-EXEC-REMIND`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `R-MAC-TRAY`, `S-CLIENT-VERSION`
 - `05e94ed6` feat(server-ts): 完成 P7 迁移接管、移除 Python 服务端并支持桌面单机内置服务与双向迁移 → `F-BLUEPRINT`, `R-AGY-WORKDIR`, `R-ENT-SECRETS`, `R-ENT-DEVICE-POLICY`, `R-ENT-DEPLOY`, `R-CLAUDE-RESUME-IN-PLACE`, `R-APP-NAME`, `R-DOCS-WRITE-LIGHT`, `R-PUBLIC-REPO-CLEAN`, `R-NO-CONFIGMAP-HOTFIX`, `R-CI-KUSTOMIZE-PINNED`, `R-DEPLOY-AFTER-CI`, `R-DEPLOY-BUMP-RACE`, `R-ALL-TYPESCRIPT`, `R-LOGIN-PERSIST`, `R-STUDIO-INLINE-PLAY`
 - `4604f1ed` feat(server-ts): 完成 P6 全量路由与后台运行器、对齐 ask-runs 集群协议并切流 P5 → `T-RUN`, `T-PLAN`, `F-ASK`, `F-STOP`, `F-PLAN`, `R-STOP-ALL-AGENTS`, `R-ISLAND-CLEANUP`, `R-MULTI-DEVICE-STABLE`, `R-BIZ-AUTO`, `R-ENT-ADMIN-SCOPE`, `R-ENT-SSO`, `R-ENT-AUDIT`, `R-RUN-OUTLIVES-PAGE`, `R-PLAN-QUOTA-GATE`, `R-REPLICA-STATE`, `R-CODE-BLUEPRINT-NAME`, `R-USER-BLUEPRINT-BUSINESS`, `R-SESSION-PREVIEW-WHOLE`, `R-STUDIO-INLINE-PLAY`, `R-STUDIO-SMOOTH-PLAY`, `R-STUDIO-PUBLISH-PULL`, `R-PLUGIN-MARKETPLACE`, `R-BUSINESS-CHECKED`, `S-RUN-STATE`, `S-QUOTA`, `S-LOGIN-TICKET`
 - `2d6fc5f2` feat(server-ts): 完成 P5 后台智能、健康总览与 21 个定时任务并修复契约对照竞态 → `R-BIZ-AUTO`, `R-ENT-AUDIT`, `R-WS-EXEC-REMIND`, `R-BLUEPRINT-NEWEST`, `R-USER-BLUEPRINT-BUSINESS`, `R-SELF-EVOLVE`, `R-UI-COMMERCIAL`, `R-BUSINESS-CHECKED`
-- `5e7e1373` feat(server-ts): 切入 P3 入口并完成 P4 问答、编排、直连 Agent、心领神会与对话路由 → `T-CONVERSATION`, `T-SESSION`, `T-RUN`, `T-COMPACT`, `T-BLUEPRINT`, `F-ASK`, `F-RESUME`, `F-STOP`, `F-DELETE`, `F-BLUEPRINT`, `R-STOP-ALL-AGENTS`, `R-ISLAND-CLEANUP`, `R-ENT-SECRETS`, `R-RUN-OUTLIVES-PAGE`, `R-SESSION-TIMELINE`, `R-RESTORE-CONFIG`, `R-DEVICE-SESSION-MAP`, `R-DEVICE-ENV-PROFILE`, `R-DELETE-GONE-EVERYWHERE`, `R-FOLLOWUP-NOT-LOST`, `R-NO-STDERR`, `R-CLAUDE-RESUME-IN-PLACE`, `R-NEWCHAT-WORKS`, `R-BLUEPRINT-NEWEST`, `R-CODE-BLUEPRINT-NAME`, `R-SELF-EVOLVE`, `S-CONV-LIST`, `S-RUN-STATE`, `S-MODEL-CHOICE`, `S-AGENT-SESSION`
 
 ---
 _Auto-maintained by `scripts/project_blueprint.mjs` (v20261126) & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._

@@ -83,10 +83,12 @@ jobs:
         run: node packages/server/embedded/stage-embedded.mjs
 
       - name: Build bundled web & desktop single-installer
+        shell: bash
         env:
           MEMENTO_BUNDLE_EMBEDDED: "1"
           GIT_SHA: ${{ github.sha }}
         run: |
+          set -euo pipefail
           npm run build -w @memento/core
           npm run build -w web
           npm run build -w @memento/desktop

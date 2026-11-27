@@ -54,15 +54,22 @@ const INJECTED_CLIENT_HELPERS = `(() => {
   if (window.__memento_native_helpers_installed) return;
   window.__memento_native_helpers_installed = true;
 
-  // 1. Theme & glass tracking
+  // 1. Theme & glass tracking (sync exact active skin CSS variables so top status bar & bottom tab bar match 1:1)
   const postTheme = () => {
     const root = document.documentElement;
     const isDark = root.getAttribute("data-theme") === "dark" || (root.getAttribute("data-theme") !== "light" && window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
-    const bg = isDark ? "#15151F" : "#FFFFFF";
+    const cs = window.getComputedStyle ? window.getComputedStyle(root) : null;
+    const pick = (k, fb) => (cs && cs.getPropertyValue(k) ? cs.getPropertyValue(k).trim() : "") || fb;
+    const surface = pick("--aurora-surface-solid", isDark ? "#15151F" : "#FFFFFF");
+    const pageBg = pick("--aurora-bg", isDark ? "#0A0A12" : "#FAFAFC");
+    const border = pick("--aurora-border-strong", isDark ? "rgba(255, 255, 255, 0.12)" : "rgba(15, 15, 30, 0.11)");
+    const accent = pick("--aurora-accent", isDark ? "#A78BFA" : "#6D28D9");
+    const accentSoft = pick("--aurora-accent-soft", isDark ? "rgba(167, 139, 250, 0.16)" : "rgba(109, 40, 217, 0.10)");
+    const fg = pick("--aurora-fg2", isDark ? "#C5C5D2" : "#3A3A48");
     let glass = root.getAttribute("data-glass") !== "off";
     try { if (localStorage.getItem("dr_glass") === "off") glass = false; } catch (e) {}
     if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
-      window.ReactNativeWebView.postMessage(JSON.stringify({ type: "theme", bg, dark: isDark, glass }));
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type: "theme", bg: surface, pageBg, surface, border, accent, accentSoft, fg, dark: isDark, glass }));
     }
   };
   postTheme();
@@ -324,7 +331,16 @@ export default function WebShell() {
   const blurTargetRef = useRef<View | null>(null);
   const canGoBack = useRef(false);
   const pendingUrlRef = useRef<string | null>(null);
-  const [page, setPage] = useState<{ bg: string; dark: boolean } | null>(null);
+  const [page, setPage] = useState<{
+    bg: string;
+    pageBg?: string;
+    surface?: string;
+    border?: string;
+    accent?: string;
+    accentSoft?: string;
+    fg?: string;
+    dark: boolean;
+  } | null>(null);
   const [glassEnabled, setGlassEnabled] = useState(true);
   const [activeTab, setActiveTab] = useState<TabId | null>("ask");
   const [tabBarCompact, setTabBarCompactState] = useState(false);
@@ -584,6 +600,12 @@ export default function WebShell() {
       const msg = JSON.parse(e.nativeEvent.data) as {
         type?: string;
         bg?: string;
+        pageBg?: string;
+        surface?: string;
+        border?: string;
+        accent?: string;
+        accentSoft?: string;
+        fg?: string;
         dark?: boolean;
         glass?: boolean;
         enabled?: boolean;
@@ -594,7 +616,16 @@ export default function WebShell() {
         data?: Record<string, unknown>;
       };
       if (msg.type === "theme" && msg.bg && !/rgba\(0, 0, 0, 0\)|transparent/.test(msg.bg)) {
-        setPage({ bg: msg.bg, dark: !!msg.dark });
+        setPage({
+          bg: msg.bg,
+          pageBg: msg.pageBg,
+          surface: msg.surface || msg.bg,
+          border: msg.border,
+          accent: msg.accent,
+          accentSoft: msg.accentSoft,
+          fg: msg.fg,
+          dark: !!msg.dark,
+        });
         if (typeof msg.glass === "boolean") setGlassEnabled(msg.glass);
       } else if (msg.type === "glass" && typeof msg.enabled === "boolean") {
         setGlassEnabled(msg.enabled);
@@ -700,17 +731,22 @@ export default function WebShell() {
   if (!token || !start) return <Redirect href="/login" />;
 
   const dark = page ? page.dark : t.scheme === "dark";
-  const bg = page?.bg ?? (dark ? "#15151F" : "#FFFFFF");
+  const surface = page?.surface ?? page?.bg ?? (dark ? "#15151F" : "#FFFFFF");
+  const pageBg = page?.pageBg ?? (dark ? "#0A0A12" : "#FAFAFC");
+  const tabBorder = page?.border ?? (dark ? "rgba(255, 255, 255, 0.12)" : "rgba(15, 15, 30, 0.11)");
+  const tabActiveColor = page?.accent ?? (dark ? "#A78BFA" : "#6D28D9");
+  const tabActiveBg = page?.accentSoft ?? (dark ? "rgba(167, 139, 250, 0.16)" : "rgba(109, 40, 217, 0.10)");
+  const tabInactiveColor = page?.fg ?? (dark ? "#C5C5D2" : "#3A3A48");
 
   return (
-    <View style={{ flex: 1, backgroundColor: bg }}>
+    <View style={{ flex: 1, backgroundColor: pageBg }}>
       <StatusBar style={dark ? "light" : "dark"} />
-      <View style={{ height: insets.top, backgroundColor: bg }} />
+      <View style={{ height: insets.top, backgroundColor: surface }} />
       <BlurTargetView ref={blurTargetRef} style={{ flex: 1, marginBottom: Platform.OS === "ios" ? keyboardHeight : 0 }}>
         <WebView
           ref={web}
           source={{ uri: start }}
-          style={{ flex: 1, backgroundColor: bg }}
+          style={{ flex: 1, backgroundColor: pageBg }}
           applicationNameForUserAgent={USER_AGENT_SUFFIX}
           injectedJavaScriptBeforeContentLoaded={`${INJECTED_CLIENT_HELPERS}\n${tabBarInsetScript(tabBarLayout)}`}
           onMessage={onMessage}
@@ -767,7 +803,7 @@ export default function WebShell() {
             }
           }}
           renderLoading={() => (
-            <View style={[StyleSheet.absoluteFill, { alignItems: "center", justifyContent: "center", backgroundColor: bg }]}>
+            <View style={[StyleSheet.absoluteFill, { alignItems: "center", justifyContent: "center", backgroundColor: pageBg }]}>
               <ActivityIndicator color={t.accent} />
             </View>
           )}
@@ -786,6 +822,8 @@ export default function WebShell() {
                 <GlassSurface
                   enabled={glassEnabled}
                   dark={dark}
+                  surfaceColor={surface}
+                  borderColor={tabBorder}
                   blurTarget={blurTargetRef}
                   variant="card"
                   style={{ width: "100%", maxHeight: 220, borderRadius: 16, padding: 8, gap: 6 }}
@@ -831,6 +869,8 @@ export default function WebShell() {
             <GlassSurface
               enabled={glassEnabled}
               dark={dark}
+              surfaceColor={surface}
+              borderColor={tabBorder}
               blurTarget={blurTargetRef}
               variant="tabbar"
               dense={compactTabBar}
@@ -851,7 +891,7 @@ export default function WebShell() {
                   <Icon
                     name={(TABS.find((x) => x.id === activeTab) ?? TABS[0]).icon}
                     size={20}
-                    color={dark ? "#C4B5FD" : "#6D28D9"}
+                    color={tabActiveColor}
                     strokeWidth={2.2}
                   />
                 </Pressable>
@@ -859,11 +899,9 @@ export default function WebShell() {
               <View style={styles.tabBarRow}>
                 {TABS.map((tab) => {
                   const isActive = activeTab === tab.id;
-                  // Always follow the web page's active light/dark theme (`dark`), never the OS
-                  // color scheme (`t.accent`), so dark-OS + light-app never washes out active labels.
-                  const activeColor = dark ? "#C4B5FD" : "#6D28D9";
-                  const inactiveColor = dark ? "#E4E1F4" : "#2D2940";
-                  const color = isActive ? activeColor : inactiveColor;
+                  // Follow the web page's exact active skin & light/dark tokens (`tabActiveColor`/`tabInactiveColor`),
+                  // never the OS color scheme (`t.accent`), so bottom tabs match the top bar and composer 1:1.
+                  const color = isActive ? tabActiveColor : tabInactiveColor;
                   return (
                     <Pressable
                       key={tab.id}
@@ -891,7 +929,7 @@ export default function WebShell() {
                         styles.tabItem,
                         isActive
                           ? {
-                              backgroundColor: dark ? "rgba(196, 181, 253, 0.22)" : "rgba(109, 40, 217, 0.12)",
+                              backgroundColor: tabActiveBg,
                             }
                           : null,
                         { opacity: pressed ? 0.72 : 1, transform: [{ scale: pressed ? 0.94 : 1 }] },

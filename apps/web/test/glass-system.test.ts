@@ -21,8 +21,9 @@ describe("frosted glass architecture", () => {
     expect(css).toContain(".memento-main-pane");
     // Ask composer card stays crisp solid (never translucent over smeared chat text)
     expect(css).toContain(".ask-footer-card {\n  background: var(--aurora-surface-solid) !important;");
-    // Mobile keeps list cards blur-free while unlocking .memento-glass-chrome
+    // Mobile keeps list cards blur-free while unlocking .memento-glass-chrome matching active skin surface
     expect(css).toContain('html[data-glass="on"] .memento-glass-chrome');
+    expect(css).toContain("color-mix(in srgb, var(--aurora-surface-solid) 95%, transparent)");
     // User toggle off cleanly disables blur
     expect(css).toContain('html[data-glass="off"] .memento-glass-chrome');
     // Floating mobile glass tabbar reserves live bottom inset

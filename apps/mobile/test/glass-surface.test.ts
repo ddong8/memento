@@ -40,11 +40,18 @@ describe("mobile native glass surface", () => {
     expect(indexSrc).toContain('key={compactTabBar ? "tabbar-compact" : "tabbar-full"}');
     expect(indexSrc).toContain("styles.tabBarDockWrapFull");
     expect(indexSrc).toContain("styles.tabBarDockWrapCompact");
-    // Tab bar uses crisp high-opacity surface tint (never muddy 0.22 clear glass over raw text)
+    // Tab bar uses crisp high-opacity surface veil over `clear` glass (never `.regular` grey washout or muddy clear glass)
+    expect(glassSrc).toContain('glassEffectStyle="clear"');
+    expect(glassSrc).not.toContain('glassEffectStyle="regular"');
+    expect(glassSrc).not.toContain("systemChromeMaterial");
+    expect(glassSrc).toContain("surfaceColor");
+    expect(glassSrc).toContain("withAlpha");
     expect(glassSrc).not.toContain("rgba(255, 255, 255, 0.22)");
     expect(glassSrc).not.toContain("rgba(255, 255, 255, 0.50)");
-    // Active tab color must follow page theme (`dark`), never OS color scheme (`t.accent`)
+    // Active tab color & surface sync from web CSS variables, never OS color scheme (`t.accent`)
     expect(indexSrc).not.toContain("isActive ? t.accent");
+    expect(indexSrc).toContain("--aurora-surface-solid");
+    expect(indexSrc).toContain("surfaceColor={surface}");
     // Sub-tabs like /skills, /tasks, /devices map back to their parent bottom tab
     expect(indexSrc).toContain("matchTabForPath");
     expect(indexSrc).toContain('"/skills"');

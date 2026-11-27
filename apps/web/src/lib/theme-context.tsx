@@ -27,6 +27,24 @@ const Ctx = createContext<ThemeCtx>({
 
 const SKINS: Skin[] = ["aurora", "arc", "baseline"];
 
+const SKIN_CHROME: Record<
+  Skin,
+  Record<Theme, { surface: string; pageBg: string; border: string; accent: string; accentSoft: string; fg: string }>
+> = {
+  aurora: {
+    light: { surface: "#FFFFFF", pageBg: "#FAFAFC", border: "rgba(15, 15, 30, 0.11)", accent: "#6D28D9", accentSoft: "rgba(109, 40, 217, 0.10)", fg: "#3A3A48" },
+    dark: { surface: "#15151F", pageBg: "#0A0A12", border: "rgba(255, 255, 255, 0.12)", accent: "#A78BFA", accentSoft: "rgba(167, 139, 250, 0.16)", fg: "#C5C5D2" },
+  },
+  arc: {
+    light: { surface: "#FFFFFF", pageBg: "#FAFAF7", border: "rgba(0, 0, 0, 0.13)", accent: "#C2410C", accentSoft: "rgba(194, 65, 12, 0.10)", fg: "#3A3A38" },
+    dark: { surface: "#141413", pageBg: "#0B0B0A", border: "rgba(255, 255, 255, 0.13)", accent: "#F97316", accentSoft: "rgba(249, 115, 22, 0.16)", fg: "#C8C8C3" },
+  },
+  baseline: {
+    light: { surface: "#FFFFFF", pageBg: "#F9FAFB", border: "#D1D5DB", accent: "#2563EB", accentSoft: "rgba(37, 99, 235, 0.12)", fg: "#374151" },
+    dark: { surface: "#1E293B", pageBg: "#0F172A", border: "#475569", accent: "#3B82F6", accentSoft: "rgba(59, 130, 246, 0.18)", fg: "#CBD5E1" },
+  },
+};
+
 function applyAttrs(skin: Skin, theme: Theme, glass: boolean) {
   if (typeof document === "undefined") return;
   document.documentElement.setAttribute("data-skin", skin);
@@ -44,9 +62,17 @@ function applyAttrs(skin: Skin, theme: Theme, glass: boolean) {
   }
   if (link.href !== location.origin + href) link.href = href;
 
-  // Sync theme-color and native shell status bar
+  // Sync theme-color and native shell status bar + bottom tab bar with the exact active skin tokens
   const isDark = theme === "dark";
-  const headerBg = isDark ? "#15151F" : "#FFFFFF";
+  const fallback = SKIN_CHROME[skin]?.[theme] ?? SKIN_CHROME.aurora[theme];
+  const cs = typeof window !== "undefined" ? window.getComputedStyle(document.documentElement) : null;
+  const pickVar = (name: string, fb: string) => cs?.getPropertyValue(name)?.trim() || fb;
+  const surface = pickVar("--aurora-surface-solid", fallback.surface);
+  const pageBg = pickVar("--aurora-bg", fallback.pageBg);
+  const border = pickVar("--aurora-border-strong", fallback.border);
+  const accent = pickVar("--aurora-accent", fallback.accent);
+  const accentSoft = pickVar("--aurora-accent-soft", fallback.accentSoft);
+  const fg = pickVar("--aurora-fg2", fallback.fg);
 
   let meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
   if (!meta) {
@@ -54,7 +80,7 @@ function applyAttrs(skin: Skin, theme: Theme, glass: boolean) {
     meta.name = "theme-color";
     document.head.appendChild(meta);
   }
-  meta.content = headerBg;
+  meta.content = surface;
 
   // The desktop app: what the system draws (title bar on Windows, macOS vibrancy, scroll bars, menus)
   const dt = (window as unknown as {
@@ -75,7 +101,20 @@ function applyAttrs(skin: Skin, theme: Theme, glass: boolean) {
   const bridge = (window as unknown as { ReactNativeWebView?: { postMessage: (msg: string) => void } }).ReactNativeWebView;
   if (bridge?.postMessage) {
     try {
-      bridge.postMessage(JSON.stringify({ type: "theme", bg: headerBg, dark: isDark, glass }));
+      bridge.postMessage(
+        JSON.stringify({
+          type: "theme",
+          bg: surface,
+          pageBg,
+          surface,
+          border,
+          accent,
+          accentSoft,
+          fg,
+          dark: isDark,
+          glass,
+        }),
+      );
     } catch {}
   }
 }

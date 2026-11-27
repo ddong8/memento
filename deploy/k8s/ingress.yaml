@@ -118,6 +118,12 @@ spec:
           - path: /api/scheduled-tasks
             pathType: Prefix
             backend: { service: { name: api-ts, port: { number: 8000 } } }
+          - path: /api/learning
+            pathType: Prefix
+            backend: { service: { name: api-ts, port: { number: 8000 } } }
+          - path: /api/health/overview
+            pathType: Prefix
+            backend: { service: { name: api-ts, port: { number: 8000 } } }
           - path: /api
             pathType: Prefix
             backend: { service: { name: api, port: { number: 8000 } } }

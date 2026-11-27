@@ -15,6 +15,8 @@ COPY --from=build /repo/packages/server/dist ./dist
 COPY --from=build /repo/node_modules/@node-rs ./node_modules/@node-rs
 COPY deploy/bootstrap ./bootstrap
 COPY data/updates ./data/updates
+COPY scripts/project_blueprint.mjs ./scripts/project_blueprint.mjs
+COPY scripts/legacy ./scripts/legacy
 ENV NODE_ENV=production
 # Last, so a new commit doesn't invalidate the layers above; /health and the x-memento-server header report it
 ARG GIT_SHA=dev

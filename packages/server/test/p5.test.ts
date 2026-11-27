@@ -47,8 +47,8 @@ describe.skipIf(!TEST_DB)("P5 learning, health & 21 scheduled jobs", () => {
     await ctx?.sql.end();
   });
 
-  it("registers all 21 Celery-equivalent cron jobs with Asia/Shanghai schedules", () => {
-    expect(SCHEDULED_JOBS.length).toBe(21);
+  it("registers all 22 scheduled jobs (21 Celery-equivalent + memory-compaction) with Asia/Shanghai schedules", () => {
+    expect(SCHEDULED_JOBS.length).toBe(22);
     const names = new Set(SCHEDULED_JOBS.map((j) => j.name));
     for (const expected of [
       "daily-digest",

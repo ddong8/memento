@@ -39,6 +39,7 @@ import {
   titleFromUserMessages,
 } from "./ingest-service";
 import * as learningEval from "./learning-eval-service";
+import { runCompaction } from "./memory-compaction";
 import { reconcile, sweepDormant } from "./memory-lifecycle";
 import { backfillMemoryVectors } from "./memory-vectors";
 import { auditDue } from "./message-audit";
@@ -646,6 +647,7 @@ export const SCHEDULED_JOBS: JobSpec[] = [
   { name: "learn-todos", cron: "4,14,24,34,44,54 * * * *", leaseSeconds: 500, run: runLearnTodos },
   { name: "review-sessions", cron: "20 2 * * *", leaseSeconds: 2900, run: runReviewSessions },
   { name: "memory-lifecycle", cron: "10 4 * * *", leaseSeconds: 1700, run: runMemoryLifecycle },
+  { name: "memory-compaction", cron: "15 4 * * *", leaseSeconds: 1200, run: (d) => runCompaction(d.db, d.settings, d.redis()) },
   { name: "memory-vectors", cron: "6,16,26,36,46,56 * * * *", leaseSeconds: 540, run: (d) => backfillMemoryVectors(d.db, d.settings, d.redis()) },
   { name: "remind-todos", cron: "5 9 * * *", leaseSeconds: 600, run: runRemindTodos },
   { name: "tsvector-backfill", cron: "25 4 * * *", leaseSeconds: 1700, run: runTsvectorBackfill },

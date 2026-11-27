@@ -6,6 +6,8 @@ import type { AppEnv } from "../context";
 
 export const healthRoutes = new Hono<AppEnv>();
 
+healthRoutes.get("/", (c) => c.json({ name: "Memento", version: "0.1.0", docs: "/docs" }));
+
 healthRoutes.get("/health", (c) => c.json({ status: "ok", version: c.var.deps.settings.buildSha }));
 
 const within = <T>(p: Promise<T>, ms: number) =>

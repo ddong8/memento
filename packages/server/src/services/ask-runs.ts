@@ -26,8 +26,10 @@ export class RunConflict extends Error {
 const MAX_FRAMES = 4000;
 const RETENTION_MS = 10 * 60 * 1000;
 const MIRROR_TTL_S = 1800;
+const RETAIN_AFTER_DONE_S = 600;
 const HANDOVER_TTL_S = 300;
 const IDLE_HEARTBEAT_MS = 15_000;
+const CLAIM_PREFIX = "askrun:";
 
 const K_CUR = `${PREFIX}askrun-cur:`;
 const K_META = `${PREFIX}askrun-meta:`;
@@ -44,22 +46,24 @@ export type RunStreamFactory = (deps: Deps, user: UserRow, signal: AbortSignal) 
 export type RunResumer = (kwargs: Record<string, unknown>, checkpoint: Record<string, unknown>) => RunStreamFactory;
 
 export interface RunSummary {
-  run_id: string;
   conversation_id: string;
-  user_id: string;
-  request_id: string | null;
-  status: string;
+  title: string;
   question: string;
-  title: string | null;
+  images: string[];
   execution_mode: string | null;
   model: string | null;
   device_name: string | null;
-  images: string[];
   started_at: number;
   finished_at: number | null;
-  frame_count: number;
-  error: string | null;
-  pod_id?: string;
+  elapsed_seconds: number;
+  done: boolean;
+  cancelled: boolean;
+  failed: boolean;
+  current_step: string;
+  step_type: string;
+  tool_name: string | null;
+  step_count: number;
+  events: number;
 }
 
 interface Waiter {
@@ -88,15 +92,18 @@ export class AskRun {
   readonly userId: string;
   readonly requestId: string | null;
   readonly question: string;
-  readonly title: string | null;
+  title: string;
   readonly executionMode: string | null;
   readonly model: string | null;
   readonly deviceName: string | null;
   readonly images: string[];
   readonly startedAt: number;
   finishedAt: number | null = null;
+  lastActiveAt: number;
   status: "running" | "done" | "error" | "cancelled" | "handed_over" = "running";
   error: string | null = null;
+  currentStep = "正在启动任务...";
+  stepType = "init";
   readonly frames: string[] = [];
   readonly abortController = new AbortController();
   checkpoint: Record<string, unknown> = {};
@@ -130,12 +137,13 @@ export class AskRun {
     this.userId = opts.userId;
     this.requestId = opts.requestId ?? null;
     this.question = opts.question;
-    this.title = opts.title ?? null;
+    this.title = opts.title || "";
     this.executionMode = opts.executionMode ?? null;
     this.model = opts.model ?? null;
     this.deviceName = opts.deviceName ?? null;
     this.images = opts.images ?? [];
     this.startedAt = nowSec();
+    this.lastActiveAt = this.startedAt;
     this.resumeSpec = opts.resume ?? null;
     if (opts.resume?.checkpoint) this.checkpoint = { ...opts.resume.checkpoint };
     this.donePromise = new Promise((res) => {
@@ -148,23 +156,26 @@ export class AskRun {
   }
 
   summary(): RunSummary {
+    const elapsed = Math.round(((this.finishedAt ?? nowSec()) - this.startedAt) * 10) / 10;
     return {
-      run_id: this.runId,
       conversation_id: this.conversationId,
-      user_id: this.userId,
-      request_id: this.requestId,
-      status: this.status,
-      question: this.question.slice(0, 300),
-      title: this.title,
+      title: this.title || (this.question ? this.question.slice(0, 40) : ""),
+      question: this.question,
+      images: [...this.images],
       execution_mode: this.executionMode,
       model: this.model,
       device_name: this.deviceName,
-      images: this.images,
       started_at: this.startedAt,
       finished_at: this.finishedAt,
-      frame_count: this.frames.length,
-      error: this.error,
-      pod_id: cluster.podId,
+      elapsed_seconds: elapsed,
+      done: this.done,
+      cancelled: this.status === "cancelled",
+      failed: this.status === "error",
+      current_step: this.currentStep,
+      step_type: this.stepType,
+      tool_name: this.lastToolName,
+      step_count: this.stepCount,
+      events: this.frames.length,
     };
   }
 
@@ -193,14 +204,15 @@ export class AskRun {
   }
 
   private pushFrame(frame: string): void {
+    this.lastActiveAt = nowSec();
     const idx = this.frames.length;
     if (this.frames.length < MAX_FRAMES) {
       this.frames.push(frame);
     } else {
       this.frames[this.frames.length - 1] = frame;
     }
-    this.mirrorFrame(idx, frame);
     this.inspectFrame(frame);
+    this.mirrorFrame(idx, frame);
     this.notifyWaiters();
   }
 
@@ -208,6 +220,10 @@ export class AskRun {
     const ev = parseSseData(frame);
     if (!ev) return;
     const t = String(ev.type ?? "");
+    if (t === "conversation_id" && typeof ev.title === "string" && ev.title) {
+      this.title = ev.title;
+      return;
+    }
     if (t === "checkpoint" && ev.data && typeof ev.data === "object") {
       this.checkpoint = { ...this.checkpoint, ...(ev.data as Record<string, unknown>) };
       return;
@@ -218,13 +234,15 @@ export class AskRun {
     }
     if (t === "tool_start" || t === "tool_call" || t === "step") {
       this.stepCount++;
+      this.stepType = "tool";
       this.lastToolName = String(ev.tool || ev.name || this.lastToolName || "");
+      this.currentStep = String(ev.summary || ev.tool || ev.name || "正在执行步骤");
       const nowMs = Date.now();
       if (nowMs - this.lastIslandPushMs >= 5000) {
         this.lastIslandPushMs = nowMs;
         void pushLiveActivityEvent(this.deps, this.userId, this.conversationId, "update", {
           status: "running",
-          currentStep: String(ev.summary || ev.tool || ev.name || "正在执行步骤"),
+          currentStep: this.currentStep,
           stepCount: this.stepCount,
           toolName: this.lastToolName || null,
           elapsedSeconds: Math.max(0, Math.round(nowSec() - this.startedAt)),
@@ -234,30 +252,52 @@ export class AskRun {
           startedAtEpoch: this.startedAt,
         });
       }
+    } else if (t === "thinking") {
+      this.stepType = "thinking";
+      this.currentStep = "正在深度思考与推演...";
+    } else if (t === "delta") {
+      this.stepType = "generating";
+      this.currentStep = "正在生成回复...";
+    } else if (t === "error") {
+      this.stepType = "error";
+      this.currentStep = `发生错误: ${String(ev.message || "出错了").slice(0, 40)}`;
+    } else if (t === "done") {
+      this.stepType = "done";
+      this.currentStep = "任务完成";
     }
   }
 
   private mirrorMeta(): void {
-    const metaJson = JSON.stringify(this.summary());
+    const summaryJson = JSON.stringify(this.summary());
+    const ttl = this.done ? RETAIN_AFTER_DONE_S : MIRROR_TTL_S;
     cluster.write(async (r) => {
       const pipe = r.pipeline();
-      pipe.set(K_META + this.runId, metaJson, "EX", MIRROR_TTL_S);
+      pipe.hset(K_META + this.runId, {
+        conv: this.conversationId,
+        user_id: this.userId,
+        pod: cluster.podId,
+        request_id: this.requestId || "",
+        active_at: String(this.lastActiveAt),
+        summary: summaryJson,
+      });
+      pipe.expire(K_META + this.runId, ttl);
       if (this.status === "running") {
         pipe.set(K_CUR + this.conversationId, this.runId, "EX", MIRROR_TTL_S);
-        pipe.sadd(K_USER + this.userId, this.runId);
+        pipe.zadd(K_USER + this.userId, String(this.startedAt), this.runId);
         pipe.expire(K_USER + this.userId, MIRROR_TTL_S);
-        if (this.requestId) pipe.set(K_REQ + this.requestId, this.runId, "EX", MIRROR_TTL_S);
-      } else {
-        pipe.srem(K_USER + this.userId, this.runId);
+        if (this.requestId) pipe.set(`${K_REQ}${this.userId}:${this.requestId}`, this.runId, "EX", MIRROR_TTL_S);
       }
       await pipe.exec();
     });
   }
 
   private mirrorFrame(idx: number, frame: string): void {
+    const summaryJson = JSON.stringify(this.summary());
     cluster.write(async (r) => {
       const pipe = r.pipeline();
       pipe.xadd(K_FRAMES + this.runId, "MAXLEN", "~", String(MAX_FRAMES), `0-${idx + 1}`, "f", frame);
+      pipe.hset(K_META + this.runId, { summary: summaryJson, active_at: String(this.lastActiveAt) });
+      pipe.expire(K_META + this.runId, MIRROR_TTL_S);
       pipe.expire(K_FRAMES + this.runId, MIRROR_TTL_S);
       await pipe.exec();
     });
@@ -267,8 +307,8 @@ export class AskRun {
     this.mirrorMeta();
     cluster.write(async (r) => {
       const pipe = r.pipeline();
-      pipe.xadd(K_FRAMES + this.runId, "*", "end", this.status);
-      pipe.expire(K_FRAMES + this.runId, MIRROR_TTL_S);
+      pipe.xadd(K_FRAMES + this.runId, "*", "end", "1");
+      pipe.expire(K_FRAMES + this.runId, RETAIN_AFTER_DONE_S);
       await pipe.exec();
     });
   }
@@ -384,25 +424,46 @@ export class AskRun {
 }
 
 export class RemoteRun {
-  constructor(
-    private readonly summaryData: RunSummary,
-  ) {}
+  readonly runId: string;
+  readonly conversationId: string;
+  readonly userId: string;
+  readonly requestId: string | null;
+  readonly podId: string;
+  readonly activeAt: number;
+  lost = false;
+  private readonly summaryData: RunSummary;
 
-  get runId(): string {
-    return this.summaryData.run_id;
+  constructor(runId: string, meta: Record<string, string>) {
+    this.runId = runId;
+    this.summaryData = JSON.parse(meta.summary || "{}") as RunSummary;
+    this.conversationId = meta.conv || this.summaryData.conversation_id || "";
+    this.userId = meta.user_id || "";
+    this.requestId = meta.request_id || null;
+    this.podId = meta.pod || "";
+    this.activeAt = Number(meta.active_at || this.summaryData.started_at || 0);
   }
-  get conversationId(): string {
-    return this.summaryData.conversation_id;
+
+  get startedAt(): number {
+    return Number(this.summaryData.started_at || 0);
   }
-  get userId(): string {
-    return this.summaryData.user_id;
-  }
+
   get done(): boolean {
-    return this.summaryData.status !== "running";
+    return Boolean(this.summaryData.done);
+  }
+
+  markLost(): void {
+    this.lost = true;
+    this.summaryData.done = true;
+    this.summaryData.failed = true;
+    this.summaryData.current_step = "服务端重启，未能继续";
+    this.summaryData.step_type = "error";
+    this.summaryData.finished_at = this.summaryData.finished_at ?? this.activeAt;
   }
 
   summary(): RunSummary {
-    return { ...this.summaryData };
+    const out = { ...this.summaryData };
+    out.elapsed_seconds = Math.round(((out.finished_at ?? nowSec()) - this.startedAt) * 10) / 10;
+    return out;
   }
 
   async *stream(fromIndex = 0, signal?: AbortSignal): AsyncGenerator<string, void, void> {
@@ -417,29 +478,30 @@ export class RemoteRun {
           | null;
         if (!res || !res.length) {
           idleLoops++;
-          const metaRaw = await r.get(K_META + this.runId);
-          if (metaRaw) {
+          const metaSummary = await r.hget(K_META + this.runId, "summary");
+          if (metaSummary) {
             try {
-              const m = JSON.parse(metaRaw) as RunSummary;
-              if (m.status !== "running") return;
+              const m = JSON.parse(metaSummary) as RunSummary;
+              if (m.done) return;
             } catch {
               /* ignore */
             }
           } else if (idleLoops >= 3) {
             return;
           }
-          yield ": heartbeat\n\n";
+          yield ": keepalive\n\n";
           continue;
         }
         idleLoops = 0;
         for (const [, entries] of res) {
           for (const [id, kv] of entries) {
             lastId = id;
+            const seq = id.includes("-") ? id.split("-")[1] : id;
             for (let i = 0; i < kv.length; i += 2) {
               const field = kv[i];
               const val = kv[i + 1];
-              if (field === "f" && val) yield val;
               if (field === "end") return;
+              if (field === "f" && val) yield `id: ${seq}\n${val}`;
             }
           }
         }
@@ -465,9 +527,10 @@ export class AskRunRegistry {
     this.clusterWired = true;
     cluster.op("askrun.cancel", async (payload) => {
       const runId = String(payload.run_id ?? "");
-      const convId = String(payload.conversation_id ?? "");
+      const convId = String(payload.conv ?? payload.conversation_id ?? "");
+      const uid = payload.user_id ? String(payload.user_id) : "";
       const run = (runId && this.byId.get(runId)) || (convId && this.byConv.get(convId)) || null;
-      if (run && !run.done) {
+      if (run && !run.done && (!uid || run.userId === uid)) {
         await run.cancel();
         return { cancelled: true, run_id: run.runId };
       }
@@ -512,6 +575,33 @@ export class AskRunRegistry {
     t.unref?.();
   }
 
+  private async isRemoteAlive(remote: RemoteRun): Promise<boolean> {
+    if (remote.podId === cluster.podId) {
+      const local = this.byConv.get(remote.conversationId);
+      return Boolean(local && local.runId === remote.runId);
+    }
+    const holder = await cluster.owner(`${CLAIM_PREFIX}${remote.conversationId}`).catch(() => null);
+    if (holder === `${remote.podId}/${remote.runId}`) return true;
+    if (!remote.podId) return false;
+    return cluster.alive(remote.podId, 800).catch(() => false);
+  }
+
+  private async readRemoteMeta(runId: string): Promise<RemoteRun | null> {
+    const r = cluster.redis;
+    if (!r) return null;
+    try {
+      const meta = await r.hgetall(K_META + runId);
+      if (!meta || !meta.summary || !meta.user_id) return null;
+      const remote = new RemoteRun(runId, meta);
+      if (!remote.done && !(await this.isRemoteAlive(remote))) {
+        remote.markLost();
+      }
+      return remote;
+    } catch {
+      return null;
+    }
+  }
+
   async start(
     deps: Deps,
     convId: string,
@@ -541,13 +631,8 @@ export class AskRunRegistry {
       try {
         const curId = await cluster.redis.get(K_CUR + convId);
         if (curId && !this.byId.has(curId)) {
-          const metaRaw = await cluster.redis.get(K_META + curId);
-          if (metaRaw) {
-            const meta = JSON.parse(metaRaw) as RunSummary;
-            if (meta.status === "running" && meta.pod_id && (await cluster.alive(meta.pod_id, 800))) {
-              throw new RunConflict();
-            }
-          }
+          const remote = await this.readRemoteMeta(curId);
+          if (remote && !remote.done) throw new RunConflict();
         }
       } catch (e) {
         if (e instanceof RunConflict) throw e;
@@ -584,15 +669,7 @@ export class AskRunRegistry {
   async get(runId: string): Promise<AskRun | RemoteRun | null> {
     const local = this.byId.get(runId);
     if (local) return local;
-    const r = cluster.redis;
-    if (!r) return null;
-    try {
-      const raw = await r.get(K_META + runId);
-      if (!raw) return null;
-      return new RemoteRun(JSON.parse(raw) as RunSummary);
-    } catch {
-      return null;
-    }
+    return this.readRemoteMeta(runId);
   }
 
   async getForConversation(convId: string): Promise<AskRun | RemoteRun | null> {
@@ -603,7 +680,7 @@ export class AskRunRegistry {
       try {
         const curId = await r.get(K_CUR + convId);
         if (curId && curId !== local?.runId) {
-          const remote = await this.get(curId);
+          const remote = await this.readRemoteMeta(curId);
           if (remote) return remote;
         }
       } catch {
@@ -614,35 +691,58 @@ export class AskRunRegistry {
   }
 
   async listForUser(userId: string, onlyActive = false): Promise<RunSummary[]> {
-    const map = new Map<string, RunSummary>();
+    const byIdMap = new Map<string, AskRun | RemoteRun>();
     for (const run of this.byId.values()) {
-      if (run.userId !== userId) continue;
-      if (onlyActive && run.done) continue;
-      map.set(run.runId, run.summary());
+      if (run.userId === userId) byIdMap.set(run.runId, run);
     }
     const r = cluster.redis;
     if (r) {
       try {
-        const ids = await r.smembers(K_USER + userId);
+        const ids = await r.zrange(K_USER + userId, 0, -1);
         if (ids.length) {
-          const metas = await r.mget(...ids.map((id) => K_META + id));
+          const pipe = r.pipeline();
+          for (const id of ids) pipe.hgetall(K_META + id);
+          const metas = (await pipe.exec()) ?? [];
+          const expired: string[] = [];
           for (let i = 0; i < ids.length; i++) {
-            const raw = metas[i];
-            if (!raw) continue;
+            const id = ids[i]!;
+            const [err, meta] = metas[i] ?? [];
+            const rec = !err && meta && typeof meta === "object" ? (meta as Record<string, string>) : null;
+            if (!rec || !rec.summary) {
+              expired.push(id);
+              continue;
+            }
+            if (byIdMap.has(id)) continue;
             try {
-              const s = JSON.parse(raw) as RunSummary;
-              if (onlyActive && s.status !== "running") continue;
-              if (!map.has(s.run_id)) map.set(s.run_id, s);
+              const remote = new RemoteRun(id, rec);
+              if (!remote.done && !(await this.isRemoteAlive(remote))) {
+                remote.markLost();
+              }
+              byIdMap.set(id, remote);
             } catch {
               /* ignore */
             }
+          }
+          if (expired.length) {
+            await r.zrem(K_USER + userId, ...expired).catch(() => {});
           }
         }
       } catch {
         /* ignore */
       }
     }
-    return [...map.values()].sort((a, b) => b.started_at - a.started_at);
+    // Keep newest per conversation, matching Python active_for_user
+    const newest = new Map<string, AskRun | RemoteRun>();
+    for (const item of byIdMap.values()) {
+      const cur = newest.get(item.conversationId);
+      if (!cur || item.startedAt > cur.startedAt) newest.set(item.conversationId, item);
+    }
+    const out: RunSummary[] = [];
+    for (const item of newest.values()) {
+      if (onlyActive && item.done) continue;
+      out.push(item.summary());
+    }
+    return out.sort((a, b) => a.started_at - b.started_at);
   }
 
   /** R-STOP-ALL-AGENTS: cancel both local/remote AskRun and any underlying DeviceTask for this conversation. */
@@ -698,25 +798,31 @@ export class AskRunRegistry {
           const cur = await r.get(K_CUR + resolvedConvId);
           if (cur) rid = cur;
         }
-        const raw = await r.get(K_META + rid);
-        if (raw) {
-          const meta = JSON.parse(raw) as RunSummary;
-          if (meta.user_id === userId) {
-            resolvedConvId = meta.conversation_id;
-            resolvedRunId = meta.run_id;
-            if (meta.status === "running" && meta.pod_id && meta.pod_id !== cluster.podId) {
-              try {
-                const res = (await cluster.call(meta.pod_id, "askrun.cancel", { run_id: meta.run_id, conversation_id: meta.conversation_id }, 3000)) as { cancelled?: boolean };
-                remoteCancelled = Boolean(res?.cancelled);
-              } catch {
-                // Pod dead: mark cancelled directly in Redis
-                meta.status = "cancelled";
-                meta.finished_at = nowSec();
-                await r.set(K_META + meta.run_id, JSON.stringify(meta), "EX", MIRROR_TTL_S);
-                await r.srem(K_USER + userId, meta.run_id);
-                await r.xadd(K_FRAMES + meta.run_id, "*", "end", "cancelled");
-                remoteCancelled = true;
-              }
+        const remote = await this.readRemoteMeta(rid);
+        if (remote && remote.userId === userId) {
+          resolvedConvId = remote.conversationId;
+          resolvedRunId = remote.runId;
+          if (!remote.done && remote.podId && remote.podId !== cluster.podId) {
+            try {
+              const res = await cluster.call(
+                remote.podId,
+                "askrun.cancel",
+                { conv: remote.conversationId, conversation_id: remote.conversationId, run_id: remote.runId, user_id: userId },
+                5000,
+              );
+              remoteCancelled = typeof res === "boolean" ? res : Boolean((res as { cancelled?: boolean } | null)?.cancelled);
+            } catch {
+              // Pod dead: mark cancelled directly in Redis hash
+              const sum = remote.summary();
+              sum.done = true;
+              sum.cancelled = true;
+              sum.current_step = "已停止";
+              sum.step_type = "cancelled";
+              sum.finished_at = nowSec();
+              await r.hset(K_META + remote.runId, { summary: JSON.stringify(sum) });
+              await r.expire(K_META + remote.runId, RETAIN_AFTER_DONE_S);
+              await r.xadd(K_FRAMES + remote.runId, "*", "end", "1");
+              remoteCancelled = true;
             }
           }
         }

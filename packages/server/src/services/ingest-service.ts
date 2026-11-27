@@ -233,7 +233,7 @@ const WORKSPACE_PATTERNS = [
 
 const IGNORE_PATH_EXTS = new Set([".md", ".py", ".js", ".ts", ".jsx", ".tsx", ".json", ".jsonl", ".yml", ".yaml", ".sh", ".txt", ".html", ".css", ".png", ".jpg", ".jpeg", ".ico"]);
 const IGNORE_PATH_DIRS = new Set(["docs", "doc", "src", "tests", "test", "bin", "dist", "build", "node_modules", "temp", "tmp", "scratch", "tools", "mcp", "import", "off", ".system_generated", "subagents", "workflows", "conversations", "logs"]);
-const IGNORE_PROJECT_NAMES = new Set(["-", "--", "...", "dev", "desktop", "tmp", "temp", "projects", "workspace", "file:", "file", "untitled", "unknown", "none", "null"]);
+export const IGNORE_PROJECT_NAMES = new Set(["-", "--", "...", "dev", "desktop", "tmp", "temp", "projects", "workspace", "file:", "file", "untitled", "unknown", "none", "null"]);
 const FILE_LIKE_NAME = /\.(jsonl?|log|txt|md|py|tsx?|jsx?|mjs|cjs|ya?ml|toml|lock|csv|xml|html?|sh|ps1|bat|png|jpe?g|gif|pdf|zip|tar|gz)$/i;
 const TOOL_STATE_MARKERS = ["/.gemini/antigravity/brain/", "/.system_generated/", "/.claude/projects/", "/.codex/sessions/", "/appdata/"];
 const ROOT_LIKE_PATH = /^(?:[a-z]:)?\/?(?:users|home)?\/?$/i;
@@ -285,7 +285,7 @@ function hashToPath(projectHash: string): string {
   return projectHash;
 }
 
-function cleanSourcePath(path: string | null | undefined): string | null {
+export function cleanSourcePath(path: string | null | undefined): string | null {
   if (!path) return null;
   let s = String(path).trim().replace(/^["'\\` ]+|["'\\` ]+$/g, "");
   if (!s || IGNORE_PROJECT_NAMES.has(s.toLowerCase())) return null;

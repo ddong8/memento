@@ -13,6 +13,9 @@ import { askRuns } from "./services/ask-runs";
 import { recoverFinishedTaskHook } from "./services/ask-store";
 import { cluster } from "./services/cluster";
 import { renderMindResonanceMarkdown, senseResonance, startDynamicScenarioReloader, stopDynamicScenarioReloader } from "./services/mind-resonance-service";
+import { wakeForTask } from "./services/mission-service";
+import { startPlanRunner, stopPlanRunner } from "./services/plan-service";
+import { startProactivePulse, stopProactivePulse } from "./services/pulse-runner";
 import { startScheduledTaskRunner, stopScheduledTaskRunner } from "./services/scheduled-tasks";
 import { scheduler } from "./services/scheduler";
 
@@ -23,6 +26,7 @@ const deps = { settings, db, redis: () => redisClient(settings.redisUrl) };
 askRuns.bindDeps(deps);
 registerTaskFinishedHook(async (d, taskId, watched) => {
   await recoverFinishedTaskHook(d.db, taskId, watched);
+  await wakeForTask(d, taskId).catch(() => {});
 });
 registerMindResonanceInjector(async (d, user, query, project) => {
   const res = await senseResonance(d, deps.redis(), user, { query, project, action: "agent" });
@@ -34,6 +38,10 @@ await cluster.start(settings.redisUrl);
 startScheduledTaskRunner(db);
 startDynamicScenarioReloader(db);
 scheduler.start(deps);
+if (settings.enableScheduler) {
+  startProactivePulse(deps);
+  startPlanRunner(deps);
+}
 
 const server = serve({ fetch: app.fetch, hostname: settings.host, port: settings.port }, (info) => {
   console.log(`memento server (ts) ${settings.buildSha} listening on ${info.address}:${info.port}`);
@@ -48,8 +56,9 @@ async function shutdown(signal: string) {
   wss.close();
   server.close();
   stopDynamicScenarioReloader();
+  stopProactivePulse();
   scheduler.stop();
-  await Promise.allSettled([askRuns.drain(), stopScheduledTaskRunner(), cluster.stop(), sql.end({ timeout: 10 }), closeRedis(), busts?.quit()]);
+  await Promise.allSettled([askRuns.drain(), stopPlanRunner(), stopScheduledTaskRunner(), cluster.stop(), sql.end({ timeout: 10 }), closeRedis(), busts?.quit()]);
   process.exit(0);
 }
 process.on("SIGTERM", () => void shutdown("SIGTERM"));

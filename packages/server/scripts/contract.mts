@@ -310,6 +310,37 @@ if (dbUrl && redisUrl) {
     ["learning outcomes", "/api/learning/outcomes"],
     ["learning guard", "/api/learning/guard"],
     ["health overview", "/api/health/overview"],
+    ["root info", "/"],
+    ["projects list", "/api/projects"],
+    ["memory stats", "/api/memory/stats"],
+    ["memory resonance", "/api/memory/resonance?q=memento"],
+    ["memory graph", "/api/memory/graph"],
+    ["memory search", "/api/memory/search?q=Memento"],
+    ["memory semantic", "/api/memory/semantic?q=Memento"],
+    ["memory tiers", "/api/memory/tiers"],
+    ["memory core list", "/api/memory/core"],
+    ["memory core tree", "/api/memory/core/tree"],
+    ["memory core markdown", "/api/memory/core/markdown"],
+    ["memory dreams", "/api/memory/dreams"],
+    ["memory dream backfill status", "/api/memory/dream/backfill/status"],
+    ["profile overview", "/api/profile"],
+    ["profile blueprint", "/api/profile/blueprint"],
+    ["profile injection", "/api/profile/injection"],
+    ["profile avatar", "/api/profile/avatar"],
+    ["share list", "/api/share"],
+    ["share recipients", "/api/share/recipients"],
+    ["share inbox", "/api/share/inbox"],
+    ["share public missing", "/api/share/public/nonexistent-token-xyz"],
+    ["admin users", "/api/admin/users"],
+    ["admin invites", "/api/admin/invites"],
+    ["admin permissions", "/api/admin/permissions"],
+    ["admin sync status", "/api/admin/sync/status"],
+    ["admin audit log", "/api/admin/audit-log"],
+    ["plans list", "/api/plans"],
+    ["plans capabilities", "/api/plans/capabilities"],
+    ["missions list", "/api/missions"],
+    ["studio health", "/api/studio/health"],
+    ["scim config", "/api/scim/v2/ServiceProviderConfig"],
   ];
   for (const [who, headers] of [["owner", ownerAuth], ["viewer", viewerHeaders]] as const) {
     // Pre-warm user blueprint so async warming triggered on cache miss doesn't race between Python and TS calls
@@ -317,7 +348,7 @@ if (dbUrl && redisUrl) {
     for (const [name, path] of reads) {
       // Each server computes it itself: drop the shared cache before each call (and wait out the other's 3 s L1)
       const fresh = async (base: string) => {
-        for (const pat of ["tools:list:*", "dashboard:*", "hierarchy:*", "skills:*", "daily:*", "life:*", "search:*", "devices:*", "ask_conv_*", "learning:*"]) {
+        for (const pat of ["tools:list:*", "dashboard:*", "hierarchy:*", "skills:*", "daily:*", "life:*", "search:*", "devices:*", "ask_conv_*", "learning:*", "projects:*", "project:*", "memory:*", "profile:*"]) {
           const keys = await redis.keys(pat);
           if (keys.length) await redis.del(...keys);
         }

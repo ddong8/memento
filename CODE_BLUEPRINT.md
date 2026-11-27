@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `5e7e1373` · Updated: `2026-11-27`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `2d6fc5f2` · Updated: `2026-11-27`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,7 +16,7 @@
 - 规模 (Scale): 10 个子系统 · 44 组 API 路由 / 346 个接口 · 39 个前端页面 · 126 个数据模型 · 35 个服务模块 · 289 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `packages/server`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `5e7e1373` (2026-11-27): feat(server-ts): 切入 P3 入口并完成 P4 问答、编排、直连 Agent、心领神会与对话路由
+- 最近改动 (Latest): `2d6fc5f2` (2026-11-27): feat(server-ts): 完成 P5 后台智能、健康总览与 21 个定时任务并修复契约对照竞态
 - 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 77（✅ 77 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 12 · 状态 10
 
 | 章节 (Section) | 行号 (Lines) |
@@ -692,13 +692,13 @@ erDiagram
 
 - [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (10 commits)
 - [`apps/web/src/components/ask/GitDiffDrawer.tsx`](apps/web/src/components/ask/GitDiffDrawer.tsx) (9 commits)
-- [`deploy/k8s/studio.yaml`](deploy/k8s/studio.yaml) (9 commits)
+- [`packages/server/scripts/contract.mts`](packages/server/scripts/contract.mts) (9 commits)
+- [`packages/server/src/app.ts`](packages/server/src/app.ts) (9 commits)
 - [`apps/mobile/src/app/index.tsx`](apps/mobile/src/app/index.tsx) (8 commits)
 - [`apps/web/src/lib/api-client.ts`](apps/web/src/lib/api-client.ts) (8 commits)
 - [`apps/web/test/glass-system.test.ts`](apps/web/test/glass-system.test.ts) (8 commits)
+- [`deploy/k8s/studio.yaml`](deploy/k8s/studio.yaml) (8 commits)
 - [`docs/ts-server-migration.md`](docs/ts-server-migration.md) (8 commits)
-- [`packages/server/scripts/contract.mts`](packages/server/scripts/contract.mts) (8 commits)
-- [`packages/server/src/app.ts`](packages/server/src/app.ts) (8 commits)
 - [`apps/web/src/app/globals.css`](apps/web/src/app/globals.css) (7 commits)
 
 ## 8. Development & Verification Commands
@@ -722,12 +722,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `2d6fc5f2` (2026-11-27): feat(server-ts): 完成 P5 后台智能、健康总览与 21 个定时任务并修复契约对照竞态
 - `5e7e1373` (2026-11-27): feat(server-ts): 切入 P3 入口并完成 P4 问答、编排、直连 Agent、心领神会与对话路由
 - `4ccae92a` (2026-11-27): feat(server-ts): 切入 P2 入口并完成 P3 设备实时通信、任务、终端、预览、Git 审阅、额度与定时任务
 - `dd0024dc` (2026-11-27): feat(server-ts): 切入 Batch 2 与媒体插件入口并完成 P2 采集、检索、会话与排除模块
 - `0ef14750` (2026-11-27): feat(server-ts): 切入 Batch 1 入口、补齐部署配置并完成 Batch 2 路由与底座
 - `7921c4bd` (2026-11-27): feat(server-ts): 迁移看板、层级、文档、媒体、技能、插件、更新与安装脚本接口（P1 首批，先部署暂不切入口）
-- `45375424` (2026-11-27): docs: 服务端 TS 迁移 P0 完成（五平台 pgvector 验证通过），P1 已迁待办、工具、公开统计
 
 ## 10. Key Environment Variables & Configuration
 

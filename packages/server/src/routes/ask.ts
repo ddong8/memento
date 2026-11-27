@@ -264,7 +264,7 @@ askRoutes.get("/runs", async (c) => {
   const all = await askRuns.listForUser(user.id, recent <= 0);
   if (recent <= 0) return c.json(all);
   const cutoff = Date.now() / 1000 - recent;
-  return c.json(all.filter((r) => r.status === "running" || (r.finished_at !== null && r.finished_at >= cutoff)));
+  return c.json(all.filter((r) => !r.done || (r.finished_at !== null && r.finished_at >= cutoff)));
 });
 
 askRoutes.get("/runs/active", async (c) => {

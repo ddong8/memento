@@ -8,6 +8,7 @@ import { etag } from "hono/etag";
 
 import type { AppEnv, Deps } from "./context";
 import { errorResponse, HttpError } from "./http";
+import { adminRoutes } from "./routes/admin";
 import { agentCapabilitiesRoutes, askRoutes } from "./routes/ask";
 import { authRoutes } from "./routes/auth";
 import { collectExclusionRoutes } from "./routes/collect-exclusions";
@@ -28,14 +29,23 @@ import { learningRoutes } from "./routes/learning";
 import { lifeRoutes } from "./routes/life";
 import { llmRoutes } from "./routes/llm";
 import { mediaRoutes } from "./routes/media";
+import { memoryRoutes } from "./routes/memory";
+import { missionRoutes } from "./routes/missions";
 import { notifyRoutes } from "./routes/notify";
+import { planRoutes } from "./routes/plans";
 import { pluginRoutes } from "./routes/plugins";
 import { previewRoutes } from "./routes/preview";
 import { proactiveRoutes } from "./routes/proactive";
+import { profileRoutes } from "./routes/profile";
+import { projectRoutes } from "./routes/projects";
 import { quotaRoutes } from "./routes/quotas";
 import { scheduledTaskRoutes } from "./routes/scheduled-tasks";
+import { scimRoutes } from "./routes/scim";
 import { searchRoutes } from "./routes/search";
+import { shareRoutes } from "./routes/share";
 import { skillRoutes } from "./routes/skills";
+import { ssoRoutes } from "./routes/sso";
+import { studioRoutes } from "./routes/studio";
 import { taskRoutes } from "./routes/tasks";
 import { terminalRoutes } from "./routes/terminal";
 import { todoRoutes } from "./routes/todos";
@@ -44,11 +54,10 @@ import { updateRoutes } from "./routes/updates";
 
 /** Paths this server answers, for the entrance and the contract check (scripts/contract.mts). */
 export const MIGRATED_PATHS = [
-  "/api/auth/login",
-  "/api/auth/refresh",
-  "/api/auth/token-exchange",
-  "/api/auth/registration-mode",
-  "/api/auth/me",
+  "/api/auth",
+  "/api/auth/oidc",
+  "/api/scim/v2",
+  "/api/admin",
   "/api/todos",
   "/api/tools",
   "/api/public",
@@ -63,6 +72,7 @@ export const MIGRATED_PATHS = [
   "/api/events",
   "/api/notify",
   "/api/profile/llm",
+  "/api/profile",
   "/api/daily",
   "/api/life",
   "/api/proactive",
@@ -86,6 +96,12 @@ export const MIGRATED_PATHS = [
   "/api/agent/models",
   "/api/learning",
   "/api/health/overview",
+  "/api/projects",
+  "/api/memory",
+  "/api/share",
+  "/api/studio",
+  "/api/plans",
+  "/api/missions",
 ] as const;
 
 function skipStreamMiddleware(path: string): boolean {
@@ -94,7 +110,10 @@ function skipStreamMiddleware(path: string): boolean {
     path === "/api/ask" ||
     path.endsWith("/stream") ||
     path.includes("/files/stream") ||
-    path.startsWith("/api/preview/t/")
+    path.startsWith("/api/preview/t/") ||
+    path === "/api/studio/assets" ||
+    (path.startsWith("/api/studio/tasks/") && path.endsWith("/video")) ||
+    (path.startsWith("/api/studio/episodes/") && (path.endsWith("/latest-video") || path.endsWith("/bundle.zip")))
   );
 }
 
@@ -124,7 +143,10 @@ export function createApp(deps: Deps) {
   });
   app.route("/", healthRoutes);
   app.route("/", installRoutes);
+  app.route("/api/auth/oidc", ssoRoutes);
   app.route("/api/auth", authRoutes);
+  app.route("/api/scim/v2", scimRoutes);
+  app.route("/api/admin", adminRoutes);
   app.route("/api/todos", todoRoutes);
   app.route("/api/tools", toolRoutes);
   app.route("/api/public", publicRoutes);
@@ -138,6 +160,7 @@ export function createApp(deps: Deps) {
   app.route("/api/events", eventRoutes);
   app.route("/api/notify", notifyRoutes);
   app.route("/api/profile/llm", llmRoutes);
+  app.route("/api/profile", profileRoutes);
   app.route("/api/daily", dailyRoutes);
   app.route("/api/life", lifeRoutes);
   app.route("/api/proactive", proactiveRoutes);
@@ -160,6 +183,12 @@ export function createApp(deps: Deps) {
   app.route("/api/agent", agentCapabilitiesRoutes);
   app.route("/api/learning", learningRoutes);
   app.route("/api/health", healthOverviewRoutes);
+  app.route("/api/projects", projectRoutes);
+  app.route("/api/memory", memoryRoutes);
+  app.route("/api/share", shareRoutes);
+  app.route("/api/studio", studioRoutes);
+  app.route("/api/plans", planRoutes);
+  app.route("/api/missions", missionRoutes);
   app.notFound((c) => c.json({ detail: "Not Found" }, 404));
   app.onError((err, c) => errorResponse(c, err));
   return app;

@@ -267,6 +267,40 @@ export function getUserPluginsPayload(settings: Settings, user: Pick<UserRow, "p
   };
 }
 
+export function isPluginReady(
+  settings: Pick<Settings, "studioFilmkitUrl" | "studioFilmkitToken">,
+  user: Pick<UserRow, "pluginSettings"> | null | undefined,
+  pluginId: string,
+): boolean {
+  const entry = userPluginEntry(user, pluginId);
+  if (!entry.installed || entry.enabled === false) return false;
+  const cfg = entry.config && typeof entry.config === "object" && !Array.isArray(entry.config) ? (entry.config as Record<string, unknown>) : {};
+  return isPluginConfigured(settings, pluginId, cfg);
+}
+
+export function resolveStudioConnection(
+  settings: Pick<Settings, "studioFilmkitUrl" | "studioFilmkitToken" | "dataKey" | "secretKey">,
+  user: Pick<UserRow, "pluginSettings"> | null | undefined,
+): [string, string] {
+  const entry = userPluginEntry(user, "studio");
+  if (!entry.installed || entry.enabled === false) {
+    throw new HttpError(412, "尚未安装或启用「AI 演播台」插件，请前往「插件市场」安装并完成配置后再使用。");
+  }
+  const cfg = entry.config && typeof entry.config === "object" && !Array.isArray(entry.config) ? (entry.config as Record<string, unknown>) : {};
+  if (cfg.use_server_default) {
+    if (!serverHasStudioEngine(settings)) {
+      throw new HttpError(412, "当前服务端未托管预置演播台引擎，请在「插件市场」为「AI 演播台」填写你的 filmkit 引擎地址。");
+    }
+    return [(settings.studioFilmkitUrl || "").trim().replace(/\/+$/, ""), (settings.studioFilmkitToken || "").trim()];
+  }
+  const url = String(cfg.filmkit_url ?? "").trim().replace(/\/+$/, "");
+  if (!url) {
+    throw new HttpError(412, "「AI 演播台」插件尚未配置引擎地址，请前往「插件市场」填写 filmkit URL 后再使用。");
+  }
+  const token = typeof cfg.filmkit_token === "string" && cfg.filmkit_token ? reveal(cfg.filmkit_token, settings) : "";
+  return [url, token.trim()];
+}
+
 export function nowIso(): string {
   const d = new Date();
   const ms = String(d.getUTCMilliseconds() * 1000).padStart(6, "0");

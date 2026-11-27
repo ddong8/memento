@@ -1,13 +1,21 @@
-// BUSINESS_BLUEPRINT.md parser, rule coverage & resolution (server/server/services/business_blueprint.py).
-import { and, desc, eq, like, or, type SQL } from "drizzle-orm";
+// BUSINESS_BLUEPRINT.md parser, rule coverage, resolution & generation dispatch (server/server/services/business_blueprint.py).
+import { randomUUID } from "node:crypto";
+
+import { and, desc, eq, inArray, isNotNull, like, or, type SQL } from "drizzle-orm";
 import type { Redis } from "ioredis";
 
 import type { UserRow } from "../auth/current-user";
-import type { Db } from "../db/client";
-import { documents, projects } from "../db/pulled/schema";
+import type { Deps } from "../context";
+import { withoutNul, type Db } from "../db/client";
+import { deviceTasks, documents, machines, projects } from "../db/pulled/schema";
+import * as aiHealth from "./ai-health";
+import { codeBlueprintPath, pickFreshest } from "./blueprint-pick";
+import { deliverTask } from "./device-dispatch";
 import { getPublishedProfileContent } from "./profile-read";
 import { normScopeName, splitProfileScopes } from "./profile-scopes";
+import { excludedKeys, matchAnyExclusion as matchAny } from "./project-exclusion";
 import { machineFilter } from "./visibility";
+import { wsManager } from "./ws-manager";
 
 export const BUSINESS_FILE = "BUSINESS_BLUEPRINT.md";
 const ENTRY_RE = /^###\s+([TFRS]-[A-Z0-9][A-Z0-9-]*)\s+(.+?)\s*$/;
@@ -179,4 +187,157 @@ export function generationPrompt(projectName: string, rules: string[], hasFile: 
     `这个项目的用户规则：\n${ruleLines}\n\n` +
     `写完后运行核对，直到没有 ❌：node ~/.memento/scripts/project_blueprint.mjs --business --root .`
   );
+}
+
+export class GenerateUnavailable extends Error {}
+
+export async function codebaseBlueprintCopy(
+  db: Db,
+  project: Pick<typeof projects.$inferSelect, "id" | "title" | "slug">,
+  mids: string[] | null,
+): Promise<[string, string | null, Record<string, unknown>] | null> {
+  try {
+    const conds: SQL[] = [eq(documents.projectId, project.id)];
+    for (const key of [project.title, project.slug]) {
+      if (key) {
+        const leaf = key.split("/").pop()!;
+        conds.push(codeBlueprintPath(documents.relativePath, leaf));
+      }
+    }
+    const parts: SQL[] = [codeBlueprintPath(documents.relativePath), or(...conds)!];
+    const mf = machineFilter(mids, documents.machineId);
+    if (mf) parts.push(mf);
+    const rows = await db
+      .select({
+        content: documents.content,
+        syncedAt: documents.syncedAt,
+        projectId: documents.projectId,
+        machineId: documents.machineId,
+        metadata: documents.metadata,
+      })
+      .from(documents)
+      .where(and(...parts))
+      .orderBy(desc(documents.syncedAt))
+      .limit(20);
+    const own = rows.filter((r) => r.projectId === project.id);
+    const best =
+      pickFreshest(own, (r) => r.content, (r) => r.syncedAt) ??
+      pickFreshest(rows, (r) => r.content, (r) => r.syncedAt);
+    if (best?.content) {
+      const md = best.metadata && typeof best.metadata === "object" && !Array.isArray(best.metadata)
+        ? { ...(best.metadata as Record<string, unknown>) }
+        : {};
+      return [best.content, best.machineId, md];
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+export async function dispatchGeneration(
+  deps: Deps,
+  user: UserRow,
+  project: typeof projects.$inferSelect,
+  mids: string[] | null,
+  opts: { binary?: string; model?: string } = {},
+) {
+  const { db } = deps;
+  const redis = deps.redis();
+  const code = await codebaseBlueprintCopy(db, project, mids);
+  if (!code || !code[1]) {
+    throw new GenerateUnavailable("还没有设备上传过这个项目的代码蓝图，不知道仓库在哪台设备的哪个目录");
+  }
+  const path = String(code[2].project_path ?? "").trim();
+  if (!path) {
+    throw new GenerateUnavailable("代码蓝图没有记下仓库目录（设备客户端需 1.0.97 及以上）");
+  }
+  const [machine] = await db.select().from(machines).where(eq(machines.id, code[1])).limit(1);
+  if (!machine) {
+    throw new GenerateUnavailable("上传代码蓝图的设备已不在");
+  }
+  const existing = await resolveBusinessBlueprint(db, project, mids, code[1]);
+  const rules = await projectRules(db, redis, user, project);
+  const name = (project.title || project.slug || "").split("/").pop() || project.id;
+  const prompt = generationPrompt(name, rules, existing !== null);
+  const payload: Record<string, unknown> = {
+    binary: opts.binary || "claude",
+    prompt,
+    cwd: path,
+    user_question: `生成业务蓝图：${name}`,
+  };
+  if (opts.model) payload.model = opts.model;
+
+  const nowIso = new Date().toISOString();
+  const [inserted] = await db
+    .insert(deviceTasks)
+    .values(
+      withoutNul({
+        id: randomUUID(),
+        deviceId: machine.collectorTokenHash || machine.name,
+        machineId: machine.id,
+        userId: user.id,
+        action: "agent",
+        payload,
+        timeoutSeconds: 7200,
+        status: "queued",
+        createdAt: nowIso,
+      }),
+    )
+    .returning();
+  const { task } = await deliverTask(db, inserted!, machine);
+  return {
+    task: {
+      id: task.id,
+      device_id: task.deviceId,
+      action: task.action,
+      status: task.status,
+      created_at: task.createdAt,
+    },
+    device: machine.name,
+    cwd: path,
+    rules: rules.length,
+  };
+}
+
+export const AUTO_EVERY_SECONDS = 7 * 86400;
+export const AUTO_PER_PASS = 1;
+
+export function needsGeneration(existingText: string | null, rules: string[]): boolean {
+  if (!rules.length) return false;
+  return existingText === null || uncoveredRules(existingText, rules).length > 0;
+}
+
+export async function autoGenerateBusinessBlueprints(deps: Deps, user: UserRow, limit = AUTO_PER_PASS): Promise<string[]> {
+  const proactive = user.proactiveSettings && typeof user.proactiveSettings === "object" ? (user.proactiveSettings as Record<string, unknown>) : {};
+  if (proactive.blueprint_auto === false) return [];
+  const own = (await deps.db.select({ id: machines.id }).from(machines).where(eq(machines.userId, user.id))).map((m) => m.id);
+  if (!own.length) return [];
+  const rows = await deps.db
+    .select({ pid: documents.projectId })
+    .from(documents)
+    .where(and(inArray(documents.machineId, own), isNotNull(documents.projectId), codeBlueprintPath(documents.relativePath)))
+    .groupBy(documents.projectId);
+  const excluded = await excludedKeys(deps.db, user.id);
+  const sent: string[] = [];
+  for (const r of rows) {
+    if (sent.length >= limit || !r.pid) break;
+    const [project] = await deps.db.select().from(projects).where(eq(projects.id, r.pid)).limit(1);
+    if (!project || matchAny(excluded, project.title)) continue;
+    const rules = await projectRules(deps.db, deps.redis(), user, project);
+    const existing = await resolveBusinessBlueprint(deps.db, project, own);
+    if (!needsGeneration(existing ? existing[0] : null, rules)) continue;
+    const code = await codebaseBlueprintCopy(deps.db, project, own);
+    if (!code?.[1]) continue;
+    const [machine] = await deps.db.select().from(machines).where(eq(machines.id, code[1])).limit(1);
+    if (!machine || !wsManager.isOnline(machine.collectorTokenHash || "")) continue;
+    if (!(await aiHealth.claimAlert(deps.redis(), `business-blueprint-auto:${project.id}`, AUTO_EVERY_SECONDS))) continue;
+    try {
+      await dispatchGeneration(deps, user, project, own);
+      sent.push(project.title);
+    } catch {
+      /* continue */
+    }
+  }
+  return sent;
 }

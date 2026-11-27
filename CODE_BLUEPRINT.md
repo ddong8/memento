@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `b5aaf781` · Updated: `2026-11-27`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `501efe33` · Updated: `2026-11-27`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,7 +16,7 @@
 - 规模 (Scale): 10 个子系统 · 44 组 API 路由 / 346 个接口 · 39 个前端页面 · 126 个数据模型 · 35 个服务模块 · 289 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `packages/server`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `b5aaf781` (2026-11-27): docs: 服务端 TS 迁移 P0 进度（登录相关接口已由 TS 版在线上提供）
+- 最近改动 (Latest): `501efe33` (2026-11-27): feat(server-ts): 待办接口迁到 TypeScript（先部署，入口下一步再切）
 - 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 77（✅ 77 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 12 · 状态 10 · 最近提交碰到 `R-PUBLIC-REPO-CLEAN`, `R-CI-KUSTOMIZE-PINNED`, `R-DEPLOY-AFTER-CI`, `R-DEPLOY-BUMP-RACE`, `F-BLUEPRINT`
 
 | 章节 (Section) | 行号 (Lines) |
@@ -27,11 +27,11 @@
 | 4. Key Entry Points & API Endpoints | L96-L536 |
 | 5. Core Domain Services & Background Schedules | L538-L578 |
 | 6.5. AST Call Graph, DTO Schemas & CLI Entrypoints | L580-L652 |
-| 7. CI/CD Pipelines, Code Hotspots & Test Suites | L654-L701 |
-| 8. Development & Verification Commands | L703-L720 |
-| 9. Recent Architectural Evolutions | L722-L729 |
-| 10. Key Environment Variables & Configuration | L731-L743 |
-| 11. 业务蓝图核对 (Business Blueprint Check) | L745-L753 |
+| 7. CI/CD Pipelines, Code Hotspots & Test Suites | L654-L702 |
+| 8. Development & Verification Commands | L704-L721 |
+| 9. Recent Architectural Evolutions | L723-L730 |
+| 10. Key Environment Variables & Configuration | L732-L744 |
+| 11. 业务蓝图核对 (Business Blueprint Check) | L746-L754 |
 
 ## 1. Project Overview & Tech Stack
 
@@ -662,6 +662,7 @@ erDiagram
 | GitHub Actions | `CI` | [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | Jobs: python, ts-server, ts-client, ts-mobile, ts-web |
 | GitHub Actions | `Build & Deploy (k3s via Fleet)` | [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) | Jobs: changes, wait-ci, build, bump, verify |
 | GitHub Actions | `Desktop Release` | [`.github/workflows/desktop-release.yml`](.github/workflows/desktop-release.yml) | Jobs: build-electron, android, publish-release, attach-apk |
+| GitHub Actions | `Embedded Postgres + pgvector` | [`.github/workflows/embedded-pg.yml`](.github/workflows/embedded-pg.yml) | Jobs: build |
 | GitHub Actions | `Personal images (stable, multi-arch)` | [`.github/workflows/personal-images.yml`](.github/workflows/personal-images.yml) | Jobs: tags, arm64, stable |
 | K8s / GitOps | `gitrepo.yaml` | [`deploy/fleet/gitrepo.yaml`](deploy/fleet/gitrepo.yaml) | Resources: GitRepo |
 | K8s / GitOps | `api-ts.yaml` | [`deploy/k8s/api-ts.yaml`](deploy/k8s/api-ts.yaml) | Resources: Deployment, Service |
@@ -689,9 +690,9 @@ erDiagram
 
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
-- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (12 commits)
+- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (11 commits)
 - [`deploy/k8s/studio.yaml`](deploy/k8s/studio.yaml) (11 commits)
-- [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (11 commits)
+- [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (10 commits)
 - [`apps/web/src/components/ask/GitDiffDrawer.tsx`](apps/web/src/components/ask/GitDiffDrawer.tsx) (9 commits)
 - [`apps/web/src/lib/api-client.ts`](apps/web/src/lib/api-client.ts) (9 commits)
 - [`apps/mobile/src/app/index.tsx`](apps/mobile/src/app/index.tsx) (8 commits)
@@ -721,12 +722,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `501efe33` (2026-11-27): feat(server-ts): 待办接口迁到 TypeScript（先部署，入口下一步再切）
 - `b5aaf781` (2026-11-27): docs: 服务端 TS 迁移 P0 进度（登录相关接口已由 TS 版在线上提供）
 - `1313d568` (2026-11-27): feat(server-ts): 入口把登录相关 5 个接口切到 TypeScript 服务端（P0 完成）
 - `996d7b2d` (2026-11-27): test(deploy): 回写测试覆盖 TS 服务端镜像（ts- 标签、不动 Python 镜像）；迁移计划补单机与服务版互切
 - `0527da52` (2026-11-27): feat(server-ts): TypeScript 服务端 P0 地基：登录相关 5 个接口与 Python 版逐字段一致，先部署 api-ts（入口暂不切）
 - `4c4ccd30` (2026-11-27): docs: 服务端 TS 迁移 P0 技术验证结果（分词逐段一致、内嵌 PG16 + 自编译 pgvector 可用、必须 UTF8 初始化）
-- `7c550b95` (2026-11-27): docs: 服务端迁移到 TypeScript 的分阶段计划（目标是一个安装包装上就有完整功能）
 
 ## 10. Key Environment Variables & Configuration
 

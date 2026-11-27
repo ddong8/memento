@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `7c550b95` · Updated: `2026-11-27`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `4c4ccd30` · Updated: `2026-11-27`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -13,25 +13,25 @@
 - 类型 (Type): Monorepo (Workspaces)
 - 技术栈 (Stack): TypeScript/JavaScript, Python, Shell / Bash · React, Electron, Next.js, TailwindCSS, Model Context Protocol (MCP), FastAPI, SQLAlchemy, Celery
 - 基础设施 (Infra): PostgreSQL, pgvector (Vector DB), Redis, MinIO / S3 Object Storage, Celery Task Queue
-- 规模 (Scale): 9 个子系统 · 44 组 API 路由 / 346 个接口 · 39 个前端页面 · 42 个数据模型 · 35 个服务模块 · 287 个测试文件
-- 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
+- 规模 (Scale): 10 个子系统 · 44 组 API 路由 / 346 个接口 · 39 个前端页面 · 126 个数据模型 · 35 个服务模块 · 289 个测试文件
+- 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `packages/server`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `7c550b95` (2026-11-27): docs: 服务端迁移到 TypeScript 的分阶段计划（目标是一个安装包装上就有完整功能）
+- 最近改动 (Latest): `4c4ccd30` (2026-11-27): docs: 服务端 TS 迁移 P0 技术验证结果（分词逐段一致、内嵌 PG16 + 自编译 pgvector 可用、必须 UTF8 初始化）
 - 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 77（✅ 77 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 12 · 状态 10 · 最近提交碰到 `R-ENT-DEPLOY`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `R-ENT-SSO`, `R-ENT-DEVICE-POLICY`, `R-MAC-TRAY`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
 | 1. Project Overview & Tech Stack | L36-L42 |
 | 2. High-Level Architecture Topology | L44-L79 |
-| 3. Subsystem Breakdown & Responsibilities | L81-L93 |
-| 4. Key Entry Points & API Endpoints | L95-L535 |
-| 5. Core Domain Services & Background Schedules | L537-L577 |
-| 6.5. AST Call Graph, DTO Schemas & CLI Entrypoints | L579-L651 |
-| 7. CI/CD Pipelines, Code Hotspots & Test Suites | L653-L698 |
-| 8. Development & Verification Commands | L700-L717 |
-| 9. Recent Architectural Evolutions | L719-L726 |
-| 10. Key Environment Variables & Configuration | L728-L740 |
-| 11. 业务蓝图核对 (Business Blueprint Check) | L742-L751 |
+| 3. Subsystem Breakdown & Responsibilities | L81-L94 |
+| 4. Key Entry Points & API Endpoints | L96-L536 |
+| 5. Core Domain Services & Background Schedules | L538-L578 |
+| 6.5. AST Call Graph, DTO Schemas & CLI Entrypoints | L580-L652 |
+| 7. CI/CD Pipelines, Code Hotspots & Test Suites | L654-L701 |
+| 8. Development & Verification Commands | L703-L720 |
+| 9. Recent Architectural Evolutions | L722-L729 |
+| 10. Key Environment Variables & Configuration | L731-L743 |
+| 11. 业务蓝图核对 (Business Blueprint Check) | L745-L754 |
 
 ## 1. Project Overview & Tech Stack
 
@@ -88,6 +88,7 @@ flowchart TD
 | [`packages/core`](packages/core) | Package / Service | Types, API client and ask stream shared by Memento's web, desktop and mobile clients |
 | [`packages/daemon`](packages/daemon) | Package / Service | Memento's local daemon: collects AI tool sessions, runs dispatched agent tasks, keeps the profile and skills in each too |
 | [`packages/mcp`](packages/mcp) | Package / Service | Memento memory over MCP (stdio): search, recall, project context, rules, pitfalls, skills and todos |
+| [`packages/server`](packages/server) | Package / Service | Memento's server in TypeScript, replacing server/ (Python) route by route: docs/ts-server-migration.md |
 | [`server`](server) | Backend API Service | FastAPI backend services, database models, background Celery workers |
 | [`embedding`](embedding) | Embedding Microservice | Vector embedding & semantic indexing service |
 | [`deploy`](deploy) | Infrastructure & Deployment | Kubernetes kustomization manifests, Fleet GitOps configs, systemd services |
@@ -466,7 +467,7 @@ flowchart TD
 
 ### Core Database Models (`models.py`)
 
-`Base`, `Machine`, `MachineMerge`, `Tool`, `Project`, `Document`, `DocumentSearch`, `ConversationMessage`, `DailySummary`, `DocumentVersion`, `ConversationMessageRemoved`, `MessageAudit`, `DocumentPendingDelta`, `User`, `InviteCode`, `Permission`, `AccessLog`, `SyncState`, `DocumentEmbedding`, `KnowledgeEntity`, `KnowledgeRelation`, `KnowledgeObservation`, `ShareLink`, `ShareView`, `DeviceTask`, `AskConversation`, `UserMemory`, `DreamJournal`, `UserProfile`, `CorrectionTopic`, `CorrectionEvent`, `SessionReview`, `GuardEvent`, `Skill`, `Todo`, `EvalCase`, `EvalRun`, `LearningEval`, `AgentMission`, `AgentPlan`, `UserLifeRhythm`, `ScheduledTask`
+`Base`, `Machine`, `MachineMerge`, `Tool`, `Project`, `Document`, `DocumentSearch`, `ConversationMessage`, `DailySummary`, `DocumentVersion`, `ConversationMessageRemoved`, `MessageAudit`, `DocumentPendingDelta`, `User`, `InviteCode`, `Permission`, `AccessLog`, `SyncState`, `DocumentEmbedding`, `KnowledgeEntity`, `KnowledgeRelation`, `KnowledgeObservation`, `ShareLink`, `ShareView`, `DeviceTask`, `AskConversation`, `UserMemory`, `DreamJournal`, `UserProfile`, `CorrectionTopic`, `CorrectionEvent`, `SessionReview`, `GuardEvent`, `Skill`, `Todo`, `EvalCase`, `EvalRun`, `LearningEval`, `AgentMission`, `AgentPlan`, `UserLifeRhythm`, `ScheduledTask`, `conversation_messages_removed`, `users`, `machines`, `tools`, `projects`, `daily_summaries`, `invite_codes`, `knowledge_entities`, `share_links`, `ask_conversations`, `user_memories`, `dream_journals`, `user_profiles`, `skills`, `eval_runs`, `learning_evals`, `agent_missions`, `agent_plans`, `user_life_rhythms`, `scheduled_tasks`, `machine_merges`, `documents`, `permissions`, `sync_state`, `knowledge_relations`, `share_views`, `device_tasks`, `correction_topics`, `guard_events`, `document_search`, `conversation_messages`, `document_versions`, `message_audit`, `document_pending_deltas`, `access_logs`, `document_embeddings`, `knowledge_observations`, `correction_events`, `session_reviews`, `todos`, `eval_cases`, `schema_migrations`, `public.access_logs`, `public.agent_missions`, `public.agent_plans`, `public.ask_conversations`, `public.conversation_messages`, `public.conversation_messages_removed`, `public.correction_events`, `public.correction_topics`, `public.daily_summaries`, `public.device_tasks`, `public.document_embeddings`, `public.document_pending_deltas`, `public.document_search`, `public.document_versions`, `public.documents`, `public.dream_journals`, `public.eval_cases`, `public.eval_runs`, `public.guard_events`, `public.invite_codes`, `public.knowledge_entities`, `public.knowledge_observations`, `public.knowledge_relations`, `public.learning_evals`, `public.machine_merges`, `public.machines`, `public.message_audit`, `public.permissions`, `public.projects`, `public.scheduled_tasks`, `public.schema_migrations`, `public.session_reviews`, `public.share_links`, `public.share_views`, `public.skills`, `public.sync_state`, `public.todos`, `public.tools`, `public.user_life_rhythms`, `public.user_memories`, `public.user_profiles`, `public.users`
 
 #### Key Entity Relationships (Foreign Keys)
 
@@ -658,11 +659,12 @@ erDiagram
 | :--- | :--- | :--- | :--- |
 | GitHub Actions | `Android APK` | [`.github/workflows/android.yml`](.github/workflows/android.yml) | Jobs: apk |
 | GitHub Actions | `Auto Release` | [`.github/workflows/auto-release.yml`](.github/workflows/auto-release.yml) | Jobs: tag-and-release |
-| GitHub Actions | `CI` | [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | Jobs: python, ts-client, ts-mobile, ts-web |
+| GitHub Actions | `CI` | [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | Jobs: python, ts-server, ts-client, ts-mobile, ts-web |
 | GitHub Actions | `Build & Deploy (k3s via Fleet)` | [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) | Jobs: changes, wait-ci, build, bump, verify |
 | GitHub Actions | `Desktop Release` | [`.github/workflows/desktop-release.yml`](.github/workflows/desktop-release.yml) | Jobs: build-electron, android, publish-release, attach-apk |
 | GitHub Actions | `Personal images (stable, multi-arch)` | [`.github/workflows/personal-images.yml`](.github/workflows/personal-images.yml) | Jobs: tags, arm64, stable |
 | K8s / GitOps | `gitrepo.yaml` | [`deploy/fleet/gitrepo.yaml`](deploy/fleet/gitrepo.yaml) | Resources: GitRepo |
+| K8s / GitOps | `api-ts.yaml` | [`deploy/k8s/api-ts.yaml`](deploy/k8s/api-ts.yaml) | Resources: Deployment, Service |
 | K8s / GitOps | `api.yaml` | [`deploy/k8s/api.yaml`](deploy/k8s/api.yaml) | Resources: Deployment, Service |
 | K8s / GitOps | `celery.yaml` | [`deploy/k8s/celery.yaml`](deploy/k8s/celery.yaml) | Resources: Deployment |
 | K8s / GitOps | `fleet-watchdog.yaml` | [`deploy/k8s/fleet-watchdog.yaml`](deploy/k8s/fleet-watchdog.yaml) | Resources: ServiceAccount, ClusterRole, ClusterRoleBinding, Role, RoleBinding |
@@ -683,6 +685,7 @@ erDiagram
 | apps/desktop/test (vitest / jest) | [`apps/desktop/test`](apps/desktop/test) | 3 | `helpers.test.ts`, `local-server.test.ts`, `updater-and-daemon.test.ts` |
 | packages/mcp/test (vitest / jest) | [`packages/mcp/test`](packages/mcp/test) | 3 | `remote-and-tools.test.ts`, `server.test.ts`, `task-tools.test.ts` |
 | packages/core/test (vitest / jest) | [`packages/core/test`](packages/core/test) | 2 | `ask-stream.test.ts`, `task-events.test.ts` |
+| packages/server/test (vitest / jest) | [`packages/server/test`](packages/server/test) | 2 | `auth-routes.test.ts`, `compat.test.ts` |
 
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
@@ -695,7 +698,7 @@ erDiagram
 - [`apps/web/src/app/globals.css`](apps/web/src/app/globals.css) (8 commits)
 - [`apps/web/test/glass-system.test.ts`](apps/web/test/glass-system.test.ts) (8 commits)
 - [`apps/web/src/app/studio/page.tsx`](apps/web/src/app/studio/page.tsx) (7 commits)
-- [`packages/daemon/src/antigravity.ts`](packages/daemon/src/antigravity.ts) (7 commits)
+- [`apps/web/src/lib/studio-api.ts`](apps/web/src/lib/studio-api.ts) (6 commits)
 
 ## 8. Development & Verification Commands
 
@@ -718,12 +721,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `4c4ccd30` (2026-11-27): docs: 服务端 TS 迁移 P0 技术验证结果（分词逐段一致、内嵌 PG16 + 自编译 pgvector 可用、必须 UTF8 初始化）
 - `7c550b95` (2026-11-27): docs: 服务端迁移到 TypeScript 的分阶段计划（目标是一个安装包装上就有完整功能）
 - `7d6ad1d5` (2026-11-27): fix(deploy): MinIO 改用 Chainguard 免费镜像（官方 minio/minio 已从 Docker Hub 删除），单机模式不再卡在 Docker 凭据助手；发版 1.0.167
 - `5cebb8ed` (2026-11-27): feat(deploy): 单机模式：一条命令或桌面端一键在本机用 Docker 跑只给自己用的 memento
 - `352f4c10` (2026-11-27): feat(mobile): 底栏加高到 60pt（按钮 50pt、图标 21、文字 11），更接近 iOS 26 系统悬浮底栏，网页避让高度跟着变；发版 1.0.166
 - `5c8068b7` (2026-11-27): fix(mobile,desktop,web): 修复左下角折叠底栏错位、取消输入框与底栏半透明透字并统一 macOS 侧边栏底色
-- `4e3a2d8a` (2026-11-27): feat(git): 一个项目目录下有多个仓库时，代码抽屉顶部出现仓库选择，Diff、提交、PR 与终端都对着选中的仓库（经设备临时 shell 查找，跳过 node_modules，不需要升级客户端）
 
 ## 10. Key Environment Variables & Configuration
 

@@ -5,6 +5,7 @@ namespace: memento
 
 resources:
 - api.yaml
+- api-ts.yaml
 - celery.yaml
 - web.yaml
 - studio.yaml

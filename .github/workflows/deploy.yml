@@ -37,6 +37,7 @@ on:
       - "data/updates/**"
       - "apps/web/**"
       - "packages/core/**"
+      - "packages/server/**"
       - "package.json"
       - "package-lock.json"
       - ".dockerignore"
@@ -65,6 +66,7 @@ jobs:
       targets: ${{ steps.diff.outputs.targets }}
       server: ${{ steps.diff.outputs.server }}
       web: ${{ steps.diff.outputs.web }}
+      ts: ${{ steps.diff.outputs.ts }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -76,12 +78,14 @@ jobs:
         run: |
           SERVER_PATHS="server/Dockerfile server/pyproject.toml server/requirements.lock server/server scripts/fetch_geoip.py scripts/project_blueprint.mjs scripts/legacy deploy/bootstrap data/updates .dockerignore .github/workflows/deploy.yml"
           WEB_PATHS="apps/web packages/core package.json package-lock.json .dockerignore .github/workflows/deploy.yml"
+          # TypeScript server (docs/ts-server-migration.md): pushed into the public memento-server package as ts-<commit>
+          TS_PATHS="packages/server package.json package-lock.json .dockerignore .github/workflows/deploy.yml"
           deployed_tag() {
             awk -v n="${REGISTRY}/${OWNER}/$1" '$1=="-" && $2=="name:" {cur=$3} $1=="newTag:" && cur==n {gsub(/"/,"",$2); print $2; exit}' deploy/k8s/kustomization.yaml
           }
           changed() {
             local image=$1; shift
-            local base; base=$(deployed_tag "$image")
+            local base; base=$(deployed_tag "$image"); base="${base#ts-}"
             if [ "$EVENT" != "push" ] || [ -z "$base" ] || ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
               echo "$image: 全部构建(线上 tag: ${base:-无})" >&2; echo true; return
             fi
@@ -93,15 +97,18 @@ jobs:
           }
           server=$(changed memento-server $SERVER_PATHS)
           web=$(changed memento-web $WEB_PATHS)
+          ts=$(changed memento-server-ts $TS_PATHS)
           # web 不用 GitHub Actions 缓存:它的依赖层 600 多 MB,从缓存下载要 4 分钟、导出要 1.5 分钟,
           # 比直接 npm ci(约 40 秒)慢得多
-          targets=$(jq -cn --argjson s "$server" --argjson w "$web" '[
-            (if $s then {name: "server", file: "server/Dockerfile", image: "memento-server", has_geoip: true, cache: true} else empty end),
-            (if $w then {name: "web", file: "apps/web/Dockerfile", image: "memento-web", has_geoip: false, cache: false} else empty end)
+          targets=$(jq -cn --argjson s "$server" --argjson w "$web" --argjson t "$ts" '[
+            (if $s then {name: "server", file: "server/Dockerfile", image: "memento-server", prefix: "", has_geoip: true, cache: true} else empty end),
+            (if $w then {name: "web", file: "apps/web/Dockerfile", image: "memento-web", prefix: "", has_geoip: false, cache: false} else empty end),
+            (if $t then {name: "server-ts", file: "packages/server/Dockerfile", image: "memento-server", prefix: "ts-", has_geoip: false, cache: false} else empty end)
           ]')
           {
             echo "server=$server"
             echo "web=$web"
+            echo "ts=$ts"
             echo "targets=$targets"
           } >> "$GITHUB_OUTPUT"
 
@@ -182,7 +189,7 @@ jobs:
             GIT_SHA=${{ steps.vars.outputs.sha }}
             ${{ matrix.target.has_geoip && format('GEOIP_MONTH={0}', steps.vars.outputs.geoip_month) || '' }}
           # 只推提交号 tag;latest 等 CI 通过后在 bump 里指过去
-          tags: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.target.image }}:${{ steps.vars.outputs.sha }}
+          tags: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.target.image }}:${{ matrix.target.prefix }}${{ steps.vars.outputs.sha }}
           cache-from: ${{ matrix.target.cache && format('type=gha,scope={0}', matrix.target.name) || '' }}
           cache-to: ${{ matrix.target.cache && format('type=gha,mode=max,scope={0}', matrix.target.name) || '' }}
 
@@ -195,6 +202,7 @@ jobs:
     outputs:
       server: ${{ steps.pin.outputs.server }}
       web: ${{ steps.pin.outputs.web }}
+      ts: ${{ steps.pin.outputs.ts }}
     steps:
       - uses: actions/checkout@v4
 
@@ -218,15 +226,24 @@ jobs:
           SHA: ${{ github.sha }}
           SERVER: ${{ needs.changes.outputs.server }}
           WEB: ${{ needs.changes.outputs.web }}
+          TS: ${{ needs.changes.outputs.ts }}
           GH_TOKEN: ${{ github.token }}
         run: |
           SHA_SHORT="${SHA:0:12}"
           images=()
           [ "$SERVER" = true ] && images+=(memento-server)
           [ "$WEB" = true ] && images+=(memento-web)
+          [ "$TS" = true ] && images+=(memento-server-ts)
+          # Where each image's tag points: memento-server-ts is the memento-server package under ts-<commit>
+          ref_of() { if [ "$1" = memento-server-ts ]; then echo "${REGISTRY}/${OWNER}/memento-server:ts-${SHA_SHORT}"; else echo "${REGISTRY}/${OWNER}/$1:${SHA_SHORT}"; fi; }
+          want_tag() { if [ "$1" = memento-server-ts ]; then echo "ts-${SHA_SHORT}"; else echo "${SHA_SHORT}"; fi; }
           # CI 已通过:latest 指向这次的镜像(只改清单,不重新推层)
           for image in "${images[@]}"; do
-            docker buildx imagetools create -t "${REGISTRY}/${OWNER}/${image}:latest" "${REGISTRY}/${OWNER}/${image}:${SHA_SHORT}"
+            if [ "$image" = memento-server-ts ]; then
+              docker buildx imagetools create -t "${REGISTRY}/${OWNER}/memento-server:ts-latest" "$(ref_of "$image")"
+            else
+              docker buildx imagetools create -t "${REGISTRY}/${OWNER}/${image}:latest" "$(ref_of "$image")"
+            fi
           done
           git config user.name  'github-actions[bot]'
           git config user.email 'github-actions[bot]@users.noreply.github.com'
@@ -238,7 +255,7 @@ jobs:
           pin() {
             pinned=()
             for image in "${images[@]}"; do
-              cur=$(tag_of "$image")
+              cur=$(tag_of "$image"); cur="${cur#ts-}"
               if [ "$1" = check ] && [ -n "$cur" ] && [ "$cur" != "$SHA_SHORT" ]; then
                 rel=$(gh api "repos/${GITHUB_REPOSITORY}/compare/${cur}...${SHA}" --jq .status 2>/dev/null || echo "查询失败")
                 case "$rel" in
@@ -247,21 +264,22 @@ jobs:
                   *) echo "$image: 比较 ${cur} 和 ${SHA_SHORT} 失败(${rel})"; return 1 ;;
                 esac
               fi
-              ( cd deploy/k8s && kustomize edit set image "${REGISTRY}/${OWNER}/${image}=${REGISTRY}/${OWNER}/${image}:${SHA_SHORT}" )
+              ( cd deploy/k8s && kustomize edit set image "${REGISTRY}/${OWNER}/${image}=$(ref_of "$image")" )
               # 断言 tag 确实回写成功
               tag=$(tag_of "$image")
-              [ "$tag" = "$SHA_SHORT" ] || { echo "$image 镜像 tag 回写失败(现在是 ${tag:-空})"; return 1; }
+              [ "$tag" = "$(want_tag "$image")" ] || { echo "$image 镜像 tag 回写失败(现在是 ${tag:-空})"; return 1; }
               pinned+=("$image")
             done
           }
           # verify 只等真正指向本次提交的镜像
           finish() {
-            s=false; w=false
+            s=false; w=false; t=false
             for image in "${pinned[@]}"; do
               [ "$image" = memento-server ] && s=true
               [ "$image" = memento-web ] && w=true
+              [ "$image" = memento-server-ts ] && t=true
             done
-            { echo "server=$s"; echo "web=$w"; } >> "$GITHUB_OUTPUT"
+            { echo "server=$s"; echo "web=$w"; echo "ts=$t"; } >> "$GITHUB_OUTPUT"
             echo "$1"; exit 0
           }
           pin || exit 1

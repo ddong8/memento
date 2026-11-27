@@ -1,0 +1,35 @@
+{
+  "name": "@memento/server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Memento's server in TypeScript, replacing server/ (Python) route by route: docs/ts-server-migration.md",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "start": "node dist/main.mjs",
+    "db:pull": "drizzle-kit pull && node scripts/fix-pulled.mjs",
+    "contract": "node --experimental-strip-types scripts/contract.mts"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.7",
+    "drizzle-kit": "^0.31.11",
+    "esbuild": "^0.28.2",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.7"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.1.11",
+    "bcryptjs": "^3.0.3",
+    "drizzle-orm": "^0.45.4",
+    "hono": "^4.13.23",
+    "ioredis": "^6.1.0",
+    "jose": "^6.2.18",
+    "postgres": "^4.1.1",
+    "zod": "^4.6.7"
+  }
+}

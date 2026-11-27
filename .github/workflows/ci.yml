@@ -82,6 +82,95 @@ jobs:
             echo "No tests in ${{ matrix.package }}/tests — skipping."
           fi
 
+  # The TypeScript server taking over from server/ route by route (docs/ts-server-migration.md): its own tests
+  # against Postgres, then the contract check: both servers on one database and Redis, the same requests,
+  # responses compared field by field. Also fails when the Python migrations changed the schema and
+  # packages/server/db/schema.sql (what the TS side is checked against) wasn't refreshed.
+  ts-server:
+    name: ts · server (tests + contract with python)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: memento
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d memento"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - run: npm ci --workspace @memento/server --include-workspace-root
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.10.0"
+          enable-cache: true
+          cache-dependency-glob: "server/uv.lock"
+
+      - name: Python server deps
+        working-directory: server
+        run: |
+          uv export --frozen --no-dev --no-emit-project --no-header --format requirements-txt -o /tmp/ts-ci-requirements.txt
+          uv pip install --system --require-hashes -r /tmp/ts-ci-requirements.txt
+          uv pip install --system --no-deps -e .
+
+      - name: Schema from the Python migrations matches packages/server/db/schema.sql
+        env:
+          MEMENTO_DATABASE_URL: postgresql+asyncpg://postgres:test@localhost:5432/memento
+          MEMENTO_DEBUG: "1"
+        run: |
+          (cd server && python -m server.db.migrations)
+          docker run --rm --network host -e PGPASSWORD=test pgvector/pgvector:pg16 \
+            pg_dump -h localhost -U postgres -d memento --schema-only --no-owner --no-privileges > /tmp/schema.sql
+          # pg_dump 16.10+ adds \restrict lines with a random key each run
+          diff <(grep -v '^\\' /tmp/schema.sql) <(grep -v '^\\' packages/server/db/schema.sql) \
+            || { echo "::error::表结构变了：在跑过迁移的库上重新 pg_dump 到 packages/server/db/schema.sql，并 npm run db:pull -w @memento/server"; exit 1; }
+
+      - name: typecheck, tests & bundle
+        env:
+          MEMENTO_TEST_DATABASE_URL: postgres://postgres:test@localhost:5432/memento_ts_test
+        run: |
+          docker run --rm --network host -e PGPASSWORD=test pgvector/pgvector:pg16 psql -h localhost -U postgres -c "CREATE DATABASE memento_ts_test"
+          npm run typecheck -w @memento/server
+          npm run test -w @memento/server
+          npm run build -w @memento/server
+
+      - name: contract · python and ts answer the same
+        env:
+          MEMENTO_DATABASE_URL: postgresql+asyncpg://postgres:test@localhost:5432/memento
+          MEMENTO_REDIS_URL: redis://localhost:6379/0
+          MEMENTO_SECRET_KEY: ci-contract-secret-0123456789
+          MEMENTO_COLLECTOR_TOKEN: ci-contract-collector
+          MEMENTO_S3_ACCESS_KEY: ci
+          MEMENTO_S3_SECRET_KEY: ci-secret
+          MEMENTO_SKIP_DDL_MIGRATIONS: "1"
+          MEMENTO_HOST: 127.0.0.1
+        run: |
+          (cd server && python -m uvicorn server.main:app --host 127.0.0.1 --port 18001 > /tmp/py.log 2>&1 &)
+          MEMENTO_PORT=18002 node packages/server/dist/main.mjs > /tmp/ts.log 2>&1 &
+          for i in $(seq 1 60); do curl -sf localhost:18001/health >/dev/null && curl -sf localhost:18002/health >/dev/null && break; sleep 1; done
+          curl -sf -X POST localhost:18001/api/auth/register -H 'content-type: application/json' \
+            -d '{"email":"contract@example.com","password":"Contract-pass-123","name":"对照"}' >/dev/null
+          node packages/server/scripts/contract.mts --py http://127.0.0.1:18001 --ts http://127.0.0.1:18002 \
+            --email contract@example.com --password Contract-pass-123 \
+            || { echo "--- python"; tail -50 /tmp/py.log; echo "--- ts"; tail -50 /tmp/ts.log; exit 1; }
+
   ts-client:
     name: ts · core + daemon + mcp + desktop
     runs-on: ubuntu-latest

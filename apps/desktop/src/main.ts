@@ -24,6 +24,7 @@ import { DEFAULT_SERVER_URL, deviceFilePath, loadConfig, managedPolicy, saveConf
 const defaultServerUrl = (): string => managedPolicy().serverUrl || DEFAULT_SERVER_URL;
 
 import { DaemonHost, type DaemonMode } from "./daemon-host";
+import { LocalServer } from "./local-server";
 import {
   createNotificationDeduper,
   getMediaMimeType,
@@ -44,6 +45,8 @@ let tray: Tray | undefined;
 let quitting = false;
 let config: CollectorConfig;
 const daemon = new DaemonHost();
+// The compose files ship next to main.cjs (scripts/build.mjs copies deploy/enterprise there)
+const localServer = new LocalServer(join(__dirname, "local-server"));
 
 /** Where the web app is: the server's origin, or a separate web URL on self-hosted setups. */
 const serverOrigin = () => new URL(config.webUrl || config.serverUrl).origin;
@@ -1389,6 +1392,41 @@ function clearCacheOnNewVersion(): void {
     .catch(() => {});
 }
 
+/** Point the app and this device's daemon at another server (the user already confirmed). */
+async function switchServer(cleanUrl: string, resetAuth: boolean): Promise<void> {
+  config.serverUrl = cleanUrl;
+  config.webUrl = cleanUrl;
+  if (resetAuth) {
+    config.token = "";
+  }
+  await saveConfig(config);
+
+  try {
+    if (daemon.mode === "running" || daemon.mode === "starting") {
+      await daemon.stop();
+    }
+    if (config.token) {
+      await daemon.start();
+    } else {
+      daemon.mode = "no-token";
+    }
+  } catch (err) {
+    console.warn("Daemon restart on server switch error:", err);
+  }
+  refreshTray();
+
+  if (win && !win.isDestroyed()) {
+    try {
+      if (resetAuth) {
+        await win.webContents.session.clearStorageData({
+          storages: ["cookies", "localstorage"],
+        });
+      }
+    } catch {}
+    await loadApp("/");
+  }
+}
+
 function setupIpc(): void {
   // Every channel answers memento's own page only: the window also shows github.com during sign-in,
   // and nothing else loaded there may reach the daemon, local files, the login or the shell.
@@ -1540,38 +1578,54 @@ function setupIpc(): void {
     const { response } = parent ? await dialog.showMessageBox(parent, ask) : await dialog.showMessageBox(ask);
     if (response !== 0) return { ok: false, error: "已取消切换" };
 
-    config.serverUrl = cleanUrl;
-    config.webUrl = cleanUrl;
-    if (opt.resetAuth) {
-      config.token = "";
-    }
-    await saveConfig(config);
-
-    try {
-      if (daemon.mode === "running" || daemon.mode === "starting") {
-        await daemon.stop();
-      }
-      if (config.token) {
-        await daemon.start();
-      } else {
-        daemon.mode = "no-token";
-      }
-    } catch (err) {
-      console.warn("Daemon restart on server switch error:", err);
-    }
-    refreshTray();
-
-    if (win && !win.isDestroyed()) {
-      try {
-        if (opt.resetAuth) {
-          await win.webContents.session.clearStorageData({
-            storages: ["cookies", "localstorage"],
-          });
-        }
-      } catch {}
-      await loadApp("/");
-    }
+    await switchServer(cleanUrl, !!opt.resetAuth);
     return { ok: true };
+  });
+  // 单机模式: run a personal server on this computer with Docker (src/local-server.ts)
+  handle("local-server:status", () => localServer.status());
+  handle("local-server:start", async (e) => {
+    if (managedPolicy().serverUrl) return { ok: false, error: `这台电脑的管理员已指定服务器 ${managedPolicy().serverUrl}，不能改用本机服务` };
+    const parent = BrowserWindow.fromWebContents(e.sender) ?? win;
+    const status = await localServer.status();
+    if (!status.installed) {
+      // Asked here, natively: a script on the page can't start containers on its own
+      const ask = {
+        type: "question" as const,
+        buttons: ["在这台电脑上运行", "取消"],
+        defaultId: 0,
+        cancelId: 1,
+        message: "在这台电脑上运行 Memento？",
+        detail:
+          "会用 Docker 在本机启动一套只给你用的 Memento（数据库、对象存储、接口和网页），第一次要下载约 1.5 GB，占用约 1 GB 内存。\n" +
+          `数据都存在这台电脑上，只有本机能打开（${status.url}）。启动后切换到它，第一个注册的账号就是你。`,
+      };
+      const { response } = parent ? await dialog.showMessageBox(parent, ask) : await dialog.showMessageBox(ask);
+      if (response !== 0) return { ok: false, code: "cancelled", error: "已取消" };
+    }
+    const sender = e.sender;
+    const progress = (line: string) => {
+      if (!sender.isDestroyed()) sender.send("local-server:progress", line);
+    };
+    const res = await localServer.start(progress);
+    if (res.ok && res.url && (config?.serverUrl || "").replace(/\/+$/, "") !== res.url) {
+      // A different server: its accounts aren't this one's, so sign in there afresh
+      await switchServer(res.url, true);
+    }
+    return res;
+  });
+  handle("local-server:stop", async (e) => {
+    const parent = BrowserWindow.fromWebContents(e.sender) ?? win;
+    const ask = {
+      type: "question" as const,
+      buttons: ["停止", "取消"],
+      defaultId: 1,
+      cancelId: 1,
+      message: "停止这台电脑上的 Memento 服务？",
+      detail: "数据保留，下次点「在这台电脑上运行」会接着用。停止期间连着它的网页和设备会断开。",
+    };
+    const { response } = parent ? await dialog.showMessageBox(parent, ask) : await dialog.showMessageBox(ask);
+    if (response !== 0) return { ok: false, error: "已取消" };
+    return localServer.stop();
   });
   handle("shell:open-external", (_e, url: unknown) => {
     if (typeof url === "string" && (url.startsWith("http://") || url.startsWith("https://") || url.startsWith("mailto:"))) {

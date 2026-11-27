@@ -17,6 +17,7 @@ import {
 } from "@/lib/api-client";
 import { Btn, Chip, GhostInput, Glass } from "@/components/aurora/primitives";
 import { Icon } from "@/components/aurora/Icon";
+import { LocalServerCard } from "@/components/server/LocalServerCard";
 
 export interface ServerSwitchModalProps {
   open?: boolean;
@@ -410,6 +411,9 @@ export function ServerSwitchModal({ open: externalOpen, onClose: externalClose }
               </div>
             </div>
           </div>
+
+          {/* 单机模式 (desktop only) */}
+          {!locked && <LocalServerCard currentServer={currentServer} />}
 
           {/* Preset Servers */}
           <div>

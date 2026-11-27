@@ -178,7 +178,25 @@ OpenClaw、Hermes 不采集对话,只接收个人画像。画像会写进各工�
 
 ## 🚀 快速开始
 
-### 一键安装(推荐)
+### 单机模式：一台电脑、一条命令（推荐个人使用）
+
+不用服务器、不用域名，只要装了 [Docker Desktop](https://www.docker.com/products/docker-desktop/)（Linux 用 Docker Engine）：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ddong8/memento/main/deploy/personal.sh | bash
+```
+
+或者装好[桌面客户端](https://github.com/ddong8/memento/releases/latest)，在「切换服务器」里点「在这台电脑上运行」，它会自己启动 Docker、拉起服务、切换过去。
+
+- 打开 <http://localhost:8770> 注册，第一个注册的账号就是你（所有者），之后不再开放注册；只有本机能打开。
+- 第一次下载约 1.5 GB 镜像（Intel 与 Apple 芯片、ARM 服务器都原生运行），之后启动只要几秒。
+- 大模型在「个人设置」里填自己的接口和密钥；数据都在这台电脑的 Docker 卷里，不往外发。
+- 装在 `~/memento-server`（桌面客户端装的在 `~/.memento/local-server`），里面的 `./memento.sh status / logs / backup / upgrade / down` 管理；再运行一次安装命令就是升级。
+- 想在手机上用：把 `.env` 里的 `MEMENTO_HTTP_PORT` 改成 `8770`，`./memento.sh up`，手机打开 `http://<电脑的局域网地址>:8770`。
+
+团队或公司部署见 [docs/enterprise.md](docs/enterprise.md)（同一套镜像，加 HTTPS、单点登录、审计）。
+
+### 一键安装(从源码构建)
 
 ```bash
 # macOS / Linux

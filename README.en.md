@@ -178,7 +178,25 @@ OpenClaw and Hermes conversations are not collected; they only receive the perso
 
 ## 🚀 Quick start
 
-### One-shot install (recommended)
+### Personal mode: one computer, one command (recommended for individuals)
+
+No server, no domain — just [Docker Desktop](https://www.docker.com/products/docker-desktop/) (Docker Engine on Linux):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ddong8/memento/main/deploy/personal.sh | bash
+```
+
+Or install the [desktop app](https://github.com/ddong8/memento/releases/latest) and click "Run on this computer" under "Switch server": it starts Docker, brings the stack up and switches to it.
+
+- Open <http://localhost:8770> and register: the first account is yours (the owner), registration closes after that, and only this computer can reach it.
+- About 1.5 GB of images the first time (native on Intel, Apple silicon and ARM servers); later starts take seconds.
+- Put your own model endpoint and key under Settings; your data stays in this computer's Docker volumes.
+- Installed in `~/memento-server` (`~/.memento/local-server` from the desktop app); manage it with `./memento.sh status / logs / backup / upgrade / down` there, and rerun the install command to upgrade.
+- For your phone: set `MEMENTO_HTTP_PORT=8770` in `.env`, run `./memento.sh up`, and open `http://<your computer's LAN address>:8770`.
+
+For a team or company, see [docs/enterprise.md](docs/enterprise.md) (same images, plus HTTPS, SSO and audit logs).
+
+### One-shot install (build from source)
 
 ```bash
 # macOS / Linux

@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `70ac745b` · Updated: `2026-11-26`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `352f4c10` · Updated: `2026-11-27`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -13,11 +13,11 @@
 - 类型 (Type): Monorepo (Workspaces)
 - 技术栈 (Stack): TypeScript/JavaScript, Python, Shell / Bash · React, Electron, Next.js, TailwindCSS, Model Context Protocol (MCP), FastAPI, SQLAlchemy, Celery
 - 基础设施 (Infra): PostgreSQL, pgvector (Vector DB), Redis, MinIO / S3 Object Storage, Celery Task Queue
-- 规模 (Scale): 9 个子系统 · 44 组 API 路由 / 346 个接口 · 39 个前端页面 · 42 个数据模型 · 35 个服务模块 · 285 个测试文件
+- 规模 (Scale): 9 个子系统 · 44 组 API 路由 / 346 个接口 · 39 个前端页面 · 42 个数据模型 · 35 个服务模块 · 287 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `5c8068b7` (2026-11-27): fix(mobile,desktop,web): 修复左下角折叠底栏错位、取消输入框与底栏半透明透字并统一 macOS 侧边栏底色
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 77（✅ 77 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 12 · 状态 10 · 最近提交碰到 `R-ENT-DEVICE-POLICY`, `R-REPLY-VISIBLE`, `R-DOCS-WRITE-LIGHT`
+- 最近改动 (Latest): `352f4c10` (2026-11-27): feat(mobile): 底栏加高到 60pt（按钮 50pt、图标 21、文字 11），更接近 iOS 26 系统悬浮底栏，网页避让高度跟着变；发版 1.0.166
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 77（✅ 77 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 12 · 状态 10 · 最近提交碰到 `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `R-ENT-DEVICE-POLICY`, `R-REPLY-VISIBLE`, `R-DOCS-WRITE-LIGHT`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -27,11 +27,11 @@
 | 4. Key Entry Points & API Endpoints | L95-L535 |
 | 5. Core Domain Services & Background Schedules | L537-L577 |
 | 6.5. AST Call Graph, DTO Schemas & CLI Entrypoints | L579-L651 |
-| 7. CI/CD Pipelines, Code Hotspots & Test Suites | L653-L697 |
-| 8. Development & Verification Commands | L699-L716 |
-| 9. Recent Architectural Evolutions | L718-L725 |
-| 10. Key Environment Variables & Configuration | L727-L739 |
-| 11. 业务蓝图核对 (Business Blueprint Check) | L741-L749 |
+| 7. CI/CD Pipelines, Code Hotspots & Test Suites | L653-L698 |
+| 8. Development & Verification Commands | L700-L717 |
+| 9. Recent Architectural Evolutions | L719-L726 |
+| 10. Key Environment Variables & Configuration | L728-L740 |
+| 11. 业务蓝图核对 (Business Blueprint Check) | L742-L751 |
 
 ## 1. Project Overview & Tech Stack
 
@@ -661,6 +661,7 @@ erDiagram
 | GitHub Actions | `CI` | [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | Jobs: python, ts-client, ts-mobile, ts-web |
 | GitHub Actions | `Build & Deploy (k3s via Fleet)` | [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) | Jobs: changes, wait-ci, build, bump, verify |
 | GitHub Actions | `Desktop Release` | [`.github/workflows/desktop-release.yml`](.github/workflows/desktop-release.yml) | Jobs: build-electron, android, publish-release, attach-apk |
+| GitHub Actions | `Personal images (stable, multi-arch)` | [`.github/workflows/personal-images.yml`](.github/workflows/personal-images.yml) | Jobs: tags, arm64, stable |
 | K8s / GitOps | `gitrepo.yaml` | [`deploy/fleet/gitrepo.yaml`](deploy/fleet/gitrepo.yaml) | Resources: GitRepo |
 | K8s / GitOps | `api.yaml` | [`deploy/k8s/api.yaml`](deploy/k8s/api.yaml) | Resources: Deployment, Service |
 | K8s / GitOps | `celery.yaml` | [`deploy/k8s/celery.yaml`](deploy/k8s/celery.yaml) | Resources: Deployment |
@@ -676,21 +677,21 @@ erDiagram
 | Suite | Directory | Files | Sample Tests |
 | :--- | :--- | :--- | :--- |
 | server/tests (pytest) | [`server/tests`](server/tests) | 139 | `test_acp_modes.py`, `test_agent_ids.py`, `test_agent_limits.py`, `test_agent_login.py`, `test_agent_run_states.py` |
-| apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 68 | `active-runs-chip.test.tsx`, `agent-modes.test.ts`, `api-client.test.ts`, `ask-performance-guards.test.tsx`, `ask-reading-and-persona-rules.test.tsx` |
+| apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 69 | `active-runs-chip.test.tsx`, `agent-modes.test.ts`, `api-client.test.ts`, `ask-performance-guards.test.tsx`, `ask-reading-and-persona-rules.test.tsx` |
 | packages/daemon/test (vitest / jest) | [`packages/daemon/test`](packages/daemon/test) | 67 | `acp-runner.test.ts`, `agent-args.test.ts`, `agent-login.test.ts`, `agent-stream.test.ts`, `agy-background.test.ts` |
 | apps/mobile/test (vitest / jest) | [`apps/mobile/test`](apps/mobile/test) | 4 | `deeplink.test.ts`, `glass-surface.test.ts`, `injected-helpers.test.ts`, `webview-props.test.ts` |
+| apps/desktop/test (vitest / jest) | [`apps/desktop/test`](apps/desktop/test) | 3 | `helpers.test.ts`, `local-server.test.ts`, `updater-and-daemon.test.ts` |
 | packages/mcp/test (vitest / jest) | [`packages/mcp/test`](packages/mcp/test) | 3 | `remote-and-tools.test.ts`, `server.test.ts`, `task-tools.test.ts` |
-| apps/desktop/test (vitest / jest) | [`apps/desktop/test`](apps/desktop/test) | 2 | `helpers.test.ts`, `updater-and-daemon.test.ts` |
 | packages/core/test (vitest / jest) | [`packages/core/test`](packages/core/test) | 2 | `ask-stream.test.ts`, `task-events.test.ts` |
 
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
 - [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (13 commits)
-- [`deploy/k8s/studio.yaml`](deploy/k8s/studio.yaml) (13 commits)
+- [`deploy/k8s/studio.yaml`](deploy/k8s/studio.yaml) (12 commits)
 - [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (12 commits)
+- [`apps/mobile/src/app/index.tsx`](apps/mobile/src/app/index.tsx) (9 commits)
 - [`apps/web/src/components/ask/GitDiffDrawer.tsx`](apps/web/src/components/ask/GitDiffDrawer.tsx) (9 commits)
 - [`apps/web/src/lib/api-client.ts`](apps/web/src/lib/api-client.ts) (9 commits)
-- [`apps/mobile/src/app/index.tsx`](apps/mobile/src/app/index.tsx) (8 commits)
 - [`apps/web/src/app/globals.css`](apps/web/src/app/globals.css) (8 commits)
 - [`apps/web/test/glass-system.test.ts`](apps/web/test/glass-system.test.ts) (8 commits)
 - [`apps/web/src/app/studio/page.tsx`](apps/web/src/app/studio/page.tsx) (7 commits)
@@ -717,12 +718,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `352f4c10` (2026-11-27): feat(mobile): 底栏加高到 60pt（按钮 50pt、图标 21、文字 11），更接近 iOS 26 系统悬浮底栏，网页避让高度跟着变；发版 1.0.166
 - `5c8068b7` (2026-11-27): fix(mobile,desktop,web): 修复左下角折叠底栏错位、取消输入框与底栏半透明透字并统一 macOS 侧边栏底色
 - `4e3a2d8a` (2026-11-27): feat(git): 一个项目目录下有多个仓库时，代码抽屉顶部出现仓库选择，Diff、提交、PR 与终端都对着选中的仓库（经设备临时 shell 查找，跳过 node_modules，不需要升级客户端）
 - `5cbf02b5` (2026-11-27): feat(schedule): 工作待办加「定时任务」：智能体按每小时/每天/每周在指定设备上运行，结果记进记忆并推送到手机
 - `e5e94953` (2026-11-27): feat(preview): 代码抽屉加「预览」：列出设备上正在运行的开发服务，经服务器中转在沙箱 iframe 里打开，并升级至 v1.0.165
 - `6b2573c2` (2026-11-26): feat(daemon): Codex 与 Antigravity 也支持权限模式和审批卡片，问答页对这些智能体都显示权限选择，并升级至 v1.0.164
-- `a1119cc3` (2026-11-26): fix(web): 渲染预算测试改在 effect 里挂全局钩子，修掉渲染期间改全局变量的 lint 错误（CI 因此失败、1.0.163 部署未上线）
 
 ## 10. Key Environment Variables & Configuration
 
@@ -745,6 +746,7 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ### 最近提交碰到的业务条目（改动后复查它们还成不成立）
 
+- `352f4c10` feat(mobile): 底栏加高到 60pt（按钮 50pt、图标 21、文字 11），更接近 iOS 26 系统悬浮底栏，网页避让高度跟着变；发版 1.0 → `R-APP-NAME`, `R-ALL-TYPESCRIPT`
 - `5c8068b7` fix(mobile,desktop,web): 修复左下角折叠底栏错位、取消输入框与底栏半透明透字并统一 macOS 侧边栏底色 → `R-ENT-DEVICE-POLICY`, `R-REPLY-VISIBLE`
 - `5cbf02b5` feat(schedule): 工作待办加「定时任务」：智能体按每小时/每天/每周在指定设备上运行，结果记进记忆并推送到手机 → `R-DOCS-WRITE-LIGHT`
 

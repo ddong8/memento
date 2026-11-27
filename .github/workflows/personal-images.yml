@@ -1,0 +1,134 @@
+# 单机模式（deploy/personal.sh、桌面端「在这台电脑上运行」）用的镜像：ghcr.io/ddong8/memento-{server,web}:stable，
+# 同时含 amd64 与 arm64（Apple 芯片的 Mac、ARM 服务器原生运行，不走模拟）。
+#
+# 线上部署（deploy.yml）只构建 amd64、照旧不受影响。它成功后这里读 deploy/k8s/kustomization.yaml 里线上正在用的
+# 提交号 tag，在 ARM 机器上原生构建同一提交的 arm64 镜像（<tag>-arm64，已有就跳过），再把 stable 指向
+# 「线上 amd64 + 这次 arm64」。所以 stable 永远是通过了 CI、线上已经在跑的版本。
+name: Personal images (stable, multi-arch)
+
+on:
+  workflow_run:
+    workflows: ["Build & Deploy (k3s via Fleet)"]
+    types: [completed]
+  workflow_dispatch:
+
+concurrency:
+  group: personal-images
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  OWNER: ddong8
+
+jobs:
+  tags:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    outputs:
+      server: ${{ steps.read.outputs.server }}
+      web: ${{ steps.read.outputs.web }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - id: read
+        run: |
+          tag_of() {
+            awk -v n="${REGISTRY}/${OWNER}/$1" '$1=="-" && $2=="name:" {cur=$3} $1=="newTag:" && cur==n {gsub(/"/,"",$2); print $2; exit}' deploy/k8s/kustomization.yaml
+          }
+          s="$(tag_of memento-server)"; w="$(tag_of memento-web)"
+          [ -n "$s" ] && [ -n "$w" ] || { echo "kustomization 里没读到镜像 tag"; exit 1; }
+          echo "server=$s" >> "$GITHUB_OUTPUT"
+          echo "web=$w" >> "$GITHUB_OUTPUT"
+          echo "server $s · web $w"
+
+  arm64:
+    needs: tags
+    runs-on: ubuntu-24.04-arm
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: server
+            image: memento-server
+            file: server/Dockerfile
+            geoip: true
+          - name: web
+            image: memento-web
+            file: apps/web/Dockerfile
+            geoip: false
+    steps:
+      - id: tag
+        run: echo "tag=${{ matrix.name == 'server' && needs.tags.outputs.server || needs.tags.outputs.web }}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: have
+        run: |
+          if docker buildx imagetools inspect "${REGISTRY}/${OWNER}/${{ matrix.image }}:${{ steps.tag.outputs.tag }}-arm64" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"; echo "已有 arm64 镜像，跳过构建"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # The commit the live image was built from (the tag is its first 12 characters)
+      - if: steps.have.outputs.exists == 'false'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - if: steps.have.outputs.exists == 'false'
+        run: git checkout --detach "${{ steps.tag.outputs.tag }}"
+
+      - if: steps.have.outputs.exists == 'false'
+        uses: docker/setup-buildx-action@v3
+
+      - if: steps.have.outputs.exists == 'false'
+        id: month
+        run: echo "geoip_month=$(date -u +%Y-%m)" >> "$GITHUB_OUTPUT"
+
+      - if: steps.have.outputs.exists == 'false'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.file }}
+          platforms: linux/arm64
+          push: true
+          provenance: false
+          build-args: |
+            GIT_SHA=${{ steps.tag.outputs.tag }}
+            ${{ matrix.geoip && format('GEOIP_MONTH={0}', steps.month.outputs.geoip_month) || '' }}
+          tags: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.image }}:${{ steps.tag.outputs.tag }}-arm64
+
+  stable:
+    needs: [tags, arm64]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-buildx-action@v3
+      - name: Point stable at amd64 + arm64
+        env:
+          SERVER: ${{ needs.tags.outputs.server }}
+          WEB: ${{ needs.tags.outputs.web }}
+        run: |
+          for pair in "memento-server:$SERVER" "memento-web:$WEB"; do
+            image="${pair%%:*}"; tag="${pair#*:}"
+            ref="${REGISTRY}/${OWNER}/${image}"
+            # The live amd64 manifest only (the tag may be an index with attestations)
+            amd64="$(docker buildx imagetools inspect "$ref:$tag" --raw | jq -r '
+              if .manifests then (.manifests[] | select(.platform.architecture=="amd64" and .platform.os=="linux") | .digest) else empty end' | head -1)"
+            [ -n "$amd64" ] || amd64="$(docker buildx imagetools inspect "$ref:$tag" --format '{{json .Manifest}}' | jq -r .digest)"
+            docker buildx imagetools create -t "$ref:stable" "$ref@$amd64" "$ref:$tag-arm64"
+            docker buildx imagetools inspect "$ref:stable" | grep -E "Platform"
+          done

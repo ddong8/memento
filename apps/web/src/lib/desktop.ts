@@ -78,6 +78,22 @@ export interface ServerTestResult {
   error?: string;
 }
 
+/** 单机模式: a personal server on this computer (desktop src/local-server.ts). */
+export interface LocalServerStatus {
+  docker: "missing" | "stopped" | "ready";
+  installed: boolean;
+  running: boolean;
+  url: string;
+  dir: string;
+}
+
+export interface LocalServerResult {
+  ok: boolean;
+  url?: string;
+  error?: string;
+  code?: string;
+}
+
 export interface MementoDesktop {
   isDesktop: true;
   /** v1.0.156+: true when macOS vibrancy or Windows 11 Mica native backdrop is supported by this window. */
@@ -104,6 +120,13 @@ export interface MementoDesktop {
     set(options: { url: string; resetAuth?: boolean }): Promise<{ ok: boolean; error?: string }>;
     test(url: string): Promise<ServerTestResult>;
     onOpenSwitch?(cb: () => void): () => void;
+  };
+  /** Desktop 1.0.167+ */
+  localServer?: {
+    status: () => Promise<LocalServerStatus>;
+    start: () => Promise<LocalServerResult>;
+    stop: () => Promise<{ ok: boolean; error?: string }>;
+    onProgress: (cb: (line: unknown) => void) => () => void;
   };
   daemon: {
     status(): Promise<DaemonState>;

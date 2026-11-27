@@ -101,3 +101,10 @@ if (pty) {
   if (existsSync(helper)) chmodSync(helper, 0o755);
 }
 cpSync(join(root, "static"), join(dist, "static"), { recursive: true });
+// 单机模式 (src/local-server.ts): the same compose files as the enterprise deployment
+rmSync(join(dist, "local-server"), { recursive: true, force: true });
+mkdirSync(join(dist, "local-server"), { recursive: true });
+// (the template without its leading dot: packaging may leave dotfiles out)
+for (const [from, to] of [["docker-compose.yml"], ["Caddyfile"], [".env.example", "env.example"], ["personal.env"]]) {
+  cpSync(join(root, "../../deploy/enterprise", from), join(dist, "local-server", to ?? from));
+}

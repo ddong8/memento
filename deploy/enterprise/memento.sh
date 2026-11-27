@@ -2,6 +2,7 @@
 # memento 企业部署管理脚本（docker compose）。说明见 docs/enterprise.md。
 #
 #   ./memento.sh init --domain memento.example.com   生成 .env（随机密码与密钥、当前发布的镜像版本）
+#   ./memento.sh init --personal                     单机模式：只给自己用，http://localhost:8770（见 personal.env）
 #   ./memento.sh up                                  拉取镜像并启动（或应用 .env 的修改）
 #   ./memento.sh status                              各服务状态和健康检查
 #   ./memento.sh logs [服务]                          查看日志
@@ -50,10 +51,11 @@ set_env() { # set_env KEY VALUE (in .env)
 get_env() { grep -E "^$1=" .env 2>/dev/null | tail -1 | cut -d= -f2- || true; }
 
 cmd_init() {
-  local domain="" force=0
+  local domain="" force=0 personal=0
   while [ $# -gt 0 ]; do
     case "$1" in
       --domain) domain="${2:-}"; shift 2 ;;
+      --personal) personal=1; shift ;;
       --force) force=1; shift ;;
       *) die "不认识的参数 $1" ;;
     esac
@@ -66,6 +68,16 @@ cmd_init() {
   set_env MEMENTO_SECRET_KEY "$(rand 32)"
   set_env MEMENTO_COLLECTOR_TOKEN "$(rand 32)"
   set_env MEMENTO_DATA_KEY "$(rand 32)"
+  if [ "$personal" = 1 ]; then
+    local key value
+    while IFS='=' read -r key value; do
+      case "$key" in ''|\#*) continue ;; esac
+      set_env "$key" "$value"
+    done < personal.env
+    ok "已生成单机模式的 .env（只有你能读）"
+    say "接下来：./memento.sh up，然后打开 $(get_env MEMENTO_PUBLIC_URL) 注册，第一个注册的就是你（所有者）"
+    return 0
+  fi
   local st wt
   st="$(released_tag server)"; wt="$(released_tag web)"
   [ -n "$st" ] && set_env MEMENTO_SERVER_TAG "$st"
@@ -85,7 +97,17 @@ cmd_up() {
   [ -f .env ] || die "还没有 .env，先运行 ./memento.sh init --domain <域名>"
   "${DC[@]}" pull --ignore-pull-failures || true
   "${DC[@]}" up -d --remove-orphans
-  ok "已启动。第一个注册或用企业账号登录的人是所有者（管理员）：$(get_env MEMENTO_PUBLIC_URL)"
+  local url; url="$(get_env MEMENTO_PUBLIC_URL)"
+  # First start runs the database migrations: wait until the api answers through the entrance
+  if command -v curl >/dev/null 2>&1 && [ "${url#http://localhost}" != "$url" ]; then
+    say "等服务就绪（第一次启动要建库，约一两分钟）…"
+    local i
+    for i in $(seq 1 150); do
+      curl -fsS "$url/health" 2>/dev/null | grep -q '"ok"' && break
+      sleep 2
+    done
+  fi
+  ok "已启动。第一个注册或用企业账号登录的人是所有者（管理员）：$url"
 }
 
 cmd_status() {
@@ -190,5 +212,5 @@ case "${1:-}" in
   bundle) cmd_bundle ;;
   load) shift; cmd_load "$@" ;;
   down) "${DC[@]}" down ;;
-  *) sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//' ;;
+  *) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//' ;;
 esac

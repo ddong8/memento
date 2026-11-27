@@ -46,6 +46,13 @@ contextBridge.exposeInMainWorld("mementoDesktop", {
       };
     },
   },
+  // 单机模式: a personal server on this computer, run with Docker
+  localServer: {
+    status: () => ipcRenderer.invoke("local-server:status"),
+    start: () => ipcRenderer.invoke("local-server:start"),
+    stop: () => ipcRenderer.invoke("local-server:stop"),
+    onProgress: subscribe("local-server:progress"),
+  },
   daemon: {
     status: () => ipcRenderer.invoke("daemon:status"),
     logs: () => ipcRenderer.invoke("daemon:logs"),

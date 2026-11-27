@@ -45,6 +45,11 @@ export default function LoginPage() {
     void initServer();
   }, []);
 
+  // A fresh server (单机模式 just started) has no account to sign in to: the first one is created on the register page
+  useEffect(() => {
+    if (!authOptions.has_any_user && !token) router.replace("/auth/register");
+  }, [authOptions.has_any_user, token, router]);
+
   // Auto-redirect if already authenticated
   useEffect(() => {
     if (!loading && token) {

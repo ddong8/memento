@@ -129,6 +129,8 @@ export interface AuthOptions {
   sso_name: string;
   /** Email + password (and GitHub / WeChat) sign-in; off when everyone uses the company account */
   password_login: boolean;
+  /** Nobody has an account yet (a fresh server, e.g. 单机模式): the first to register becomes the owner */
+  has_any_user: boolean;
 }
 
 const DEFAULT_AUTH_OPTIONS: AuthOptions = {
@@ -137,6 +139,7 @@ const DEFAULT_AUTH_OPTIONS: AuthOptions = {
   sso_enabled: false,
   sso_name: "",
   password_login: true,
+  has_any_user: true,
 };
 
 /** Which sign-in methods the server offers (public probe, no auth). */
@@ -153,6 +156,7 @@ export function useAuthOptions(): AuthOptions {
           sso_enabled: !!d.sso_enabled,
           sso_name: d.sso_name || "",
           password_login: d.password_login !== false,
+          has_any_user: d.has_any_user !== false,
         });
       })
       .catch(() => {});

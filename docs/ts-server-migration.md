@@ -82,7 +82,8 @@
 2) 内嵌数据库：embedded-postgres 16.16（npm 预编译包，和线上同为 PG16）半秒启动；它不带 pgvector，用 PG16 头文件自己编译 pgvector 0.8.1（只依赖系统库），把 vector.dylib 放进 lib/postgresql、控制文件和 SQL 放进 share/postgresql/extension 后，向量列、HNSW 索引、余弦距离查询、jsonb、GIN 全文索引都正常。
 3) 必须注意：内嵌包默认用 SQL_ASCII 初始化，中文进不了全文索引（to_tsvector 结果为空、查不到）。初始化必须带 `--encoding=UTF8 --locale=C`，改后中文检索正常。
 4) 体积：这一版 Mac 包里库文件有重复副本，去重后 136 MB、压缩后约 48 MB（大头是 ICU 数据 55 MB）。
-5) 还要做：Windows（x64）、Linux（x64 / arm64）、Mac Intel 上同样编译 pgvector 并验证，放进 CI；npm 上没有现成的三平台 pgvector 包。
+5) 多平台：.github/workflows/embedded-pg.yml 在 Mac（Apple 芯片 / Intel）、Linux（x64 / arm64，Rocky Linux 8 容器里编，glibc 2.28）、Windows x64 上编译并装进内嵌库验证（2026-11-27 前四个平台通过）。
+6) Windows 上不能用管理员账号直接启动 postgres（CI 运行器和很多用户都是管理员）：要经 pg_ctl 启动，它会换成受限权限。单安装包（P7）照这样启动。
 
 ## 6. 进度
 

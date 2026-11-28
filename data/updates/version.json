@@ -1,25 +1,25 @@
 {
-  "version": "1.0.171",
-  "title": "Memento v1.0.171",
+  "version": "1.0.172",
+  "title": "Memento v1.0.172",
   "release_notes": "1. 修复 Windows 单机模式初始化报错（当系统注册表配置了 cmd AutoRun 如 chcp 65001 或 conda_hook.bat 时，initdb 误判 postgres 版本不一致）：内置零依赖 cmd-noautorun.exe 垫片并强制 LC_MESSAGES=C，无需修改系统注册表即可正常初始化与启停\n2. 修复 Windows 下 pg_ctl start 子进程继承管道导致启动等待 60 秒超时的问题，同时消除中文系统下 GBK 报错乱码\n3. CI 新增 Windows 单机打包后实测 initdb 与 pg_ctl 启停校验，覆盖 macOS / Windows / Linux 全三端单安装包与无界面压缩包",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.171-win-x64.zip",
-      "size": 224986037,
-      "sha256": "9b61333f2512941980cec14747d06d7cab87148b2b153328bac58de379e8eaf1",
-      "sha512": "aL+okp++rO6/P+C5iWamtzYBDrI+5BXoa0gkwnhjNJF0HXqpcN+y0rXvVsK4lqPT3QbD1xrZejApt9LlMly1ig=="
+      "asset_name": "Memento-1.0.172-win-x64.zip",
+      "size": 225038755,
+      "sha256": "9d70d739acf1eeaead0f2024af4bb0e6fb2df1195465685b4f0d7b0670e8fcf3",
+      "sha512": "/QuZhpxg9Ma4B96T4HZOgiBJXLNZUd6nI+YKQ/WUxXw9XAONzu9gn3R7vgOyXwnzPw6YnBESwUevSe+W+mmozA=="
     },
     "macos": {
-      "asset_name": "Memento-1.0.171-mac-arm64.zip",
-      "size": 219962345,
-      "sha256": "a4f3effabe2a7cd968e3722049e50002efdd0ec408ee67e3baf1392164dfc1e2",
-      "sha512": "VIGTGSLymJsaMQNJoob9iGCup0kYSYGiB63jxC5hS9OzPfirIx1m/0Y/Jo1hhECcgboj3Rpsp8+BUAvjdaZI2g=="
+      "asset_name": "Memento-1.0.172-mac-arm64.zip",
+      "size": 219964070,
+      "sha256": "767c2c25d7dacfa66fa009bd974af118bfbefa14fdbb7bb77c179dcde431569d",
+      "sha512": "d/1sHmZE5DiNtuz5ttvQHpg8lyNOxgpfU8tvEjRP/RmZfSeq43shtMuKZnarqsPpk5HhmJBQU8OmOViGNEKLew=="
     },
     "linux": {
-      "asset_name": "Memento-1.0.171-linux-x64.tar.gz",
-      "size": 192804988,
-      "sha256": "0144e7ccaee514dc1755f1355c40caa77a3116c5e5dd6fda74d8c430599a12d4",
-      "sha512": "K3+bR91hag9yb0Gl3yUjij5KgH4gVwUqyf7rZshCJtntOezwn5fSZQhr76WSNPxn5OsTKjhm0jep7GXDYijiVA=="
+      "asset_name": "Memento-1.0.172-linux-x64.tar.gz",
+      "size": 192803799,
+      "sha256": "431d83a4c29cd783b23123642c7c01d173c88fe3dc2403d2132111341eafcccf",
+      "sha512": "PsApnJh/VP6vo/4kpE/kugzrRVoJiiSg5dXa5Ie/G3pmvrm42ec+vNrX0epjvDHMS5IuV/pGIehQ4xm8Z3A1UA=="
     }
   }
 }

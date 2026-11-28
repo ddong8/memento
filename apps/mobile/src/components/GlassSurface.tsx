@@ -83,8 +83,8 @@ export function GlassSurface({
   children,
 }: GlassSurfaceProps) {
   const mode = resolveMobileGlassMode(Platform.OS, safeIsLiquidGlassAvailable(), enabled);
-  const baseSurface = surfaceColor || (dark ? "#14151C" : "#FFFFFF");
-  const borderColor = borderProp || (dark ? "rgba(255, 255, 255, 0.14)" : "rgba(17, 17, 24, 0.145)");
+  const baseSurface = surfaceColor || (dark ? "#15131F" : "#FFFFFF");
+  const borderColor = borderProp || (dark ? "rgba(255, 255, 255, 0.14)" : "rgba(24, 18, 42, 0.145)");
   const specularTop = dark ? "rgba(255, 255, 255, 0.10)" : "rgba(255, 255, 255, 0.85)";
   const veilAlpha = dense ? 0.98 : 0.96;
   const surfaceVeil = withAlpha(baseSurface, veilAlpha);

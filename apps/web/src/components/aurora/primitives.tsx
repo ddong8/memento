@@ -261,9 +261,9 @@ export function ThemeToggle() {
 export function SkinPicker() {
   const { skin, setSkin } = useTheme();
   const items: { id: "aurora" | "arc" | "baseline"; label: string }[] = [
-    { id: "aurora", label: "Studio" },
-    { id: "arc", label: "Paper" },
-    { id: "baseline", label: "Classic" },
+    { id: "aurora", label: "Aurora" },
+    { id: "arc", label: "Arc" },
+    { id: "baseline", label: "Baseline" },
   ];
   return (
     <div

@@ -1,5 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <rect x="2" y="2" width="60" height="60" rx="16" fill="#4F46E5"/>
-  <path d="M16 46V20.5C16 19.12 17.12 18 18.5 18H22.8C23.75 18 24.62 18.54 25.05 19.39L32 33L38.95 19.39C39.38 18.54 40.25 18 41.2 18H45.5C46.88 18 48 19.12 48 20.5V46" fill="none" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
-  <circle cx="32" cy="44" r="3.4" fill="#FFFFFF"/>
-</svg>
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#7C3AED"/>
+      <stop offset="55%" stop-color="#EC4899"/>
+      <stop offset="100%" stop-color="#06B6D4"/>
+    </linearGradient>
+  </defs><rect x="2" y="2" width="60" height="60" rx="16.8" fill="url(#g)"/>
+  <g transform="translate(16.000003999999997, 16.000003999999997) scale(1.333333)" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5z"/>
+    <path d="M19 14l.7 2.3L22 17l-2.3.7L19 20l-.7-2.3L16 17l2.3-.7z"/>
+  </g></svg>

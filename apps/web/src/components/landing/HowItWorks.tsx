@@ -33,13 +33,11 @@ export function HowItWorks() {
         </p>
       </div>
 
-      {/* Unified hairline-divided 3-stage pipeline — zero decorative 01/02/03 prefixes */}
+      {/* Unified macOS frosted glass 3-stage pipeline */}
       <div
-        className="grid grid-cols-1 md:grid-cols-3"
+        className="grid grid-cols-1 md:grid-cols-3 aurora-glass-panel"
         style={{
-          borderRadius: 14,
-          background: "var(--aurora-surface-solid)",
-          border: "1px solid var(--aurora-border-strong)",
+          borderRadius: 18,
           overflow: "hidden",
         }}
       >

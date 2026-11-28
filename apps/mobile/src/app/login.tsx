@@ -3,26 +3,28 @@ import { Redirect } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState, KeyboardAvoidingView, Linking, Platform, Pressable, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import Svg, { Circle, Path, Rect } from "react-native-svg";
+import Svg, { Defs, G, LinearGradient, Path, Rect, Stop } from "react-native-svg";
 
 import { Button, Note } from "../components/ui";
 import { describeError } from "../lib/api";
 import { DEFAULT_SERVER, useSession } from "../lib/session";
 import { radius, useTheme } from "../lib/theme";
 
-function Mark({ color }: { color: string }) {
+function Mark() {
   return (
-    <Svg width={56} height={56} viewBox="0 0 64 64">
-      <Rect x={2} y={2} width={60} height={60} rx={16} fill={color} />
-      <Path
-        d="M16 46V20.5C16 19.12 17.12 18 18.5 18H22.8C23.75 18 24.62 18.54 25.05 19.39L32 33L38.95 19.39C39.38 18.54 40.25 18 41.2 18H45.5C46.88 18 48 19.12 48 20.5V46"
-        fill="none"
-        stroke="#FFFFFF"
-        strokeWidth={5}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <Circle cx={32} cy={44} r={3.4} fill="#FFFFFF" />
+    <Svg width={60} height={60} viewBox="0 0 64 64">
+      <Defs>
+        <LinearGradient id="memento-app-g" x1="0" y1="0" x2="1" y2="1">
+          <Stop offset="0" stopColor="#7C3AED" />
+          <Stop offset="0.55" stopColor="#EC4899" />
+          <Stop offset="1" stopColor="#06B6D4" />
+        </LinearGradient>
+      </Defs>
+      <Rect x={0} y={0} width={64} height={64} rx={16} fill="url(#memento-app-g)" />
+      <G transform="translate(14, 14) scale(1.5)" fill="none" stroke="#FFFFFF" strokeWidth={2.1} strokeLinecap="round" strokeLinejoin="round">
+        <Path d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5z" />
+        <Path d="M19 14l.7 2.3L22 17l-2.3.7L19 20l-.7-2.3L16 17l2.3-.7z" />
+      </G>
     </Svg>
   );
 }
@@ -188,7 +190,7 @@ export default function LoginScreen() {
     <SafeAreaView style={{ flex: 1, backgroundColor: t.bg }}>
       <KeyboardAvoidingView style={{ flex: 1, justifyContent: "center", padding: 24 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <View style={{ alignItems: "center", marginBottom: 24, gap: 8 }}>
-          <Mark color={t.accentPrimary} />
+          <Mark />
           <Text style={{ fontSize: 24, fontWeight: "700", color: t.fg1, letterSpacing: -0.5 }}>Memento</Text>
           <Text style={{ fontSize: 14, color: t.fg3 }}>你的 AI 外脑，随身带着</Text>
         </View>

@@ -99,13 +99,11 @@ export function WorkbenchBlock() {
         })}
       </div>
 
-      {/* Single architectural showcase container — no fake traffic lights, no nested card cages */}
+      {/* Single macOS frosted glass showcase container */}
       <div
+        className="aurora-glass-panel"
         style={{
-          borderRadius: 14,
-          background: "var(--aurora-surface-solid)",
-          border: "1px solid var(--aurora-border-strong)",
-          boxShadow: "var(--aurora-card-shadow)",
+          borderRadius: 18,
           overflow: "hidden",
         }}
       >
@@ -241,7 +239,7 @@ export function WorkbenchBlock() {
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                   <div style={{ height: 4, width: "100%", background: "rgba(255,255,255,0.16)", borderRadius: 2, overflow: "hidden" }}>
-                    <div style={{ height: "100%", width: "42%", background: "#818CF8" }} />
+                    <div style={{ height: "100%", width: "42%", background: "#A78BFA" }} />
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#989DB2", fontVariantNumeric: "tabular-nums" }}>
                     <span>01:14 / 02:58</span>

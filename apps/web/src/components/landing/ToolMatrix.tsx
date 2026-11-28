@@ -42,10 +42,9 @@ export function ToolMatrix() {
       </div>
 
       <div
+        className="aurora-glass-panel"
         style={{
-          borderRadius: 14,
-          background: "var(--aurora-surface-solid)",
-          border: "1px solid var(--aurora-border-strong)",
+          borderRadius: 18,
           overflow: "hidden",
         }}
       >

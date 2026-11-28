@@ -113,8 +113,8 @@ function getQuotaColor(percent?: number | null): { text: string; gradient: strin
     };
   }
   return {
-    text: "var(--aurora-accent, #4F46E5)",
-    gradient: "var(--aurora-accent, #4F46E5)",
+    text: "var(--aurora-accent, #7C3AED)",
+    gradient: "var(--aurora-accent, #7C3AED)",
   };
 }
 

@@ -60,12 +60,12 @@ const INJECTED_CLIENT_HELPERS = `(() => {
     const isDark = root.getAttribute("data-theme") === "dark" || (root.getAttribute("data-theme") !== "light" && window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
     const cs = window.getComputedStyle ? window.getComputedStyle(root) : null;
     const pick = (k, fb) => (cs && cs.getPropertyValue(k) ? cs.getPropertyValue(k).trim() : "") || fb;
-    const surface = pick("--aurora-surface-solid", isDark ? "#14151C" : "#FFFFFF");
-    const pageBg = pick("--aurora-bg", isDark ? "#0B0C10" : "#F7F7F9");
-    const border = pick("--aurora-border-strong", isDark ? "rgba(255, 255, 255, 0.14)" : "rgba(17, 17, 24, 0.145)");
-    const accent = pick("--aurora-accent", isDark ? "#818CF8" : "#4F46E5");
-    const accentSoft = pick("--aurora-accent-soft", isDark ? "rgba(129, 140, 248, 0.13)" : "rgba(79, 70, 229, 0.09)");
-    const fg = pick("--aurora-fg2", isDark ? "#C8CBD8" : "#343444");
+    const surface = pick("--aurora-surface-solid", isDark ? "#15131F" : "#FFFFFF");
+    const pageBg = pick("--aurora-bg", isDark ? "#0B0A12" : "#F6F5FA");
+    const border = pick("--aurora-border-strong", isDark ? "rgba(255, 255, 255, 0.16)" : "rgba(24, 18, 42, 0.14)");
+    const accent = pick("--aurora-accent", isDark ? "#A78BFA" : "#7C3AED");
+    const accentSoft = pick("--aurora-accent-soft", isDark ? "rgba(167, 139, 250, 0.15)" : "rgba(124, 58, 237, 0.10)");
+    const fg = pick("--aurora-fg2", isDark ? "#CBC7DB" : "#3A354B");
     let glass = root.getAttribute("data-glass") !== "off";
     try { if (localStorage.getItem("dr_glass") === "off") glass = false; } catch (e) {}
     if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
@@ -731,12 +731,12 @@ export default function WebShell() {
   if (!token || !start) return <Redirect href="/login" />;
 
   const dark = page ? page.dark : t.scheme === "dark";
-  const surface = page?.surface ?? page?.bg ?? (dark ? "#14151C" : "#FFFFFF");
-  const pageBg = page?.pageBg ?? (dark ? "#0B0C10" : "#F7F7F9");
-  const tabBorder = page?.border ?? (dark ? "rgba(255, 255, 255, 0.14)" : "rgba(17, 17, 24, 0.145)");
-  const tabActiveColor = page?.accent ?? (dark ? "#818CF8" : "#4F46E5");
-  const tabActiveBg = page?.accentSoft ?? (dark ? "rgba(129, 140, 248, 0.13)" : "rgba(79, 70, 229, 0.09)");
-  const tabInactiveColor = page?.fg ?? (dark ? "#C8CBD8" : "#343444");
+  const surface = page?.surface ?? page?.bg ?? (dark ? "#15131F" : "#FFFFFF");
+  const pageBg = page?.pageBg ?? (dark ? "#0B0A12" : "#F6F5FA");
+  const tabBorder = page?.border ?? (dark ? "rgba(255, 255, 255, 0.16)" : "rgba(24, 18, 42, 0.14)");
+  const tabActiveColor = page?.accent ?? (dark ? "#A78BFA" : "#7C3AED");
+  const tabActiveBg = page?.accentSoft ?? (dark ? "rgba(167, 139, 250, 0.15)" : "rgba(124, 58, 237, 0.10)");
+  const tabInactiveColor = page?.fg ?? (dark ? "#CBC7DB" : "#3A354B");
 
   return (
     <View style={{ flex: 1, backgroundColor: pageBg }}>

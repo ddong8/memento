@@ -107,107 +107,124 @@ code, kbd, samp, pre, .font-mono {
   --aurora-info-soft: rgba(96, 165, 250, 0.14);
 }
 
-/* Default light (aurora — Porcelain Studio: zero gradients, calibrated contrast) */
+/* Default light (aurora — macOS frosted glass harmonized with Memento App Icon violet) */
 :root,
 :root[data-skin="aurora"][data-theme="light"] {
-  --aurora-bg: #F7F7F9;
+  --aurora-bg: #F6F5FA;
   --aurora-bg1: #FFFFFF;
-  --aurora-bg2: #EFEFF4;
-  --aurora-glow1: transparent;
-  --aurora-glow2: transparent;
-  --aurora-glow3: transparent;
+  --aurora-bg2: #EFEBF8;
+  --aurora-glow1: #7C3AED;
+  --aurora-glow2: #EC4899;
+  --aurora-glow3: #06B6D4;
   --aurora-glow4: transparent;
-  --aurora-surface: rgba(255, 255, 255, 0.92);
+  --aurora-surface: rgba(255, 255, 255, 0.72);
   --aurora-surface-solid: #FFFFFF;
-  --aurora-surface-mute: #F2F2F6;
-  --aurora-sidebar: #F7F7F9;
-  --aurora-border: rgba(17, 17, 24, 0.085);
-  --aurora-border-strong: rgba(17, 17, 24, 0.145);
-  --aurora-fg1: #111118;
-  --aurora-fg2: #343444;
-  --aurora-fg3: #5B5B6E;
-  --aurora-fg4: #6E6E82;
-  --aurora-fg5: #9898AA;
-  --aurora-accent: #4F46E5;
-  --aurora-accent-hover: #4338CA;
-  --aurora-accent-soft: rgba(79, 70, 229, 0.09);
-  --aurora-accent-border: rgba(79, 70, 229, 0.24);
-  --aurora-chip: rgba(17, 17, 24, 0.048);
-  --aurora-thinking-bg: #F3F3F7;
-  --aurora-thinking-header: #ECECF2;
-  --aurora-code-surface: #F2F2F6;
-  --aurora-code-bg: #13141B;
-  --aurora-code-fg: #E8EAF2;
-  --aurora-user-bubble: rgba(79, 70, 229, 0.085);
-  --aurora-user-bubble-border: rgba(79, 70, 229, 0.18);
-  --aurora-primary-grad: #4F46E5;
-  --aurora-primary-grad-hover: #4338CA;
-  --aurora-brand-grad: #4F46E5;
+  --aurora-surface-mute: rgba(244, 241, 251, 0.68);
+  --aurora-sidebar: rgba(248, 247, 252, 0.78);
+  --aurora-border: rgba(24, 18, 42, 0.085);
+  --aurora-border-strong: rgba(24, 18, 42, 0.14);
+  --aurora-fg1: #14121E;
+  --aurora-fg2: #3A354B;
+  --aurora-fg3: #625C75;
+  --aurora-fg4: #746E88;
+  --aurora-fg5: #A29CB5;
+  --aurora-accent: #7C3AED;
+  --aurora-accent-hover: #6D28D9;
+  --aurora-accent-soft: rgba(124, 58, 237, 0.10);
+  --aurora-accent-border: rgba(124, 58, 237, 0.28);
+  --aurora-chip: rgba(24, 18, 42, 0.048);
+  --aurora-thinking-bg: rgba(245, 243, 250, 0.75);
+  --aurora-thinking-header: rgba(239, 235, 247, 0.72);
+  --aurora-code-surface: rgba(243, 241, 249, 0.8);
+  --aurora-code-bg: #15131F;
+  --aurora-code-fg: #ECEAF5;
+  --aurora-user-bubble: rgba(124, 58, 237, 0.09);
+  --aurora-user-bubble-border: rgba(124, 58, 237, 0.20);
+  --aurora-primary-grad: #7C3AED;
+  --aurora-primary-grad-hover: #6D28D9;
+  --aurora-brand-grad: #7C3AED;
   --aurora-card-shadow:
-    0 1px 2px rgba(17, 17, 24, 0.04),
-    0 8px 24px -14px rgba(17, 17, 24, 0.08);
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.92),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.45),
+    0 16px 40px -20px rgba(32, 20, 64, 0.14),
+    0 2px 6px -1px rgba(20, 16, 36, 0.05);
   --aurora-card-shadow-hover:
-    0 2px 6px rgba(17, 17, 24, 0.06),
-    0 12px 28px -12px rgba(17, 17, 24, 0.12);
-  --aurora-blur: blur(18px) saturate(150%);
-  --aurora-blur-heavy: blur(20px) saturate(160%);
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.98),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.60),
+    0 22px 48px -20px rgba(124, 58, 237, 0.20),
+    0 4px 12px -2px rgba(20, 16, 36, 0.07);
+  --aurora-blur: blur(28px) saturate(185%);
+  --aurora-blur-heavy: blur(34px) saturate(190%);
   --aurora-ease-spring: cubic-bezier(0.22, 1, 0.36, 1);
   --aurora-bubble-bevel:
-    0 1px 2px rgba(17, 17, 24, 0.04);
-  --aurora-radius-card: 14px;
-  --aurora-radius-btn: 9px;
-  --aurora-btn-shadow: 0 1px 2px rgba(17, 17, 24, 0.08);
-  --aurora-btn-shadow-hover: 0 4px 12px -2px rgba(79, 70, 229, 0.28);
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.78),
+    0 2px 8px -2px rgba(24, 18, 42, 0.06);
+  --aurora-radius-card: 16px;
+  --aurora-radius-btn: 10px;
+  --aurora-btn-shadow:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.24),
+    0 2px 8px -2px rgba(124, 58, 237, 0.36);
+  --aurora-btn-shadow-hover:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.28),
+    0 6px 18px -4px rgba(124, 58, 237, 0.44);
   --text-heading: 15px;
   --text-body: 14px;
   --text-sm: 12.5px;
 }
 
 :root[data-skin="aurora"][data-theme="dark"] {
-  --aurora-bg: #0B0C10;
-  --aurora-bg1: #14151C;
-  --aurora-bg2: #111218;
-  --aurora-glow1: transparent;
-  --aurora-glow2: transparent;
-  --aurora-glow3: transparent;
+  --aurora-bg: #0B0A12;
+  --aurora-bg1: #15131F;
+  --aurora-bg2: #12101B;
+  --aurora-glow1: #7C3AED;
+  --aurora-glow2: #EC4899;
+  --aurora-glow3: #06B6D4;
   --aurora-glow4: transparent;
-  --aurora-surface: rgba(20, 21, 28, 0.92);
-  --aurora-surface-solid: #14151C;
-  --aurora-surface-mute: #181922;
-  --aurora-sidebar: #0B0C10;
-  --aurora-border: rgba(255, 255, 255, 0.085);
-  --aurora-border-strong: rgba(255, 255, 255, 0.14);
-  --aurora-fg1: #F3F4F8;
-  --aurora-fg2: #C8CBD8;
-  --aurora-fg3: #989DB2;
-  --aurora-fg4: #7E8399;
-  --aurora-fg5: #505568;
-  --aurora-accent: #818CF8;
-  --aurora-accent-hover: #6366F1;
-  --aurora-accent-soft: rgba(129, 140, 248, 0.13);
-  --aurora-accent-border: rgba(129, 140, 248, 0.28);
-  --aurora-chip: rgba(255, 255, 255, 0.055);
-  --aurora-thinking-bg: #101117;
-  --aurora-thinking-header: #161720;
-  --aurora-code-surface: #12131A;
-  --aurora-code-bg: #090A0E;
-  --aurora-code-fg: #E6E8F0;
-  --aurora-user-bubble: rgba(129, 140, 248, 0.12);
-  --aurora-user-bubble-border: rgba(129, 140, 248, 0.24);
-  --aurora-primary-grad: #5B52F0;
-  --aurora-primary-grad-hover: #6D65F5;
-  --aurora-brand-grad: #5B52F0;
+  --aurora-surface: rgba(24, 21, 36, 0.68);
+  --aurora-surface-solid: #15131F;
+  --aurora-surface-mute: rgba(31, 27, 46, 0.56);
+  --aurora-sidebar: rgba(15, 13, 24, 0.78);
+  --aurora-border: rgba(255, 255, 255, 0.10);
+  --aurora-border-strong: rgba(255, 255, 255, 0.16);
+  --aurora-fg1: #F5F4FA;
+  --aurora-fg2: #CBC7DB;
+  --aurora-fg3: #9993AD;
+  --aurora-fg4: #817B96;
+  --aurora-fg5: #524D66;
+  --aurora-accent: #A78BFA;
+  --aurora-accent-hover: #8B5CF6;
+  --aurora-accent-soft: rgba(167, 139, 250, 0.15);
+  --aurora-accent-border: rgba(167, 139, 250, 0.32);
+  --aurora-chip: rgba(255, 255, 255, 0.065);
+  --aurora-thinking-bg: rgba(17, 15, 27, 0.72);
+  --aurora-thinking-header: rgba(28, 25, 42, 0.68);
+  --aurora-code-surface: rgba(16, 14, 24, 0.72);
+  --aurora-code-bg: #0B0A12;
+  --aurora-code-fg: #ECEAF5;
+  --aurora-user-bubble: rgba(167, 139, 250, 0.14);
+  --aurora-user-bubble-border: rgba(167, 139, 250, 0.28);
+  --aurora-primary-grad: #7C3AED;
+  --aurora-primary-grad-hover: #8B5CF6;
+  --aurora-brand-grad: #7C3AED;
   --aurora-card-shadow:
-    0 1px 0 0 rgba(255, 255, 255, 0.04) inset,
-    0 12px 32px -18px rgba(0, 0, 0, 0.56);
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.12),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.04),
+    0 22px 52px -22px rgba(0, 0, 0, 0.72),
+    0 4px 16px -4px rgba(0, 0, 0, 0.42);
   --aurora-card-shadow-hover:
-    0 1px 0 0 rgba(255, 255, 255, 0.07) inset,
-    0 16px 38px -18px rgba(0, 0, 0, 0.68);
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.18),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.07),
+    0 28px 60px -22px rgba(124, 58, 237, 0.32),
+    0 6px 20px -4px rgba(0, 0, 0, 0.48);
   --aurora-bubble-bevel:
-    0 1px 0 0 rgba(255, 255, 255, 0.05) inset,
-    0 2px 8px rgba(0, 0, 0, 0.24);
-  --aurora-btn-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
-  --aurora-btn-shadow-hover: 0 6px 16px -4px rgba(91, 82, 240, 0.38);
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.10),
+    0 2px 10px rgba(0, 0, 0, 0.28);
+  --aurora-btn-shadow:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.22),
+    0 2px 10px -2px rgba(124, 58, 237, 0.44);
+  --aurora-btn-shadow-hover:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.28),
+    0 6px 20px -4px rgba(139, 92, 246, 0.52);
 }
 
 /* ---------- ARC (paper minimalist) ---------- */
@@ -436,13 +453,20 @@ body {
 }
 
 .aurora-card {
-  background: var(--aurora-surface-solid);
+  background: var(--aurora-surface);
+  backdrop-filter: var(--aurora-blur);
+  -webkit-backdrop-filter: var(--aurora-blur);
   border: 1px solid var(--aurora-border);
   border-radius: var(--aurora-radius-card);
   box-shadow: var(--aurora-card-shadow);
   max-width: 100%;
   min-width: 0;
-  transition: transform .28s cubic-bezier(0.16, 1, 0.3, 1), box-shadow .28s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: transform 240ms var(--aurora-ease-spring), box-shadow 240ms var(--aurora-ease-spring), border-color 180ms ease;
+}
+html[data-glass="off"] .aurora-card {
+  background: var(--aurora-surface-solid);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 .aurora-card-hover:hover {
   transform: translateY(-2px);
@@ -504,15 +528,20 @@ body {
   transform: translateY(0.5px);
 }
 .aurora-btn-glass {
-  background: var(--aurora-surface-solid);
+  background: var(--aurora-surface);
+  backdrop-filter: var(--aurora-blur);
+  -webkit-backdrop-filter: var(--aurora-blur);
   color: var(--aurora-fg1);
   border: 1px solid var(--aurora-border-strong);
-  box-shadow: 0 1px 2px rgba(17, 17, 24, 0.03);
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.55), 0 1px 3px rgba(20, 18, 30, 0.05);
+}
+html[data-theme="dark"] .aurora-btn-glass {
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.09), 0 1px 3px rgba(0, 0, 0, 0.25);
 }
 .aurora-btn-glass:hover:not(:disabled) {
-  background: var(--aurora-surface-mute);
+  background: var(--aurora-surface-solid);
   border-color: var(--aurora-border-strong);
-  box-shadow: 0 2px 8px -2px rgba(17, 17, 24, 0.08);
+  box-shadow: 0 4px 14px -4px rgba(20, 18, 30, 0.12);
 }
 .aurora-btn-ghost {
   background: transparent;
@@ -1033,17 +1062,18 @@ html, body {
 @media screen and (max-width: 768px) {
   :root,
   :root[data-skin="aurora"][data-theme="light"] {
-    --aurora-surface: rgba(255, 255, 255, 0.96);
-    --aurora-sidebar: #F7F7F9;
+    --aurora-surface: rgba(255, 255, 255, 0.94);
+    --aurora-sidebar: #F6F5FA;
     --aurora-blur: none;
     --aurora-blur-heavy: none;
   }
   :root[data-skin="aurora"][data-theme="dark"] {
-    --aurora-surface: rgba(20, 21, 28, 0.96);
-    --aurora-sidebar: #0B0C10;
+    --aurora-surface: rgba(21, 19, 31, 0.94);
+    --aurora-sidebar: #0B0A12;
     --aurora-blur: none;
     --aurora-blur-heavy: none;
   }
+  .aurora-card,
   .aurora-glass,
   .aurora-glass-panel,
   .aurora-btn-glass,
@@ -1104,49 +1134,44 @@ html, body {
    3) User toggle data-glass="off":
       - Immediately disables all blur everywhere and restores solid opaque surfaces.
    ========================================================================= */
-html[data-glass="on"] .memento-glass-chrome {
-  background: var(--aurora-surface-solid) !important;
-  background: color-mix(in srgb, var(--aurora-surface-solid) 95%, transparent) !important;
-  backdrop-filter: blur(18px) saturate(160%) !important;
-  -webkit-backdrop-filter: blur(18px) saturate(160%) !important;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 10px 28px -18px rgba(15, 15, 40, 0.12);
-}
-html[data-glass="on"][data-theme="dark"] .memento-glass-chrome {
-  background: var(--aurora-surface-solid) !important;
-  background: color-mix(in srgb, var(--aurora-surface-solid) 95%, transparent) !important;
-  backdrop-filter: blur(18px) saturate(160%) !important;
-  -webkit-backdrop-filter: blur(18px) saturate(160%) !important;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 12px 32px -18px rgba(0, 0, 0, 0.48);
+@media screen and (min-width: 769px) {
+  html[data-glass="on"] .memento-glass-chrome {
+    background: var(--aurora-surface-solid) !important;
+    background: color-mix(in srgb, var(--aurora-surface-solid) 78%, transparent) !important;
+    backdrop-filter: blur(28px) saturate(185%) !important;
+    -webkit-backdrop-filter: blur(28px) saturate(185%) !important;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.88), 0 12px 32px -18px rgba(24, 18, 48, 0.14);
+  }
+  html[data-glass="on"][data-theme="dark"] .memento-glass-chrome {
+    background: var(--aurora-surface-solid) !important;
+    background: color-mix(in srgb, var(--aurora-surface-solid) 76%, transparent) !important;
+    backdrop-filter: blur(28px) saturate(185%) !important;
+    -webkit-backdrop-filter: blur(28px) saturate(185%) !important;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.11), 0 14px 36px -18px rgba(0, 0, 0, 0.56);
+  }
 }
 html[data-glass="on"] .memento-glass-bar {
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
 }
 html[data-glass="on"][data-theme="dark"] .memento-glass-bar {
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
-/* Unified desktop background: eliminate grey macOS sidebar vibrancy mismatch on both new and existing clients */
+/* Unified desktop background: opaque root canvas prevents macOS native vibrancy grey clash while
+   letting our in-page frosted glass sidebar, headers and cards refract one unified atmospheric backdrop */
 html[data-client="desktop"][data-native-glass="1"][data-glass="on"],
 html[data-client="desktop"][data-native-glass="1"][data-glass="on"] body {
   background: var(--aurora-bg) !important;
 }
-html[data-client="desktop"][data-native-glass="1"][data-glass="on"] .memento-aurora-backdrop {
-  display: none !important;
-}
 html[data-client="desktop"][data-native-glass="1"][data-glass="on"] aside {
   background: var(--aurora-sidebar) !important;
   border-right: 1px solid var(--aurora-border) !important;
-  box-shadow: none;
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
-}
-html[data-client="desktop"][data-native-glass="1"][data-glass="on"][data-theme="dark"] aside {
-  background: var(--aurora-sidebar) !important;
-  border-right: 1px solid var(--aurora-border) !important;
+  backdrop-filter: var(--aurora-blur) !important;
+  -webkit-backdrop-filter: var(--aurora-blur) !important;
   box-shadow: none;
 }
 html[data-client="desktop"][data-native-glass="1"][data-glass="on"] .memento-main-pane {
-  background: var(--aurora-bg);
+  background: transparent;
   min-height: 100vh;
   min-height: 100dvh;
   box-shadow: none;

@@ -698,7 +698,7 @@ export default function ActiveRunsMonitor() {
                 className={`cursor-pointer flex items-center gap-2 px-3 py-1.5 border shadow-lg transition-transform duration-150 hover:scale-[1.02] group ${docked ? "w-full rounded-lg" : "rounded-full ml-auto"} ${iconOnly ? "justify-center px-0" : ""}`}
                 style={{
                   background: "rgba(15, 23, 42, 0.97)",
-                  borderColor: "rgba(129, 140, 248, 0.42)",
+                  borderColor: "rgba(167, 139, 250, 0.42)",
                   boxShadow: "0 8px 20px -6px rgba(0, 0, 0, 0.45)",
                 }}
                 title="点击展开查看后台智能体任务详情"
@@ -730,7 +730,7 @@ export default function ActiveRunsMonitor() {
                 className="rounded-2xl shadow-2xl overflow-hidden w-full flex flex-col"
                 style={{
                   background: "rgba(15, 23, 42, 0.98)",
-                  border: "1px solid rgba(129, 140, 248, 0.34)",
+                  border: "1px solid rgba(167, 139, 250, 0.34)",
                   boxShadow: "0 20px 42px -12px rgba(0, 0, 0, 0.56)",
                   maxHeight: isMobile
                     ? "min(480px, calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 88px))"
@@ -853,9 +853,9 @@ export default function ActiveRunsMonitor() {
                               style={{
                                 background: isCurrentChat
                                   ? "rgba(255, 255, 255, 0.08)"
-                                  : "rgba(129, 140, 248, 0.16)",
-                                border: "1px solid rgba(129, 140, 248, 0.38)",
-                                color: isCurrentChat ? "#94a3b8" : "#A5B4FC",
+                                  : "rgba(167, 139, 250, 0.16)",
+                                border: "1px solid rgba(167, 139, 250, 0.38)",
+                                color: isCurrentChat ? "#94a3b8" : "#C4B5FD",
                               }}
                             >
                               <span>{isCurrentChat ? "当前所在对话" : "直达对话"}</span>

@@ -160,14 +160,12 @@ export function Hero() {
         </div>
       </div>
 
-      {/* Interactive Product Stage — anchors the opening viewport */}
+      {/* Interactive Product Stage — macOS frosted glass container anchoring the opening viewport */}
       <div
+        className="aurora-glass-panel"
         style={{
           marginTop: "clamp(32px, 4.5vw, 48px)",
-          borderRadius: 16,
-          background: "var(--aurora-surface-solid)",
-          border: "1px solid var(--aurora-border-strong)",
-          boxShadow: "var(--aurora-card-shadow)",
+          borderRadius: 18,
           overflow: "hidden",
         }}
       >
@@ -258,7 +256,7 @@ export function Hero() {
               display: "flex",
               flexDirection: "column",
               gap: 16,
-              background: "var(--aurora-bg)",
+              background: "var(--aurora-surface-mute)",
             }}
           >
             <div>

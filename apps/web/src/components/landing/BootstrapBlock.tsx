@@ -111,13 +111,13 @@ function Path({
 }) {
   return (
     <div
+      className="aurora-glass-panel"
       style={{
         padding: 24,
-        borderRadius: 14,
-        background: "var(--aurora-surface-solid)",
-        border: recommended
-          ? "1px solid var(--aurora-accent-border, var(--aurora-border-strong))"
-          : "1px solid var(--aurora-border-strong)",
+        borderRadius: 18,
+        borderColor: recommended
+          ? "var(--aurora-accent-border, var(--aurora-border-strong))"
+          : undefined,
         display: "flex",
         flexDirection: "column",
       }}

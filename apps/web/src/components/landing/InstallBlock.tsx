@@ -61,10 +61,9 @@ function CommandCard({ label, cmd }: { label: string; cmd: string }) {
 
   return (
     <div
+      className="aurora-glass-panel"
       style={{
-        borderRadius: 14,
-        background: "var(--aurora-surface-solid)",
-        border: "1px solid var(--aurora-border-strong)",
+        borderRadius: 16,
         overflow: "hidden",
       }}
     >

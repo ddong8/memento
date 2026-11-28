@@ -73,7 +73,7 @@ describe("native shell helpers injected into the web view", () => {
     expect(src).not.toContain('document.documentElement.style.setProperty("--memento-tabbar-inset"');
   });
 
-  it("shrink the tab bar while reading down and bring it back on the way up", () => {
+  it("keeps the bottom tab bar permanently full-width while scrolling (never emits tabbar_compact)", () => {
     const listeners: Record<string, (e: { target: unknown }) => void> = {};
     const html: Record<string, unknown> = {
       nodeType: 1,
@@ -103,43 +103,13 @@ describe("native shell helpers injected into the web view", () => {
       observe() {}
       disconnect() {}
     }
-    let pageSupportsPill = "1";
     new Function(
       "document", "window", "MutationObserver", "history", "location", "localStorage", "navigator", "setTimeout", "requestAnimationFrame", "getComputedStyle",
       helperScript(),
     )(doc, win, NoopObserver, win.history, win.location, { getItem: () => null, setItem: () => undefined }, {}, () => 0, () => 0,
-      () => ({ getPropertyValue: () => pageSupportsPill }));
+      () => ({ getPropertyValue: () => "1" }));
 
-    const list = { nodeType: 1, scrollTop: 0, scrollHeight: 4000, clientHeight: 700 };
-    const scrollTo = (top: number) => {
-      list.scrollTop = top;
-      listeners.scroll({ target: list });
-    };
-    const tabBarStates = () => posted.filter((m) => m.type === "tabbar_compact").map((m) => m.compact);
-
-    scrollTo(100);
-    scrollTo(160); // down 60px
-    expect(tabBarStates()).toEqual([true]);
-    scrollTo(180);
-    expect(tabBarStates()).toEqual([true]); // already shrunk: no repeat
-    scrollTo(120); // up 60px
-    expect(tabBarStates()).toEqual([true, false]);
-    scrollTo(400);
-    scrollTo(10); // back at the top
-    expect(tabBarStates()).toEqual([true, false, true, false]);
-
-    // A small scroller (the composer's textarea, a popover) never moves the tab bar
-    const textarea = { nodeType: 1, scrollTop: 0, scrollHeight: 300, clientHeight: 80 };
-    textarea.scrollTop = 50;
-    listeners.scroll({ target: textarea });
-    textarea.scrollTop = 200;
-    listeners.scroll({ target: textarea });
-    expect(tabBarStates()).toEqual([true, false, true, false]);
-
-    // A page (stale cache, older server) whose CSS can't make room for the pill keeps the full tab bar
-    pageSupportsPill = "";
-    scrollTo(100);
-    scrollTo(300);
-    expect(tabBarStates()).toEqual([true, false, true, false]);
+    expect(listeners.scroll).toBeUndefined();
+    expect(posted.filter((m) => m.type === "tabbar_compact")).toEqual([]);
   });
 });

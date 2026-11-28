@@ -36,10 +36,10 @@ describe("mobile native glass surface", () => {
     expect(indexSrc).toContain("--memento-tabbar-inset");
     // Shadow must live on an outer wrapper (not clipped by GlassSurface overflow: hidden)
     expect(indexSrc).toContain("styles.tabBarShadow");
-    // Compact <-> full dock must remount with mutually exclusive styles so RN Fabric/Yoga never keeps a stale 46px width
-    expect(indexSrc).toContain('key={compactTabBar ? "tabbar-compact" : "tabbar-full"}');
+    // Bottom tab bar stays permanently full-width while scrolling (never shrinks to a floating pill)
     expect(indexSrc).toContain("styles.tabBarDockWrapFull");
-    expect(indexSrc).toContain("styles.tabBarDockWrapCompact");
+    expect(indexSrc).not.toContain("tabBarDockWrapCompact");
+    expect(indexSrc).not.toContain('"tabbar_compact"');
     // Tab bar uses crisp high-opacity surface veil over `clear` glass (never `.regular` grey washout or muddy clear glass)
     expect(glassSrc).toContain('glassEffectStyle="clear"');
     expect(glassSrc).not.toContain('glassEffectStyle="regular"');

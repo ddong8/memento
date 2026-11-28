@@ -105,11 +105,10 @@ describe("frosted glass architecture", () => {
     const ask = fs.readFileSync(path.join(repoRoot, "apps/web/src/app/ask/page.tsx"), "utf8");
     expect(css).toContain("padding-bottom: max(2px, calc(var(--memento-tabbar-inset, 0px) - 2px))");
     expect(css).toContain("html.memento-glass-tabbar .ask-footer-card {\n  border-radius: 22px");
-    // tab bar shrunk to a pill: the composer moves down beside it
-    expect(css).toContain("html.memento-glass-tabbar.memento-tabbar-compact footer[data-ask-footer=\"true\"]");
-    expect(css).toContain("calc(10px + var(--memento-tabbar-side, 0px))");
-    // the app only shrinks the bar on pages that declare they can make room for the pill
-    expect(css).toContain("--memento-tabbar-compact-ok: 1;");
+    // tab bar stays permanently full-width while scrolling (never shrinks into a corner pill)
+    expect(css).toContain("--memento-tabbar-compact-ok: 0;");
+    expect(css).not.toContain("--memento-tabbar-compact-ok: 1;");
+    expect(css).not.toContain("memento-tabbar-compact footer[data-ask-footer=\"true\"]");
     // phones: device as a dot, model without the vendor prefix, effort/session in the panel
     expect(ask).toContain('selectedModel.replace(/^(claude|gpt|gemini)-/i, "")');
     expect(ask).toContain('className="hidden sm:inline-flex"\n                      style={{\n                        alignItems: "center",');

@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `3c5c8fb3` · Updated: `2026-11-28`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `6f1c71d7` · Updated: `2026-11-28`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,7 +16,7 @@
 - 规模 (Scale): 9 个子系统 · 1 组 API 路由 / 2 个接口 · 39 个前端页面 · 84 个数据模型 · 35 个服务模块 · 150 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `packages/server`, `embedding`, `deploy`
 - 自测命令 (Verify): `npm test` ; `npx tsc --noEmit` ; `npm run lint` ; `npm run build`
-- 最近改动 (Latest): `9d4866f8` (2026-11-28): feat(ui): 还原真实 App 图标并升级同系紫调与 macOS 毛玻璃质感
+- 最近改动 (Latest): `14afc798` (2026-11-28): fix(web): 为站点图标追加版本参数以穿透 Nginx 缓存
 - 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 77（✅ 77 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 12 · 状态 10 · 最近提交碰到 `F-ASK`, `R-ISLAND-CLEANUP`, `R-ENT-DEVICE-POLICY`, `S-RUN-STATE`, `R-ENT-SSO`, `R-UI-COMMERCIAL`, `R-DOCS-WRITE-LIGHT`, `R-SELF-EVOLVE`
 
 | 章节 (Section) | 行号 (Lines) |
@@ -263,9 +263,9 @@ flowchart TD
 - [`apps/web/src/app/globals.css`](apps/web/src/app/globals.css) (9 commits)
 - [`deploy/k8s/ingress.yaml`](deploy/k8s/ingress.yaml) (9 commits)
 - [`packages/server/src/main.ts`](packages/server/src/main.ts) (9 commits)
-- [`apps/web/src/components/ask/GitDiffDrawer.tsx`](apps/web/src/components/ask/GitDiffDrawer.tsx) (8 commits)
 - [`apps/web/test/glass-system.test.ts`](apps/web/test/glass-system.test.ts) (8 commits)
 - [`apps/mobile/src/components/GlassSurface.tsx`](apps/mobile/src/components/GlassSurface.tsx) (7 commits)
+- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (7 commits)
 
 ## 8. Development & Verification Commands
 
@@ -282,12 +282,12 @@ npm run build
 
 ## 9. Recent Architectural Evolutions
 
+- `14afc798` (2026-11-28): fix(web): 为站点图标追加版本参数以穿透 Nginx 缓存
 - `9d4866f8` (2026-11-28): feat(ui): 还原真实 App 图标并升级同系紫调与 macOS 毛玻璃质感
 - `6ea7c9b1` (2026-11-28): feat(ui): 基于 frontend-design 统一优化 Web、桌面端与移动端前端设计
 - `570771ba` (2026-11-28): fix(server-ts): 修复连接池咨询锁泄露并治理对话膨胀与慢查询
 - `cba0bc53` (2026-11-28): fix(web): 对齐批量纠偏接口返回字段 processed 与 skipped_full
 - `0877578c` (2026-11-28): fix(server-ts): 同步 user_memories 反馈归因列到基准 schema.sql
-- `77cf3d77` (2026-11-28): feat(evolution): 全面升级自进化闭环与修复检索评估缺陷
 
 ## 10. Key Environment Variables & Configuration
 

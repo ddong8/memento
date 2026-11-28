@@ -1,25 +1,25 @@
 {
-  "version": "1.0.170",
-  "title": "Memento v1.0.170",
+  "version": "1.0.171",
+  "title": "Memento v1.0.171",
   "release_notes": "1. 修复 macOS / Linux 单机模式与无界面单压缩包中内置 PostgreSQL 动态库软链指向构建机绝对路径导致初始化失败（libicudata.68.dylib 找不到）的问题\n2. 修复桌面端单机模式下内置服务被 Electron 剥离空环境变量后误连 Redis 导致 /health/deep 降级超时的问题，并在重试初始化时自动清理上次残缺目录\n3. 消除移动端底部标签栏毛玻璃发灰并与顶栏及多皮肤色值完全同步",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.170-win-x64.zip",
-      "size": 224987591,
-      "sha256": "d5dfdfda2b708ef6f427d434db1299aab31748f49e42839ac953032cc2ca5233",
-      "sha512": "6q3QfUoTO53KtxIKBcUCDraD2ivKxUdOQy3jZeZppNELP4+IZ3+FdvDnPPEd2tAGMWYchTsdAzFFrxkiXGpnmg=="
+      "asset_name": "Memento-1.0.171-win-x64.zip",
+      "size": 224986037,
+      "sha256": "9b61333f2512941980cec14747d06d7cab87148b2b153328bac58de379e8eaf1",
+      "sha512": "aL+okp++rO6/P+C5iWamtzYBDrI+5BXoa0gkwnhjNJF0HXqpcN+y0rXvVsK4lqPT3QbD1xrZejApt9LlMly1ig=="
     },
     "macos": {
-      "asset_name": "Memento-1.0.170-mac-arm64.zip",
-      "size": 219962822,
-      "sha256": "75a0eebededcf721502cfecd747a4001bd22dd0448e69bec078956d7e89526f3",
-      "sha512": "8jjKcpEYRYh0UAYLLNdFEaqIcbUNxdbntULtvkb+43vFeqvTLakpQQRn1rf5YFO4Br34HqweJIQ9pRYh55+10g=="
+      "asset_name": "Memento-1.0.171-mac-arm64.zip",
+      "size": 219962345,
+      "sha256": "a4f3effabe2a7cd968e3722049e50002efdd0ec408ee67e3baf1392164dfc1e2",
+      "sha512": "VIGTGSLymJsaMQNJoob9iGCup0kYSYGiB63jxC5hS9OzPfirIx1m/0Y/Jo1hhECcgboj3Rpsp8+BUAvjdaZI2g=="
     },
     "linux": {
-      "asset_name": "Memento-1.0.170-linux-x64.tar.gz",
-      "size": 192802547,
-      "sha256": "e8f077b4690a500aad5f18f5eb430e2dd925d80797afa85481d979299fd5b39b",
-      "sha512": "vg2I6Tj8yPznQ28JfS9BcX0RJlPRHR0NqJzg7DAURzrPSNKIfKP6fRCcyb2p3b9KGz7jnnXs/m6VaWpRBFYlPw=="
+      "asset_name": "Memento-1.0.171-linux-x64.tar.gz",
+      "size": 192804988,
+      "sha256": "0144e7ccaee514dc1755f1355c40caa77a3116c5e5dd6fda74d8c430599a12d4",
+      "sha512": "K3+bR91hag9yb0Gl3yUjij5KgH4gVwUqyf7rZshCJtntOezwn5fSZQhr76WSNPxn5OsTKjhm0jep7GXDYijiVA=="
     }
   }
 }

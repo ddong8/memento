@@ -209,15 +209,15 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
   };
 
   const handleItemClick = (targetHref: string) => {
-    // Redundant click guard: prevent re-triggering concurrent transitions when already on route
-    if (effectivePath === targetHref) {
+    const targetPath = targetHref.split(/[?#]/)[0] || targetHref;
+    // Redundant click guard: prevent re-triggering transitions when already on the same pathname
+    if (effectivePath === targetPath) {
       if (typeof window !== "undefined" && window.innerWidth < 1024) onClose();
       return;
     }
 
-    setOptimisticNav({ from: pathname, to: targetHref });
+    setOptimisticNav({ from: pathname, to: targetPath });
     if (typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent("memento:route-start", { detail: { href: targetHref } }));
       try {
         localStorage.setItem("memento_last_route", targetHref);
         localStorage.setItem("memento_last_menu_route", targetHref);

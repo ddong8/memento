@@ -12,7 +12,6 @@ import Header from "@/components/layout/Header";
 import { AuroraBackdrop } from "@/components/aurora/AuroraBackdrop";
 import CommandPalette from "@/components/CommandPalette";
 import ActiveRunsMonitor from "@/components/agent/ActiveRunsMonitor";
-import TopProgressBar from "@/components/layout/TopProgressBar";
 import ServerSwitchModal from "@/components/server/ServerSwitchModal";
 import { reloadIfNewBuild, watchForNewBuild } from "@/lib/build-update";
 
@@ -67,7 +66,6 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
         <AuthProvider>
           <PluginProvider>
             <AuroraBackdrop />
-            <TopProgressBar />
             <AppShell>{children}</AppShell>
           </PluginProvider>
         </AuthProvider>

@@ -204,6 +204,57 @@ jobs:
           }
           EOF
 
+      - name: Verify packaged embedded runtime (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          Remove-Item -Recurse -Force packages\server\embedded\staged, apps\desktop\dist-embedded -ErrorAction SilentlyContinue
+          $pgNative = "apps\desktop\release\win-unpacked\resources\embedded\embedded-pg\native"
+          foreach ($f in @("bin\cmd-noautorun.exe", "bin\initdb.exe", "bin\pg_ctl.exe", "bin\postgres.exe", "lib\vector.dll", "share\extension\vector.control")) {
+            $p = Join-Path $pgNative $f
+            if (-not (Test-Path $p)) { throw "Missing packaged Windows file: $p" }
+          }
+          $shim = (Resolve-Path (Join-Path $pgNative "bin\cmd-noautorun.exe")).Path
+          $echoOut = (& $shim /c "echo ok").Trim()
+          if ($echoOut -ne "ok") { throw "cmd-noautorun.exe self-test failed: $echoOut" }
+          node -e '
+            const fs = require("fs"), os = require("os"), path = require("path"), { spawn } = require("child_process");
+            const pgNative = path.resolve(process.argv[1]);
+            const shim = path.join(pgNative, "bin", "cmd-noautorun.exe");
+            const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "memento-win-verify-"));
+            const pgData = path.join(tmp, "pg");
+            const pw = path.join(tmp, ".pw");
+            fs.writeFileSync(pw, "civerify123\n");
+            const env = { ...process.env, LC_MESSAGES: "C" };
+            for (const k of Object.keys(env)) if (k.toLowerCase() === "comspec") delete env[k];
+            env.ComSpec = shim;
+            const run = (bin, args) => new Promise((done) => {
+              const c = spawn(bin, args, { env, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+              let out = "", settled = false;
+              const finish = (code) => { if (settled) return; settled = true; try { c.stdout?.destroy(); c.stderr?.destroy(); } catch {} done({ code, out }); };
+              c.stdout?.on("data", (d) => out += d.toString("utf8"));
+              c.stderr?.on("data", (d) => out += d.toString("utf8"));
+              c.once("error", (e) => { out += String(e); finish(1); });
+              c.once("exit", (code) => setTimeout(() => finish(code ?? 1), 60));
+            });
+            (async () => {
+              try {
+                const r1 = await run(path.join(pgNative, "bin", "initdb.exe"), ["-D", pgData, "-U", "postgres", "--auth=scram-sha-256", `--pwfile=${pw}`, "--encoding=UTF8", "--locale=C"]);
+                if (r1.code !== 0) { console.error("initdb failed:", r1.out); process.exit(1); }
+                const t0 = Date.now();
+                const r2 = await run(path.join(pgNative, "bin", "pg_ctl.exe"), ["-D", pgData, "-o", "-p 54396 -h 127.0.0.1", "-w", "-l", path.join(tmp, "pg.log"), "start"]);
+                const elapsed = Date.now() - t0;
+                if (r2.code !== 0) { console.error("pg_ctl start failed:", r2.out); process.exit(1); }
+                console.log(`[verify-embedded] win-unpacked: OK (cmd-noautorun.exe + initdb + pg_ctl start in ${elapsed}ms)`);
+                const r3 = await run(path.join(pgNative, "bin", "pg_ctl.exe"), ["-D", pgData, "-m", "fast", "-w", "stop"]);
+                if (r3.code !== 0) { console.error("pg_ctl stop failed:", r3.out); process.exit(1); }
+              } finally {
+                fs.rmSync(tmp, { recursive: true, force: true });
+              }
+            })();
+          ' "$pgNative"
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:

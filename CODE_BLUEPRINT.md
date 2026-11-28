@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `d8728321` · Updated: `2026-11-28`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `93e1a62f` · Updated: `2026-11-28`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,8 +16,8 @@
 - 规模 (Scale): 9 个子系统 · 1 组 API 路由 / 2 个接口 · 39 个前端页面 · 84 个数据模型 · 35 个服务模块 · 150 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `packages/server`, `embedding`, `deploy`
 - 自测命令 (Verify): `npm test` ; `npx tsc --noEmit` ; `npm run lint` ; `npm run build`
-- 最近改动 (Latest): `d8728321` (2026-11-28): fix(desktop,server-ts): 修复单机内置 PG 动态库绝对软链与 Electron 子进程 Redis 配置并准备发版 1.0.171
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 77（✅ 77 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 12 · 状态 10 · 最近提交碰到 `R-ENT-DEPLOY`, `R-WS-EXEC-REMIND`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `S-CLIENT-VERSION`, `T-CONVERSATION`, `T-SESSION`, `T-RUN`
+- 最近改动 (Latest): `cd15e333` (2026-11-28): fix(server-ts,ci): 修复 Linux 内嵌 PG 缺少 pg-symlinks 软链还原并补齐 Linux 压缩包校验
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 77（✅ 77 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 12 · 状态 10 · 最近提交碰到 `R-ENT-DEPLOY`, `R-WS-EXEC-REMIND`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `S-CLIENT-VERSION`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -282,12 +282,12 @@ npm run build
 
 ## 9. Recent Architectural Evolutions
 
+- `cd15e333` (2026-11-28): fix(server-ts,ci): 修复 Linux 内嵌 PG 缺少 pg-symlinks 软链还原并补齐 Linux 压缩包校验
 - `d8728321` (2026-11-28): fix(desktop,server-ts): 修复单机内置 PG 动态库绝对软链与 Electron 子进程 Redis 配置并准备发版 1.0.171
 - `d4311880` (2026-11-28): fix(mobile,web): 消除底部标签栏毛玻璃发灰并与顶栏及多皮肤色值完全同步
 - `b6e7e64b` (2026-11-27): fix(server-ts): 修复直连智能体与编排模式的思考过程及步骤时间线推送与持久化
 - `4182bc16` (2026-11-27): fix(server-ts): 修复 Windows 构建脚本路径兼容并发布 1.0.169 三端单安装包
 - `aa0ddece` (2026-11-27): feat(desktop): 完成单机免 Docker 三合一单安装包与无界面单机包并发布 1.0.168
-- `05e94ed6` (2026-11-27): feat(server-ts): 完成 P7 迁移接管、移除 Python 服务端并支持桌面单机内置服务与双向迁移
 
 ## 10. Key Environment Variables & Configuration
 
@@ -310,8 +310,8 @@ npm run build
 
 ### 最近提交碰到的业务条目（改动后复查它们还成不成立）
 
+- `cd15e333` fix(server-ts,ci): 修复 Linux 内嵌 PG 缺少 pg-symlinks 软链还原并补齐 Linux 压缩包校验 → `R-ENT-DEPLOY`
 - `d8728321` fix(desktop,server-ts): 修复单机内置 PG 动态库绝对软链与 Electron 子进程 Redis 配置并准备发版 1.0.171 → `R-ENT-DEPLOY`, `R-WS-EXEC-REMIND`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `S-CLIENT-VERSION`
-- `b6e7e64b` fix(server-ts): 修复直连智能体与编排模式的思考过程及步骤时间线推送与持久化 → `T-CONVERSATION`, `T-SESSION`, `T-RUN`, `T-COMPACT`, `F-ASK`, `R-ISLAND-CLEANUP`, `R-RUN-OUTLIVES-PAGE`, `R-SESSION-TIMELINE`, `R-RESTORE-CONFIG`, `R-DEVICE-SESSION-MAP`, `R-NO-STDERR`, `R-CLAUDE-RESUME-IN-PLACE`, `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `S-RUN-STATE`, `S-MODEL-CHOICE`, `S-AGENT-SESSION`
 
 ---
 _Auto-maintained by `scripts/project_blueprint.mjs` (v20261126) & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._

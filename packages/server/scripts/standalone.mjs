@@ -9,7 +9,7 @@
  *   MEMENTO_PORT      HTTP port (default 8770)
  *   MEMENTO_DATA_DIR  Persistent data directory (default ~/.memento/server-data)
  */
-import { execFile, fork } from "node:child_process";
+import { fork, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
@@ -43,12 +43,38 @@ function parseEnv(text) {
   return out;
 }
 
-function runFile(bin, args, timeoutMs = 60_000) {
+function buildPgExecEnv(pgNative) {
+  const env = { ...process.env, LC_MESSAGES: "C" };
+  if (IS_WIN) {
+    const shim = join(pgNative, "bin", "cmd-noautorun.exe");
+    if (existsSync(shim)) {
+      for (const k of Object.keys(env)) {
+        if (k.toLowerCase() === "comspec") delete env[k];
+      }
+      env.ComSpec = shim;
+    }
+  }
+  return env;
+}
+
+function runFile(bin, args, env = process.env, timeoutMs = 60_000) {
   return new Promise((done) => {
-    execFile(bin, args, { timeout: timeoutMs, windowsHide: true, maxBuffer: 8 * 1024 * 1024 }, (err, stdout, stderr) => {
-      const code = err ? (typeof err.code === "number" ? err.code : 1) : 0;
-      done({ code, out: `${stdout ?? ""}${stderr ?? ""}` });
-    });
+    const child = spawn(bin, args, { env, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+    let out = "";
+    let settled = false;
+    const finish = (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try { child.stdout?.destroy(); } catch {}
+      try { child.stderr?.destroy(); } catch {}
+      done({ code, out });
+    };
+    child.stdout?.on("data", (d) => { if (out.length < 8 * 1024 * 1024) out += d.toString("utf8"); });
+    child.stderr?.on("data", (d) => { if (out.length < 8 * 1024 * 1024) out += d.toString("utf8"); });
+    child.once("error", (err) => { out += err instanceof Error ? err.message : String(err); finish(1); });
+    child.once("exit", (code) => setTimeout(() => finish(code ?? 1), 60));
+    const timer = setTimeout(() => { try { child.kill(); } catch {} finish(1); }, timeoutMs);
   });
 }
 
@@ -126,21 +152,22 @@ async function main() {
 
   const pgCtl = join(pgNative, "bin", PG_CTL);
   const initdb = join(pgNative, "bin", INITDB);
+  const pgEnv = buildPgExecEnv(pgNative);
   if (!existsSync(join(pgDataDir, "PG_VERSION"))) {
     console.log("[memento] 初始化内置 PostgreSQL 16 (UTF8)...");
     if (existsSync(pgDataDir)) rmSync(pgDataDir, { recursive: true, force: true });
     mkdirSync(pgDataDir, { recursive: true, mode: 0o700 });
     const passFile = join(dataDir, ".pgpass.tmp");
     writeFileSync(passFile, `${pgPass}\n`, { mode: 0o600 });
-    const res = await runFile(initdb, ["-D", pgDataDir, "-U", "postgres", "--auth=scram-sha-256", `--pwfile=${passFile}`, "--encoding=UTF8", "--locale=C"]);
+    const res = await runFile(initdb, ["-D", pgDataDir, "-U", "postgres", "--auth=scram-sha-256", `--pwfile=${passFile}`, "--encoding=UTF8", "--locale=C"], pgEnv);
     try { writeFileSync(passFile, ""); } catch {}
     if (res.code !== 0) throw new Error(`initdb 失败:\n${res.out}`);
   }
 
-  const st = await runFile(pgCtl, ["-D", pgDataDir, "status"]);
+  const st = await runFile(pgCtl, ["-D", pgDataDir, "status"], pgEnv);
   if (st.code !== 0) {
     console.log(`[memento] 启动内置数据库 127.0.0.1:${pgPort} ...`);
-    const up = await runFile(pgCtl, ["-D", pgDataDir, "-o", `-p ${pgPort} -h 127.0.0.1`, "-w", "-l", join(dataDir, "pg.log"), "start"]);
+    const up = await runFile(pgCtl, ["-D", pgDataDir, "-o", `-p ${pgPort} -h 127.0.0.1`, "-w", "-l", join(dataDir, "pg.log"), "start"], pgEnv);
     if (up.code !== 0) throw new Error(`pg_ctl start 失败:\n${up.out}`);
   }
 
@@ -154,7 +181,7 @@ async function main() {
     try { apiChild?.kill("SIGTERM"); } catch {}
     try { webChild?.kill("SIGTERM"); } catch {}
     await new Promise((r) => setTimeout(r, 500));
-    await runFile(pgCtl, ["-D", pgDataDir, "-m", "fast", "-w", "stop"]).catch(() => {});
+    await runFile(pgCtl, ["-D", pgDataDir, "-m", "fast", "-w", "stop"], pgEnv).catch(() => {});
     process.exit(0);
   };
   process.on("SIGINT", () => void shutdown());

@@ -1,7 +1,7 @@
 {
   "version": "1.0.171",
   "title": "Memento v1.0.171",
-  "release_notes": "1. 修复 macOS / Linux 单机模式与无界面单压缩包中内置 PostgreSQL 动态库软链指向构建机绝对路径导致初始化失败（libicudata.68.dylib 找不到）的问题\n2. 修复桌面端单机模式下内置服务被 Electron 剥离空环境变量后误连 Redis 导致 /health/deep 降级超时的问题，并在重试初始化时自动清理上次残缺目录\n3. 消除移动端底部标签栏毛玻璃发灰并与顶栏及多皮肤色值完全同步",
+  "release_notes": "1. 修复 Windows 单机模式初始化报错（当系统注册表配置了 cmd AutoRun 如 chcp 65001 或 conda_hook.bat 时，initdb 误判 postgres 版本不一致）：内置零依赖 cmd-noautorun.exe 垫片并强制 LC_MESSAGES=C，无需修改系统注册表即可正常初始化与启停\n2. 修复 Windows 下 pg_ctl start 子进程继承管道导致启动等待 60 秒超时的问题，同时消除中文系统下 GBK 报错乱码\n3. CI 新增 Windows 单机打包后实测 initdb 与 pg_ctl 启停校验，覆盖 macOS / Windows / Linux 全三端单安装包与无界面压缩包",
   "platforms": {
     "windows": {
       "asset_name": "Memento-1.0.171-win-x64.zip",

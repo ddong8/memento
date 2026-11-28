@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 
-import { buildEmbeddedEnv, hasPgvectorInstalled, installBundledPgvector, locateEmbeddedPgNative, locateEmbeddedWebDir, migrateServerData } from "../src/embedded-server";
+import { buildEmbeddedEnv, buildPgExecEnv, hasPgvectorInstalled, installBundledPgvector, locateEmbeddedPgNative, locateEmbeddedWebDir, migrateServerData } from "../src/embedded-server";
 import { parseEnv } from "../src/local-server";
 
 describe("embedded single-installer server helpers", () => {
@@ -86,6 +86,23 @@ describe("embedded single-installer server helpers", () => {
     const stageSrc = readFileSync(join(__dirname, "..", "..", "..", "packages", "server", "embedded", "stage-embedded.mjs"), "utf8");
     expect(stageSrc).not.toContain('"--ignore-scripts"');
     expect(stageSrc).toContain("pg-symlinks.json");
+  });
+
+  it("builds Windows PG exec env with LC_MESSAGES=C and case-safe COMSPEC shim when cmd-noautorun.exe is present", () => {
+    const nativeDir = mkTmp();
+    mkdirSync(join(nativeDir, "bin"), { recursive: true });
+    const shimPath = join(nativeDir, "bin", "cmd-noautorun.exe");
+    writeFileSync(shimPath, "shim");
+
+    const winEnv = buildPgExecEnv(nativeDir, { ComSpec: "C:\\Windows\\System32\\cmd.exe", COMSPEC: "C:\\legacy\\cmd.exe", PATH: "x" }, "win32");
+    expect(winEnv.LC_MESSAGES).toBe("C");
+    expect(winEnv.ComSpec).toBe(shimPath);
+    expect(winEnv.COMSPEC).toBeUndefined();
+    expect(Object.keys(winEnv).filter((k) => k.toLowerCase() === "comspec")).toEqual(["ComSpec"]);
+
+    const macEnv = buildPgExecEnv(nativeDir, { PATH: "/usr/bin" }, "darwin");
+    expect(macEnv.LC_MESSAGES).toBe("C");
+    expect(macEnv.ComSpec).toBeUndefined();
   });
 
   it("migrates account data between two servers while keeping a local backup ZIP", async () => {

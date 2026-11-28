@@ -5,7 +5,7 @@
 //   3) Bundled @memento/server on http://127.0.0.1:8770 proxying non-API routes to the local Next.js server
 // All persistent data lives under ~/.memento/server-data/ (pg/, storage/, backups/, .env).
 // Also provides bidirectional account data migration (standalone <-> cloud/enterprise server) with local backup.
-import { execFile, fork, type ChildProcess } from "node:child_process";
+import { fork, spawn, type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
@@ -70,12 +70,75 @@ export interface MigrationResult {
 const PG_CTL_BIN = process.platform === "win32" ? "pg_ctl.exe" : "pg_ctl";
 const INITDB_BIN = process.platform === "win32" ? "initdb.exe" : "initdb";
 
+/**
+ * Build child env for initdb / pg_ctl:
+ *   1) LC_MESSAGES=C avoids garbled GBK error text on Chinese Windows and stabilizes output.
+ *   2) On Windows, point COMSPEC at bundled cmd-noautorun.exe (which invokes `cmd.exe /d`)
+ *      so HKLM/HKCU Command Processor\AutoRun scripts (e.g. `chcp 65001` or conda hooks)
+ *      cannot pollute stdout of PostgreSQL's MSVC `_popen("postgres.exe -V")` check.
+ *      Strips case-variant `ComSpec`/`COMSPEC` keys first so CreateProcess never sees duplicates.
+ */
+export function buildPgExecEnv(
+  pgNativeDir: string,
+  baseEnv: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...baseEnv, LC_MESSAGES: "C" };
+  if (platform === "win32") {
+    const shim = join(pgNativeDir, "bin", "cmd-noautorun.exe");
+    if (existsSync(shim)) {
+      for (const k of Object.keys(env)) {
+        if (k.toLowerCase() === "comspec") delete env[k];
+      }
+      env.ComSpec = shim;
+    }
+  }
+  return env;
+}
+
+/**
+ * Run a short-lived native command (initdb / pg_ctl) without waiting on inherited stdio pipes.
+ * On Windows, `pg_ctl.exe -w start` spawns background `postgres.exe` inheriting stdout/stderr;
+ * Node's `execFile` waits for pipe EOF ('close') and would hang until timeout even though pg_ctl
+ * already exited 0. Resolving shortly after 'exit' and destroying the pipes avoids the hang.
+ */
 function runFile(bin: string, args: string[], env: NodeJS.ProcessEnv = process.env, timeoutMs = 60_000): Promise<{ code: number; out: string }> {
   return new Promise((done) => {
-    execFile(bin, args, { env, timeout: timeoutMs, windowsHide: true, maxBuffer: 8 * 1024 * 1024 }, (err, stdout, stderr) => {
-      const code = err ? (typeof (err as { code?: unknown }).code === "number" ? (err as { code: number }).code : 1) : 0;
-      done({ code, out: `${stdout ?? ""}${stderr ?? ""}` });
+    const child = spawn(bin, args, { env, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+    let out = "";
+    let settled = false;
+    const finish = (code: number) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try {
+        child.stdout?.destroy();
+      } catch {}
+      try {
+        child.stderr?.destroy();
+      } catch {}
+      done({ code, out });
+    };
+    const append = (buf: Buffer) => {
+      if (out.length < 8 * 1024 * 1024) out += buf.toString("utf8");
+    };
+    child.stdout?.on("data", append);
+    child.stderr?.on("data", append);
+    child.once("error", (err) => {
+      out += err instanceof Error ? err.message : String(err);
+      finish(1);
     });
+    child.once("exit", (code) => {
+      // Allow any already-buffered stdout/stderr chunks to flush before closing pipes
+      setTimeout(() => finish(code ?? 1), 60);
+    });
+    const timer = setTimeout(() => {
+      try {
+        child.kill();
+      } catch {}
+      out += `\n[timeout after ${timeoutMs}ms]`;
+      finish(1);
+    }, timeoutMs);
   });
 }
 
@@ -339,6 +402,7 @@ export class EmbeddedServer {
     // 1) Initialize embedded PG16 cluster once with UTF8 (default SQL_ASCII breaks Chinese FTS)
     const pgCtl = join(pgNative, "bin", PG_CTL_BIN);
     const initdb = join(pgNative, "bin", INITDB_BIN);
+    const pgEnv = buildPgExecEnv(pgNative);
     const pgLog = join(this.dataDir, "pg.log");
     const pgPassFile = join(this.dataDir, ".pgpass.tmp");
     if (!existsSync(join(this.pgDataDir, "PG_VERSION"))) {
@@ -349,16 +413,20 @@ export class EmbeddedServer {
       }
       mkdirSync(this.pgDataDir, { recursive: true, mode: 0o700 });
       writeFileSync(pgPassFile, `${envMap.get("POSTGRES_PASSWORD") || "memento"}\n`, { mode: 0o600 });
-      const initRes = await runFile(initdb, [
-        "-D",
-        this.pgDataDir,
-        "-U",
-        "postgres",
-        "--auth=scram-sha-256",
-        `--pwfile=${pgPassFile}`,
-        "--encoding=UTF8",
-        "--locale=C",
-      ]);
+      const initRes = await runFile(
+        initdb,
+        [
+          "-D",
+          this.pgDataDir,
+          "-U",
+          "postgres",
+          "--auth=scram-sha-256",
+          `--pwfile=${pgPassFile}`,
+          "--encoding=UTF8",
+          "--locale=C",
+        ],
+        pgEnv,
+      );
       try {
         writeFileSync(pgPassFile, "");
       } catch {
@@ -371,18 +439,22 @@ export class EmbeddedServer {
 
     // 2) Start embedded PostgreSQL via pg_ctl (works on Windows admin accounts too)
     progress("启动内置数据库…");
-    const st = await runFile(pgCtl, ["-D", this.pgDataDir, "status"]);
+    const st = await runFile(pgCtl, ["-D", this.pgDataDir, "status"], pgEnv);
     if (st.code !== 0) {
-      const up = await runFile(pgCtl, [
-        "-D",
-        this.pgDataDir,
-        "-o",
-        `-p ${pgPort} -h 127.0.0.1`,
-        "-w",
-        "-l",
-        pgLog,
-        "start",
-      ]);
+      const up = await runFile(
+        pgCtl,
+        [
+          "-D",
+          this.pgDataDir,
+          "-o",
+          `-p ${pgPort} -h 127.0.0.1`,
+          "-w",
+          "-l",
+          pgLog,
+          "start",
+        ],
+        pgEnv,
+      );
       if (up.code !== 0) {
         return { ok: false, error: `内置数据库启动失败：\n${up.out.slice(-400)}` };
       }
@@ -453,7 +525,7 @@ export class EmbeddedServer {
     const pgNative = this.pgNative ?? locateEmbeddedPgNative(this.opts.bundleDir);
     if (pgNative && existsSync(join(this.pgDataDir, "PG_VERSION"))) {
       const pgCtl = join(pgNative, "bin", PG_CTL_BIN);
-      await runFile(pgCtl, ["-D", this.pgDataDir, "-m", "fast", "-w", "stop"]).catch(() => {});
+      await runFile(pgCtl, ["-D", this.pgDataDir, "-m", "fast", "-w", "stop"], buildPgExecEnv(pgNative)).catch(() => {});
     }
     return { ok: true };
   }

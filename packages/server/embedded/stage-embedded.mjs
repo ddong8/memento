@@ -243,6 +243,13 @@ function main() {
   for (const f of readdirSync(join(pgvectorDir, "extension"))) {
     cpSync(join(pgvectorDir, "extension", f), join(extDir, f));
   }
+  if (existsSync(join(pgvectorDir, "bin"))) {
+    const binDir = join(STAGED_NATIVE, "bin");
+    mkdirSync(binDir, { recursive: true });
+    for (const f of readdirSync(join(pgvectorDir, "bin"))) {
+      cpSync(join(pgvectorDir, "bin", f), join(binDir, f));
+    }
+  }
 
   // Verify no symlink escaped to an absolute build-machine path or dangles
   if (!IS_WIN) {

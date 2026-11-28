@@ -193,6 +193,9 @@ if (process.env.MEMENTO_BUNDLE_EMBEDDED === "1") {
   if (!existsSync(join(embeddedOut, "server/main.mjs"))) missing.push("dist-embedded/server/main.mjs");
   if (!existsSync(join(embeddedOut, "web/apps/web/server.js"))) missing.push("dist-embedded/web/apps/web/server.js");
   if (!existsSync(join(embeddedOut, "embedded-pg/native/bin", pgCtl))) missing.push(`dist-embedded/embedded-pg/native/bin/${pgCtl}`);
+  if (process.platform === "win32" && !existsSync(join(embeddedOut, "embedded-pg/native/bin/cmd-noautorun.exe"))) {
+    missing.push("dist-embedded/embedded-pg/native/bin/cmd-noautorun.exe");
+  }
   const hasVecExt =
     existsSync(join(embeddedOut, "embedded-pg/native/share/postgresql/extension/vector.control")) ||
     existsSync(join(embeddedOut, "embedded-pg/native/share/extension/vector.control"));

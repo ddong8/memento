@@ -21,5 +21,8 @@ Pop-Location
 Copy-Item "$src\vector.dll" "$out\lib\"
 Copy-Item "$src\vector.control" "$out\extension\"
 Copy-Item "$src\sql\vector--*.sql" "$out\extension\"
-Get-ChildItem "$out\lib"
-Write-Host "built pgvector $version for win32-x64"
+New-Item -ItemType Directory -Force "$out\bin" | Out-Null
+cl /nologo /O2 /MT "/Fo$work\cmd-noautorun.obj" "/Fe$out\bin\cmd-noautorun.exe" "$here\cmd-noautorun.c"
+if ($LASTEXITCODE -ne 0) { throw "cl cmd-noautorun.c failed" }
+Get-ChildItem "$out\lib", "$out\bin"
+Write-Host "built pgvector $version + cmd-noautorun.exe for win32-x64"

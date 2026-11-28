@@ -1,7 +1,7 @@
 {
   "version": "1.0.172",
   "title": "Memento v1.0.172",
-  "release_notes": "1. 修复 Windows 单机模式初始化报错（当系统注册表配置了 cmd AutoRun 如 chcp 65001 或 conda_hook.bat 时，initdb 误判 postgres 版本不一致）：内置零依赖 cmd-noautorun.exe 垫片并强制 LC_MESSAGES=C，无需修改系统注册表即可正常初始化与启停\n2. 修复 Windows 下 pg_ctl start 子进程继承管道导致启动等待 60 秒超时的问题，同时消除中文系统下 GBK 报错乱码\n3. CI 新增 Windows 单机打包后实测 initdb 与 pg_ctl 启停校验，覆盖 macOS / Windows / Linux 全三端单安装包与无界面压缩包",
+  "release_notes": "1. 新增单机模式手机免建服直连：桌面端单机运行后一键生成二维码，iPhone/Android 系统相机扫码即可配对登录；同 Wi-Fi 自动走局域网直连（零重启转发），出门 4G/5G 自动切换至无状态 HTTPS 反向盲隧道（中转零数据库、不存任何数据），并自动兼容 Tailscale Serve\n2. 桌面端新用户默认以单机模式（零 Docker 内嵌 PG16 + pgvector + Web）开箱运行，可随时在设置中一键切换服务端模式并双向备份迁移数据\n3. 手机端与移动端界面全面适配：优化 375px 窄屏与暗色/浅色主题对比度，修复侧边栏版本号读取与底部导航固定高度，还原官网双星品牌图标并更新全平台最新特性文案",
   "platforms": {
     "windows": {
       "asset_name": "Memento-1.0.172-win-x64.zip",

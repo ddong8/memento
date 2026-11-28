@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `b060b20b` · Updated: `2026-11-28`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `e47c5247` · Updated: `2026-11-28`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,8 +16,8 @@
 - 规模 (Scale): 9 个子系统 · 1 组 API 路由 / 2 个接口 · 39 个前端页面 · 84 个数据模型 · 35 个服务模块 · 150 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `packages/server`, `embedding`, `deploy`
 - 自测命令 (Verify): `npm test` ; `npx tsc --noEmit` ; `npm run lint` ; `npm run build`
-- 最近改动 (Latest): `e38ec0b6` (2026-11-28): fix(web,desktop): 还原官网真实图标、更新最新特性文案并完善默认单机模式体验
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 77（✅ 77 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 12 · 状态 10 · 最近提交碰到 `R-ENT-SSO`, `R-ENT-DEVICE-POLICY`, `R-UI-COMMERCIAL`, `R-THINKING-FULL`, `R-LLM-IN-PROFILE`, `R-PERSONA-ONBOARD`
+- 最近改动 (Latest): `d9691a3e` (2026-11-28): feat(standalone): 支持单机模式手机扫码直连与无状态 HTTPS 反向盲隧道
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 77（✅ 77 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 12 · 状态 10 · 最近提交碰到 `R-ENT-SSO`, `R-ENT-DEVICE-POLICY`, `R-LOGIN-PERSIST`, `R-UI-COMMERCIAL`, `R-THINKING-FULL`, `R-LLM-IN-PROFILE`, `R-PERSONA-ONBOARD`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -32,7 +32,7 @@
 | 8. Development & Verification Commands | L277-L288 |
 | 9. Recent Architectural Evolutions | L290-L297 |
 | 10. Key Environment Variables & Configuration | L299-L311 |
-| 11. 业务蓝图核对 (Business Blueprint Check) | L313-L321 |
+| 11. 业务蓝图核对 (Business Blueprint Check) | L313-L322 |
 
 ## 1. Project Overview & Tech Stack
 
@@ -263,16 +263,16 @@ flowchart TD
 
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
-- [`packages/server/src/app.ts`](packages/server/src/app.ts) (11 commits)
+- [`packages/server/src/app.ts`](packages/server/src/app.ts) (12 commits)
 - [`docs/ts-server-migration.md`](docs/ts-server-migration.md) (10 commits)
 - [`packages/server/scripts/contract.mts`](packages/server/scripts/contract.mts) (10 commits)
+- [`packages/server/src/main.ts`](packages/server/src/main.ts) (10 commits)
+- [`apps/mobile/src/app/index.tsx`](apps/mobile/src/app/index.tsx) (9 commits)
 - [`deploy/k8s/ingress.yaml`](deploy/k8s/ingress.yaml) (9 commits)
-- [`packages/server/src/main.ts`](packages/server/src/main.ts) (9 commits)
-- [`apps/mobile/src/app/index.tsx`](apps/mobile/src/app/index.tsx) (8 commits)
+- [`apps/desktop/src/main.ts`](apps/desktop/src/main.ts) (8 commits)
 - [`apps/web/src/app/globals.css`](apps/web/src/app/globals.css) (8 commits)
-- [`apps/desktop/src/main.ts`](apps/desktop/src/main.ts) (7 commits)
+- [`apps/desktop/scripts/build.mjs`](apps/desktop/scripts/build.mjs) (7 commits)
 - [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (7 commits)
-- [`apps/web/test/glass-system.test.ts`](apps/web/test/glass-system.test.ts) (7 commits)
 
 ## 8. Development & Verification Commands
 
@@ -289,12 +289,12 @@ npm run build
 
 ## 9. Recent Architectural Evolutions
 
+- `d9691a3e` (2026-11-28): feat(standalone): 支持单机模式手机扫码直连与无状态 HTTPS 反向盲隧道
 - `e38ec0b6` (2026-11-28): fix(web,desktop): 还原官网真实图标、更新最新特性文案并完善默认单机模式体验
 - `86260690` (2026-11-28): fix(web): 全面修复移动端布局避让与遗留主题对比度适配
 - `7e9b4203` (2026-11-28): fix(web): 侧边栏移动端解析真实 App 版本号并同步 Web 版本至 1.0.172
 - `d48f7f85` (2026-11-28): chore(mobile): 递增 iOS TestFlight 构建号至 1.0.172 (22)
 - `916358b9` (2026-11-28): fix(mobile): 禁用下滑时底部导航栏收起为悬浮球
-- `14afc798` (2026-11-28): fix(web): 为站点图标追加版本参数以穿透 Nginx 缓存
 
 ## 10. Key Environment Variables & Configuration
 
@@ -317,6 +317,7 @@ npm run build
 
 ### 最近提交碰到的业务条目（改动后复查它们还成不成立）
 
+- `d9691a3e` feat(standalone): 支持单机模式手机扫码直连与无状态 HTTPS 反向盲隧道 → `R-ENT-SSO`, `R-ENT-DEVICE-POLICY`, `R-LOGIN-PERSIST`
 - `e38ec0b6` fix(web,desktop): 还原官网真实图标、更新最新特性文案并完善默认单机模式体验 → `R-ENT-SSO`, `R-ENT-DEVICE-POLICY`
 - `86260690` fix(web): 全面修复移动端布局避让与遗留主题对比度适配 → `R-UI-COMMERCIAL`, `R-THINKING-FULL`, `R-LLM-IN-PROFILE`, `R-PERSONA-ONBOARD`
 

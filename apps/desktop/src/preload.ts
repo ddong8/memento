@@ -57,6 +57,21 @@ contextBridge.exposeInMainWorld("mementoDesktop", {
     bootUseCloud: () => ipcRenderer.invoke("boot:use-cloud"),
     onProgress: subscribe("local-server:progress"),
   },
+  // 单机模式手机连接：局域网直连 + Tailscale Serve + 无状态 HTTPS 盲隧道
+  mobileConnect: {
+    status: () => ipcRenderer.invoke("mobile-connect:status"),
+    update: (patch: { enabled?: boolean; lanEnabled?: boolean; relayEnabled?: boolean; relayServerUrl?: string }) =>
+      ipcRenderer.invoke("mobile-connect:update", patch),
+    createPair: () => ipcRenderer.invoke("mobile-connect:create-pair"),
+    enableTailscale: () => ipcRenderer.invoke("mobile-connect:enable-tailscale"),
+    onOpen: (cb: () => void) => {
+      const listener = () => cb();
+      ipcRenderer.on("mobile-connect:open", listener);
+      return () => {
+        ipcRenderer.removeListener("mobile-connect:open", listener);
+      };
+    },
+  },
   daemon: {
     status: () => ipcRenderer.invoke("daemon:status"),
     logs: () => ipcRenderer.invoke("daemon:logs"),
@@ -69,4 +84,7 @@ contextBridge.exposeInMainWorld("mementoDesktop", {
 
 ipcRenderer.on("server:open-switch", () => {
   window.dispatchEvent(new CustomEvent("memento:open-server-switch"));
+});
+ipcRenderer.on("mobile-connect:open", () => {
+  window.dispatchEvent(new CustomEvent("memento:open-mobile-connect"));
 });

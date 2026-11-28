@@ -103,6 +103,37 @@ export interface LocalServerMigrateResult {
   error?: string;
 }
 
+export interface TailscaleServeInfo {
+  installed: boolean;
+  running: boolean;
+  dnsName: string | null;
+  serveUrl: string | null;
+}
+
+export interface MobileConnectStatus {
+  isStandalone: boolean;
+  enabled: boolean;
+  lanEnabled: boolean;
+  lanRunning: boolean;
+  lanPort: number | null;
+  lanUrls: string[];
+  relayEnabled: boolean;
+  relayServerUrl: string;
+  relayState: "off" | "connecting" | "connected" | "error";
+  relayApiUrl: string | null;
+  relayError: string | null;
+  tailscale: TailscaleServeInfo;
+  deviceName: string;
+}
+
+export interface MobilePairResult {
+  ok: boolean;
+  pairUrl?: string;
+  expiresIn?: number;
+  status?: MobileConnectStatus;
+  error?: string;
+}
+
 export interface MementoDesktop {
   isDesktop: true;
   /** v1.0.156+: true when macOS vibrancy or Windows 11 Mica native backdrop is supported by this window. */
@@ -143,6 +174,14 @@ export interface MementoDesktop {
       remoteToken?: string;
     }) => Promise<LocalServerMigrateResult>;
     onProgress: (cb: (line: unknown) => void) => () => void;
+  };
+  /** Desktop 1.0.173+: standalone mobile pairing (LAN direct + Tailscale Serve + stateless HTTPS blind relay) */
+  mobileConnect?: {
+    status: () => Promise<MobileConnectStatus>;
+    update: (patch: { enabled?: boolean; lanEnabled?: boolean; relayEnabled?: boolean; relayServerUrl?: string }) => Promise<MobileConnectStatus>;
+    createPair: () => Promise<MobilePairResult>;
+    enableTailscale: () => Promise<{ ok: boolean; status: MobileConnectStatus; error?: string }>;
+    onOpen?: (cb: () => void) => () => void;
   };
   daemon: {
     status(): Promise<DaemonState>;

@@ -9,6 +9,7 @@ import { loadSettings, parseBool, validateProduction } from "./config";
 import { createDb } from "./db/client";
 import { checkSchemaReady, runAllMigrations } from "./db/migrate";
 import { closeRedis, redisClient } from "./redis";
+import { attachRelayWebSocket } from "./routes/relay";
 import { attachDeviceWebSocket, registerMindResonanceInjector, registerTaskFinishedHook } from "./routes/tasks";
 import { askRuns } from "./services/ask-runs";
 import { recoverFinishedTaskHook } from "./services/ask-store";
@@ -17,6 +18,7 @@ import { renderMindResonanceMarkdown, senseResonance, startDynamicScenarioReload
 import { wakeForTask } from "./services/mission-service";
 import { startPlanRunner, stopPlanRunner } from "./services/plan-service";
 import { startProactivePulse, stopProactivePulse } from "./services/pulse-runner";
+import { relayTunnels } from "./services/relay-tunnel";
 import { startScheduledTaskRunner, stopScheduledTaskRunner } from "./services/scheduled-tasks";
 import { scheduler } from "./services/scheduler";
 import { sealExisting } from "./services/secret-box";
@@ -58,12 +60,15 @@ const server = serve({ fetch: app.fetch, hostname: settings.host, port: settings
   console.log(`memento server (ts) ${settings.buildSha} listening on ${info.address}:${info.port}`);
 });
 const wss = attachDeviceWebSocket(server as HttpServer, deps);
+const relayWss = attachRelayWebSocket(server as HttpServer);
 
 let stopping = false;
 async function shutdown(signal: string) {
   if (stopping) return;
   stopping = true;
   console.log(`${signal}: closing`);
+  relayTunnels.close();
+  relayWss.close();
   wss.close();
   server.close();
   stopDynamicScenarioReloader();

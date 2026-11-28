@@ -24,6 +24,7 @@ export default function HandoffPage() {
     const params = new URLSearchParams(hash);
     const token = params.get("token");
     const next = params.get("next");
+    const api = params.get("api");
     // Only allow same-origin relative paths — reject "//host" and "/\host"
     // (browsers normalize backslash to slash, making it protocol-relative).
     let savedLastRoute: string | null = null;
@@ -42,6 +43,17 @@ export default function HandoffPage() {
     }
     try {
       localStorage.setItem("dr_token", token);
+      // Mobile standalone relay mode passes `&api=<same-origin>/api/relay/t/<id>` or `&api=clear`.
+      // Restrict strictly to same-origin `/api/relay/t/` paths so external links can never redirect API traffic.
+      if (api === "clear") {
+        localStorage.removeItem("memento_custom_server");
+      } else if (api) {
+        const cleanApi = api.trim().replace(/\/+$/, "");
+        const expectedPrefix = `${window.location.origin}/api/relay/t/`;
+        if (cleanApi.startsWith(expectedPrefix) && /^t_[A-Za-z0-9_-]{22}$/.test(cleanApi.slice(expectedPrefix.length))) {
+          localStorage.setItem("memento_custom_server", cleanApi);
+        }
+      }
     } catch {
       queueMicrotask(() => setFailed(true));
       return;

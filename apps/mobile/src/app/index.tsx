@@ -28,9 +28,10 @@ import { WebView, type WebViewMessageEvent, type WebViewNavigation, type WebView
 import { GlassSurface } from "../components/GlassSurface";
 import { Icon, type IconName } from "../components/Icon";
 import { Button } from "../components/ui";
-import { normalizeDeepLinkTarget, parseDeepLinkAction, subscribeDeepLinkTarget } from "../lib/deeplink";
+import { isPairingDeepLink, normalizeDeepLinkTarget, parseDeepLinkAction, subscribeDeepLinkTarget } from "../lib/deeplink";
 import { isRecentlyNotified, markAsNotified, triggerLocalNotification } from "../lib/notifications";
 import { loadLocalSnapshot, saveLocalSnapshot, SNAPSHOT_CONVOS_KEY, useSession } from "../lib/session";
+import { routeModeLabel } from "../lib/standalone-route";
 import { useTheme } from "../lib/theme";
 
 type TabId = "ask" | "memory" | "daily" | "inbox" | "profile";
@@ -285,7 +286,7 @@ function isLoginPage(url: string, origin: string): boolean {
 export default function WebShell() {
   const t = useTheme();
   const insets = useSafeAreaInsets();
-  const { ready, server, token, signOut, switchServer } = useSession();
+  const { ready, server, apiBase, customApiBase, routeMode, standaloneProfile, token, signOut, switchServer, reprobeRoute } = useSession();
   const web = useRef<WebView>(null);
   const blurTargetRef = useRef<View | null>(null);
   const canGoBack = useRef(false);
@@ -334,8 +335,19 @@ export default function WebShell() {
   }, []);
 
   const origin = useMemo(() => server.match(/^https?:\/\/[^/]+/i)?.[0] ?? server, [server]);
-  // Sign the page in with the app's token, then land directly on the Command Center (/ask).
-  const start = useMemo(() => (token ? `${origin}/auth/handoff#token=${encodeURIComponent(token)}&next=%2Fask` : null), [origin, token]);
+  const activeApiBase = useMemo(() => (apiBase || origin).replace(/\/+$/, ""), [apiBase, origin]);
+  // Sign the page in with the app's token (plus optional same-origin relay API base), then land directly on /ask.
+  const start = useMemo(() => {
+    if (!token) return null;
+    const apiParam = encodeURIComponent(customApiBase ?? "clear");
+    return `${origin}/auth/handoff#token=${encodeURIComponent(token)}&api=${apiParam}&next=%2Fask`;
+  }, [origin, token, customApiBase]);
+  const customApiBootstrapScript = useMemo(() => {
+    if (customApiBase) {
+      return `(function(){try{localStorage.setItem("memento_custom_server",${JSON.stringify(customApiBase)});}catch(e){}})();`;
+    }
+    return `(function(){try{localStorage.removeItem("memento_custom_server");}catch(e){}})();`;
+  }, [customApiBase]);
 
   useEffect(() => {
     if (Platform.OS !== "android") return;
@@ -349,11 +361,11 @@ export default function WebShell() {
 
   const handleUrl = useCallback(
     (rawTarget?: string | null) => {
+      if (isPairingDeepLink(rawTarget)) return;
       const actionData = parseDeepLinkAction(rawTarget);
       if (actionData?.action === "cancel" && actionData.conversationId && token) {
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-        const base = origin.replace(/\/+$/, "");
-        fetch(`${base}/api/ask/conversations/${actionData.conversationId}/cancel`, {
+        fetch(`${activeApiBase}/api/ask/conversations/${actionData.conversationId}/cancel`, {
           method: "POST",
           headers: { Authorization: `Bearer ${token}` },
         }).catch(() => undefined);
@@ -391,7 +403,7 @@ export default function WebShell() {
         pendingUrlRef.current = fullUrl;
       }
     },
-    [origin, initialLoaded],
+    [origin, activeApiBase, initialLoaded, token],
   );
 
   // Open destination URL when a native push notification or Dynamic Island deep link is tapped
@@ -478,8 +490,7 @@ export default function WebShell() {
 
     const fetchFeed = async () => {
       try {
-        const base = origin.replace(/\/+$/, "");
-        const res = await fetch(`${base}/api/notify/feed?since=${encodeURIComponent(lastSeen)}`, {
+        const res = await fetch(`${activeApiBase}/api/notify/feed?since=${encodeURIComponent(lastSeen)}`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (res.ok) {
@@ -547,7 +558,7 @@ export default function WebShell() {
       if (timer) clearInterval(timer);
       appStateSub.remove();
     };
-  }, [ready, token, origin, handleUrl]);
+  }, [ready, token, activeApiBase, handleUrl]);
 
   const onMessage = useCallback((e: WebViewMessageEvent) => {
     try {
@@ -694,11 +705,12 @@ export default function WebShell() {
       <View style={{ height: insets.top, backgroundColor: surface }} />
       <BlurTargetView ref={blurTargetRef} style={{ flex: 1, marginBottom: Platform.OS === "ios" ? keyboardHeight : 0 }}>
         <WebView
+          key={`${origin}|${customApiBase ?? ""}`}
           ref={web}
           source={{ uri: start }}
           style={{ flex: 1, backgroundColor: pageBg }}
           applicationNameForUserAgent={USER_AGENT_SUFFIX}
-          injectedJavaScriptBeforeContentLoaded={`${INJECTED_CLIENT_HELPERS}\n${tabBarInsetScript(tabBarLayout)}`}
+          injectedJavaScriptBeforeContentLoaded={`${customApiBootstrapScript}\n${INJECTED_CLIENT_HELPERS}\n${tabBarInsetScript(tabBarLayout)}`}
           onMessage={onMessage}
           onNavigationStateChange={onNavigation}
           onShouldStartLoadWithRequest={onShouldStart}
@@ -764,7 +776,11 @@ export default function WebShell() {
                   {offlineSnapshot && offlineSnapshot.length > 0 ? "连不上 Memento（离线状态）" : "连不上 Memento"}
                 </Text>
                 <Text style={{ fontSize: 13, color: t.fg3, textAlign: "center" }}>
-                  {offlineSnapshot && offlineSnapshot.length > 0 ? "网络暂时断开，已载入最近本地快照：" : `检查网络后重试（${origin}）`}
+                  {offlineSnapshot && offlineSnapshot.length > 0
+                    ? "网络暂时断开，已载入最近本地快照："
+                    : standaloneProfile
+                      ? `无法连接到「${standaloneProfile.deviceName}」（${routeModeLabel(routeMode)}），请确认电脑端已运行`
+                      : `检查网络后重试（${origin}）`}
                 </Text>
               </View>
 
@@ -787,7 +803,17 @@ export default function WebShell() {
                 </GlassSurface>
               ) : null}
 
-              <Button onPress={() => web.current?.reload()}>重新连接</Button>
+              <Button
+                onPress={() => {
+                  if (standaloneProfile) {
+                    void reprobeRoute().finally(() => web.current?.reload());
+                  } else {
+                    web.current?.reload();
+                  }
+                }}
+              >
+                {standaloneProfile ? "切换通道并重连" : "重新连接"}
+              </Button>
             </View>
           )}
         />

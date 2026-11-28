@@ -180,7 +180,10 @@ export function buildEmbeddedEnv(opts: {
     ["MEMENTO_HOST", "127.0.0.1"],
     ["MEMENTO_PORT", String(opts.port)],
     ["MEMENTO_PUBLIC_URL", `http://127.0.0.1:${opts.port}`],
-    ["MEMENTO_CORS_ALLOW_ORIGIN_REGEX", "^https?://(localhost|127\\.0\\.0\\.1)(:\\d+)?$"],
+    [
+      "MEMENTO_CORS_ALLOW_ORIGIN_REGEX",
+      "^https?://(localhost|127\\.0\\.0\\.1|192\\.168\\.\\d+\\.\\d+|10\\.\\d+\\.\\d+\\.\\d+|172\\.(1[6-9]|2\\d|3[01])\\.\\d+\\.\\d+|[a-z0-9-]+\\.local)(:\\d+)?$|^https://([a-z0-9.-]+\\.ts\\.net|mem\\.ihasy\\.com)$",
+    ],
     ["MEMENTO_REGISTRATION_MODE", prev.get("MEMENTO_REGISTRATION_MODE") || "closed"],
     ["MEMENTO_ENABLE_SCHEDULER", "true"],
     ["MEMENTO_REMOTE_EXEC", "1"],

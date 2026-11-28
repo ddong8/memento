@@ -402,6 +402,10 @@ export function attachDeviceWebSocket(server: HttpServer, deps: Deps): WebSocket
   server.on("upgrade", (req: IncomingMessage, socket: Duplex, head: Buffer) => {
     const rawUrl = req.url || "/";
     const pathname = new URL(rawUrl, "http://localhost").pathname;
+    if (pathname === "/api/relay/connect") {
+      // Handled by attachRelayWebSocket
+      return;
+    }
     const m = /^\/api\/tasks\/ws\/(.+)$/.exec(pathname);
     if (!m) {
       socket.destroy();

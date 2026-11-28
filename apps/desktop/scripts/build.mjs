@@ -18,7 +18,7 @@ await build({
   entryPoints: [join(root, "src/main.ts")],
   outfile: join(dist, "main.cjs"),
   format: "cjs",
-  external: ["electron"],
+  external: ["electron", "bufferutil", "utf-8-validate"],
   define: {
     "import.meta.url": "undefined",
   },

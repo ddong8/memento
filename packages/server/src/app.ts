@@ -41,6 +41,7 @@ import { proactiveRoutes } from "./routes/proactive";
 import { profileRoutes } from "./routes/profile";
 import { projectRoutes } from "./routes/projects";
 import { quotaRoutes } from "./routes/quotas";
+import { relayRoutes } from "./routes/relay";
 import { scheduledTaskRoutes } from "./routes/scheduled-tasks";
 import { scimRoutes } from "./routes/scim";
 import { searchRoutes } from "./routes/search";
@@ -104,6 +105,7 @@ export const MIGRATED_PATHS = [
   "/api/studio",
   "/api/plans",
   "/api/missions",
+  "/api/relay",
 ] as const;
 
 function skipStreamMiddleware(path: string): boolean {
@@ -113,6 +115,7 @@ function skipStreamMiddleware(path: string): boolean {
     path.endsWith("/stream") ||
     path.includes("/files/stream") ||
     path.startsWith("/api/preview/t/") ||
+    path.startsWith("/api/relay/t/") ||
     path === "/api/studio/assets" ||
     (path.startsWith("/api/studio/tasks/") && path.endsWith("/video")) ||
     (path.startsWith("/api/studio/episodes/") && (path.endsWith("/latest-video") || path.endsWith("/bundle.zip")))
@@ -295,6 +298,7 @@ export function createApp(deps: Deps) {
   app.route("/api/studio", studioRoutes);
   app.route("/api/plans", planRoutes);
   app.route("/api/missions", missionRoutes);
+  app.route("/api/relay", relayRoutes);
   if (webUpstream) {
     app.all("*", (c, next) => {
       if (isServerOwnedPath(c.req.path)) return next();

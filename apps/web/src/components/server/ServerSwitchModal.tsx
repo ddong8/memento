@@ -37,6 +37,7 @@ export function ServerSwitchModal({ open: externalOpen, onClose: externalClose }
   const isDesktop = Boolean(desktop());
 
   const [internalOpen, setInternalOpen] = useState(false);
+  const [openMobileConnect, setOpenMobileConnect] = useState(false);
   const isOpen = externalOpen !== undefined ? externalOpen : internalOpen;
 
   const [currentServer, setCurrentServer] = useState<string>(DEFAULT_OFFICIAL_SERVER);
@@ -50,17 +51,27 @@ export function ServerSwitchModal({ open: externalOpen, onClose: externalClose }
   const [locked, setLocked] = useState(false);
 
   const close = useCallback(() => {
+    setOpenMobileConnect(false);
     if (externalClose) externalClose();
     else setInternalOpen(false);
     setStatusMsg(null);
   }, [externalClose]);
 
-  // Listen to global open event
+  // Listen to global open events (mode switch & direct mobile QR pairing from tray)
   useEffect(() => {
-    const onOpenEvent = () => setInternalOpen(true);
+    const onOpenEvent = () => {
+      setOpenMobileConnect(false);
+      setInternalOpen(true);
+    };
+    const onOpenMobileEvent = () => {
+      setOpenMobileConnect(true);
+      setInternalOpen(true);
+    };
     window.addEventListener("memento:open-server-switch", onOpenEvent);
+    window.addEventListener("memento:open-mobile-connect", onOpenMobileEvent);
     return () => {
       window.removeEventListener("memento:open-server-switch", onOpenEvent);
+      window.removeEventListener("memento:open-mobile-connect", onOpenMobileEvent);
     };
   }, []);
 
@@ -414,7 +425,7 @@ export function ServerSwitchModal({ open: externalOpen, onClose: externalClose }
           </div>
 
           {/* 单机模式 (desktop only) */}
-          {!locked && <LocalServerCard currentServer={currentServer} />}
+          {!locked && <LocalServerCard currentServer={currentServer} defaultOpenMobileConnect={openMobileConnect} />}
 
           {/* Preset Servers */}
           <div>

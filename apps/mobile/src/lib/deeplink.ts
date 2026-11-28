@@ -1,7 +1,40 @@
 type DeepLinkListener = (targetPath: string) => void;
+type PairingLinkListener = (rawUrl: string) => void;
 
 let pendingDeepLinkTarget: string | null = null;
+let pendingPairingLink: string | null = null;
 const listeners = new Set<DeepLinkListener>();
+const pairingListeners = new Set<PairingLinkListener>();
+
+export function isPairingDeepLink(rawUrl?: string | null): boolean {
+  if (!rawUrl) return false;
+  return /^(?:memento|com\.ihasy\.memento):\/\/pair(?:[/?#]|$)/i.test(rawUrl.trim());
+}
+
+export function emitPairingDeepLink(rawUrl?: string | null): boolean {
+  if (!rawUrl || !isPairingDeepLink(rawUrl)) return false;
+  const clean = rawUrl.trim();
+  if (pairingListeners.size > 0) {
+    for (const listener of pairingListeners) {
+      listener(clean);
+    }
+  } else {
+    pendingPairingLink = clean;
+  }
+  return true;
+}
+
+export function subscribePairingDeepLink(listener: PairingLinkListener): () => void {
+  pairingListeners.add(listener);
+  if (pendingPairingLink) {
+    const val = pendingPairingLink;
+    pendingPairingLink = null;
+    listener(val);
+  }
+  return () => {
+    pairingListeners.delete(listener);
+  };
+}
 
 /**
  * Normalize any incoming deep link URL (from Dynamic Island widgetURL, custom scheme, or push notification)
@@ -61,6 +94,10 @@ export function parseDeepLinkAction(rawUrl?: string | null): DeepLinkAction | nu
 }
 
 export function emitDeepLinkTarget(rawUrl?: string | null): string | null {
+  if (isPairingDeepLink(rawUrl)) {
+    emitPairingDeepLink(rawUrl);
+    return null;
+  }
   const normalized = normalizeDeepLinkTarget(rawUrl);
   if (!normalized || /^\/login(?:[/?#]|$)/i.test(normalized)) {
     return null;

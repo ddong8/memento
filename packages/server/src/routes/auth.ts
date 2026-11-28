@@ -26,6 +26,9 @@ export const REGISTER_WINDOW = 60 * 60;
 export const REGISTER_MAX_PER_IP = 10;
 export const TOKEN_EXCHANGE_MAX_PER_IP = 30;
 export const TOKEN_EXCHANGE_WINDOW = 600;
+export const PAIR_CLAIM_MAX_PER_IP = 20;
+export const PAIR_CLAIM_WINDOW = 600;
+export const PAIR_CODE_TTL_SECONDS = 90;
 const WECHAT_MAX_SKEW_SECONDS = 300;
 
 const safeEqual = (a: string, b: string) => {
@@ -105,6 +108,66 @@ function verifyGhState(secretKey: string, state: string): string | null {
   } catch {
     return null;
   }
+}
+
+// ---- One-Time Mobile Pairing Codes (standalone & cloud QR login) ----
+interface PairCodeRecord {
+  user_id: string;
+  role: string;
+  expires_at: number;
+}
+const pairCodes = new Map<string, PairCodeRecord>();
+
+function cleanExpiredPairCodes(): void {
+  const now = Date.now();
+  for (const [k, v] of pairCodes) {
+    if (v.expires_at <= now) pairCodes.delete(k);
+  }
+}
+
+async function storePairCode(c: Context<AppEnv>, code: string, rec: PairCodeRecord): Promise<void> {
+  cleanExpiredPairCodes();
+  if (pairCodes.size > 1000) {
+    const oldest = pairCodes.keys().next().value;
+    if (oldest) pairCodes.delete(oldest);
+  }
+  pairCodes.set(code, rec);
+  const redis = c.var.deps.redis();
+  if (redis) {
+    try {
+      await redis.set(`memento:pair:${code}`, JSON.stringify(rec), "EX", PAIR_CODE_TTL_SECONDS);
+    } catch {
+      /* fallback to memory when redis is unavailable */
+    }
+  }
+}
+
+async function consumePairCode(c: Context<AppEnv>, code: string): Promise<PairCodeRecord | null> {
+  const redis = c.var.deps.redis();
+  if (redis) {
+    try {
+      const key = `memento:pair:${code}`;
+      let raw: string | null = null;
+      if (typeof (redis as unknown as { getdel?: (k: string) => Promise<string | null> }).getdel === "function") {
+        raw = await (redis as unknown as { getdel: (k: string) => Promise<string | null> }).getdel(key);
+      } else {
+        const res = await redis.multi().get(key).del(key).exec();
+        raw = (res?.[0]?.[1] as string | null) ?? null;
+      }
+      pairCodes.delete(code);
+      if (raw) {
+        const parsed = JSON.parse(raw) as PairCodeRecord;
+        return parsed.expires_at > Date.now() ? parsed : null;
+      }
+      return null;
+    } catch {
+      /* fall through to in-memory store */
+    }
+  }
+  const local = pairCodes.get(code) ?? null;
+  pairCodes.delete(code);
+  if (!local || local.expires_at <= Date.now()) return null;
+  return local;
 }
 
 // ---- WeChat Ticket Store ----
@@ -287,6 +350,56 @@ authRoutes.post("/token-exchange", async (c) => {
   }
   const token = await createAccessToken(user.id, user.role, settings.secretKey, settings.accessTokenExpireMinutes, settings.algorithm);
   return c.json({ access_token: token, token_type: "bearer", user_id: user.id, role: user.role });
+});
+
+// ---- One-Time QR Pairing (Desktop standalone <-> Mobile App) ----
+authRoutes.post("/pair/create", async (c) => {
+  c.header("Cache-Control", "no-cache, no-store, must-revalidate");
+  const user = await currentUser(c);
+  if (user.status !== "active") throw new HttpError(403, "Account not active");
+  const code = randomBytes(24).toString("base64url");
+  await storePairCode(c, code, {
+    user_id: user.id,
+    role: user.role,
+    expires_at: Date.now() + PAIR_CODE_TTL_SECONDS * 1000,
+  });
+  return c.json({ code, expires_in: PAIR_CODE_TTL_SECONDS });
+});
+
+authRoutes.post("/pair/claim", async (c) => {
+  c.header("Cache-Control", "no-cache, no-store, must-revalidate");
+  const { settings, db } = c.var.deps;
+  const redis = c.var.deps.redis();
+  const ipKey = `pair_claim:ip:${requestIp(c) || "unknown"}`;
+  await rateLimit.check(redis, ipKey, PAIR_CLAIM_MAX_PER_IP);
+
+  const req = await jsonBody(c, ["code"] as const);
+  const code = req.code.trim();
+  if (!code || code.length < 16 || code.length > 128) {
+    await rateLimit.hit(redis, ipKey, PAIR_CLAIM_WINDOW);
+    throw new HttpError(401, "配对码无效或已过期");
+  }
+
+  const rec = await consumePairCode(c, code);
+  if (!rec) {
+    await rateLimit.hit(redis, ipKey, PAIR_CLAIM_WINDOW);
+    throw new HttpError(401, "配对码无效或已过期，请在桌面端刷新二维码后重试");
+  }
+
+  const [user] = await db.select().from(users).where(eq(users.id, rec.user_id)).limit(1);
+  if (!user || user.status !== "active") {
+    throw new HttpError(403, "Account not active");
+  }
+
+  await record(db, user, "auth.pair_claim", auditRequest(c));
+  const token = await createAccessToken(user.id, user.role, settings.secretKey, settings.accessTokenExpireMinutes, settings.algorithm);
+  return c.json({
+    access_token: token,
+    token_type: "bearer",
+    user_id: user.id,
+    role: user.role,
+    user: userResponse(user),
+  });
 });
 
 // ---- GitHub OAuth ----

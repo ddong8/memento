@@ -39,11 +39,12 @@ function WechatMark({ size = 18, color = "#07C160" }: { size?: number; color?: s
 
 export default function LoginScreen() {
   const t = useTheme();
-  const { token, signIn, signInWithToken, server: savedServer } = useSession();
+  const { token, signIn, signInWithToken, pairFromUrl, pairingBusy, pairingError, server: savedServer } = useSession();
   const [server, setServer] = useState(savedServer || DEFAULT_SERVER);
-  const [authTab, setAuthTab] = useState<"wechat" | "password">("wechat");
+  const [authTab, setAuthTab] = useState<"wechat" | "password" | "desktop">("wechat");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [pairInput, setPairInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showServer, setShowServer] = useState(false);
@@ -180,6 +181,35 @@ export default function LoginScreen() {
     }
   };
 
+  const submitPair = async (raw?: string) => {
+    const link = (raw ?? pairInput).trim();
+    if (!link) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await pairFromUrl(link);
+    } catch (e) {
+      setError(describeError(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const pasteAndPair = async () => {
+    setError(null);
+    try {
+      const clip = (await Clipboard.getStringAsync()).trim();
+      if (!clip) {
+        setError("剪贴板为空，请先在电脑端点击「复制配对链接」");
+        return;
+      }
+      setPairInput(clip);
+      await submitPair(clip);
+    } catch (e) {
+      setError(describeError(e));
+    }
+  };
+
   const field = { fontSize: 15, color: t.fg1, backgroundColor: t.surface, borderRadius: radius.control, borderWidth: 1, borderColor: t.borderStrong, paddingHorizontal: 14, paddingVertical: 13 } as const;
 
   const minutes = Math.floor(countdown / 60);
@@ -195,7 +225,7 @@ export default function LoginScreen() {
           <Text style={{ fontSize: 14, color: t.fg3 }}>你的 AI 外脑，随身带着</Text>
         </View>
 
-        {error && <Note>{error}</Note>}
+        {(error || pairingError) && <Note>{error || pairingError}</Note>}
 
         <View style={{ width: "100%", maxWidth: 400, alignSelf: "center", gap: 14 }}>
           {/* Tab Switcher */}
@@ -207,15 +237,30 @@ export default function LoginScreen() {
                 flexDirection: "row",
                 alignItems: "center",
                 justifyContent: "center",
-                gap: 6,
+                gap: 5,
                 paddingVertical: 9,
                 borderRadius: radius.control - 2,
                 backgroundColor: authTab === "wechat" ? t.surface : "transparent",
               }}
             >
-              <WechatMark size={16} color={authTab === "wechat" ? "#07C160" : t.fg3} />
-              <Text style={{ fontSize: 13.5, fontWeight: authTab === "wechat" ? "600" : "500", color: authTab === "wechat" ? t.fg1 : t.fg3 }}>
+              <WechatMark size={15} color={authTab === "wechat" ? "#07C160" : t.fg3} />
+              <Text style={{ fontSize: 13, fontWeight: authTab === "wechat" ? "600" : "500", color: authTab === "wechat" ? t.fg1 : t.fg3 }}>
                 微信登录
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={() => setAuthTab("desktop")}
+              style={{
+                flex: 1,
+                alignItems: "center",
+                justifyContent: "center",
+                paddingVertical: 9,
+                borderRadius: radius.control - 2,
+                backgroundColor: authTab === "desktop" ? t.surface : "transparent",
+              }}
+            >
+              <Text style={{ fontSize: 13, fontWeight: authTab === "desktop" ? "600" : "500", color: authTab === "desktop" ? t.fg1 : t.fg3 }}>
+                连单机桌面
               </Text>
             </Pressable>
             <Pressable
@@ -229,7 +274,7 @@ export default function LoginScreen() {
                 backgroundColor: authTab === "password" ? t.surface : "transparent",
               }}
             >
-              <Text style={{ fontSize: 13.5, fontWeight: authTab === "password" ? "600" : "500", color: authTab === "password" ? t.fg1 : t.fg3 }}>
+              <Text style={{ fontSize: 13, fontWeight: authTab === "password" ? "600" : "500", color: authTab === "password" ? t.fg1 : t.fg3 }}>
                 密码登录
               </Text>
             </Pressable>
@@ -338,6 +383,37 @@ export default function LoginScreen() {
                   3. 发送后切回本应用，系统将<Text style={{ fontWeight: "700", color: t.accent }}>自动秒级完成登录</Text>
                 </Text>
               </View>
+            </View>
+          ) : authTab === "desktop" ? (
+            /* Standalone Desktop Pairing Tab */
+            <View style={{ gap: 12 }}>
+              <View style={{ backgroundColor: t.surface, borderRadius: radius.card, padding: 16, borderWidth: 1, borderColor: t.borderStrong, gap: 8 }}>
+                <Text style={{ fontSize: 14, fontWeight: "700", color: t.fg1 }}>免建服直连你的电脑</Text>
+                <Text style={{ fontSize: 12.5, color: t.fg2, lineHeight: 19 }}>
+                  1) 在电脑端 Memento 单机模式点击「连接手机 App」{"\n"}
+                  2) 用手机系统相机直接扫二维码，点击横幅即自动登录{"\n"}
+                  3) 同 Wi-Fi 自动局域网直连，出门 4G/5G 自动走无状态盲隧道
+                </Text>
+              </View>
+
+              <Button onPress={() => void pasteAndPair()} busy={busy || pairingBusy}>
+                从剪贴板粘贴配对链接并连接
+              </Button>
+
+              <TextInput
+                value={pairInput}
+                onChangeText={setPairInput}
+                placeholder="或手动粘贴 memento://pair?v=1&..."
+                placeholderTextColor={t.fg4}
+                autoCapitalize="none"
+                autoCorrect={false}
+                style={field}
+              />
+              {pairInput.trim().length > 0 && (
+                <Button variant="ghost" onPress={() => void submitPair()} busy={busy || pairingBusy}>
+                  使用上方链接连接桌面
+                </Button>
+              )}
             </View>
           ) : (
             /* Password Login Tab Content */

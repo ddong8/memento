@@ -101,12 +101,16 @@ export function getApiBase(): string {
       return custom.replace(/\/+$/, "");
     }
     const { protocol, hostname, port } = window.location;
-    // If accessed via standard ports (80/443) — likely behind reverse proxy, API at same origin
+    // Standard ports (80/443) behind reverse proxy -> API at same origin
     if (!port || port === "80" || port === "443") {
       return `${protocol}//${hostname}`;
     }
-    // Direct access with port — API on port 8001
-    return `${protocol}//${hostname}:8001`;
+    // Local Next.js dev server (3000/3001) -> separate dev API on port 8001
+    if (port === "3000" || port === "3001") {
+      return `${protocol}//${hostname}:8001`;
+    }
+    // Single-port standalone / LAN / custom port (e.g. :8770, :8771) -> API at same origin
+    return `${protocol}//${hostname}:${port}`;
   }
   return "http://localhost:8001";
 }

@@ -26,6 +26,7 @@ const defaultServerUrl = (): string => managedPolicy().serverUrl || DEFAULT_SERV
 import { DaemonHost, type DaemonMode } from "./daemon-host";
 import { migrateServerData, type EmbeddedProcessHandle } from "./embedded-server";
 import { LocalServer } from "./local-server";
+import { MobileConnectManager, type MobileConnectUpdate } from "./mobile-connect";
 import {
   createNotificationDeduper,
   getMediaMimeType,
@@ -80,6 +81,7 @@ const embeddedBundleDir = app.isPackaged
     ? join(__dirname, "..", "dist-embedded")
     : __dirname;
 const localServer = new LocalServer(join(__dirname, "local-server"), undefined, process.platform, spawnEmbeddedServer, embeddedBundleDir);
+const mobileConnect = new MobileConnectManager(localServer.embedded.dataDir);
 
 function hasSavedCollectorConfig(): boolean {
   const dir = join(homedir(), ".memento");
@@ -109,6 +111,7 @@ async function bootEmbeddedAndLoad(): Promise<void> {
       await daemon.start();
       refreshTray();
     }
+    void mobileConnect.startIfEnabled(res.url).catch(() => {});
     await loadApp();
     return;
   }
@@ -1127,6 +1130,19 @@ function refreshTray(): void {
         label: isSameLocalOrigin(config?.serverUrl, localServer.embedded.url()) ? "当前：单机模式（本机）" : "当前：服务端模式",
         enabled: false,
       },
+      ...(isSameLocalOrigin(config?.serverUrl, localServer.embedded.url())
+        ? [
+            {
+              label: "连接手机 App（扫码直连 / 远程）...",
+              click: () => {
+                if (win && !win.isDestroyed()) {
+                  showWindow();
+                  win.webContents.send("mobile-connect:open");
+                }
+              },
+            },
+          ]
+        : []),
       {
         label: "切换运行模式 / 服务器...",
         click: () => {
@@ -1477,6 +1493,11 @@ function clearCacheOnNewVersion(): void {
 /** Point the app and this device's daemon at another server (the user already confirmed). */
 async function switchServer(cleanUrl: string, resetAuth: boolean): Promise<void> {
   const switchingToEmbedded = isSameLocalOrigin(cleanUrl, localServer.embedded.url());
+  if (switchingToEmbedded) {
+    void mobileConnect.startIfEnabled(cleanUrl).catch(() => {});
+  } else {
+    void mobileConnect.stop().catch(() => {});
+  }
   config.serverUrl = cleanUrl;
   config.webUrl = switchingToEmbedded ? undefined : cleanUrl;
   if (resetAuth) {
@@ -1724,7 +1745,43 @@ function setupIpc(): void {
     };
     const { response } = parent ? await dialog.showMessageBox(parent, ask) : await dialog.showMessageBox(ask);
     if (response !== 0) return { ok: false, error: "已取消" };
+    await mobileConnect.stop().catch(() => {});
     return localServer.stop();
+  });
+  // 单机模式连接手机：局域网直连 + Tailscale Serve + 无状态 HTTPS 盲隧道
+  const standaloneTarget = () => localServer.url().replace(/\/+$/, "");
+  const isUsingStandalone = () => isSameLocalOrigin(config?.serverUrl, localServer.url());
+  handle("mobile-connect:status", () => mobileConnect.status(isUsingStandalone(), standaloneTarget()));
+  handle("mobile-connect:update", (_e, patch: unknown) => {
+    const opt = (patch && typeof patch === "object" ? patch : {}) as MobileConnectUpdate;
+    return mobileConnect.update(opt, standaloneTarget());
+  });
+  handle("mobile-connect:enable-tailscale", () => mobileConnect.enableTailscale(standaloneTarget()));
+  handle("mobile-connect:create-pair", async () => {
+    const base = standaloneTarget();
+    if (!isUsingStandalone()) {
+      return { ok: false, error: "请先切换到单机模式后再生成手机配对码" };
+    }
+    let jwt = await webToken();
+    if (!jwt && config.token) {
+      try {
+        const res = await fetch(`${base}/api/auth/token-exchange`, {
+          method: "POST",
+          headers: { "X-Collector-Token": config.token },
+          signal: AbortSignal.timeout(8000),
+        });
+        if (res.ok) {
+          const data = (await res.json()) as { access_token?: string };
+          jwt = data.access_token ?? null;
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    if (!jwt) {
+      return { ok: false, error: "请先在当前窗口登录本机单机账号，然后再点击连接手机" };
+    }
+    return mobileConnect.createPairing(base, jwt);
   });
   handle("local-server:migrate", async (e, raw: unknown) => {
     const opt = (raw && typeof raw === "object" ? raw : {}) as {
@@ -1925,10 +1982,12 @@ if (!app.requestSingleInstanceLock()) {
     if (needDaemonStop || needEmbeddedStop) {
       event.preventDefault();
       shuttingDownEmbedded = true;
-      const tasks: Promise<unknown>[] = [];
+      const tasks: Promise<unknown>[] = [mobileConnect.stop().catch(() => {})];
       if (needDaemonStop) tasks.push(daemon.stop().catch(() => {}));
       if (needEmbeddedStop) tasks.push(localServer.embedded.stop().catch(() => {}));
       void Promise.allSettled(tasks).finally(() => app.exit(0));
+    } else {
+      void mobileConnect.stop().catch(() => {});
     }
   });
   app.on("activate", () => showWindow());

@@ -4,6 +4,7 @@
 // The desktop asks for confirmation natively, starts the containers, waits for /health and switches over by itself.
 import { useCallback, useEffect, useState } from "react";
 import { Icon } from "@/components/aurora/Icon";
+import { MobileConnectPanel } from "@/components/server/MobileConnectPanel";
 import { desktop, type LocalServerStatus } from "@/lib/desktop";
 
 const DOCKER_URL = "https://www.docker.com/products/docker-desktop/";
@@ -25,18 +26,31 @@ export function sameServer(a: string, b: string): boolean {
   return !!a && !!b && norm(a) === norm(b);
 }
 
-export function LocalServerCard({ currentServer }: { currentServer: string }) {
-  const bridge = desktop()?.localServer;
+export function LocalServerCard({
+  currentServer,
+  defaultOpenMobileConnect = false,
+}: {
+  currentServer: string;
+  defaultOpenMobileConnect?: boolean;
+}) {
+  const d = desktop();
+  const bridge = d?.localServer;
+  const hasMobileConnect = Boolean(d?.mobileConnect);
   const [st, setSt] = useState<LocalServerStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [line, setLine] = useState("");
   const [error, setError] = useState("");
   const [showMigrate, setShowMigrate] = useState(false);
+  const [showMobileConnect, setShowMobileConnect] = useState(defaultOpenMobileConnect);
   const [direction, setDirection] = useState<"to-remote" | "to-local">("to-remote");
   const [remoteUrl, setRemoteUrl] = useState("https://mem.ihasy.com");
   const [remoteEmail, setRemoteEmail] = useState("");
   const [remotePassword, setRemotePassword] = useState("");
   const [migrateMsg, setMigrateMsg] = useState("");
+
+  useEffect(() => {
+    if (defaultOpenMobileConnect) setShowMobileConnect(true);
+  }, [defaultOpenMobileConnect]);
 
   const refresh = useCallback(async () => {
     if (!bridge) return;
@@ -174,6 +188,10 @@ export function LocalServerCard({ currentServer }: { currentServer: string }) {
         <div style={{ fontSize: 12, color: "#10B981", whiteSpace: "pre-wrap", wordBreak: "break-word", lineHeight: 1.5 }}>{migrateMsg}</div>
       )}
 
+      {showMobileConnect && using && hasMobileConnect && (
+        <MobileConnectPanel onClose={() => setShowMobileConnect(false)} />
+      )}
+
       {showMigrate && bridge.migrate && (
         <div
           style={{
@@ -233,6 +251,17 @@ export function LocalServerCard({ currentServer }: { currentServer: string }) {
           </button>
         ) : (
           <>
+            {using && hasMobileConnect && (
+              <button
+                type="button"
+                onClick={() => setShowMobileConnect((v) => !v)}
+                disabled={busy}
+                style={btn(!showMobileConnect)}
+                data-testid="local-server-mobile-connect"
+              >
+                {showMobileConnect ? "收起手机连接" : "连接手机 App"}
+              </button>
+            )}
             {bridge.migrate && st?.running && (
               <button type="button" onClick={() => setShowMigrate((v) => !v)} disabled={busy} style={btn(false)}>
                 单机 / 服务版迁移

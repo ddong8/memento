@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `8362bf27` · Updated: `2026-11-28`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `b060b20b` · Updated: `2026-11-28`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -11,34 +11,35 @@
 
 - 简介 (About): 给你的 AI 工具建个共享大脑与多模态工作台。跨设备、跨工具自动采集 AI 编程对话与记忆，自建后端汇总，内置全能文档与媒体视窗（Office/PPT 16:9 横屏放映、万行表格切片、音视频 GPU 加速），Web + MCP 统一查看、搜索、召回。
 - 类型 (Type): Monorepo (Workspaces)
-- 技术栈 (Stack): TypeScript/JavaScript, Python, Shell / Bash · React, Electron, Next.js, TailwindCSS, Model Context Protocol (MCP), Docker, Kubernetes / Fleet
+- 技术栈 (Stack): TypeScript/JavaScript, Python, Shell / Bash · React, Next.js, TailwindCSS, Electron, Model Context Protocol (MCP), Docker, Kubernetes / Fleet
 - 基础设施 (Infra): PostgreSQL, pgvector (Vector DB), Redis, MinIO / S3 Object Storage, Celery Task Queue
 - 规模 (Scale): 9 个子系统 · 1 组 API 路由 / 2 个接口 · 39 个前端页面 · 84 个数据模型 · 35 个服务模块 · 150 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `packages/server`, `embedding`, `deploy`
 - 自测命令 (Verify): `npm test` ; `npx tsc --noEmit` ; `npm run lint` ; `npm run build`
-- 最近改动 (Latest): `86260690` (2026-11-28): fix(web): 全面修复移动端布局避让与遗留主题对比度适配
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 77（✅ 77 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 12 · 状态 10 · 最近提交碰到 `R-UI-COMMERCIAL`, `R-THINKING-FULL`, `R-LLM-IN-PROFILE`, `R-PERSONA-ONBOARD`
+- 最近改动 (Latest): `e38ec0b6` (2026-11-28): fix(web,desktop): 还原官网真实图标、更新最新特性文案并完善默认单机模式体验
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 77（✅ 77 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 12 · 状态 10 · 最近提交碰到 `R-ENT-SSO`, `R-ENT-DEVICE-POLICY`, `R-UI-COMMERCIAL`, `R-THINKING-FULL`, `R-LLM-IN-PROFILE`, `R-PERSONA-ONBOARD`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
-| 1. Project Overview & Tech Stack | L36-L42 |
-| 2. High-Level Architecture Topology | L44-L67 |
-| 3. Subsystem Breakdown & Responsibilities | L69-L81 |
-| 4. Key Entry Points & API Endpoints | L83-L136 |
-| 5. Core Domain Services & Background Schedules | L138-L178 |
-| 6.5. AST Call Graph, DTO Schemas & CLI Entrypoints | L180-L222 |
-| 7. CI/CD Pipelines, Code Hotspots & Test Suites | L224-L268 |
-| 8. Development & Verification Commands | L270-L281 |
-| 9. Recent Architectural Evolutions | L283-L290 |
-| 10. Key Environment Variables & Configuration | L292-L304 |
-| 11. 业务蓝图核对 (Business Blueprint Check) | L306-L313 |
+| 1. Project Overview & Tech Stack | L37-L43 |
+| 2. High-Level Architecture Topology | L45-L68 |
+| 3. Subsystem Breakdown & Responsibilities | L70-L82 |
+| 4. Key Entry Points & API Endpoints | L84-L137 |
+| 5. Core Domain Services & Background Schedules | L139-L179 |
+| 6. MCP Tools, RPC Contracts & Real-Time WebSocket Protocols | L181-L185 |
+| 6.5. AST Call Graph, DTO Schemas & CLI Entrypoints | L187-L230 |
+| 7. CI/CD Pipelines, Code Hotspots & Test Suites | L232-L275 |
+| 8. Development & Verification Commands | L277-L288 |
+| 9. Recent Architectural Evolutions | L290-L297 |
+| 10. Key Environment Variables & Configuration | L299-L311 |
+| 11. 业务蓝图核对 (Business Blueprint Check) | L313-L321 |
 
 ## 1. Project Overview & Tech Stack
 
 - **About**: 给你的 AI 工具建个共享大脑与多模态工作台。跨设备、跨工具自动采集 AI 编程对话与记忆，自建后端汇总，内置全能文档与媒体视窗（Office/PPT 16:9 横屏放映、万行表格切片、音视频 GPU 加速），Web + MCP 统一查看、搜索、召回。
 - **Project Type**: Monorepo (Workspaces)
 - **Core Languages**: TypeScript/JavaScript, Python, Shell / Bash
-- **Key Frameworks**: React, Electron, Next.js, TailwindCSS, Model Context Protocol (MCP), Docker, Kubernetes / Fleet
+- **Key Frameworks**: React, Next.js, TailwindCSS, Electron, Model Context Protocol (MCP), Docker, Kubernetes / Fleet
 - **Infrastructure & Middleware**: PostgreSQL, pgvector (Vector DB), Redis, MinIO / S3 Object Storage, Celery Task Queue
 
 ## 2. High-Level Architecture Topology
@@ -177,10 +178,17 @@ flowchart TD
 | `fulltext` | [`packages/server/src/services/fulltext.ts`](packages/server/src/services/fulltext.ts) | Keyword matching over document_search through its GIN index with BM25 IDF term weighting (server/server/servic |
 | `geoip` | [`packages/server/src/services/geoip.ts`](packages/server/src/services/geoip.ts) | Offline GeoIP lookup (server/server/services/geoip.py). |
 
+## 6. MCP Tools, RPC Contracts & Real-Time WebSocket Protocols
+
+### WebSocket Control & Data Plane Events
+
+`error`
+
 ## 6.5. AST Call Graph, DTO Schemas & CLI Entrypoints
 
 ### Workspace Package Dependency Graph
 
+- `apps/desktop/dist-embedded/web/apps/web` ➔ `packages/core` (`@memento/core`)
 - `apps/desktop` ➔ `packages/daemon` (`@memento/daemon`)
 - `apps/desktop` ➔ `packages/mcp` (`@memento/mcp`)
 - `apps/web` ➔ `packages/core` (`@memento/core`)
@@ -192,6 +200,7 @@ flowchart TD
 - `src/main` ➔ `daemon-host`
 - `src/main` ➔ `embedded-server`
 - `src/main` ➔ `local-server`
+- `src/main` ➔ `mobile-connect`
 - `src/main` ➔ `helpers`
 - `app/+native-intent` ➔ `lib/deeplink`
 - `app/_layout` ➔ `lib/session`
@@ -202,11 +211,10 @@ flowchart TD
 - `app/index` ➔ `lib/deeplink`
 - `app/index` ➔ `lib/notifications`
 - `app/index` ➔ `lib/session`
+- `app/index` ➔ `lib/standalone-route`
 - `app/index` ➔ `lib/theme`
 - `app/login` ➔ `components/ui`
 - `app/login` ➔ `lib/api`
-- `app/login` ➔ `lib/session`
-- `app/login` ➔ `lib/theme`
 
 ### CLI Binaries & Automation Entrypoints
 
@@ -247,12 +255,11 @@ flowchart TD
 
 | Suite | Directory | Files | Sample Tests |
 | :--- | :--- | :--- | :--- |
-| apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 70 | `active-runs-chip.test.tsx`, `agent-modes.test.ts`, `api-client.test.ts`, `ask-performance-guards.test.tsx`, `ask-reading-and-persona-rules.test.tsx` |
-| packages/daemon/test (vitest / jest) | [`packages/daemon/test`](packages/daemon/test) | 67 | `acp-runner.test.ts`, `agent-args.test.ts`, `agent-login.test.ts`, `agent-stream.test.ts`, `agy-background.test.ts` |
-| apps/desktop/test (vitest / jest) | [`apps/desktop/test`](apps/desktop/test) | 6 | `embedded-e2e.test.ts`, `embedded-server.test.ts`, `helpers.test.ts`, `local-server.test.ts`, `standalone-default.test.ts` |
-| apps/mobile/test (vitest / jest) | [`apps/mobile/test`](apps/mobile/test) | 4 | `deeplink.test.ts`, `glass-surface.test.ts`, `injected-helpers.test.ts`, `webview-props.test.ts` |
+| apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 71 | `active-runs-chip.test.tsx`, `agent-modes.test.ts`, `api-client.test.ts`, `ask-performance-guards.test.tsx`, `ask-reading-and-persona-rules.test.tsx` |
+| packages/daemon/test (vitest / jest) | [`packages/daemon/test`](packages/daemon/test) | 65 | `acp-runner.test.ts`, `agent-args.test.ts`, `agent-login.test.ts`, `agent-stream.test.ts`, `agy-background.test.ts` |
+| apps/desktop/test (vitest / jest) | [`apps/desktop/test`](apps/desktop/test) | 7 | `embedded-e2e.test.ts`, `embedded-server.test.ts`, `helpers.test.ts`, `local-server.test.ts`, `mobile-connect.test.ts` |
+| apps/mobile/test (vitest / jest) | [`apps/mobile/test`](apps/mobile/test) | 5 | `deeplink.test.ts`, `glass-surface.test.ts`, `injected-helpers.test.ts`, `standalone-route.test.ts`, `webview-props.test.ts` |
 | packages/core/test (vitest / jest) | [`packages/core/test`](packages/core/test) | 2 | `ask-stream.test.ts`, `task-events.test.ts` |
-| packages/mcp/test (vitest / jest) | [`packages/mcp/test`](packages/mcp/test) | 1 | `remote-and-tools.test.ts` |
 
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
@@ -263,9 +270,9 @@ flowchart TD
 - [`packages/server/src/main.ts`](packages/server/src/main.ts) (9 commits)
 - [`apps/mobile/src/app/index.tsx`](apps/mobile/src/app/index.tsx) (8 commits)
 - [`apps/web/src/app/globals.css`](apps/web/src/app/globals.css) (8 commits)
+- [`apps/desktop/src/main.ts`](apps/desktop/src/main.ts) (7 commits)
 - [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (7 commits)
 - [`apps/web/test/glass-system.test.ts`](apps/web/test/glass-system.test.ts) (7 commits)
-- [`packages/server/src/config.ts`](packages/server/src/config.ts) (7 commits)
 
 ## 8. Development & Verification Commands
 
@@ -282,12 +289,12 @@ npm run build
 
 ## 9. Recent Architectural Evolutions
 
+- `e38ec0b6` (2026-11-28): fix(web,desktop): 还原官网真实图标、更新最新特性文案并完善默认单机模式体验
 - `86260690` (2026-11-28): fix(web): 全面修复移动端布局避让与遗留主题对比度适配
 - `7e9b4203` (2026-11-28): fix(web): 侧边栏移动端解析真实 App 版本号并同步 Web 版本至 1.0.172
 - `d48f7f85` (2026-11-28): chore(mobile): 递增 iOS TestFlight 构建号至 1.0.172 (22)
 - `916358b9` (2026-11-28): fix(mobile): 禁用下滑时底部导航栏收起为悬浮球
 - `14afc798` (2026-11-28): fix(web): 为站点图标追加版本参数以穿透 Nginx 缓存
-- `9d4866f8` (2026-11-28): feat(ui): 还原真实 App 图标并升级同系紫调与 macOS 毛玻璃质感
 
 ## 10. Key Environment Variables & Configuration
 
@@ -310,6 +317,7 @@ npm run build
 
 ### 最近提交碰到的业务条目（改动后复查它们还成不成立）
 
+- `e38ec0b6` fix(web,desktop): 还原官网真实图标、更新最新特性文案并完善默认单机模式体验 → `R-ENT-SSO`, `R-ENT-DEVICE-POLICY`
 - `86260690` fix(web): 全面修复移动端布局避让与遗留主题对比度适配 → `R-UI-COMMERCIAL`, `R-THINKING-FULL`, `R-LLM-IN-PROFILE`, `R-PERSONA-ONBOARD`
 
 ---

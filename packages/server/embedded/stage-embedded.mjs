@@ -79,7 +79,8 @@ function ensureEmbeddedPgCache() {
   }
   console.log(`[stage-embedded] installing ${pkgName}@${EMBEDDED_PG_VERSION} ...`);
   const npmBin = IS_WIN ? "npm.cmd" : "npm";
-  execFileSync(npmBin, ["install", "--no-audit", "--no-fund", "--ignore-scripts", `${pkgName}@${EMBEDDED_PG_VERSION}`], {
+  // Do NOT pass --ignore-scripts: @embedded-postgres/linux-* runs postinstall hydrate-symlinks.js
+  execFileSync(npmBin, ["install", "--no-audit", "--no-fund", `${pkgName}@${EMBEDDED_PG_VERSION}`], {
     cwd: CACHE_DIR,
     stdio: "inherit",
     shell: IS_WIN,
@@ -194,6 +195,37 @@ function main() {
   };
   pruneExtras(STAGED_NATIVE);
 
+  // Hydrate relative symlinks declared in pg-symlinks.json (Linux @embedded-postgres packages rely on this
+  // for libicuuc.so.60 / libicudata.so.60 / libpq.so.5 etc., even when cache is reused or scripts were skipped)
+  if (!IS_WIN) {
+    const manifestPath = join(STAGED_NATIVE, "pg-symlinks.json");
+    if (existsSync(manifestPath)) {
+      const entries = JSON.parse(readFileSync(manifestPath, "utf8"));
+      let hydrated = 0;
+      for (const { source, target } of entries) {
+        const srcRel = String(source).replace(/^native[\\/]/, "");
+        const dstRel = String(target).replace(/^native[\\/]/, "");
+        const srcAbs = resolve(STAGED_NATIVE, srcRel);
+        const dstAbs = resolve(STAGED_NATIVE, dstRel);
+        if (!existsSync(srcAbs)) continue;
+        let dstExists = false;
+        try {
+          lstatSync(dstAbs);
+          dstExists = true;
+        } catch {
+          dstExists = false;
+        }
+        if (dstExists) continue;
+        mkdirSync(dirname(dstAbs), { recursive: true });
+        symlinkSync(relative(dirname(dstAbs), srcAbs), dstAbs);
+        hydrated++;
+      }
+      if (hydrated > 0) {
+        console.log(`[stage-embedded] hydrated ${hydrated} relative symlinks from pg-symlinks.json`);
+      }
+    }
+  }
+
   // Deduplicate duplicate dylib/so copies (saves ~60-110 MB on macOS)
   const saved = deduplicateSharedLibs(join(STAGED_NATIVE, "lib"));
   const savedPg = deduplicateSharedLibs(join(STAGED_NATIVE, "lib", "postgresql"));
@@ -233,6 +265,8 @@ function main() {
       }
     };
     checkSymlinks(STAGED_NATIVE);
+    const ver = execFileSync(join(STAGED_NATIVE, "bin", "initdb"), ["--version"], { encoding: "utf8" }).trim();
+    console.log(`[stage-embedded] verified staged binary: ${ver}`);
   }
 
   const totalMb = (dirBytes(STAGED_NATIVE) / 1024 / 1024).toFixed(1);

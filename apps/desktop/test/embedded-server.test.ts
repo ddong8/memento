@@ -82,6 +82,10 @@ describe("embedded single-installer server helpers", () => {
         expect(line, `${file} must set verbatimSymlinks: true to avoid absolute build-runner symlinks`).toContain("verbatimSymlinks: true");
       }
     }
+    // Linux @embedded-postgres packages rely on postinstall + pg-symlinks.json to create libicuuc.so.60 etc.
+    const stageSrc = readFileSync(join(__dirname, "..", "..", "..", "packages", "server", "embedded", "stage-embedded.mjs"), "utf8");
+    expect(stageSrc).not.toContain('"--ignore-scripts"');
+    expect(stageSrc).toContain("pg-symlinks.json");
   });
 
   it("migrates account data between two servers while keeping a local backup ZIP", async () => {

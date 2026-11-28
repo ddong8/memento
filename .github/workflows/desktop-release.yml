@@ -178,6 +178,17 @@ jobs:
             }
           } else {
             checkTree("apps/desktop/release/linux-unpacked/resources/embedded", "linux-unpacked");
+            const linuxTar = readdirSync("apps/desktop/release").find((f) => f.endsWith(".tar.gz"));
+            if (linuxTar) {
+              const tmpLinux = mkdtempSync(join(tmpdir(), "memento-verify-linux-"));
+              try {
+                execFileSync("tar", ["-xzf", join("apps/desktop/release", linuxTar), "-C", tmpLinux]);
+                const inner = readdirSync(tmpLinux)[0];
+                checkTree(join(tmpLinux, inner, "resources/embedded"), "linux-tar");
+              } finally {
+                rmSync(tmpLinux, { recursive: true, force: true });
+              }
+            }
           }
 
           const tarName = readdirSync("dist-standalone").find((f) => f.endsWith(".tar.gz"));

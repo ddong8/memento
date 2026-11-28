@@ -1,25 +1,25 @@
 {
-  "version": "1.0.172",
-  "title": "Memento v1.0.172",
+  "version": "1.0.173",
+  "title": "Memento v1.0.173",
   "release_notes": "1. 新增单机模式手机免建服直连：桌面端单机运行后一键生成二维码，iPhone/Android 系统相机扫码即可配对登录；同 Wi-Fi 自动走局域网直连（零重启转发），出门 4G/5G 自动切换至无状态 HTTPS 反向盲隧道（中转零数据库、不存任何数据），并自动兼容 Tailscale Serve\n2. 桌面端新用户默认以单机模式（零 Docker 内嵌 PG16 + pgvector + Web）开箱运行，可随时在设置中一键切换服务端模式并双向备份迁移数据\n3. 手机端与移动端界面全面适配：优化 375px 窄屏与暗色/浅色主题对比度，修复侧边栏版本号读取与底部导航固定高度，还原官网双星品牌图标并更新全平台最新特性文案",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.172-win-x64.zip",
-      "size": 225038755,
-      "sha256": "9d70d739acf1eeaead0f2024af4bb0e6fb2df1195465685b4f0d7b0670e8fcf3",
-      "sha512": "/QuZhpxg9Ma4B96T4HZOgiBJXLNZUd6nI+YKQ/WUxXw9XAONzu9gn3R7vgOyXwnzPw6YnBESwUevSe+W+mmozA=="
+      "asset_name": "Memento-1.0.173-win-x64.zip",
+      "size": 225177926,
+      "sha256": "cebb7098c07ba0faa879e2f6e308eae335c81a82b5975b9b53be5558d96b2c5c",
+      "sha512": "RMcXEgXt3TT/jltIqCQsXkNkrsG2GVTEhCbrzAVNKYl8ttFf0xKTuVa42c1+yDOsWT6mSJ2NLKL6hVSTLb6KlQ=="
     },
     "macos": {
-      "asset_name": "Memento-1.0.172-mac-arm64.zip",
-      "size": 219964070,
-      "sha256": "767c2c25d7dacfa66fa009bd974af118bfbefa14fdbb7bb77c179dcde431569d",
-      "sha512": "d/1sHmZE5DiNtuz5ttvQHpg8lyNOxgpfU8tvEjRP/RmZfSeq43shtMuKZnarqsPpk5HhmJBQU8OmOViGNEKLew=="
+      "asset_name": "Memento-1.0.173-mac-arm64.zip",
+      "size": 220104761,
+      "sha256": "658e0b8b703eb4fb540358a47f503217e30d24b1aeb6855ca57e3fcb248d9b7d",
+      "sha512": "4ENelsXvCfA+FgtsaF+aMusYo5Y7egAbFlQyObhQkzyp5fDaVImngR75P4c219EonjxrAc+C21ZexBnJdxydeg=="
     },
     "linux": {
-      "asset_name": "Memento-1.0.172-linux-x64.tar.gz",
-      "size": 192803799,
-      "sha256": "431d83a4c29cd783b23123642c7c01d173c88fe3dc2403d2132111341eafcccf",
-      "sha512": "PsApnJh/VP6vo/4kpE/kugzrRVoJiiSg5dXa5Ie/G3pmvrm42ec+vNrX0epjvDHMS5IuV/pGIehQ4xm8Z3A1UA=="
+      "asset_name": "Memento-1.0.173-linux-x64.tar.gz",
+      "size": 192956482,
+      "sha256": "d615ec5efc3d70eceb0dc3b4164a4aa278ccb7c25f7c9cf34752c601f3ae3f18",
+      "sha512": "HZKSBAwRB2KNq6w0GtepGgxQ23KeiN2zbR8s35vVuiKWvx/W4u8AfWn7S0V7vmegUO2OKwXTSQMLrLbjksivOQ=="
     }
   }
 }

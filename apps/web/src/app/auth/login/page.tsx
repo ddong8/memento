@@ -14,7 +14,8 @@ import { GithubLoginSection, SsoLoginButton, useAuthOptions, useOauthErrorMessag
 import { WechatLoginSection, WechatMark } from "../wechat-login";
 
 export default function LoginPage() {
-  const [authTab, setAuthTab] = useState<"wechat" | "password">("wechat");
+  const [authTab, setAuthTab] = useState<"wechat" | "password">("password");
+  const [tabTouched, setTabTouched] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -28,6 +29,9 @@ export default function LoginPage() {
   const [ownerPassword, setOwnerPassword] = useState(false);
   const classicLogin = authOptions.password_login || ownerPassword;
   const githubEnabled = authOptions.github_enabled && authOptions.password_login;
+  const wechatEnabled = authOptions.wechat_enabled && authOptions.password_login;
+  const effectiveTab: "wechat" | "password" = !wechatEnabled ? "password" : tabTouched ? authTab : "wechat";
+  const isStandaloneLocal = /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/i.test(currentServer);
 
   useEffect(() => {
     const initServer = async () => {
@@ -156,7 +160,7 @@ export default function LoginPage() {
         {!classicLogin && (
           <button
             type="button"
-            onClick={() => { setOwnerPassword(true); setAuthTab("password"); }}
+            onClick={() => { setOwnerPassword(true); setTabTouched(true); setAuthTab("password"); }}
             style={{ display: "block", margin: "14px auto 0", background: "none", border: "none", color: "var(--aurora-fg4)", fontSize: 12, cursor: "pointer", textDecoration: "underline" }}
           >
             {t.auth.ownerPasswordLogin}
@@ -164,7 +168,8 @@ export default function LoginPage() {
         )}
         {classicLogin && (
           <>
-        {/* Tab Switcher */}
+        {/* Tab Switcher — only shown when the server has WeChat login configured */}
+        {wechatEnabled && (
         <div
           style={{
             display: "flex",
@@ -177,7 +182,7 @@ export default function LoginPage() {
         >
           <button
             type="button"
-            onClick={() => setAuthTab("wechat")}
+            onClick={() => { setTabTouched(true); setAuthTab("wechat"); }}
             style={{
               flex: 1,
               display: "flex",
@@ -186,13 +191,13 @@ export default function LoginPage() {
               gap: 6,
               padding: "8px 0",
               fontSize: 13,
-              fontWeight: authTab === "wechat" ? 600 : 500,
-              color: authTab === "wechat" ? "var(--aurora-fg1)" : "var(--aurora-fg3)",
-              background: authTab === "wechat" ? "var(--aurora-surface-solid)" : "transparent",
+              fontWeight: effectiveTab === "wechat" ? 600 : 500,
+              color: effectiveTab === "wechat" ? "var(--aurora-fg1)" : "var(--aurora-fg3)",
+              background: effectiveTab === "wechat" ? "var(--aurora-surface-solid)" : "transparent",
               borderRadius: 8,
               border: "none",
               cursor: "pointer",
-              boxShadow: authTab === "wechat" ? "0 1px 3px rgba(17,17,24,0.08)" : "none",
+              boxShadow: effectiveTab === "wechat" ? "0 1px 3px rgba(17,17,24,0.08)" : "none",
               transition: "background-color 150ms ease, color 150ms ease, box-shadow 150ms ease",
             }}
           >
@@ -201,7 +206,7 @@ export default function LoginPage() {
           </button>
           <button
             type="button"
-            onClick={() => setAuthTab("password")}
+            onClick={() => { setTabTouched(true); setAuthTab("password"); }}
             style={{
               flex: 1,
               display: "flex",
@@ -210,13 +215,13 @@ export default function LoginPage() {
               gap: 6,
               padding: "8px 0",
               fontSize: 13,
-              fontWeight: authTab === "password" ? 600 : 500,
-              color: authTab === "password" ? "var(--aurora-fg1)" : "var(--aurora-fg3)",
-              background: authTab === "password" ? "var(--aurora-surface-solid)" : "transparent",
+              fontWeight: effectiveTab === "password" ? 600 : 500,
+              color: effectiveTab === "password" ? "var(--aurora-fg1)" : "var(--aurora-fg3)",
+              background: effectiveTab === "password" ? "var(--aurora-surface-solid)" : "transparent",
               borderRadius: 8,
               border: "none",
               cursor: "pointer",
-              boxShadow: authTab === "password" ? "0 1px 3px rgba(17,17,24,0.08)" : "none",
+              boxShadow: effectiveTab === "password" ? "0 1px 3px rgba(17,17,24,0.08)" : "none",
               transition: "background-color 150ms ease, color 150ms ease, box-shadow 150ms ease",
             }}
           >
@@ -224,8 +229,9 @@ export default function LoginPage() {
             密码登录
           </button>
         </div>
+        )}
 
-        {authTab === "wechat" ? (
+        {effectiveTab === "wechat" ? (
           <WechatLoginSection />
         ) : (
           <>
@@ -275,11 +281,11 @@ export default function LoginPage() {
           </Link>
         </p>
 
-        <div style={{ marginTop: 16, paddingTop: 14, borderTop: "1px solid var(--aurora-border)", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, fontSize: 11, color: "var(--aurora-fg4)" }}>
-          <Icon name="server" size={13} style={{ color: "var(--aurora-fg3)" }} />
-          <span>服务器:</span>
-          <span style={{ color: "var(--aurora-fg2)", fontFamily: "var(--font-mono)", maxWidth: 170, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {currentServer || "..."}
+        <div style={{ marginTop: 16, paddingTop: 14, borderTop: "1px solid var(--aurora-border)", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, fontSize: 11, color: "var(--aurora-fg4)", flexWrap: "wrap" }}>
+          <Icon name={isStandaloneLocal ? "devices" : "server"} size={13} style={{ color: "var(--aurora-fg3)" }} />
+          <span>{isStandaloneLocal ? "运行模式:" : "服务器:"}</span>
+          <span style={{ color: "var(--aurora-fg2)", fontFamily: isStandaloneLocal ? "inherit" : "var(--font-mono)", fontWeight: isStandaloneLocal ? 500 : 400, maxWidth: 170, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {isStandaloneLocal ? "单机模式（本机）" : currentServer || "..."}
           </span>
           <button
             type="button"
@@ -295,7 +301,7 @@ export default function LoginPage() {
               textDecoration: "underline",
             }}
           >
-            切换
+            {isStandaloneLocal ? "切到服务端模式" : "切换"}
           </button>
         </div>
       </Glass>

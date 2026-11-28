@@ -152,5 +152,34 @@ describe("frosted glass architecture", () => {
     expect(read("app/ask/page.tsx")).not.toContain("bg-[var(--aurora-accent)] border-[var(--aurora-accent)] text-slate-900");
     expect(read("app/s/[token]/page.tsx")).not.toContain("bg-[var(--aurora-accent)] text-slate-900");
   });
+
+  it("keeps official App Icon consistent across favicon.ico, sw.js, layout, and skins, and reflects standalone-first content", () => {
+    const repoRoot = path.resolve(__dirname, "../../..");
+    const webIco = fs.readFileSync(path.join(repoRoot, "apps/web/src/app/favicon.ico"));
+    const desktopIco = fs.readFileSync(path.join(repoRoot, "apps/desktop/build/icon.ico"));
+    expect(webIco.equals(desktopIco)).toBe(true);
+
+    const sw = fs.readFileSync(path.join(repoRoot, "apps/web/public/sw.js"), "utf8");
+    expect(sw).toContain('CACHE_NAME = "memento-static-v2"');
+    expect(sw).toContain("BYPASS_ICON_PATH");
+
+    const themeCtx = fs.readFileSync(path.join(repoRoot, "apps/web/src/lib/theme-context.tsx"), "utf8");
+    expect(themeCtx).toContain('/favicon-aurora.svg?v=3');
+    expect(themeCtx).not.toContain("/favicon-${skin}.svg");
+
+    const zh = fs.readFileSync(path.join(repoRoot, "apps/web/src/lib/i18n/zh-CN.ts"), "utf8");
+    const en = fs.readFileSync(path.join(repoRoot, "apps/web/src/lib/i18n/en-US.ts"), "utf8");
+    expect(zh).not.toContain("FastAPI + PostgreSQL");
+    expect(en).not.toContain("FastAPI + PostgreSQL");
+    expect(zh).toContain("默认单机模式");
+    expect(en).toContain("Standalone by Default");
+
+    // Standalone login hides WeChat tab when server does not enable WeChat, and first-user register hides invite code
+    const loginPage = fs.readFileSync(path.join(repoRoot, "apps/web/src/app/auth/login/page.tsx"), "utf8");
+    const registerPage = fs.readFileSync(path.join(repoRoot, "apps/web/src/app/auth/register/page.tsx"), "utf8");
+    expect(loginPage).toContain("authOptions.wechat_enabled");
+    expect(registerPage).toContain("mode && mode.has_any_user");
+    expect(registerPage).toContain("openServerSwitchModal()");
+  });
 });
 

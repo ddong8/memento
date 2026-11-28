@@ -242,3 +242,73 @@ export function normalizeMenuItems(raw: unknown): PageMenuItem[] {
   while (out.length && out[out.length - 1]?.type === "separator") out.pop();
   return out;
 }
+
+/** True when both URLs point at the same loopback host/port (localhost, 127.0.0.1, ::1). */
+export function isSameLocalOrigin(a: string | undefined, b: string | undefined): boolean {
+  if (!a || !b) return false;
+  try {
+    const ua = new URL(a);
+    const ub = new URL(b);
+    const localHost = (h: string) => h === "127.0.0.1" || h === "localhost" || h === "[::1]";
+    return localHost(ua.hostname) && localHost(ub.hostname) && (ua.port || "80") === (ub.port || "80");
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * True only when a persisted config file (JSON or legacy TOML) explicitly recorded a server URL or token.
+ * An empty `{}` or unrelated file must NOT disable fresh-install standalone mode.
+ */
+export function hasConfiguredServer(rawText: string | undefined): boolean {
+  if (!rawText || !rawText.trim()) return false;
+  const trimmed = rawText.trim();
+  if (trimmed.startsWith("{")) {
+    try {
+      const obj = JSON.parse(trimmed) as Record<string, unknown>;
+      const hasStr = (k: string) => typeof obj[k] === "string" && (obj[k] as string).trim().length > 0;
+      return hasStr("server_url") || hasStr("token") || hasStr("server_token");
+    } catch {
+      return false;
+    }
+  }
+  for (const line of trimmed.split(/\r?\n/)) {
+    const t = line.trim();
+    if (!t || t.startsWith("#")) continue;
+    const eq = t.indexOf("=");
+    if (eq <= 0) continue;
+    const key = t.slice(0, eq).trim();
+    const val = t.slice(eq + 1).trim().replace(/^["']|["']$/g, "");
+    if ((key === "url" || key === "server_url" || key === "token") && val.length > 0) return true;
+  }
+  return false;
+}
+
+export type DesktopStartupMode = "embedded-fresh" | "embedded-existing" | "server";
+
+/**
+ * Decide whether the desktop app launches into zero-Docker standalone mode or connects to a remote server.
+ * New installs ALWAYS default to standalone mode unless managed IT policy or MEMENTO_SERVER_URL overrides it;
+ * once the user explicitly switches to a remote server, subsequent launches stay in server mode until switched back.
+ */
+export function resolveStartupMode(opts: {
+  embeddedAvailable: boolean;
+  managedServerUrl?: string;
+  hasSavedServerConfig: boolean;
+  envServerUrl?: string;
+  configServerUrl?: string;
+  embeddedUrl: string;
+}): DesktopStartupMode {
+  if (!opts.embeddedAvailable || opts.managedServerUrl || opts.envServerUrl) return "server";
+  if (!opts.hasSavedServerConfig) return "embedded-fresh";
+  if (isSameLocalOrigin(opts.configServerUrl, opts.embeddedUrl)) return "embedded-existing";
+  return "server";
+}
+
+/** Default initial route inside the desktop window: never drop unauthenticated desktop users onto the marketing landing page. */
+export function resolveDefaultDesktopRoute(opts: { target?: string; lastRoute?: string; hasToken: boolean }): string {
+  if (opts.target) return opts.target;
+  if (!opts.hasToken) return "/auth/login";
+  if (opts.lastRoute && opts.lastRoute !== "/") return opts.lastRoute;
+  return "/ask";
+}

@@ -220,6 +220,7 @@ export function ServerSwitchModal({ open: externalOpen, onClose: externalClose }
   if (!isOpen) return null;
 
   const currentLatency = latencies[currentServer];
+  const isStandaloneLocal = /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/i.test(currentServer);
 
   return (
     <div
@@ -353,7 +354,7 @@ export function ServerSwitchModal({ open: externalOpen, onClose: externalClose }
                 </span>
               </div>
               <Chip tone="accent">
-                {isDesktop ? "客户端模式 (Electron)" : "网页模式 (Web)"}
+                {isDesktop ? (isStandaloneLocal ? "单机模式（本机）" : "服务端模式 (Electron)") : "网页模式 (Web)"}
               </Chip>
             </div>
 
@@ -418,7 +419,7 @@ export function ServerSwitchModal({ open: externalOpen, onClose: externalClose }
           {/* Preset Servers */}
           <div>
             <div style={{ fontSize: 12, fontWeight: 600, color: "var(--aurora-fg3)", marginBottom: 8, letterSpacing: "0.02em" }}>
-              快捷预设
+              {isDesktop ? "切换到服务端模式" : "快捷预设"}
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               {/* Official Cloud */}

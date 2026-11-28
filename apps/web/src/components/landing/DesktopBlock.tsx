@@ -13,12 +13,13 @@ export function DesktopBlock() {
     { os: t.landing.desktop_macos, ext: t.landing.desktop_macos_ext, icon: "apple" },
     { os: t.landing.desktop_windows, ext: t.landing.desktop_windows_ext, icon: "windows" },
     { os: t.landing.desktop_linux, ext: t.landing.desktop_linux_ext, icon: "linux" },
+    { os: t.landing.desktop_ios, ext: t.landing.desktop_ios_ext, icon: "apple" },
     { os: t.landing.desktop_android, ext: t.landing.desktop_android_ext, icon: "devices" },
   ];
 
   return (
     <section id="desktop" style={{ padding: "56px 20px", maxWidth: 1120, margin: "0 auto" }}>
-      <div style={{ maxWidth: 680, marginBottom: 28 }}>
+      <div style={{ maxWidth: 740, marginBottom: 28 }}>
         <h2
           style={{
             margin: 0,
@@ -35,7 +36,7 @@ export function DesktopBlock() {
           {t.landing.desktop_sub}
         </p>
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4" style={{ gap: 14 }}>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5" style={{ gap: 14 }}>
         {platforms.map((p) => (
           <DownloadCard key={p.os} os={p.os} ext={p.ext} icon={p.icon} />
         ))}

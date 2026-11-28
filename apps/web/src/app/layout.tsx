@@ -23,8 +23,8 @@ export const viewport: Viewport = {
 // set in a client useEffect. English users' client-side locale hook still
 // rewrites to English on mount — the cost is one frame of Chinese title.
 export const metadata: Metadata = {
-  title: "Memento — AI 编程记忆",
-  description: "统一收纳 Claude Code、Codex、Cursor、Obsidian 等 AI 编码工具的对话、计划与记忆文件,自建托管,跨设备可搜。A shared brain for your AI coding tools — self-hosted, cross-device, searchable.",
+  title: "Memento — 给你的 AI 工具建个共享大脑与全能工作台",
+  description: "跨设备自动采集 Claude Code、Codex、Antigravity、Cursor、WorkBuddy 等 10+ AI 工具的对话与记忆；桌面端默认免 Docker 单机开箱即用，随时切换云端或私有化服务版，支持多机智能体协作与 iOS / Android 原生协同。",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
@@ -33,11 +33,11 @@ export const metadata: Metadata = {
   },
   icons: {
     icon: [
-      { url: "/favicon.svg?v=2", type: "image/svg+xml" },
-      { url: "/favicon.png", type: "image/png" },
+      { url: "/favicon.svg?v=3", type: "image/svg+xml" },
+      { url: "/favicon.png?v=3", type: "image/png" },
     ],
     apple: [
-      { url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" },
+      { url: "/apple-touch-icon.png?v=3", sizes: "180x180", type: "image/png" },
     ],
   },
 };

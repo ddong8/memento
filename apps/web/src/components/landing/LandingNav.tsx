@@ -69,7 +69,7 @@ export function LandingNav() {
           <NavLink href="#features">{t.landing.nav_features}</NavLink>
           <NavLink href="#workbench">{t.landing.nav_workbench}</NavLink>
           <NavLink href="#tools">{t.landing.nav_tools}</NavLink>
-          <NavLink href="#install">{t.landing.nav_install}</NavLink>
+          <NavLink href="#desktop">{t.landing.nav_install}</NavLink>
           <NavLink href="https://github.com/ddong8/memento" external>
             {t.landing.nav_github}
           </NavLink>

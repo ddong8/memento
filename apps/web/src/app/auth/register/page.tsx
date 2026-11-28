@@ -2,13 +2,15 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { useI18n } from "@/lib/i18n";
 import { Icon } from "@/components/aurora/Icon";
 import { MementoMark } from "@/components/aurora/MementoMark";
 import { Btn, Glass, GhostInput } from "@/components/aurora/primitives";
 import { TokenDisplay } from "@/components/TokenDisplay";
-import { api, type UserInfo } from "@/lib/api-client";
+import { api, getApiBase, openServerSwitchModal, type UserInfo } from "@/lib/api-client";
+import { desktop } from "@/lib/desktop";
 import { GithubLoginSection, SsoLoginButton } from "../github-login";
 
 // Defined at module scope — NOT inside RegisterPage. Otherwise every keystroke
@@ -30,12 +32,31 @@ export default function RegisterPage() {
   const [inviteCode, setInviteCode] = useState("");
   const [error, setError] = useState("");
   const [registered, setRegistered] = useState<UserInfo | null>(null);
+  const [autoLoggedIn, setAutoLoggedIn] = useState(false);
+  const [currentServer, setCurrentServer] = useState<string>("");
   const [mode, setMode] = useState<{ mode: "open" | "invite_only" | "closed"; has_any_user: boolean; github_enabled?: boolean; sso_enabled?: boolean; sso_name?: string; password_login?: boolean } | null>(null);
-  const { register } = useAuth();
+  const { register, login } = useAuth();
   const { t } = useI18n();
+  const router = useRouter();
+  const isStandaloneLocal = /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/i.test(currentServer);
+  const isFreshStandalone = isStandaloneLocal && mode !== null && !mode.has_any_user;
 
   useEffect(() => {
     api.getRegistrationMode().then(setMode).catch(() => {});
+    const initServer = async () => {
+      const d = desktop();
+      if (d?.server?.get) {
+        try {
+          const info = await d.server.get();
+          if (info.current) {
+            setCurrentServer(info.current.replace(/\/+$/, ""));
+            return;
+          }
+        } catch {}
+      }
+      setCurrentServer(getApiBase().replace(/\/+$/, ""));
+    };
+    void initServer();
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -44,6 +65,14 @@ export default function RegisterPage() {
     try {
       const info = await register(email, password, name || undefined, inviteCode || undefined);
       setRegistered(info);
+      if (info.status === "active") {
+        try {
+          await login(email, password);
+          setAutoLoggedIn(true);
+        } catch {
+          // fall back to manual goToLogin link below
+        }
+      }
       // Hand the brand-new token off to the Memento desktop app when
       // the page is embedded in its dashboard iframe (?embed=memento).
       if (typeof window !== "undefined" && info.collector_token) {
@@ -106,10 +135,22 @@ export default function RegisterPage() {
                 {t.auth.collectorTokenLabel}
               </div>
               <TokenDisplay token={registered.collector_token} maskByDefault={false} />
-              <div style={{ marginTop: 20, textAlign: "center" }}>
-                <Link href="/auth/login" style={{ color: "var(--aurora-accent)", fontSize: 13, fontWeight: 500 }}>
-                  {t.auth.goToLogin}
-                </Link>
+              <div style={{ marginTop: 20, display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
+                {autoLoggedIn ? (
+                  <Btn
+                    type="button"
+                    size="lg"
+                    style={{ width: "100%", justifyContent: "center" }}
+                    iconRight="arrow_right"
+                    onClick={() => router.replace("/ask")}
+                  >
+                    进入 Memento 工作台
+                  </Btn>
+                ) : (
+                  <Link href="/auth/login" style={{ color: "var(--aurora-accent)", fontSize: 13, fontWeight: 500 }}>
+                    {t.auth.goToLogin}
+                  </Link>
+                )}
               </div>
             </>
           ) : (
@@ -133,10 +174,10 @@ export default function RegisterPage() {
         <MementoMark size={50} radius={14} />
       </div>
       <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: "var(--aurora-fg1)", textAlign: "center", letterSpacing: "-0.03em" }}>
-        {t.auth.registerTitle}
+        {isFreshStandalone ? "初始化单机模式" : t.auth.registerTitle}
       </h1>
-      <p style={{ margin: "6px 0 22px", fontSize: 13.5, color: "var(--aurora-fg3)", textAlign: "center" }}>
-        {t.app.title}
+      <p style={{ margin: "6px 0 22px", fontSize: 13.5, color: "var(--aurora-fg3)", textAlign: "center", lineHeight: 1.55 }}>
+        {isFreshStandalone ? "创建你的本机所有者账号，数据仅存这台电脑，随时可切换服务端模式" : t.app.title}
       </p>
       {mode?.sso_enabled && (
         <div style={{ marginBottom: mode.password_login === false && mode.has_any_user ? 0 : 16 }}>
@@ -174,8 +215,8 @@ export default function RegisterPage() {
         <GhostInput type="text" placeholder={t.auth.name} value={name} onChange={(e) => setName(e.target.value)} icon="user" />
         <GhostInput type="email" placeholder={t.auth.email} value={email} onChange={(e) => setEmail(e.target.value)} required icon="message" />
         <GhostInput type="password" placeholder={t.auth.password} value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} icon="lock" />
-        {/* Invite code: required if mode=invite_only (and not first user), optional otherwise */}
-        {mode && !(mode.mode === "open" && !mode.has_any_user /* first-user shortcut */) && (
+        {/* Invite code: never shown for the very first owner user (e.g. fresh standalone install) */}
+        {mode && mode.has_any_user && (
           <GhostInput
             type="text"
             placeholder={mode.mode === "invite_only" ? t.auth.inviteCodeRequired : t.auth.inviteCodeOptional}
@@ -192,17 +233,44 @@ export default function RegisterPage() {
           iconRight="arrow_right"
           disabled={mode?.mode === "closed" && mode.has_any_user}
         >
-          {t.register}
+          {isFreshStandalone ? "创建本机账号并开始使用" : t.register}
         </Btn>
       </form>
       {mode?.github_enabled && <GithubLoginSection />}
       </>)}
-      <p style={{ textAlign: "center", fontSize: 12, color: "var(--aurora-fg4)", marginTop: 18 }}>
-        {t.auth.hasAccount}{" "}
-        <Link href="/auth/login" style={{ color: "var(--aurora-accent)", fontWeight: 500 }}>
-          {t.login}
-        </Link>
-      </p>
+      {(!mode || mode.has_any_user) && (
+        <p style={{ textAlign: "center", fontSize: 12, color: "var(--aurora-fg4)", marginTop: 18 }}>
+          {t.auth.hasAccount}{" "}
+          <Link href="/auth/login" style={{ color: "var(--aurora-accent)", fontWeight: 500 }}>
+            {t.login}
+          </Link>
+        </p>
+      )}
+      <div style={{ marginTop: 16, paddingTop: 14, borderTop: "1px solid var(--aurora-border)", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, fontSize: 11, color: "var(--aurora-fg4)", flexWrap: "wrap" }}>
+        <Icon name={isStandaloneLocal ? "devices" : "server"} size={13} style={{ color: "var(--aurora-fg3)" }} />
+        <span>{isStandaloneLocal ? "当前为单机模式（本机）" : "服务器:"}</span>
+        {!isStandaloneLocal && (
+          <span style={{ color: "var(--aurora-fg2)", fontFamily: "var(--font-mono)", maxWidth: 170, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {currentServer || "..."}
+          </span>
+        )}
+        <button
+          type="button"
+          onClick={() => openServerSwitchModal()}
+          style={{
+            background: "none",
+            border: "none",
+            color: "var(--aurora-accent)",
+            fontSize: 11,
+            fontWeight: 500,
+            cursor: "pointer",
+            padding: "0 2px",
+            textDecoration: "underline",
+          }}
+        >
+          {isStandaloneLocal ? "已有服务端？切到服务端模式" : "切换服务器"}
+        </button>
+      </div>
     </Wrap>
   );
 }

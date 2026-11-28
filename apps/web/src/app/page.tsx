@@ -13,6 +13,11 @@ export default function HomePage() {
       if (token) {
         const lastRoute = localStorage.getItem("memento_last_route") || "/ask";
         router.replace(lastRoute);
+        return;
+      }
+      const inDesktop = Boolean((window as unknown as { mementoDesktop?: unknown }).mementoDesktop);
+      if (inDesktop) {
+        router.replace("/auth/login");
       }
     }
   }, [router]);

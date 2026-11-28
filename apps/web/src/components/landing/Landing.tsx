@@ -21,8 +21,8 @@ export function Landing() {
       <ToolMatrix />
       <HowItWorks />
       <BootstrapBlock />
-      <InstallBlock />
       <DesktopBlock />
+      <InstallBlock />
       <Footer />
     </div>
   );

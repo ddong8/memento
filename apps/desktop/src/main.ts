@@ -30,12 +30,16 @@ import {
   createNotificationDeduper,
   getMediaMimeType,
   getTodayKey,
+  hasConfiguredServer,
+  isSameLocalOrigin,
   mediaRemoteUrl,
   normalizeDesktopAppName,
   normalizeMenuItems,
   parseByteRange,
   parseMementoMediaFilePath,
+  resolveDefaultDesktopRoute,
   resolveSameOriginAppPath,
+  resolveStartupMode,
 } from "./helpers";
 
 const UPDATE_CHECK_MS = 6 * 60 * 60_000;
@@ -77,21 +81,18 @@ const embeddedBundleDir = app.isPackaged
     : __dirname;
 const localServer = new LocalServer(join(__dirname, "local-server"), undefined, process.platform, spawnEmbeddedServer, embeddedBundleDir);
 
-function isSameLocalOrigin(a: string | undefined, b: string | undefined): boolean {
-  if (!a || !b) return false;
-  try {
-    const ua = new URL(a);
-    const ub = new URL(b);
-    const localHost = (h: string) => h === "127.0.0.1" || h === "localhost" || h === "[::1]";
-    return localHost(ua.hostname) && localHost(ub.hostname) && (ua.port || "80") === (ub.port || "80");
-  } catch {
-    return false;
-  }
-}
-
 function hasSavedCollectorConfig(): boolean {
   const dir = join(homedir(), ".memento");
-  return existsSync(join(dir, "collector.json")) || existsSync(join(dir, "config.json")) || existsSync(join(dir, "config.toml"));
+  for (const name of ["collector.json", "config.json", "config.toml"]) {
+    const file = join(dir, name);
+    if (!existsSync(file)) continue;
+    try {
+      if (hasConfiguredServer(readFileSync(file, "utf8"))) return true;
+    } catch {
+      /* ignore unreadable config */
+    }
+  }
+  return false;
 }
 
 async function bootEmbeddedAndLoad(): Promise<void> {
@@ -213,7 +214,11 @@ async function adoptWebLoginAndRoute(): Promise<void> {
 
 async function loadApp(target?: string): Promise<void> {
   if (!win) return;
-  const route = target || config.lastRoute || "/";
+  const route = resolveDefaultDesktopRoute({
+    target,
+    lastRoute: config.lastRoute,
+    hasToken: Boolean(config.token),
+  });
   const url = (await handoffUrl(route)) ?? `${serverOrigin()}${route}`;
   try {
     await win.loadURL(url);
@@ -922,7 +927,7 @@ function setupAppMenu(): void {
               { type: "separator" as const },
               { label: "首选项 / 个人设置", accelerator: "CmdOrCtrl+,", click: () => void navigateApp("/profile") },
               {
-                label: "切换服务器...",
+                label: "切换运行模式 / 服务器...",
                 accelerator: "CmdOrCtrl+Alt+S",
                 click: () => {
                   if (win && !win.isDestroyed()) {
@@ -955,7 +960,7 @@ function setupAppMenu(): void {
             submenu: [
               { label: "首选项 / 个人设置", accelerator: "Ctrl+,", click: () => void navigateApp("/profile") },
               {
-                label: "切换服务器...",
+                label: "切换运行模式 / 服务器...",
                 accelerator: "Ctrl+Alt+S",
                 click: () => {
                   if (win && !win.isDestroyed()) {
@@ -1119,7 +1124,11 @@ function refreshTray(): void {
       },
       { type: "separator" },
       {
-        label: "切换服务器...",
+        label: isSameLocalOrigin(config?.serverUrl, localServer.embedded.url()) ? "当前：单机模式（本机）" : "当前：服务端模式",
+        enabled: false,
+      },
+      {
+        label: "切换运行模式 / 服务器...",
         click: () => {
           if (win && !win.isDestroyed()) {
             showWindow();
@@ -1467,10 +1476,12 @@ function clearCacheOnNewVersion(): void {
 
 /** Point the app and this device's daemon at another server (the user already confirmed). */
 async function switchServer(cleanUrl: string, resetAuth: boolean): Promise<void> {
+  const switchingToEmbedded = isSameLocalOrigin(cleanUrl, localServer.embedded.url());
   config.serverUrl = cleanUrl;
-  config.webUrl = cleanUrl;
+  config.webUrl = switchingToEmbedded ? undefined : cleanUrl;
   if (resetAuth) {
     config.token = "";
+    config.lastRoute = undefined;
   }
   await saveConfig(config);
 
@@ -1496,7 +1507,7 @@ async function switchServer(cleanUrl: string, resetAuth: boolean): Promise<void>
         });
       }
     } catch {}
-    await loadApp("/");
+    await loadApp(resetAuth ? "/auth/login" : undefined);
   }
 }
 
@@ -2061,12 +2072,17 @@ if (!app.requestSingleInstanceLock()) {
     const hidden = process.argv.includes(HIDDEN_ARG);
     const managed = managedPolicy().serverUrl;
     const embeddedUrl = localServer.embedded.url();
-    const isFreshStandalone = !hasSavedCollectorConfig() && !process.env.MEMENTO_SERVER_URL;
-    const shouldAutoStartEmbedded =
-      localServer.embedded.isAvailable() && !managed && (isFreshStandalone || isSameLocalOrigin(config.serverUrl, embeddedUrl));
+    const startupMode = resolveStartupMode({
+      embeddedAvailable: localServer.embedded.isAvailable(),
+      managedServerUrl: managed,
+      hasSavedServerConfig: hasSavedCollectorConfig(),
+      envServerUrl: process.env.MEMENTO_SERVER_URL,
+      configServerUrl: config.serverUrl,
+      embeddedUrl,
+    });
 
-    if (shouldAutoStartEmbedded) {
-      if (isFreshStandalone) {
+    if (startupMode === "embedded-fresh" || startupMode === "embedded-existing") {
+      if (startupMode === "embedded-fresh") {
         config = { ...config, serverUrl: embeddedUrl, webUrl: undefined };
         await saveConfig(config);
       }

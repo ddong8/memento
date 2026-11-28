@@ -1,6 +1,7 @@
 // Memento PWA Service Worker — High performance cache-first for static assets
-const CACHE_NAME = "memento-static-v1";
+const CACHE_NAME = "memento-static-v2";
 const STATIC_EXTENSIONS = /\.(?:js|css|woff2?|ttf|png|jpe?g|webp|svg|ico)$/i;
+const BYPASS_ICON_PATH = /^\/(?:favicon|apple-touch-icon)/i;
 
 self.addEventListener("install", (event) => {
   self.skipWaiting();
@@ -53,11 +54,12 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // 1. Strict Bypass: Never cache API endpoints, SSE streams, or non-GET requests
+  // 1. Strict Bypass: Never cache API endpoints, SSE streams, favicons, or non-GET requests
   if (
     event.request.method !== "GET" ||
     url.pathname.startsWith("/api/") ||
     url.pathname.startsWith("/auth/") ||
+    BYPASS_ICON_PATH.test(url.pathname) ||
     url.protocol.startsWith("chrome-extension")
   ) {
     return;

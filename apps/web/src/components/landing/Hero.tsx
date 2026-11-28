@@ -139,7 +139,7 @@ export function Hero() {
             </Link>
           )}
           <a
-            href="#install"
+            href="#desktop"
             style={{
               display: "inline-flex",
               alignItems: "center",
@@ -154,7 +154,7 @@ export function Hero() {
             onMouseEnter={(e) => (e.currentTarget.style.color = "var(--aurora-accent)")}
             onMouseLeave={(e) => (e.currentTarget.style.color = "var(--aurora-fg2)")}
           >
-            <Icon name="terminal" size={14} />
+            <Icon name="download" size={14} />
             <span>{t.landing.cta_install}</span>
           </a>
         </div>

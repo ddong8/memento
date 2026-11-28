@@ -15,6 +15,7 @@ import * as aiHealth from "./ai-health";
 import { callPlainChat } from "./ai-provider";
 import { safeJsonLoads } from "./dreaming-core";
 import { cleanUserVoice, SUBAGENT_PATH_REGEX } from "./dreaming-voice";
+import { getRecentlyInjectedMemoryIds, recordMemoryFeedback } from "./guidance-service";
 import { recordOnlineGraphObservation } from "./mind-resonance-service";
 import { slugify, uniqueSlug, upsertMinedSkill, type SkillRow } from "./skills";
 import { addTodo, cleanTitle, closeTodo, openTodos, parseDue, type TodoRow } from "./todos";
@@ -527,6 +528,15 @@ todo 的格式：{"title": "...", "detail": null, "due": null}；done 的格式�
 
   const rawOut = String(data.outcome ?? "unknown");
   const outcome = ["done", "partial", "failed", "chat"].includes(rawOut) ? rawOut : "unknown";
+  const pitfallsSeen = Array.isArray(result.pitfalls_seen) ? (result.pitfalls_seen as string[]) : [];
+  if (pitfallsSeen.length) {
+    // Known pitfall was hit again in this session -> record negative attribution so ranking/review surfaces it
+    void recordMemoryFeedback(db, pitfallsSeen, "neg");
+  } else if (outcome === "done") {
+    // Session completed cleanly without repeating any known pitfalls -> reinforce recently recalled memories
+    const recentIds = await getRecentlyInjectedMemoryIds(redis, user.id).catch(() => []);
+    if (recentIds.length) void recordMemoryFeedback(db, recentIds.slice(-6), "pos");
+  }
   await recordReview(db, user.id, cand, outcome, String(data.summary ?? "").slice(0, 500), result);
   return result;
 }

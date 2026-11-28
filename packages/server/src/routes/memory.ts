@@ -120,7 +120,7 @@ memoryRoutes.get("/resonance", async (c) => {
   const cached = await cacheGet(redis, cacheKey);
   if (cached != null) return c.json(cached);
 
-  const res = await senseResonance(db, redis, user, { query, project, action, limitEntities, limitPitfalls });
+  const res = await senseResonance(db, redis, user, { query, project, action, limitEntities, limitPitfalls, settings: c.var.deps.settings });
   const result = format === "markdown" ? { markdown: renderMindResonanceMarkdown(res) } : res;
   await cacheSet(redis, cacheKey, result, 30);
   return c.json(result);

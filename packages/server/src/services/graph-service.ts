@@ -1,7 +1,7 @@
 // Knowledge graph auto-extraction from conversations & notes (server/server/services/graph_service.py).
 import { createHash, randomUUID } from "node:crypto";
 
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import type { Redis } from "ioredis";
 
 import type { Settings } from "../config";
@@ -259,4 +259,181 @@ export async function extractKnowledgeFromDocument(
   } finally {
     await lock.release();
   }
+}
+
+/**
+ * Nightly knowledge graph hygiene:
+ * 1) Merge exact case-insensitive duplicate entities (lower(trim(name))) per user,
+ *    preserving all observations, relations (summing colliding edge strengths), and aliases on the canonical row.
+ * 2) Soft-mark stale orphan `concept` entities (> orphanDays old, 0 observations, 0 relations) with `stale_at`
+ *    instead of hard deleting, keeping the audit trail intact.
+ */
+export async function deduplicateAndPruneGraph(
+  db: Db,
+  userId: string,
+  opts: { maxGroups?: number; orphanDays?: number; maxOrphans?: number; nowMs?: number } = {},
+): Promise<{ groups_merged: number; duplicates_removed: number; orphans_marked_stale: number }> {
+  const maxGroups = opts.maxGroups ?? 200;
+  const orphanDays = opts.orphanDays ?? 60;
+  const maxOrphans = opts.maxOrphans ?? 500;
+  const nowMs = opts.nowMs ?? Date.now();
+  const nowIso = new Date(nowMs).toISOString();
+
+  // 1) Find case-insensitive duplicate entity groups for this user
+  const dupGroups = (await db.execute(sql`
+    SELECT lower(btrim(name)) AS norm_name, count(*)::int AS cnt
+    FROM knowledge_entities
+    WHERE user_id = ${userId}::uuid
+    GROUP BY lower(btrim(name))
+    HAVING count(*) > 1
+    ORDER BY count(*) DESC
+    LIMIT ${maxGroups}
+  `)) as unknown as { norm_name: string; cnt: number }[];
+
+  let groupsMerged = 0;
+  let duplicatesRemoved = 0;
+
+  for (const grp of dupGroups) {
+    const members = (await db.execute(sql`
+      SELECT e.id, e.name, e.summary, e.aliases, e.created_at,
+             (SELECT count(*)::int FROM knowledge_observations o WHERE o.entity_id = e.id) AS obs_cnt
+      FROM knowledge_entities e
+      WHERE e.user_id = ${userId}::uuid AND lower(btrim(e.name)) = ${grp.norm_name}
+      ORDER BY obs_cnt DESC, e.created_at ASC
+    `)) as unknown as { id: string; name: string; summary: string | null; aliases: unknown; created_at: string; obs_cnt: number }[];
+    if (members.length < 2) continue;
+
+    const canonical = members[0]!;
+    const dupes = members.slice(1);
+    const dupeIds = dupes.map((d) => d.id);
+
+    const aliasSet = new Set<string>(
+      Array.isArray(canonical.aliases) ? canonical.aliases.map((a) => String(a).trim()).filter(Boolean) : [],
+    );
+    let bestSummary = canonical.summary || null;
+    for (const d of dupes) {
+      if (d.name && d.name !== canonical.name) aliasSet.add(d.name);
+      if (Array.isArray(d.aliases)) {
+        for (const a of d.aliases) {
+          const s = String(a).trim();
+          if (s && s !== canonical.name) aliasSet.add(s);
+        }
+      }
+      if (!bestSummary && d.summary) bestSummary = d.summary;
+    }
+
+    // Re-point observations to canonical entity
+    await db
+      .update(knowledgeObservations)
+      .set({ entityId: canonical.id })
+      .where(inArray(knowledgeObservations.entityId, dupeIds));
+
+    // Re-point relations while collapsing duplicate edges & eliminating self-loops
+    const rels = await db
+      .select()
+      .from(knowledgeRelations)
+      .where(inArray(knowledgeRelations.sourceId, dupeIds));
+    for (const rel of rels) {
+      const nextSource = canonical.id;
+      const nextTarget = dupeIds.includes(rel.targetId) ? canonical.id : rel.targetId;
+      if (nextSource === nextTarget) {
+        await db.delete(knowledgeRelations).where(eq(knowledgeRelations.id, rel.id));
+        continue;
+      }
+      const [existing] = await db
+        .select()
+        .from(knowledgeRelations)
+        .where(
+          and(
+            eq(knowledgeRelations.sourceId, nextSource),
+            eq(knowledgeRelations.targetId, nextTarget),
+            eq(knowledgeRelations.relationType, rel.relationType),
+          ),
+        )
+        .limit(1);
+      if (existing && existing.id !== rel.id) {
+        await db
+          .update(knowledgeRelations)
+          .set({ strength: (existing.strength ?? 1) + (rel.strength ?? 1) })
+          .where(eq(knowledgeRelations.id, existing.id));
+        await db.delete(knowledgeRelations).where(eq(knowledgeRelations.id, rel.id));
+      } else {
+        await db
+          .update(knowledgeRelations)
+          .set({ sourceId: nextSource, targetId: nextTarget })
+          .where(eq(knowledgeRelations.id, rel.id));
+      }
+    }
+
+    const incomingRels = await db
+      .select()
+      .from(knowledgeRelations)
+      .where(inArray(knowledgeRelations.targetId, dupeIds));
+    for (const rel of incomingRels) {
+      const nextSource = dupeIds.includes(rel.sourceId) ? canonical.id : rel.sourceId;
+      const nextTarget = canonical.id;
+      if (nextSource === nextTarget) {
+        await db.delete(knowledgeRelations).where(eq(knowledgeRelations.id, rel.id));
+        continue;
+      }
+      const [existing] = await db
+        .select()
+        .from(knowledgeRelations)
+        .where(
+          and(
+            eq(knowledgeRelations.sourceId, nextSource),
+            eq(knowledgeRelations.targetId, nextTarget),
+            eq(knowledgeRelations.relationType, rel.relationType),
+          ),
+        )
+        .limit(1);
+      if (existing && existing.id !== rel.id) {
+        await db
+          .update(knowledgeRelations)
+          .set({ strength: (existing.strength ?? 1) + (rel.strength ?? 1) })
+          .where(eq(knowledgeRelations.id, existing.id));
+        await db.delete(knowledgeRelations).where(eq(knowledgeRelations.id, rel.id));
+      } else {
+        await db
+          .update(knowledgeRelations)
+          .set({ sourceId: nextSource, targetId: nextTarget })
+          .where(eq(knowledgeRelations.id, rel.id));
+      }
+    }
+
+    await db
+      .update(knowledgeEntities)
+      .set({ summary: bestSummary, aliases: [...aliasSet], updatedAt: nowIso })
+      .where(eq(knowledgeEntities.id, canonical.id));
+
+    await db.delete(knowledgeEntities).where(inArray(knowledgeEntities.id, dupeIds));
+    groupsMerged++;
+    duplicatesRemoved += dupeIds.length;
+  }
+
+  // 2) Soft-mark orphan concept entities older than orphanDays with 0 observations & 0 relations
+  const cutoffIso = new Date(nowMs - orphanDays * 86400_000).toISOString();
+  const orphans = (await db.execute(sql`
+    UPDATE knowledge_entities e
+    SET stale_at = ${nowIso}::timestamptz,
+        stale_reason = ${`孤立概念超过 ${orphanDays} 天无观察与关联`}
+    WHERE e.id IN (
+      SELECT ke.id
+      FROM knowledge_entities ke
+      WHERE ke.user_id = ${userId}::uuid
+        AND ke.entity_type = 'concept'
+        AND ke.stale_at IS NULL
+        AND coalesce(ke.updated_at, ke.created_at) < ${cutoffIso}::timestamptz
+        AND NOT EXISTS (SELECT 1 FROM knowledge_observations o WHERE o.entity_id = ke.id)
+        AND NOT EXISTS (SELECT 1 FROM knowledge_relations r WHERE r.source_id = ke.id OR r.target_id = ke.id)
+      LIMIT ${maxOrphans}
+    )
+    RETURNING e.id
+  `)) as unknown as { id: string }[];
+
+  return {
+    groups_merged: groupsMerged,
+    duplicates_removed: duplicatesRemoved,
+    orphans_marked_stale: orphans.length,
+  };
 }

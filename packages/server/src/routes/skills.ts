@@ -1,5 +1,5 @@
 // /api/skills: review & publish skills, collector injection endpoints (server/server/api/skills.py).
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, lt, sql } from "drizzle-orm";
 import { Hono } from "hono";
 
 import { currentUser, verifyCollectorToken, type UserRow } from "../auth/current-user";
@@ -11,6 +11,7 @@ import { HttpError, normalizeUuid, parseJsonObject, parseOptionalJsonObject, req
 import { profileTargets } from "../services/profile-targets";
 import {
   BODY_MAX,
+  batchPublishSkills,
   cleanBody,
   DESCRIPTION_MAX,
   injectionFor,
@@ -146,6 +147,56 @@ skillRoutes.post("/injection/status", async (c) => {
     .set({ skillStatus: withoutNul({ results: cleanResults, reported_at: reportedAt }) })
     .where(eq(machines.id, machine.id));
   return c.json({ status: "ok" });
+});
+
+// Batch review endpoints (registered before /:skillId routes)
+skillRoutes.post("/batch/publish", async (c) => {
+  const { db } = c.var.deps;
+  const user = await currentUser(c);
+  const body = (await parseOptionalJsonObject(c)) ?? {};
+  const ids = Array.isArray(body.ids) ? body.ids.map((x) => normalizeUuid(String(x))).filter((x): x is string => Boolean(x)) : undefined;
+  const minSeen = typeof body.min_seen === "number" && Number.isFinite(body.min_seen) ? Math.max(1, Math.min(50, Math.floor(body.min_seen))) : 2;
+  const applyUpdates = body.apply_updates !== false;
+  const res = await batchPublishSkills(db, user, { ids, minSeen, applyUpdates });
+  await bustSkillsCache(c, user.id);
+  return c.json({ ...res, counts: await skillCounts(db, user) });
+});
+
+skillRoutes.post("/batch/dismiss", async (c) => {
+  const { db } = c.var.deps;
+  const user = await currentUser(c);
+  const body = (await parseOptionalJsonObject(c)) ?? {};
+  const ids = Array.isArray(body.ids) ? body.ids.map((x) => normalizeUuid(String(x))).filter((x): x is string => Boolean(x)) : [];
+  const olderThanDays = typeof body.older_than_days === "number" && Number.isFinite(body.older_than_days) ? Math.max(1, Math.floor(body.older_than_days)) : null;
+  const maxSeen = typeof body.max_seen === "number" && Number.isFinite(body.max_seen) ? Math.max(1, Math.floor(body.max_seen)) : 1;
+  const nowIso = new Date().toISOString();
+  let dismissed = 0;
+  if (ids.length) {
+    const rows = await db
+      .update(skills)
+      .set({ status: "dismissed", updatedAt: nowIso })
+      .where(and(eq(skills.userId, user.id), eq(skills.status, "draft"), inArray(skills.id, ids)))
+      .returning({ id: skills.id });
+    dismissed = rows.length;
+  } else if (olderThanDays) {
+    const cutoffIso = new Date(Date.now() - olderThanDays * 86400_000).toISOString();
+    const rows = await db
+      .update(skills)
+      .set({ status: "dismissed", updatedAt: nowIso })
+      .where(
+        and(
+          eq(skills.userId, user.id),
+          eq(skills.status, "draft"),
+          eq(skills.editedByUser, false),
+          sql`${skills.timesSeen} <= ${maxSeen}`,
+          lt(skills.updatedAt, cutoffIso),
+        ),
+      )
+      .returning({ id: skills.id });
+    dismissed = rows.length;
+  }
+  await bustSkillsCache(c, user.id);
+  return c.json({ dismissed, counts: await skillCounts(db, user) });
 });
 
 skillRoutes.put("/:skillId", async (c) => {

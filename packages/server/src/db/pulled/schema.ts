@@ -237,6 +237,8 @@ export const userMemories = pgTable("user_memories", {
 	isFolder: boolean("is_folder").notNull(),
 	lastRecalledAt: timestamp("last_recalled_at", { withTimezone: true, mode: 'string' }),
 	recallCount: integer("recall_count").default(0).notNull(),
+	feedbackPos: integer("feedback_pos").default(0).notNull(),
+	feedbackNeg: integer("feedback_neg").default(0).notNull(),
 	status: varchar({ length: 20 }).default('active').notNull(),
 	statusReason: text("status_reason"),
 	supersededBy: uuid("superseded_by"),

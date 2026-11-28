@@ -22,6 +22,7 @@ import {
   senseResonance,
   validateShellCommandAgainstIronRules,
 } from "./mind-resonance-service";
+import { evaluateAskCompletionGuard, guardEnabled, recordServerGuardEvent } from "./guard-service";
 import { termsFor } from "./guidance-service";
 import { compactLoopMessages, isContextOverflowError, prepareAiHistory, type CompactState, type HistoryTurn } from "./orchestrator-context";
 import { executeKnowledgeTool, KNOWLEDGE_TOOLS_SCHEMA, READ_ONLY_TOOL_NAMES } from "./orchestrator-tools";
@@ -371,7 +372,7 @@ export async function* runAgentLoop(
   if (prof) sysParts.push(`\n## 关于当前用户（常驻画像，请始终遵守）\n${prof}`);
 
   try {
-    const res = await senseResonance(db, redis, user, { query: opts.question, project: opts.project ?? null, action: "agent" });
+    const res = await senseResonance(db, redis, user, { query: opts.question, project: opts.project ?? null, action: "agent", settings });
     const md = renderMindResonanceMarkdown(res, opts.liveRules);
     if (md) sysParts.push(`\n${md}`);
   } catch {
@@ -414,6 +415,8 @@ export async function* runAgentLoop(
   const allSources: Record<string, unknown>[] = [];
   const thinkingParts: string[] = [];
   const callCounts = new Map<string, number>();
+  const completionGuardOn = guardEnabled(user);
+  let guardRetried = false;
   let finalAnswer = "";
 
   for (let iter = 0; iter < MAX_AGENT_ITERATIONS; iter++) {
@@ -458,7 +461,45 @@ export async function* runAgentLoop(
 
     const toolCalls = Array.isArray(msg.tool_calls) ? (msg.tool_calls as Record<string, unknown>[]) : [];
     if (!toolCalls.length) {
-      finalAnswer = cleanGuardrailOutput(clean || String(msg.content || ""));
+      const candidate = cleanGuardrailOutput(clean || String(msg.content || ""));
+      if (completionGuardOn && toolCallsSaved.length > 0) {
+        const evalRes = evaluateAskCompletionGuard(candidate, toolCallsSaved);
+        if (evalRes) {
+          if (evalRes.blocked && !guardRetried && iter < MAX_AGENT_ITERATIONS - 1) {
+            guardRetried = true;
+            void recordServerGuardEvent(db, user.id, {
+              tool: "memento_ask",
+              sessionId: opts.conversationId,
+              outcome: evalRes.outcome,
+              blocked: true,
+              followup: false,
+              deploy: evalRes.deploy,
+              claim: evalRes.claim,
+              check: evalRes.check,
+              cwd: opts.project,
+            });
+            messages.push({ role: "assistant", content: candidate });
+            messages.push({
+              role: "user",
+              content:
+                "【完成核查拦截】你刚才声称任务已完成/已生效，但本轮设备执行记录中尚无成功的验证步骤（或存在失败的命令）。请先补充一条实际的验证命令确认生效，或在最终回复中如实说明哪些部分尚未验证或失败原因。",
+            });
+            continue;
+          }
+          void recordServerGuardEvent(db, user.id, {
+            tool: "memento_ask",
+            sessionId: opts.conversationId,
+            outcome: evalRes.outcome,
+            blocked: evalRes.blocked,
+            followup: guardRetried,
+            deploy: evalRes.deploy,
+            claim: evalRes.claim,
+            check: evalRes.check,
+            cwd: opts.project,
+          });
+        }
+      }
+      finalAnswer = candidate;
       if (finalAnswer) yield { type: "delta", text: finalAnswer };
       break;
     }

@@ -5,21 +5,24 @@ import { createHash, randomUUID } from "node:crypto";
 import { and, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
 import type { Redis } from "ioredis";
 
-import { cacheDeletePrefix, cacheGet } from "../cache";
+import { cacheDeletePrefix, cacheGet, cacheSet } from "../cache";
+import type { Settings } from "../config";
 import type { Db } from "../db/client";
 import {
   documents,
   knowledgeEntities,
   knowledgeObservations,
   knowledgeRelations,
+  learningEvals,
   machines,
   projects,
   userMemories,
 } from "../db/pulled/schema";
 import { normalizeUuid } from "../http";
 import { CODE_BLUEPRINT_TITLES, codeBlueprintPath, pickFreshest } from "./blueprint-pick";
+import { callEmbeddingServer } from "./embedding";
 import { findEntity } from "./entity-canon";
-import { score, termsFor, touchRecalled } from "./guidance-service";
+import { feedbackMultiplier, score, termsFor, touchRecalled, trackInjectedMemories } from "./guidance-service";
 import { getPublishedProfile } from "./profile-read";
 import { splitProfileScopes } from "./profile-scopes";
 import { cleanText } from "./session-compactor";
@@ -42,56 +45,42 @@ export const DEFAULT_DOMAIN_SCENARIOS: DomainScenario[] = [
   {
     id: "evolution_memory",
     name: "AI 记忆与自进化底座",
-    keywords: ["自进化", "心领神会", "懂我", "记忆", "画像", "dreaming", "memento", "mcp", "profile", "agentic"],
-    mindset: "希望工具能越用越了解用户，具备自进化能力；打破工具孤岛，沉淀终身资产；一次做到位，不绕弯子。",
-    target_project: "memento",
+    keywords: ["自进化", "心领神会", "懂我", "记忆", "画像", "dreaming", "mcp", "profile", "agentic"],
+    mindset: "持续沉淀长期规则、技能与避坑经验，打破工具孤岛，深入定位根因并一次做到位。",
+    target_project: null,
     anchors: ["心领神会", "常驻画像", "自进化", "避坑"],
     search_query_extras: "心领神会 常驻画像 自进化",
     defense_rules: [
       "1) 仔细深入调查问题，从根子上彻底解决，避免重复出现；一次做到位，交付前本地类型检查与自测确认通过。",
       "2) 直接给结论和指令，不绕弯子、不废话、不反问用户。",
     ],
-    device_affinity: "mac",
+    device_affinity: null,
   },
   {
-    id: "chemistry_pubchem",
-    name: "化学研发与逆合成规划",
-    keywords: ["逆合成", "pubchem", "cas", "smiles", "化合物", "路线", "试剂", "化学", "分子"],
-    mindset: "CAS号精准表述不猜测名称；路线条数可控且AI重排；严禁不稳定格式试剂；一键接入oneapi模型。",
-    target_project: "pubchem",
-    anchors: ["CAS", "SMILES", "逆合成", "格式试剂", "路线重排"],
-    search_query_extras: "CAS SMILES 逆合成",
+    id: "data_pipeline",
+    name: "数据采集、清洗与资产治理",
+    keywords: ["抓取", "爬虫", "爬取", "数据源", "数据清洗", "etl", "标注", "数据集", "资产登记"],
+    mindset: "先校验输入与字段完整性，修改前备份原始数据，明确去重与统计口径并提供可溯源登记。",
+    target_project: null,
+    anchors: ["数据清洗", "字段对齐", "去重", "备份", "资产登记"],
+    search_query_extras: "数据清洗 备份 溯源",
     defense_rules: [
-      "1) 遇到原文中是 CAS 号的化合物，直接使用 CAS 号表述，严禁猜测化合物名称。",
-      "2) 逆合成结果必须经过 AI 重排，步数多的路线不能排在前面；避免生成不稳定的格式试剂。",
-    ],
-    device_affinity: "linux",
-  },
-  {
-    id: "data_harvest",
-    name: "化学数据抓取与资产沉淀",
-    keywords: ["workbuddy", "抓取", "爬虫", "爬取", "数据源", "数据清洗", "资产登记"],
-    mindset: "优先中文网站且必抓中文名；CAS和SMILES为必须字段；先整库dump本地再处理；提供可溯源登记。",
-    target_project: "workbuddy",
-    anchors: ["CAS", "SMILES", "中文名称", "数据抓取", "资产登记"],
-    search_query_extras: "数据抓取 中文名称 dump",
-    defense_rules: [
-      "1) 抓取化学数据源优先中文网站，且必须抓取中文名称；CAS 与 SMILES 为必须字段。",
-      "2) 先整库 dump 到本地再处理数据；修改数据前先备份原表数据，倾向打标记而非硬删除。",
+      "1) 批量处理或修改数据前先备份原表或导出副本；数据操作倾向打标记而非硬删除，便于审计追踪。",
+      "2) 输入先做内容类型校验，明确去重键与统计口径。",
     ],
     device_affinity: "linux",
   },
   {
     id: "ui_performance",
-    name: "前端交互极致性能与设计",
-    keywords: ["前端", "tab", "切换", "卡顿", "渲染", "ui", "aurora", "延迟", "流畅", "动画", "保活"],
-    mindset: "交互零延迟、0ms切换无损保活；界面精致高级；绝不阻塞主线程；桌面端应用名称去掉desktop后缀。",
-    target_project: "memento",
-    anchors: ["交互零延迟", "全屏铺满", "缓存", "流式输出"],
+    name: "前端交互性能与视觉体验",
+    keywords: ["前端", "tab", "切换", "卡顿", "渲染", "ui", "aurora", "延迟", "流畅", "动画", "保活", "适配"],
+    mindset: "交互零延迟、避免卡顿与阻塞主线程；界面克制精致并兼顾桌面端与移动端响应式适配。",
+    target_project: null,
+    anchors: ["交互零延迟", "响应式适配", "缓存", "流式输出"],
     search_query_extras: "零延迟 保活 页面流畅",
     defense_rules: [
       "1) 交互零延迟、避免卡顿与页面卡死，重视前端性能与流畅体验。",
-      "2) 界面精致高级，符合 Aurora 设计规范。",
+      "2) 界面美观克制，确保移动端与窄屏下无横向溢出。",
     ],
     device_affinity: "mac",
   },
@@ -99,15 +88,14 @@ export const DEFAULT_DOMAIN_SCENARIOS: DomainScenario[] = [
     id: "devops_release",
     name: "发布交付与无故障上线",
     keywords: ["发布", "部署", "k8s", "pod", "release", "tag", "更新", "发版", "构建", "docker", "fleet", "gitops", "kubectl", "流水线", "上线", "镜像"],
-    mindset: "发版前必查历史经验避免重踩坑；代码发版打tag并确认所有pod状态；CI/CD零停机更新；帮用户做完勿让用户手动敲命令。",
-    target_project: "memento",
-    anchors: ["version.json", "kustomization", "Fleet", "package.json", "tag", "部署"],
-    search_query_extras: "发布 三位一体 version.json tag",
+    mindset: "发版前必查历史经验避免重踩坑；确认 CI 通过、所有副本滚动生效并做线上接口验收。",
+    target_project: null,
+    anchors: ["CI", "release", "tag", "部署", "kustomization"],
+    search_query_extras: "发布 流水线 部署 验证",
     defense_rules: [
-      "1) 发版前必查历史经验避免重踩坑，确认代码发版打 tag，且所有 pod 确认已部署更新。",
-      "2) 桌面端发布严格遵守元数据三位一体校验（version.json、GitHub Release 与 updates.py 强一致）。",
-      "3) 代码提交规范：中文 Conventional Commits 风格，严禁添加 Claude 共同作者信息，保持线性 Git 历史。",
-      "4) 发布、部署全流程直接帮用户闭环做完，严禁让用户手动敲命令。",
+      "1) 发版前必查历史经验避免重踩坑，确认代码发版打 tag 且所有目标副本均已滚动就绪。",
+      "2) 改动涉及发布元数据时，严格校验版本号、产物摘要与线上接口健康检查。",
+      "3) 发布、部署与线上验收全流程闭环完成，验证生效后再报告完成。",
     ],
     device_affinity: "linux",
   },
@@ -127,30 +115,34 @@ export const DEFAULT_DOMAIN_SCENARIOS: DomainScenario[] = [
   },
 ];
 
-const dynamicScenarios = new Map<string, DomainScenario>();
-const dbScenarioIds = new Set<string>();
-let activeScenarios: DomainScenario[] = DEFAULT_DOMAIN_SCENARIOS.map((s) => ({ ...s }));
-const SCENARIO_RELOAD_MS = 600_000;
-let reloadTimer: ReturnType<typeof setInterval> | null = null;
-
-function refreshActiveScenarios(): void {
-  const merged: DomainScenario[] = [];
-  const seen = new Set<string>();
-  for (const s of DEFAULT_DOMAIN_SCENARIOS) {
-    merged.push({ ...(dynamicScenarios.get(s.id) ?? s) });
-    seen.add(s.id);
-  }
-  for (const [id, s] of dynamicScenarios) {
-    if (!seen.has(id)) merged.push({ ...s });
-  }
-  activeScenarios = merged;
+interface DynamicScenarioEntry {
+  scenario: DomainScenario;
+  memoryId?: string;
+  embedding?: number[] | null;
 }
 
-export function registerScenario(scenario: Record<string, unknown>): DomainScenario {
+const GLOBAL_BUCKET = "__global__";
+const userScenarioBuckets = new Map<string, Map<string, DynamicScenarioEntry>>();
+const userBucketLoadedAt = new Map<string, number>();
+const SCENARIO_RELOAD_MS = 600_000;
+const VECTOR_SCENARIO_MIN_COSINE = 0.58;
+let reloadTimer: ReturnType<typeof setInterval> | null = null;
+
+function bucketFor(userId?: string | null): Map<string, DynamicScenarioEntry> {
+  const key = userId || GLOBAL_BUCKET;
+  let b = userScenarioBuckets.get(key);
+  if (!b) {
+    b = new Map();
+    userScenarioBuckets.set(key, b);
+  }
+  return b;
+}
+
+function normalizeScenario(scenario: Record<string, unknown>): DomainScenario {
   const sid = String(scenario.id ?? "").trim();
   if (!sid) throw new Error("Scenario must contain an 'id' field");
   const anchors = Array.isArray(scenario.anchors) ? scenario.anchors.map((a) => String(a).trim()).filter(Boolean) : [];
-  const norm: DomainScenario = {
+  return {
     id: sid,
     name: String(scenario.name ?? sid).trim(),
     keywords: Array.isArray(scenario.keywords) ? scenario.keywords.map((k) => String(k).trim()).filter(Boolean) : [],
@@ -161,19 +153,58 @@ export function registerScenario(scenario: Record<string, unknown>): DomainScena
     defense_rules: Array.isArray(scenario.defense_rules) ? scenario.defense_rules.map((r) => String(r).trim()).filter(Boolean) : [],
     device_affinity: scenario.device_affinity ? String(scenario.device_affinity) : null,
   };
-  dynamicScenarios.set(sid, norm);
-  refreshActiveScenarios();
+}
+
+function mergedEntriesForUser(userId?: string | null): DynamicScenarioEntry[] {
+  const globalB = userScenarioBuckets.get(GLOBAL_BUCKET);
+  const userB = userId ? userScenarioBuckets.get(userId) : undefined;
+  const merged: DynamicScenarioEntry[] = [];
+  const seen = new Set<string>();
+  for (const def of DEFAULT_DOMAIN_SCENARIOS) {
+    const override = userB?.get(def.id) ?? globalB?.get(def.id);
+    merged.push(override ? { ...override, scenario: { ...override.scenario } } : { scenario: { ...def } });
+    seen.add(def.id);
+  }
+  if (globalB) {
+    for (const [id, entry] of globalB) {
+      if (!seen.has(id)) {
+        const override = userB?.get(id) ?? entry;
+        merged.push({ ...override, scenario: { ...override.scenario } });
+        seen.add(id);
+      }
+    }
+  }
+  if (userB) {
+    for (const [id, entry] of userB) {
+      if (!seen.has(id)) {
+        merged.push({ ...entry, scenario: { ...entry.scenario } });
+        seen.add(id);
+      }
+    }
+  }
+  return merged;
+}
+
+export function registerScenario(
+  scenario: Record<string, unknown>,
+  opts?: { userId?: string | null; memoryId?: string; embedding?: number[] | null },
+): DomainScenario {
+  const norm = normalizeScenario(scenario);
+  bucketFor(opts?.userId).set(norm.id, {
+    scenario: norm,
+    memoryId: opts?.memoryId,
+    embedding: opts?.embedding ?? null,
+  });
   return norm;
 }
 
-export function unregisterScenario(scenarioId: string): boolean {
-  if (!dynamicScenarios.delete(scenarioId)) return false;
-  refreshActiveScenarios();
-  return true;
+export function unregisterScenario(scenarioId: string, userId?: string | null): boolean {
+  const b = userScenarioBuckets.get(userId || GLOBAL_BUCKET);
+  return b ? b.delete(scenarioId) : false;
 }
 
-export function getAllScenarios(): DomainScenario[] {
-  return activeScenarios.map((s) => ({ ...s }));
+export function getAllScenarios(userId?: string | null): DomainScenario[] {
+  return mergedEntriesForUser(userId).map((e) => ({ ...e.scenario }));
 }
 
 export async function loadDynamicScenariosFromDb(db: Db, userId?: string | null): Promise<DomainScenario[]> {
@@ -185,20 +216,56 @@ export async function loadDynamicScenariosFromDb(db: Db, userId?: string | null)
       eq(userMemories.isFolder, false),
     ];
     if (userId) conds.push(eq(userMemories.userId, userId));
-    const mems = await db.select().from(userMemories).where(and(...conds));
+    const mems = await db
+      .select({
+        id: userMemories.id,
+        userId: userMemories.userId,
+        content: userMemories.content,
+        embedding: userMemories.embedding,
+      })
+      .from(userMemories)
+      .where(and(...conds));
+
+    const nextByUser = new Map<string, Map<string, DynamicScenarioEntry>>();
+    if (userId) nextByUser.set(userId, new Map());
+
     for (const m of mems) {
       try {
         const data = JSON.parse(m.content) as Record<string, unknown>;
-        if (data && typeof data === "object" && data.id) loaded.push(registerScenario(data));
+        if (!data || typeof data !== "object" || !data.id) continue;
+        const norm = normalizeScenario(data);
+        let b = nextByUser.get(m.userId);
+        if (!b) {
+          b = new Map();
+          nextByUser.set(m.userId, b);
+        }
+        b.set(norm.id, {
+          scenario: norm,
+          memoryId: m.id,
+          embedding: Array.isArray(m.embedding) ? m.embedding : null,
+        });
+        loaded.push(norm);
       } catch {
-        /* ignore */
+        /* ignore malformed scenario json */
       }
     }
-    if (!userId) {
-      const nowIds = new Set(loaded.map((d) => d.id));
-      for (const gone of dbScenarioIds) if (!nowIds.has(gone)) unregisterScenario(gone);
-      dbScenarioIds.clear();
-      for (const id of nowIds) dbScenarioIds.add(id);
+
+    const nowMs = Date.now();
+    if (userId) {
+      userScenarioBuckets.set(userId, nextByUser.get(userId) ?? new Map());
+      userBucketLoadedAt.set(userId, nowMs);
+    } else {
+      // Replace all per-user buckets while keeping GLOBAL_BUCKET untouched for explicit registerScenario calls
+      for (const key of [...userScenarioBuckets.keys()]) {
+        if (key !== GLOBAL_BUCKET && !nextByUser.has(key)) {
+          userScenarioBuckets.delete(key);
+          userBucketLoadedAt.delete(key);
+        }
+      }
+      for (const [uid, b] of nextByUser) {
+        userScenarioBuckets.set(uid, b);
+        userBucketLoadedAt.set(uid, nowMs);
+      }
     }
   } catch {
     /* ignore */
@@ -220,15 +287,54 @@ export function stopDynamicScenarioReloader(): void {
   }
 }
 
-export function detectScenario(terms: string[], rawText = "", extraScenarios?: DomainScenario[]): DomainScenario {
+const FALLBACK_GENERAL_SCENARIO: DomainScenario = {
+  id: "general_engineering",
+  name: "工程研发与深度协同",
+  keywords: [],
+  mindset: "直接给结论和指令，不绕弯子、不废话、不反问；仔细深入调查从根子上彻底解决；一次做到位，交付前自测确认。",
+  target_project: null,
+  anchors: [],
+  search_query_extras: "",
+  defense_rules: [
+    "1) 仔细深入调查问题，从根子上彻底解决；一次做到位，交付前本地类型检查与自测确认通过。",
+    "2) 直接给结论和指令，不绕弯子、不废话、不反问用户。",
+  ],
+  device_affinity: null,
+};
+
+export function cosineSimilarity(a: readonly number[], b: readonly number[]): number {
+  if (!a.length || a.length !== b.length) return 0;
+  let dot = 0;
+  let na = 0;
+  let nb = 0;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i]!;
+    const y = b[i]!;
+    dot += x * y;
+    na += x * x;
+    nb += y * y;
+  }
+  const denom = Math.sqrt(na) * Math.sqrt(nb);
+  return denom > 0 ? dot / denom : 0;
+}
+
+export function detectScenario(
+  terms: string[],
+  rawText = "",
+  extraScenarios?: DomainScenario[],
+  userId?: string | null,
+): DomainScenario {
   const lowText = rawText.toLowerCase();
-  const termSet = new Set(terms);
+  const termSet = new Set(terms.map((t) => t.toLowerCase()));
   let best: DomainScenario | null = null;
   let bestScore = 0;
-  const pool = extraScenarios?.length ? [...activeScenarios, ...extraScenarios] : activeScenarios;
+  const base = getAllScenarios(userId);
+  const pool = extraScenarios?.length ? [...base, ...extraScenarios] : base;
   for (const scen of pool) {
     let sc = 0;
-    for (const k of scen.keywords) {
+    for (const rawK of scen.keywords) {
+      const k = rawK.toLowerCase();
+      if (!k) continue;
       if (lowText.includes(k)) sc += 2;
       if (termSet.has(k)) sc += 1;
     }
@@ -238,20 +344,79 @@ export function detectScenario(terms: string[], rawText = "", extraScenarios?: D
     }
   }
   if (best && bestScore >= 2) return best;
-  return {
-    id: "general_engineering",
-    name: "工程研发与深度协同",
-    keywords: [],
-    mindset: "直接给结论和指令，不绕弯子、不废话、不反问；仔细深入调查从根子上彻底解决；一次做到位，交付前自测确认。",
-    target_project: null,
-    anchors: [],
-    search_query_extras: "",
-    defense_rules: [
-      "1) 仔细深入调查问题，从根子上彻底解决；一次做到位，交付前本地类型检查与自测确认通过。",
-      "2) 直接给结论和指令，不绕弯子、不废话、不反问用户。",
-    ],
-    device_affinity: null,
-  };
+  return { ...FALLBACK_GENERAL_SCENARIO };
+}
+
+async function detectScenarioForUser(
+  db: Db,
+  settings: Settings | undefined,
+  redis: Redis | null,
+  userId: string,
+  terms: string[],
+  rawText: string,
+): Promise<{ scenario: DomainScenario; memoryId?: string }> {
+  const lastLoad = userBucketLoadedAt.get(userId) ?? 0;
+  if (!lastLoad || Date.now() - lastLoad > SCENARIO_RELOAD_MS) {
+    await loadDynamicScenariosFromDb(db, userId);
+  }
+  const entries = mergedEntriesForUser(userId);
+  const lowText = rawText.toLowerCase();
+  const termSet = new Set(terms.map((t) => t.toLowerCase()));
+
+  let best: DynamicScenarioEntry | null = null;
+  let bestScore = 0;
+  for (const entry of entries) {
+    let sc = 0;
+    for (const rawK of entry.scenario.keywords) {
+      const k = rawK.toLowerCase();
+      if (!k) continue;
+      if (lowText.includes(k)) sc += 2;
+      if (termSet.has(k)) sc += 1;
+    }
+    if (sc > bestScore) {
+      bestScore = sc;
+      best = entry;
+    }
+  }
+
+  // Strong keyword hit: fast path without embedding round-trip
+  if (best && bestScore >= 4) {
+    return { scenario: best.scenario, memoryId: best.memoryId };
+  }
+
+  // Hybrid vector routing: if user has embedded dynamic scenarios and settings are provided,
+  // score semantic similarity to rescue misses where user phrasing differs from stored keywords.
+  const embeddedEntries = entries.filter((e) => e.embedding && e.embedding.length > 0);
+  if (settings && embeddedEntries.length > 0 && rawText.trim().length >= 4) {
+    try {
+      const vecs = await callEmbeddingServer(settings, redis, [rawText.slice(0, 400)], 2);
+      const qVec = vecs?.[0];
+      if (qVec?.length) {
+        let bestVecEntry: DynamicScenarioEntry | null = null;
+        let bestSim = 0;
+        for (const entry of embeddedEntries) {
+          const sim = cosineSimilarity(qVec, entry.embedding!);
+          if (sim > bestSim) {
+            bestSim = sim;
+            bestVecEntry = entry;
+          }
+        }
+        if (bestVecEntry && bestSim >= VECTOR_SCENARIO_MIN_COSINE) {
+          // Prefer semantic match if keyword score was absent or weak (< 4) and vector match is confident
+          if (!best || bestScore < 2 || bestSim >= 0.68) {
+            return { scenario: bestVecEntry.scenario, memoryId: bestVecEntry.memoryId };
+          }
+        }
+      }
+    } catch {
+      /* fail open to keyword result */
+    }
+  }
+
+  if (best && bestScore >= 2) {
+    return { scenario: best.scenario, memoryId: best.memoryId };
+  }
+  return { scenario: { ...FALLBACK_GENERAL_SCENARIO } };
 }
 
 const ENTITY_CANDIDATES = 200;
@@ -475,6 +640,7 @@ async function fetchGraphEntities(
 
 async function fetchPitfalls(
   db: Db,
+  redis: Redis | null,
   user: { id: string },
   terms: string[],
   limitPitfalls: number,
@@ -516,6 +682,7 @@ async function fetchPitfalls(
       if (!hit.length || sc < minScore) continue;
       if (m.category === "pitfall") sc += 2;
       if (targetProject && (m.treePath || "").toLowerCase().includes(targetProject.toLowerCase())) sc += 2;
+      sc *= feedbackMultiplier(m.feedbackPos, m.feedbackNeg);
       scored.push({ sc, m });
     }
     scored.sort((a, b) => b.sc - a.sc);
@@ -526,7 +693,50 @@ async function fetchPitfalls(
       out.push({ key: m.key, category: m.category, content: m.content });
       handed.push(m.id);
     }
-    if (handed.length) void touchRecalled(db, handed);
+    if (handed.length) {
+      void touchRecalled(db, handed);
+      void trackInjectedMemories(redis, user.id, handed);
+    }
+  } catch {
+    /* ignore */
+  }
+  return out;
+}
+
+async function fetchStubbornRules(
+  db: Db,
+  redis: Redis | null,
+  userId: string,
+): Promise<{ statement: string; times: number }[]> {
+  const cacheKey = `stubborn_rules:${userId}`;
+  try {
+    const cached = await cacheGet(redis, cacheKey);
+    if (Array.isArray(cached)) return cached as { statement: string; times: number }[];
+  } catch {
+    /* ignore */
+  }
+  const out: { statement: string; times: number }[] = [];
+  try {
+    const rows = await db
+      .select({ metrics: learningEvals.metrics })
+      .from(learningEvals)
+      .where(eq(learningEvals.userId, userId))
+      .orderBy(desc(learningEvals.week))
+      .limit(2);
+    const byStmt = new Map<string, number>();
+    for (const r of rows) {
+      const m = r.metrics && typeof r.metrics === "object" ? (r.metrics as Record<string, unknown>) : null;
+      const list = Array.isArray(m?.stubborn) ? (m!.stubborn as Record<string, unknown>[]) : [];
+      for (const item of list) {
+        const stmt = String(item?.statement ?? "").trim();
+        const times = Number(item?.times ?? 0);
+        if (stmt && times >= 1) byStmt.set(stmt, (byStmt.get(stmt) ?? 0) + times);
+      }
+    }
+    for (const [statement, times] of [...byStmt.entries()].sort((a, b) => b[1] - a[1]).slice(0, 4)) {
+      out.push({ statement, times });
+    }
+    await cacheSet(redis, cacheKey, out, 300).catch(() => {});
   } catch {
     /* ignore */
   }
@@ -832,6 +1042,7 @@ export interface ResonancePayload {
   entities: { name: string; type: string; summary: string; observations: string[]; relations: string[] }[];
   pitfalls: { key: string; category: string; content: string }[];
   durable_corrections: string[];
+  stubborn_rules?: { statement: string; times: number }[];
   blueprint_summary: string;
   user_blueprint_summary: string;
   live_rules?: string[];
@@ -841,7 +1052,14 @@ export async function senseResonance(
   db: Db,
   redis: Redis | null,
   user: { id: string },
-  opts: { query?: string | null; project?: string | null; action?: string | null; limitEntities?: number; limitPitfalls?: number } = {},
+  opts: {
+    query?: string | null;
+    project?: string | null;
+    action?: string | null;
+    limitEntities?: number;
+    limitPitfalls?: number;
+    settings?: Settings;
+  } = {},
 ): Promise<ResonancePayload> {
   const rawProjectArg = opts.project ?? null;
   const qText = cleanText(opts.query || "");
@@ -852,20 +1070,27 @@ export async function senseResonance(
   const topicTerms = termsFor(topicAction, qText).filter((t) => t.length >= 2);
   const rankTerms = topicTerms.length ? topicTerms : matchTerms;
 
-  let scenario = detectScenario(termsFor(topicAction, qText), `${qText} ${topicAction || ""}`);
-  if (scenario.id === "general_engineering" && project) {
-    scenario = detectScenario(terms, `${qText} ${project} ${topicAction || ""}`);
+  let matched = await detectScenarioForUser(db, opts.settings, redis, user.id, termsFor(topicAction, qText), `${qText} ${topicAction || ""}`);
+  if (matched.scenario.id === "general_engineering" && project) {
+    matched = await detectScenarioForUser(db, opts.settings, redis, user.id, terms, `${qText} ${project} ${topicAction || ""}`);
+  }
+  const scenario = matched.scenario;
+  if (matched.memoryId) {
+    void touchRecalled(db, [matched.memoryId]);
+    void trackInjectedMemories(redis, user.id, [matched.memoryId]);
   }
   const effectiveProject = project || scenario.target_project;
 
-  const [durableCorrections, [scopedRules, generalRules], entitiesData, pitfallsData, blueprintSummary, cachedUserBp] = await Promise.all([
-    getUserDurableCorrections(redis, user.id),
-    fetchScopedAndGeneralRules(db, user, matchTerms, scenario, project),
-    fetchGraphEntities(db, user, matchTerms, opts.limitEntities ?? 4, project, rankTerms),
-    fetchPitfalls(db, user, pitfallTerms(qText, topicAction), opts.limitPitfalls ?? 4, project),
-    fetchProjectBlueprintSummary(db, user, effectiveProject, rawProjectArg),
-    cacheGet(redis, `user:blueprint:v4:${user.id}`).catch(() => null),
-  ]);
+  const [durableCorrections, stubbornRules, [scopedRules, generalRules], entitiesData, pitfallsData, blueprintSummary, cachedUserBp] =
+    await Promise.all([
+      getUserDurableCorrections(redis, user.id),
+      fetchStubbornRules(db, redis, user.id),
+      fetchScopedAndGeneralRules(db, user, matchTerms, scenario, project),
+      fetchGraphEntities(db, user, matchTerms, opts.limitEntities ?? 4, project, rankTerms),
+      fetchPitfalls(db, redis, user, pitfallTerms(qText, topicAction), opts.limitPitfalls ?? 4, project),
+      fetchProjectBlueprintSummary(db, user, effectiveProject, rawProjectArg),
+      cacheGet(redis, `user:blueprint:v4:${user.id}`).catch(() => null),
+    ]);
 
   const ubpMd =
     cachedUserBp && typeof cachedUserBp === "object" && typeof (cachedUserBp as { markdown?: unknown }).markdown === "string"
@@ -882,6 +1107,7 @@ export async function senseResonance(
     entities: entitiesData,
     pitfalls: pitfallsData,
     durable_corrections: durableCorrections,
+    stubborn_rules: stubbornRules,
     blueprint_summary: blueprintSummary,
     user_blueprint_summary: userBlueprintSummary,
   };
@@ -897,6 +1123,12 @@ export function renderMindResonanceMarkdown(res: ResonancePayload, liveRules?: s
   if (activeLive.length) {
     lines.push("\n【当前会话实时纠偏与行为守则（用户在本会话中特别强调，必须绝对遵守）】：");
     for (const lr of activeLive.slice(0, 5)) lines.push(`- ${lr.replace(/^[-* ]+|[-* ]+$/g, "")}`);
+  }
+  if (res.stubborn_rules?.length) {
+    lines.push("\n【高频顽固红线 · 输出前强制自检（近期被用户多次重申，交付前务必逐条核对）】：");
+    for (const sr of res.stubborn_rules.slice(0, 4)) {
+      lines.push(`- （近期重申 ${sr.times} 次）${sr.statement.replace(/^[-* ]+|[-* ]+$/g, "")}`);
+    }
   }
   if (res.durable_corrections?.length) {
     lines.push("\n【用户历史多轮强化纠偏铁律（已通过自进化沉淀，必须严格遵守）】：");
@@ -1036,9 +1268,9 @@ export function validateShellCommandAgainstIronRules(
   return [true, null];
 }
 
-function resolveScenarioMeta(scenario: Partial<DomainScenario>): Partial<DomainScenario> {
+function resolveScenarioMeta(scenario: Partial<DomainScenario>, userId?: string | null): Partial<DomainScenario> {
   if (scenario.id) {
-    const reg = activeScenarios.find((s) => s.id === scenario.id);
+    const reg = getAllScenarios(userId).find((s) => s.id === scenario.id);
     if (reg) return { ...reg, ...scenario };
   }
   return scenario;
@@ -1071,6 +1303,12 @@ export function enrichCheckRulesResult(guidanceMd: string, resonance: ResonanceP
     `\n【心领神会·场景综合心智感知 (${resonance.scenario?.name || "工程研发"})】`,
     `核心导向：${resonance.mindset || ""}`,
   ];
+  if (resonance.stubborn_rules?.length) {
+    mindLines.push("\n【高频顽固红线 · 输出前强制自检】：");
+    for (const sr of resonance.stubborn_rules.slice(0, 4)) {
+      mindLines.push(`- （近期重申 ${sr.times} 次）${sr.statement.replace(/^[-* ]+|[-* ]+$/g, "")}`);
+    }
+  }
   if (resonance.scoped_rules.length) {
     mindLines.push("\n【当前项目专项铁律与深层偏好】：");
     for (const r of resonance.scoped_rules.slice(0, 5)) mindLines.push(`- ${r.replace(/^[-* ]+|[-* ]+$/g, "")}`);
@@ -1126,9 +1364,9 @@ export function enrichDeviceListing(devices: Record<string, unknown>[], scenario
     const isMac = ["mac", "darwin", "mbp", "apple", "imac", "mini"].some((k) => nameLower.includes(k));
     const isLinux = ["linux", "ubuntu", "debian", "centos", "server"].some((k) => nameLower.includes(k));
     copy.affinity = isMac
-      ? "推荐用于 Mac 本地开发 / 前端 UI 调试 / AppleScript / 客户端打包"
+      ? "推荐用于 Mac 本地开发 / 前端 UI 调试 / 客户端打包"
       : isLinux
-        ? "推荐用于 Linux / 高并发后端 / 化学逆合成 / /data2 数据集抓取与处理"
+        ? "推荐用于 Linux / 后端服务 / 批量数据处理与容器运维"
         : "通用设备节点";
     if ((preferredOs === "linux" && isLinux) || (preferredOs === "mac" && isMac)) copy.scenario_best_match = true;
     return copy;

@@ -383,6 +383,14 @@ export function StatusView({ hideTopBar = false }: { hideTopBar?: boolean }) {
             )}
           </Glass>
 
+          {data.readiness != null || evolution?.growth != null ? (
+            <ReadinessAndGrowth
+              readiness={data.readiness ? obj(data.readiness) : null}
+              growth={evolution?.growth ? obj(evolution.growth) : null}
+              saturation={obj(data.profile).saturation ? obj(obj(data.profile).saturation) : null}
+            />
+          ) : null}
+
           {evolution && <Evolution evo={evolution} />}
           {data.learning != null && <Learning learning={obj(data.learning)} />}
           {evolution?.outcomes != null && <Outcomes outcomes={obj(evolution.outcomes)} onScored={load} />}
@@ -419,6 +427,133 @@ export function StatusView({ hideTopBar = false }: { hideTopBar?: boolean }) {
         </>
       )}
     </div>
+  );
+}
+
+function ReadinessAndGrowth({
+  readiness,
+  growth,
+  saturation,
+}: {
+  readiness: Obj | null;
+  growth: Obj | null;
+  saturation: Obj | null;
+}) {
+  const llmReady = Boolean(readiness?.llm_configured);
+  const embReady = Boolean(readiness?.embedding_configured);
+  const schedReady = Boolean(readiness?.scheduler_enabled);
+  const standalone = Boolean(readiness?.standalone_mode);
+  const hints = Array.isArray(readiness?.hints) ? (readiness!.hints as unknown[]).map(String).filter(Boolean) : [];
+
+  const satChars = num(saturation?.general_chars);
+  const satLimit = num(saturation?.general_limit) || 1800;
+  const satRatio = typeof saturation?.ratio === "number" ? saturation.ratio : satChars / satLimit;
+  const satPct = Math.min(100, Math.round(satRatio * 100));
+  const satColor = satRatio >= 0.95 ? DANGER : satRatio >= 0.85 ? WARN : SUCCESS;
+
+  const attr = growth?.attribution ? obj(growth.attribution) : null;
+  const graph = growth?.graph ? obj(growth.graph) : null;
+  const rulesTotal = num(growth?.rules_total);
+  const rulesNever = num(growth?.rules_never_again);
+  const neverRate = typeof growth?.rules_never_again_rate === "number" ? `${Math.round(growth.rules_never_again_rate * 100)}%` : "—";
+
+  const pill = (label: string, ok: boolean, detail: string) => (
+    <div
+      key={label}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+        padding: "5px 10px",
+        borderRadius: 10,
+        border: "1px solid var(--aurora-border)",
+        background: "var(--aurora-surface-solid)",
+        fontSize: 12,
+        color: "var(--aurora-fg1)",
+      }}
+    >
+      <span style={{ width: 7, height: 7, borderRadius: 4, background: ok ? SUCCESS : WARN, flexShrink: 0 }} />
+      <span style={{ fontWeight: 500 }}>{label}</span>
+      <span style={{ color: ok ? "var(--aurora-fg3)" : WARN }}>{detail}</span>
+    </div>
+  );
+
+  return (
+    <Section title="自进化就绪与成长总览" trailing={standalone ? "本机单机模式" : "云端协同模式"}>
+      {readiness && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: hints.length || growth || saturation ? 12 : 0 }}>
+          {pill("后台大模型", llmReady, llmReady ? `${num(readiness.llm_providers)} 路已配置` : "未配置")}
+          {pill("语义向量检索", embReady, embReady ? String(readiness.embedding_provider || "已开启") : "未开启")}
+          {pill("定时进化引擎", schedReady, schedReady ? "运行中" : "已关闭")}
+        </div>
+      )}
+
+      {hints.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
+          {hints.map((msg, i) => (
+            <div
+              key={i}
+              style={{
+                padding: "8px 10px",
+                borderRadius: 10,
+                background: "rgba(217, 119, 6, 0.08)",
+                border: "1px solid rgba(217, 119, 6, 0.25)",
+                fontSize: 12,
+                lineHeight: 1.5,
+                color: "var(--aurora-fg2)",
+              }}
+            >
+              {msg}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {saturation && satChars > 0 && (
+        <div style={{ marginBottom: growth ? 12 : 0 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: 12, marginBottom: 5 }}>
+            <span style={{ color: "var(--aurora-fg2)", fontWeight: 500 }}>常驻画像通用段容量</span>
+            <span style={{ fontFamily: "var(--font-mono)", color: satColor, fontSize: 12 }}>
+              {satChars} / {satLimit} 字符（{satPct}%）
+            </span>
+          </div>
+          <div style={{ height: 6, borderRadius: 4, background: "var(--aurora-chip)", overflow: "hidden" }}>
+            <div style={{ height: "100%", width: `${satPct}%`, background: satColor, borderRadius: 4, transition: "width 0.3s ease" }} />
+          </div>
+        </div>
+      )}
+
+      {growth && (
+        <>
+          <Metrics
+            items={[
+              {
+                label: "学过不再犯占比",
+                value: rulesTotal > 0 ? `${neverRate} (${rulesNever}/${rulesTotal})` : "—",
+                color: rulesTotal > 0 && rulesNever / rulesTotal >= 0.7 ? SUCCESS : undefined,
+              },
+              {
+                label: "记忆反馈归因",
+                value: attr ? `+${num(attr.feedback_pos)} / -${num(attr.feedback_neg)}` : "—",
+              },
+              {
+                label: "场景活跃命中",
+                value: attr ? `${num(attr.scenario_recalled)} / ${num(attr.scenario_active)}` : "—",
+              },
+              {
+                label: "知识图谱实体",
+                value: graph ? String(num(graph.entities)) : "—",
+              },
+            ]}
+          />
+          {graph && num(graph.stale_entities) > 0 && (
+            <Hint>
+              图谱治理已软标记 {num(graph.stale_entities)} 个长期孤立概念；待确认积压：规则 {num(growth.pending_corrections)} 条、技能草稿 {num(growth.draft_skills)} 个。
+            </Hint>
+          )}
+        </>
+      )}
+    </Section>
   );
 }
 
@@ -874,6 +1009,7 @@ function Profile({ profile }: { profile: Obj }) {
   const labels = useRunLabels();
   const published = profile.published ? obj(profile.published) : null;
   const draft = profile.draft ? obj(profile.draft) : null;
+  const saturation = profile.saturation ? obj(profile.saturation) : null;
   const run = profile.last_run ? obj(profile.last_run) : null;
   const devices = list(profile.devices);
   const runFailed = run != null && (run.status === "llm_failed" || run.status === "error");
@@ -884,6 +1020,13 @@ function Profile({ profile }: { profile: Obj }) {
         right={published ? `v${String(published.version)} · ${time(published.published_at)}` : h.notYet}
         rightColor={published ? undefined : WARN}
       />
+      {saturation && num(saturation.general_chars) > 0 && (
+        <Row
+          left="通用段字符容量"
+          right={`${num(saturation.general_chars)} / ${num(saturation.general_limit)}（${Math.round(num(saturation.ratio) * 100)}%）`}
+          rightColor={num(saturation.ratio) >= 0.95 ? DANGER : num(saturation.ratio) >= 0.85 ? WARN : SUCCESS}
+        />
+      )}
       <Row left={h.draft} right={draft ? fmt(h.generatedAt, { at: time(draft.updated_at) }) : h.none} />
       {run && (
         <Row

@@ -26,7 +26,26 @@ const PRIVATE_IP_RE =
 const SECRET_RE = /\b(?:sk|ghp|gho|ghs|github_pat|xox[bp])[-_][A-Za-z0-9_-]{12,}/g;
 const PITFALL_FIX_CHARS = 120;
 
-function capText(text: string, limit: number): string {
+export interface ProfileSaturation {
+  general_chars: number;
+  general_limit: number;
+  ratio: number;
+  saturated: boolean;
+}
+
+export function profileSaturation(content: string | null | undefined): ProfileSaturation {
+  const scopes = splitProfileScopes(content || "");
+  const general_chars = scopes.general.length;
+  const ratio = Math.round((general_chars / PROFILE_MAX_CHARS) * 1000) / 1000;
+  return {
+    general_chars,
+    general_limit: PROFILE_MAX_CHARS,
+    ratio,
+    saturated: ratio >= 0.9,
+  };
+}
+
+export function capText(text: string, limit: number): string {
   if (text.length <= limit) return text;
   const lines = text.split("\n");
   const sections: number[][] = [[]];
@@ -49,7 +68,22 @@ function capText(text: string, limit: number): string {
       }
     }
     if (longestIdx === -1 || !sections[longestIdx]!.length) break;
-    const i = sections[longestIdx]!.pop()!;
+    const sec = sections[longestIdx]!;
+    // Protect the most recently appended rule (tail) when the section has >= 2 lines:
+    // drop the most verbose earlier line first to recover maximum character budget.
+    let dropPos = sec.length - 1;
+    if (sec.length >= 2) {
+      let maxLineLen = -1;
+      for (let p = 0; p < sec.length - 1; p++) {
+        const l = lines[sec[p]!]!.length;
+        if (l > maxLineLen) {
+          maxLineLen = l;
+          dropPos = p;
+        }
+      }
+    }
+    const [i] = sec.splice(dropPos, 1);
+    if (i === undefined) break;
     dropped.add(i);
     size -= lines[i]!.length + 1;
   }

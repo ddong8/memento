@@ -18,6 +18,7 @@ export const DORMANT = "dormant";
 export const SUPERSEDED = "superseded";
 export const DORMANT_AFTER_DAYS = 60;
 export const PITFALL_UNUSED_AFTER_DAYS = 30;
+export const SCENARIO_UNUSED_AFTER_DAYS = 30;
 export const ALWAYS_ON = ["rule", "rules", "preference"] as const;
 const ALWAYS_ON_SET = new Set<string>(ALWAYS_ON);
 const NEW_PER_CALL = 30;
@@ -60,7 +61,21 @@ export async function sweepDormant(db: Db, user: Pick<UserRow, "id">, nowMs = Da
     RETURNING id
   `)) as unknown as { id: string }[];
 
-  return res1.length + res2.length;
+  const scenarioCutoffIso = new Date(nowMs - SCENARIO_UNUSED_AFTER_DAYS * 86400_000).toISOString();
+  const res3 = (await db.execute(sql`
+    UPDATE user_memories
+    SET status = ${DORMANT}, status_reason = ${`动态场景超过 ${SCENARIO_UNUSED_AFTER_DAYS} 天从未被命中`}
+    WHERE user_id = ${user.id}::uuid
+      AND status = ${ACTIVE}
+      AND is_folder IS FALSE
+      AND source != 'manual'
+      AND category IN ('resonance_scenario', 'scenario', 'custom_scenario')
+      AND coalesce(recall_count, 0) = 0
+      AND greatest(coalesce(last_recalled_at, created_at), coalesce(updated_at, created_at)) < ${scenarioCutoffIso}::timestamptz
+    RETURNING id
+  `)) as unknown as { id: string }[];
+
+  return res1.length + res2.length + res3.length;
 }
 
 export function groupKey(mem: Pick<UserMemoryRow, "category" | "treePath">): string {
@@ -358,7 +373,7 @@ export async function lifecycleCounts(db: Db, user: Pick<UserRow, "id">, days = 
   const counts = new Map(rows.map((r) => [r.status, Number(r.n)]));
   const sinceIso = new Date(Date.now() - days * 86400_000).toISOString();
 
-  const [[recentRow], [recalledRow]] = await Promise.all([
+  const [[recentRow], [recalledRow], [attrRow]] = await Promise.all([
     db
       .select({ n: count() })
       .from(userMemories)
@@ -367,6 +382,15 @@ export async function lifecycleCounts(db: Db, user: Pick<UserRow, "id">, days = 
       .select({ n: count() })
       .from(userMemories)
       .where(and(eq(userMemories.userId, user.id), gte(userMemories.lastRecalledAt, sinceIso))),
+    db
+      .select({
+        pos: sql<number>`coalesce(sum(${userMemories.feedbackPos}), 0)`.mapWith(Number),
+        neg: sql<number>`coalesce(sum(${userMemories.feedbackNeg}), 0)`.mapWith(Number),
+        scenarioActive: sql<number>`count(*) filter (where ${userMemories.status} = 'active' and ${userMemories.category} = 'resonance_scenario')`.mapWith(Number),
+        scenarioRecalled: sql<number>`count(*) filter (where ${userMemories.status} = 'active' and ${userMemories.category} = 'resonance_scenario' and coalesce(${userMemories.recallCount}, 0) > 0)`.mapWith(Number),
+      })
+      .from(userMemories)
+      .where(and(eq(userMemories.userId, user.id), eq(userMemories.isFolder, false))),
   ]);
 
   return {
@@ -375,5 +399,11 @@ export async function lifecycleCounts(db: Db, user: Pick<UserRow, "id">, days = 
     superseded: counts.get(SUPERSEDED) ?? 0,
     superseded_recent: Number(recentRow?.n ?? 0),
     recalled_recent: Number(recalledRow?.n ?? 0),
+    attribution: {
+      feedback_pos: Number(attrRow?.pos ?? 0),
+      feedback_neg: Number(attrRow?.neg ?? 0),
+      scenario_active: Number(attrRow?.scenarioActive ?? 0),
+      scenario_recalled: Number(attrRow?.scenarioRecalled ?? 0),
+    },
   };
 }

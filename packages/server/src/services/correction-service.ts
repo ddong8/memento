@@ -13,6 +13,7 @@ import * as aiHealth from "./ai-health";
 import { callPlainChat } from "./ai-provider";
 import { safeJsonLoads } from "./dreaming-core";
 import { cleanUserVoice, CORRECTION_RE, SUBAGENT_PATH_REGEX } from "./dreaming-voice";
+import { recordMemoryFeedback } from "./guidance-service";
 import { getDraftProfile, getPublishedProfile, sanitizeProfileContent } from "./profile-read";
 import { cleanDeviceName, joinProfileScopes, normScopeName, PROFILE_MAX_CHARS, SCOPED_MAX_CHARS, splitProfileScopes } from "./profile-scopes";
 
@@ -618,6 +619,9 @@ export async function learnFromCorrections(
           fingerprint: fp,
         }),
       );
+      if (learned && topic.memoryId) {
+        void recordMemoryFeedback(db, [topic.memoryId], "neg");
+      }
       events++;
     }
   }
@@ -720,4 +724,26 @@ export function topicOut(topic: CorrectionTopicRow, quotes: CorrectionEventQuote
 export function summarizeNewTopics(statements: string[]): string {
   const head = statements.slice(0, 2).join("；");
   return head + (statements.length > 2 ? ` 等 ${statements.length} 条` : "");
+}
+
+/**
+ * Soft-dismiss single-occurrence pending correction topics untouched for > staleDays
+ * so low-signal one-off phrasing doesn't pile up in the pending queue forever (never hard deleted).
+ */
+export async function decayStalePendingTopics(db: Db, user: Pick<UserRow, "id">, staleDays = 30, nowMs = Date.now()): Promise<number> {
+  const cutoffIso = new Date(nowMs - staleDays * 86400_000).toISOString();
+  const nowIso = new Date(nowMs).toISOString();
+  const rows = await db
+    .update(correctionTopics)
+    .set({ status: "dismissed", updatedAt: nowIso })
+    .where(
+      and(
+        eq(correctionTopics.userId, user.id),
+        eq(correctionTopics.status, "pending"),
+        sql`${correctionTopics.times} <= 1`,
+        sql`coalesce(${correctionTopics.lastAt}, ${correctionTopics.updatedAt}, ${correctionTopics.createdAt}) < ${cutoffIso}::timestamptz`,
+      ),
+    )
+    .returning({ id: correctionTopics.id });
+  return rows.length;
 }

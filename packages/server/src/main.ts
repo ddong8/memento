@@ -40,7 +40,7 @@ registerTaskFinishedHook(async (d, taskId, watched) => {
   await wakeForTask(d, taskId).catch(() => {});
 });
 registerMindResonanceInjector(async (d, user, query, project) => {
-  const res = await senseResonance(d, deps.redis(), user, { query, project, action: "agent" });
+  const res = await senseResonance(d, deps.redis(), user, { query, project, action: "agent", settings: deps.settings });
   return renderMindResonanceMarkdown(res);
 });
 const app = createApp(deps);

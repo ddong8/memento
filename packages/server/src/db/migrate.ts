@@ -10,7 +10,7 @@ import type postgres from "postgres";
 
 // Hex 0x6D656D656E746F == "memento" (same advisory lock key as legacy Python migrations.py)
 export const MIGRATION_LOCK_ID = "30792277001925743";
-export const CURRENT_SCHEMA_VERSION = "20261127_003_ts_server";
+export const CURRENT_SCHEMA_VERSION = "20261128_004_self_evolution";
 
 function locateSchemaSql(): string {
   const here = dirname(fileURLToPath(import.meta.url));
@@ -98,6 +98,8 @@ const IDEMPOTENT_ALTERS: string[] = [
   "ALTER TABLE user_memories ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'active'",
   "ALTER TABLE user_memories ADD COLUMN IF NOT EXISTS status_reason TEXT",
   "ALTER TABLE user_memories ADD COLUMN IF NOT EXISTS superseded_by UUID REFERENCES user_memories(id) ON DELETE SET NULL",
+  "ALTER TABLE user_memories ADD COLUMN IF NOT EXISTS feedback_pos INTEGER NOT NULL DEFAULT 0",
+  "ALTER TABLE user_memories ADD COLUMN IF NOT EXISTS feedback_neg INTEGER NOT NULL DEFAULT 0",
   "ALTER TABLE knowledge_entities ADD COLUMN IF NOT EXISTS aliases JSONB NOT NULL DEFAULT '[]'::jsonb",
   "ALTER TABLE knowledge_entities ADD COLUMN IF NOT EXISTS stale_at TIMESTAMPTZ",
   "ALTER TABLE knowledge_entities ADD COLUMN IF NOT EXISTS stale_reason TEXT",

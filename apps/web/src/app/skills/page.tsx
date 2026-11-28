@@ -238,6 +238,44 @@ export default function SkillsPage() {
   const drafts = list(data?.drafts);
   const published = list(data?.published);
   const archived = list(data?.archived);
+  const pendingUpdatesCount = useMemo(() => published.filter((p) => Boolean(p.pending_update)).length, [published]);
+  const highFreqDraftsCount = useMemo(() => drafts.filter((d) => num(d.times_seen) >= 2).length, [drafts]);
+
+  const batchPublish = async (body: { min_seen?: number; apply_updates?: boolean }, label: string) => {
+    setBusy(`batch:${label}`);
+    setNotice(null);
+    setError(null);
+    try {
+      const res = await api.batchPublishSkills(body);
+      const pubCount = Array.isArray(res.published) ? res.published.length : 0;
+      const mergedCount = Array.isArray(res.merged) ? res.merged.length : 0;
+      const parts: string[] = [];
+      if (pubCount > 0) parts.push(`已发布 ${pubCount} 个技能`);
+      if (mergedCount > 0) parts.push(`已合并 ${mergedCount} 个演进更新`);
+      setNotice(parts.length ? parts.join("，") : "当前没有符合批量处理条件的技能");
+      await load();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const batchDismiss = async () => {
+    setBusy("batch:dismiss");
+    setNotice(null);
+    setError(null);
+    try {
+      const res = await api.batchDismissSkills({ older_than_days: 30, max_seen: 1 });
+      const n = Number(res.dismissed ?? 0);
+      setNotice(n > 0 ? `已归档清理 ${n} 个超过 30 天的单次草稿` : "没有超过 30 天的低频草稿需要清理");
+      await load();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
 
   // Map into SkillItem for 3D matrix
   const matrixSkills = useMemo<SkillItem[]>(() => {
@@ -839,6 +877,21 @@ export default function SkillsPage() {
             {/* ── TAB 1: 活跃上线技能 (Published) ── */}
             {activeTab === "published" && (
               <div className="space-y-2.5 animate-in fade-in">
+                {pendingUpdatesCount > 0 && (
+                  <div className="p-2.5 rounded-xl bg-[rgba(217,119,6,0.08)] border border-[rgba(217,119,6,0.25)] flex items-center justify-between gap-2 flex-wrap">
+                    <span className="text-xs text-[#B45309] font-medium">
+                      有 {pendingUpdatesCount} 个已发布技能收到复盘演进建议
+                    </span>
+                    <Btn
+                      size="sm"
+                      icon="check"
+                      disabled={busy !== null}
+                      onClick={() => batchPublish({ apply_updates: true }, "merge")}
+                    >
+                      {busy === "batch:merge" ? "合并中..." : `一键合并全部更新 (${pendingUpdatesCount})`}
+                    </Btn>
+                  </div>
+                )}
                 {filteredPublished.length === 0 ? (
                   <div className="p-8 text-center text-xs text-[var(--aurora-fg4)] bg-[var(--aurora-surface-solid)] rounded-2xl border border-[var(--aurora-border)]">
                     {searchQuery ? "未找到匹配的上线技能" : "暂无已发布技能，可在「演进草稿」中发布或通过日常编码自动提炼"}
@@ -852,6 +905,33 @@ export default function SkillsPage() {
             {/* ── TAB 2: 演进建议与草稿 (Drafts) ── */}
             {activeTab === "drafts" && (
               <div className="space-y-2.5 animate-in fade-in">
+                {drafts.length > 0 && (
+                  <div className="p-2.5 rounded-xl bg-[var(--aurora-surface-solid)] border border-[var(--aurora-border)] flex items-center justify-between gap-2 flex-wrap">
+                    <span className="text-[11px] text-[var(--aurora-fg3)]">
+                      共 {drafts.length} 个草稿{highFreqDraftsCount > 0 ? `，其中 ${highFreqDraftsCount} 个已多次出现` : ""}（出现 ≥5 次将自动晋升发布）
+                    </span>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      {highFreqDraftsCount > 0 && (
+                        <Btn
+                          size="sm"
+                          icon="rocket"
+                          disabled={busy !== null}
+                          onClick={() => batchPublish({ min_seen: 2 }, "drafts")}
+                        >
+                          {busy === "batch:drafts" ? "发布中..." : `一键发布高频 (${highFreqDraftsCount})`}
+                        </Btn>
+                      )}
+                      <Btn
+                        variant="ghost"
+                        size="sm"
+                        disabled={busy !== null}
+                        onClick={batchDismiss}
+                      >
+                        {busy === "batch:dismiss" ? "清理中..." : "清理 30 天单次草稿"}
+                      </Btn>
+                    </div>
+                  </div>
+                )}
                 {filteredDrafts.length === 0 ? (
                   <div className="p-8 text-center text-xs text-[var(--aurora-fg4)] bg-[var(--aurora-surface-solid)] rounded-2xl border border-[var(--aurora-border)]">
                     {searchQuery ? "未找到匹配的草稿" : "当前无待审技能草稿，系统将在会话复盘中持续挖掘高价值操作"}

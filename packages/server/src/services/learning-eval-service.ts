@@ -77,7 +77,7 @@ export async function countPrompts(db: Db, userId: string, startIso: string, end
       AND coalesce(cm.message_type, '') IN (${sql.join(USER_MESSAGE_TYPES.map((t) => sql`${t}`), sql`, `)})
       AND cm.timestamp >= ${startIso}::timestamptz
       AND cm.timestamp < ${endIso}::timestamptz
-      AND cm.content !~ '^\s*<'
+      AND cm.content !~ '^\\s*<'
       AND cm.content NOT LIKE '%tool_result%'
       AND cm.content NOT LIKE '[Result]%'
       AND cm.content !~ ${GENERATED_PROMPT_SQL_RE}

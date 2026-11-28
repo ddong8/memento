@@ -214,7 +214,7 @@ async function answerStillThere(db: Db, docId: string, category: string, content
       AND content NOT LIKE '[Result]%'
       AND content NOT LIKE '[Tool:%'
       AND timestamp IS NOT NULL
-      AND strpos(lower(regexp_replace(content, '\s+', '', 'g')), ${e}) > 0
+      AND strpos(lower(regexp_replace(content, '\\s+', '', 'g')), ${e}) > 0
     LIMIT 1
   `)) as unknown as unknown[];
   return rows.length > 0;
@@ -227,7 +227,7 @@ async function holdersOf(db: Db, docIds: string[], evidence: string): Promise<Se
   const rows = (await db.execute(sql`
     SELECT id AS doc_id FROM documents
     WHERE id IN (${idList}) AND category != 'conversation'
-      AND strpos(lower(regexp_replace(coalesce(content, ''), '\s+', '', 'g')), ${e}) > 0
+      AND strpos(lower(regexp_replace(coalesce(content, ''), '\\s+', '', 'g')), ${e}) > 0
     UNION
     SELECT document_id AS doc_id FROM conversation_messages
     WHERE document_id IN (${idList})
@@ -235,7 +235,7 @@ async function holdersOf(db: Db, docIds: string[], evidence: string): Promise<Se
       AND content NOT LIKE '[Result]%'
       AND content NOT LIKE '[Tool:%'
       AND timestamp IS NOT NULL
-      AND strpos(lower(regexp_replace(content, '\s+', '', 'g')), ${e}) > 0
+      AND strpos(lower(regexp_replace(content, '\\s+', '', 'g')), ${e}) > 0
   `)) as unknown as { doc_id: string }[];
   return new Set(rows.map((r) => String(r.doc_id)));
 }

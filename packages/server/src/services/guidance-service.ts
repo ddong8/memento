@@ -1,6 +1,7 @@
 // What an AI should know before it acts: user rules, past pitfalls, and learned skills
 // (server/server/services/guidance_service.py + touch_recalled from memory_lifecycle.py).
 import { and, eq, inArray, sql } from "drizzle-orm";
+import type { Redis } from "ioredis";
 
 import type { Db } from "../db/client";
 import { skills, userMemories } from "../db/pulled/schema";
@@ -10,6 +11,95 @@ export const ALWAYS_ON = ["rule", "rules", "preference"] as const;
 export const ACTIVE = "active";
 export const DORMANT = "dormant";
 export const SUPERSEDED = "superseded";
+
+const INJECTED_FALLBACK = new Map<string, { ids: string[]; expiresAt: number }>();
+const INJECTED_TTL_SEC = 7200;
+const INJECTED_MAX = 30;
+
+export function feedbackMultiplier(pos: number | null | undefined, neg: number | null | undefined): number {
+  const p = Math.max(0, Number(pos ?? 0));
+  const n = Math.max(0, Number(neg ?? 0));
+  return Math.max(0.55, Math.min(1.45, Math.round((1 + 0.08 * p - 0.14 * n) * 1000) / 1000));
+}
+
+export async function recordMemoryFeedback(
+  db: Db,
+  ids: Iterable<string>,
+  kind: "pos" | "neg",
+): Promise<number> {
+  const list = [...new Set([...ids].filter(Boolean))];
+  if (!list.length) return 0;
+  try {
+    const updated =
+      kind === "pos"
+        ? await db
+            .update(userMemories)
+            .set({
+              feedbackPos: sql`coalesce(${userMemories.feedbackPos}, 0) + 1`,
+              confidence: sql`least(1.0, coalesce(${userMemories.confidence}, 0.8) + 0.03)`,
+              updatedAt: sql`${userMemories.updatedAt}`,
+            })
+            .where(inArray(userMemories.id, list))
+            .returning({ id: userMemories.id })
+        : await db
+            .update(userMemories)
+            .set({
+              feedbackNeg: sql`coalesce(${userMemories.feedbackNeg}, 0) + 1`,
+              confidence: sql`greatest(0.2, coalesce(${userMemories.confidence}, 0.8) - 0.06)`,
+              updatedAt: sql`${userMemories.updatedAt}`,
+            })
+            .where(inArray(userMemories.id, list))
+            .returning({ id: userMemories.id });
+    return updated.length;
+  } catch {
+    return 0;
+  }
+}
+
+export async function trackInjectedMemories(
+  redis: Redis | null,
+  userId: string,
+  ids: Iterable<string>,
+): Promise<void> {
+  const fresh = [...new Set([...ids].filter(Boolean))];
+  if (!userId || !fresh.length) return;
+  const key = `injected_memories:${userId}`;
+  const prev = await getRecentlyInjectedMemoryIds(redis, userId);
+  const merged = [...new Set([...prev, ...fresh])].slice(-INJECTED_MAX);
+  if (redis) {
+    try {
+      await redis.set(key, JSON.stringify(merged), "EX", INJECTED_TTL_SEC);
+      INJECTED_FALLBACK.delete(key);
+      return;
+    } catch {
+      /* fallback */
+    }
+  }
+  INJECTED_FALLBACK.set(key, { ids: merged, expiresAt: Date.now() + INJECTED_TTL_SEC * 1000 });
+}
+
+export async function getRecentlyInjectedMemoryIds(redis: Redis | null, userId: string): Promise<string[]> {
+  if (!userId) return [];
+  const key = `injected_memories:${userId}`;
+  if (redis) {
+    try {
+      const raw = await redis.get(key);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return parsed.map(String).filter(Boolean);
+      }
+      return [];
+    } catch {
+      /* fallback */
+    }
+  }
+  const hit = INJECTED_FALLBACK.get(key);
+  if (!hit || hit.expiresAt < Date.now()) {
+    INJECTED_FALLBACK.delete(key);
+    return [];
+  }
+  return [...hit.ids];
+}
 
 const ACTION_SYNONYMS: Record<string, readonly string[]> = {
   deploy: ["部署", "上线", "发布", "k8s", "kubectl", "fleet", "pod"],
@@ -132,14 +222,15 @@ export async function guidanceFor(
   for (const mem of memories) {
     const text = `${mem.key} ${mem.treePath || ""} ${mem.content}`;
     const s = score(text, terms);
+    const fb = feedbackMultiplier(mem.feedbackPos, mem.feedbackNeg);
     const memProj = projectOf(mem.treePath);
     const inProject = Boolean(proj && (memProj === proj || (mem.treePath || "").toLowerCase().includes(proj)));
     if (alwaysOnSet.has(mem.category)) {
-      if (s || mem.source === "manual") rules.push([s, mem]);
+      if (s || mem.source === "manual") rules.push([(s || 0.5) * fb, mem]);
     } else if (mem.category === "pitfall") {
-      if (s || inProject) pitfalls.push([s + (inProject ? 3 : 0), mem]);
+      if (s || inProject) pitfalls.push([(s + (inProject ? 3 : 0)) * fb, mem]);
     } else if (inProject && s) {
-      rules.push([s, mem]);
+      rules.push([s * fb, mem]);
     }
   }
 

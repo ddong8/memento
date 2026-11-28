@@ -7,7 +7,8 @@ import { guardEvents, machines } from "../db/pulled/schema";
 import { pgToIso } from "../pytime";
 import { profileTargets } from "./profile-targets";
 
-export const GUARD_TOOLS = ["claude_code", "codex"] as const;
+export const CLI_GUARD_TOOLS = ["claude_code", "codex"] as const;
+export const GUARD_TOOLS = ["claude_code", "codex", "antigravity", "memento_ask"] as const;
 export const OUTCOMES = ["verified", "no_evidence", "failed_check", "disclosed", "unread"] as const;
 export const SETTING = "completion_guard";
 
@@ -24,7 +25,116 @@ export function guardEnabled(user: Pick<UserRow, "proactiveSettings">): boolean 
 export function guardTools(user: Pick<UserRow, "proactiveSettings">, machine: { profileTargetsOff?: unknown }): string[] {
   if (!guardEnabled(user)) return [];
   const targets = profileTargets(machine);
-  return GUARD_TOOLS.filter((t) => targets.includes(t));
+  return CLI_GUARD_TOOLS.filter((t) => targets.includes(t));
+}
+
+const CLAIM_DONE_RE = /(?:已经?(?:全部)?(?:完成|修好|修复|解决|部署|上线|发布|更新|生效)|全部搞定|已经好了|\b(?:fixed|resolved|deployed|completed|all done)\b)/i;
+const CLAIM_DEPLOY_RE = /(?:部署|上线|发布|发版|滚动更新|pod|k8s|\bdeploy(?:ed|ment)?\b|\breleased\b)/i;
+const DISCLOSED_RE = /(?:尚未验证|未(?:经过?|能|做)(?:验证|测试|确认)|未能(?:运行|连接|执行)|失败|报错|受限|无法验证|unverified|not tested|failed to)/i;
+const VERIFY_CMD_RE = /(?:test|pytest|vitest|tsc|typecheck|lint|build|curl|wget|kubectl\s+(?:get|rollout|logs)|git\s+status|health|verify|check)/i;
+
+export interface AskGuardEvaluation {
+  outcome: (typeof OUTCOMES)[number];
+  blocked: boolean;
+  deploy: boolean;
+  claim: string | null;
+  check: string | null;
+}
+
+export function evaluateAskCompletionGuard(
+  answer: string,
+  toolCalls: readonly { name?: unknown; args?: unknown; status?: unknown; result?: unknown }[],
+): AskGuardEvaluation | null {
+  const text = (answer || "").trim();
+  const claimMatch = CLAIM_DONE_RE.exec(text);
+  if (!claimMatch) return null;
+
+  const execCalls = toolCalls.filter((c) => c.name === "run_on_device");
+  if (!execCalls.length) return null;
+
+  const deploy = CLAIM_DEPLOY_RE.test(text);
+  const claim = text.slice(Math.max(0, claimMatch.index - 20), claimMatch.index + 80).replace(/\s+/g, " ").trim();
+  const disclosed = DISCLOSED_RE.test(text);
+
+  const failedCalls = execCalls.filter((c) => {
+    const res = c.result && typeof c.result === "object" ? (c.result as Record<string, unknown>) : {};
+    const exitCode = typeof res.exit_code === "number" ? res.exit_code : 0;
+    return c.status === "failed" || res.status === "failed" || res.status === "timeout" || exitCode !== 0;
+  });
+
+  const lastExec = execCalls[execCalls.length - 1]!;
+  const lastArgs = lastExec.args && typeof lastExec.args === "object" ? (lastExec.args as Record<string, unknown>) : {};
+  const lastCmd = String(lastArgs.command ?? lastArgs.prompt ?? "");
+  const hasVerifyCall = execCalls.some((c) => {
+    const a = c.args && typeof c.args === "object" ? (c.args as Record<string, unknown>) : {};
+    const cmd = String(a.command ?? a.prompt ?? "");
+    const res = c.result && typeof c.result === "object" ? (c.result as Record<string, unknown>) : {};
+    const ok = c.status !== "failed" && res.status !== "failed" && (typeof res.exit_code !== "number" || res.exit_code === 0);
+    return ok && (VERIFY_CMD_RE.test(cmd) || a.action === "agent");
+  });
+
+  if (failedCalls.length && !hasVerifyCall) {
+    return {
+      outcome: disclosed ? "disclosed" : "failed_check",
+      blocked: !disclosed,
+      deploy,
+      claim,
+      check: lastCmd.slice(0, 200) || null,
+    };
+  }
+  if (!hasVerifyCall) {
+    return {
+      outcome: disclosed ? "disclosed" : "no_evidence",
+      blocked: !disclosed,
+      deploy,
+      claim,
+      check: lastCmd.slice(0, 200) || null,
+    };
+  }
+  return {
+    outcome: "verified",
+    blocked: false,
+    deploy,
+    claim,
+    check: lastCmd.slice(0, 200) || null,
+  };
+}
+
+export async function recordServerGuardEvent(
+  db: Db,
+  userId: string,
+  ev: {
+    tool?: (typeof GUARD_TOOLS)[number];
+    sessionId?: string | null;
+    outcome: (typeof OUTCOMES)[number];
+    blocked: boolean;
+    followup?: boolean;
+    deploy?: boolean;
+    claim?: string | null;
+    check?: string | null;
+    cwd?: string | null;
+  },
+): Promise<void> {
+  try {
+    await db.insert(guardEvents).values(
+      withoutNul({
+        userId,
+        machineId: null,
+        tool: ev.tool ?? "memento_ask",
+        sessionId: cleanText(ev.sessionId, 100),
+        outcome: ev.outcome,
+        blocked: ev.blocked,
+        followup: Boolean(ev.followup),
+        deploy: Boolean(ev.deploy),
+        claim: cleanText(ev.claim, 200),
+        check: cleanText(ev.check, 200),
+        cwd: cleanText(ev.cwd, 300),
+        saidAt: new Date().toISOString(),
+      }),
+    );
+  } catch {
+    /* non-blocking */
+  }
 }
 
 function parseAt(raw: unknown): string {
@@ -145,7 +255,7 @@ export async function guardOverview(db: Db, user: UserRow, days = 30) {
     names.set(m.id, m.name);
     const pStatus = m.profileStatus && typeof m.profileStatus === "object" ? (m.profileStatus as Record<string, unknown>) : {};
     const gStatus = pStatus.guards && typeof pStatus.guards === "object" ? (pStatus.guards as Record<string, unknown>) : {};
-    const tools = GUARD_TOOLS.filter((t) => profileTargets(m).includes(t));
+    const tools = CLI_GUARD_TOOLS.filter((t) => profileTargets(m).includes(t));
     if (!tools.length && !Object.keys(gStatus).length) continue;
     devices.push({
       id: m.id,

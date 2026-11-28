@@ -1,5 +1,5 @@
 // Learning routes: corrections, check, reviews, evals, outcomes, pitfalls, guard (server/server/api/learning.py).
-import { and, desc, eq, gte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 
@@ -25,6 +25,14 @@ import { learnFromTasks, reviewSessions, reviewStats, savePitfall } from "../ser
 const AcceptSchema = z.object({
   statement: z.string().nullable().optional(),
   general: z.boolean().optional().default(false),
+});
+
+const BatchCorrectionSchema = z.object({
+  action: z.enum(["accept", "dismiss"]),
+  ids: z.array(z.string()).optional(),
+  min_times: z.number().int().min(1).max(50).optional(),
+  older_than_days: z.number().int().min(1).max(365).optional(),
+  limit: z.number().int().min(1).max(50).optional().default(20),
 });
 
 const PitfallSchema = z.object({
@@ -156,6 +164,60 @@ learningRoutes.post("/corrections/:topic_id/dismiss", async (c) => {
   return c.json({ topic: topicOut(updated ?? { ...topic, status: "dismissed" }) });
 });
 
+learningRoutes.post("/corrections/batch", async (c) => {
+  const deps = c.var.deps;
+  const user = await currentUser(c);
+  const body = await parseZod(c, BatchCorrectionSchema);
+  const ids = (body.ids ?? []).map((x) => normalizeUuid(x)).filter((x): x is string => Boolean(x));
+
+  const conds = [eq(correctionTopics.userId, user.id), eq(correctionTopics.status, "pending")];
+  if (ids.length) conds.push(inArray(correctionTopics.id, ids));
+  if (body.min_times) conds.push(sql`${correctionTopics.times} >= ${body.min_times}`);
+  if (body.older_than_days) {
+    const cutoffIso = new Date(Date.now() - body.older_than_days * 86400_000).toISOString();
+    conds.push(sql`coalesce(${correctionTopics.lastAt}, ${correctionTopics.updatedAt}, ${correctionTopics.createdAt}) < ${cutoffIso}::timestamptz`);
+  }
+
+  const targets = await deps.db
+    .select()
+    .from(correctionTopics)
+    .where(and(...conds))
+    .orderBy(desc(correctionTopics.times), desc(correctionTopics.lastAt))
+    .limit(body.limit);
+
+  let processed = 0;
+  let skippedFull = 0;
+  const nowIso = new Date().toISOString();
+  if (body.action === "dismiss") {
+    if (targets.length) {
+      const updated = await deps.db
+        .update(correctionTopics)
+        .set({ status: "dismissed", updatedAt: nowIso })
+        .where(and(eq(correctionTopics.userId, user.id), inArray(correctionTopics.id, targets.map((t) => t.id))))
+        .returning({ id: correctionTopics.id });
+      processed = updated.length;
+    }
+  } else {
+    for (const topic of targets) {
+      try {
+        const accepted = await acceptTopic(deps.db, user, topic, null, false);
+        processed++;
+        if (accepted.memoryId) {
+          const memId = accepted.memoryId;
+          cluster.spawn(() => reconcileInBackground(deps.db, deps.settings, deps.redis(), user.id, memId));
+        }
+      } catch (e) {
+        if (e instanceof ProfileFull) skippedFull++;
+      }
+    }
+  }
+
+  const r = deps.redis();
+  await cacheDeletePrefix(r, `learning:corrections:${user.id}`).catch(() => {});
+  await cacheDeletePrefix(r, `learning:check:${user.id}`).catch(() => {});
+  return c.json({ action: body.action, processed, skipped_full: skippedFull, stats: await correctionStats(deps.db, user) });
+});
+
 learningRoutes.get("/check", async (c) => {
   const deps = c.var.deps;
   const user = await currentUser(c);
@@ -173,7 +235,7 @@ learningRoutes.get("/check", async (c) => {
   if (format === "markdown") {
     const baseMd = renderGuidance(g);
     try {
-      const resObj = await senseResonance(deps.db, r, user, { query: query ?? undefined, project, action });
+      const resObj = await senseResonance(deps.db, r, user, { query: query ?? undefined, project, action, settings: deps.settings });
       const fullMd = enrichCheckRulesResult(baseMd, resObj);
       res = { markdown: fullMd, guidance: g, resonance: resObj };
     } catch {

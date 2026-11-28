@@ -1,7 +1,7 @@
 // Skills business logic (server/server/services/skill_service.py).
 import { createHash } from "node:crypto";
 
-import { and, count, eq, isNotNull, ne } from "drizzle-orm";
+import { and, count, eq, gte, inArray, isNotNull, lt, ne, sql } from "drizzle-orm";
 
 import type { UserRow } from "../auth/current-user";
 import type { Db } from "../db/client";
@@ -264,4 +264,149 @@ export async function upsertMinedSkill(
 
   const [updated] = await db.update(skills).set(basePatch).where(eq(skills.id, existing.id)).returning();
   return { skill: updated ?? existing, event };
+}
+
+export const AUTO_PUBLISH_MIN_SEEN = 5;
+export const AUTO_PUBLISH_MIN_BODY = 80;
+export const STALE_DRAFT_DAYS = 45;
+
+export function autoPublishEnabled(user: Pick<UserRow, "proactiveSettings">): boolean {
+  const s =
+    user.proactiveSettings && typeof user.proactiveSettings === "object" && !Array.isArray(user.proactiveSettings)
+      ? (user.proactiveSettings as Record<string, unknown>)
+      : {};
+  return s.auto_publish_skills !== false;
+}
+
+/**
+ * Close the draft backlog gap automatically during nightly reviews:
+ *   1) Auto-publish high-frequency unedited drafts (times_seen >= 5, valid description & body).
+ *   2) Auto-apply pending improvements on published skills that were never hand-edited.
+ *   3) Soft-retire untouched single-sighting draft skills older than 45 days (reversible).
+ */
+export async function autoPromoteSkills(
+  db: Db,
+  user: Pick<UserRow, "id" | "proactiveSettings">,
+  opts: { minSeen?: number; staleDays?: number; nowMs?: number } = {},
+): Promise<{ auto_published: string[]; auto_merged: string[]; retired_stale: number }> {
+  const minSeen = opts.minSeen ?? AUTO_PUBLISH_MIN_SEEN;
+  const staleDays = opts.staleDays ?? STALE_DRAFT_DAYS;
+  const nowMs = opts.nowMs ?? Date.now();
+  const nowIso = new Date(nowMs).toISOString();
+  const autoPublished: string[] = [];
+  const autoMerged: string[] = [];
+
+  if (autoPublishEnabled(user)) {
+    const draftCandidates = await db
+      .select()
+      .from(skills)
+      .where(and(eq(skills.userId, user.id), eq(skills.status, "draft"), eq(skills.editedByUser, false), gte(skills.timesSeen, minSeen)));
+    for (const sk of draftCandidates) {
+      if ((sk.description || "").trim().length < 10 || (sk.body || "").trim().length < AUTO_PUBLISH_MIN_BODY) continue;
+      await db
+        .update(skills)
+        .set({
+          status: "published",
+          version: (sk.version || 0) + 1,
+          publishedAt: nowIso,
+          updatedAt: nowIso,
+        })
+        .where(eq(skills.id, sk.id));
+      autoPublished.push(sk.slug);
+    }
+
+    const updateCandidates = await db
+      .select()
+      .from(skills)
+      .where(and(eq(skills.userId, user.id), eq(skills.status, "published"), eq(skills.editedByUser, false), isNotNull(skills.pendingUpdate)));
+    for (const sk of updateCandidates) {
+      const pending = sk.pendingUpdate as Record<string, unknown> | null;
+      if (!pending || typeof pending !== "object") continue;
+      const nextDesc = typeof pending.description === "string" && pending.description.trim() ? oneLine(pending.description, DESCRIPTION_MAX) : sk.description;
+      const nextBody = typeof pending.body === "string" && pending.body.trim() ? cleanBody(pending.body).slice(0, BODY_MAX) : sk.body;
+      if (nextBody.length < AUTO_PUBLISH_MIN_BODY) continue;
+      await db
+        .update(skills)
+        .set({
+          description: nextDesc,
+          body: nextBody,
+          pendingUpdate: null,
+          version: (sk.version || 0) + 1,
+          publishedAt: nowIso,
+          updatedAt: nowIso,
+        })
+        .where(eq(skills.id, sk.id));
+      autoMerged.push(sk.slug);
+    }
+  }
+
+  const staleCutoffIso = new Date(nowMs - staleDays * 86400_000).toISOString();
+  const retired = await db
+    .update(skills)
+    .set({ status: "retired", updatedAt: nowIso })
+    .where(
+      and(
+        eq(skills.userId, user.id),
+        eq(skills.status, "draft"),
+        eq(skills.editedByUser, false),
+        sql`${skills.timesSeen} <= 1`,
+        lt(skills.updatedAt, staleCutoffIso),
+      ),
+    )
+    .returning({ id: skills.id });
+
+  return { auto_published: autoPublished, auto_merged: autoMerged, retired_stale: retired.length };
+}
+
+/** One-click batch publish / merge for skills backlog UI. */
+export async function batchPublishSkills(
+  db: Db,
+  user: Pick<UserRow, "id">,
+  opts: { ids?: string[]; minSeen?: number; applyUpdates?: boolean } = {},
+): Promise<{ published: string[]; merged: string[] }> {
+  const nowIso = new Date().toISOString();
+  const published: string[] = [];
+  const merged: string[] = [];
+
+  let draftRows: SkillRow[];
+  if (opts.ids?.length) {
+    draftRows = await db
+      .select()
+      .from(skills)
+      .where(and(eq(skills.userId, user.id), eq(skills.status, "draft"), inArray(skills.id, opts.ids)));
+  } else {
+    const minSeen = Math.max(1, opts.minSeen ?? 2);
+    draftRows = await db
+      .select()
+      .from(skills)
+      .where(and(eq(skills.userId, user.id), eq(skills.status, "draft"), gte(skills.timesSeen, minSeen)));
+  }
+
+  for (const sk of draftRows) {
+    if (!(sk.description || "").trim() || !(sk.body || "").trim()) continue;
+    await db
+      .update(skills)
+      .set({ status: "published", version: (sk.version || 0) + 1, publishedAt: nowIso, updatedAt: nowIso })
+      .where(eq(skills.id, sk.id));
+    published.push(sk.slug);
+  }
+
+  if (opts.applyUpdates !== false) {
+    const updRows = await db
+      .select()
+      .from(skills)
+      .where(and(eq(skills.userId, user.id), eq(skills.status, "published"), isNotNull(skills.pendingUpdate)));
+    for (const sk of updRows) {
+      const pending = sk.pendingUpdate as Record<string, unknown> | null;
+      if (!pending || typeof pending !== "object") continue;
+      const nextDesc = typeof pending.description === "string" && pending.description.trim() ? oneLine(pending.description, DESCRIPTION_MAX) : sk.description;
+      const nextBody = typeof pending.body === "string" && pending.body.trim() ? cleanBody(pending.body).slice(0, BODY_MAX) : sk.body;
+      await db
+        .update(skills)
+        .set({ description: nextDesc, body: nextBody, pendingUpdate: null, version: (sk.version || 0) + 1, publishedAt: nowIso, updatedAt: nowIso })
+        .where(eq(skills.id, sk.id));
+      merged.push(sk.slug);
+    }
+  }
+  return { published, merged };
 }

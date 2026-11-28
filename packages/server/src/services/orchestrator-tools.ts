@@ -644,7 +644,7 @@ export async function executeKnowledgeTool(
       const query = typeof args.query === "string" ? args.query : opts.userQuestion ?? null;
       const [g, res] = await Promise.all([
         guidanceFor(db, user, action, project, query),
-        senseResonance(db, redis, user, { query: query || action, project, action }),
+        senseResonance(db, redis, user, { query: query || action, project, action, settings }),
       ]);
       return { output: enrichCheckRulesResult(renderGuidance(g), res) };
     }

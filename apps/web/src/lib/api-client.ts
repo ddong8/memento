@@ -745,6 +745,8 @@ export const api = {
       ...(opts.general ? { general: true } : {}),
     }),
   dismissCorrection: (id: string) => post(`/api/learning/corrections/${id}/dismiss`),
+  batchCorrections: (body: { action: "accept" | "dismiss"; ids?: string[]; min_times?: number; older_than_days?: number }) =>
+    post<Json>("/api/learning/corrections/batch", body),
   /** Weekly learning eval: {latest, trend, regression, stale}. */
   getOutcomes: () => fresh<Json>("/api/learning/outcomes"),
   runOutcomes: () => post<Json>("/api/learning/outcomes/run"),
@@ -760,6 +762,10 @@ export const api = {
   publishSkill: (id: string, edits: Json = {}) => post(`/api/skills/${id}/publish`, edits),
   /** action: dismiss | retire | restore | update/apply | update/discard */
   skillAction: (id: string, action: string) => post(`/api/skills/${id}/${action}`),
+  batchPublishSkills: (body: { ids?: string[]; min_seen?: number; apply_updates?: boolean } = {}) =>
+    post<Json>("/api/skills/batch/publish", body),
+  batchDismissSkills: (body: { ids?: string[]; older_than_days?: number; max_seen?: number } = {}) =>
+    post<Json>("/api/skills/batch/dismiss", body),
 
   // === Todos ===
   /** {open, closed, counts} */

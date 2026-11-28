@@ -8,6 +8,7 @@ import { Cron } from "croner";
 import { and, asc, desc, eq, inArray, isNull, lt, notLike, or, sql } from "drizzle-orm";
 import type { Redis } from "ioredis";
 
+import { cacheDeletePrefix } from "../cache";
 import type { Settings } from "../config";
 import type { Db } from "../db/client";
 import {
@@ -25,11 +26,11 @@ import { generateDailySummaryFromDigests } from "./ai-summary";
 import * as aiHealth from "./ai-health";
 import { cluster } from "./cluster";
 import { mergeDue } from "./content-staging";
-import { learnFromCorrections, summarizeNewTopics } from "./correction-service";
+import { decayStalePendingTopics, learnFromCorrections, summarizeNewTopics } from "./correction-service";
 import { runAllUsersNightlyDreaming } from "./dreaming-service";
 import { embedPendingDocuments } from "./embedding";
 import { buildSet, needsNewSet, NoMaterial, recentRuns, regression as evalRegression, runEval } from "./eval-service";
-import { extractKnowledgeFromDocument } from "./graph-service";
+import { deduplicateAndPruneGraph, extractKnowledgeFromDocument } from "./graph-service";
 import { aiFailing, topReasons } from "./health-service";
 import {
   extractLatestAiTitle,
@@ -44,8 +45,11 @@ import { reconcile, sweepDormant } from "./memory-lifecycle";
 import { backfillMemoryVectors } from "./memory-vectors";
 import { auditDue } from "./message-audit";
 import { notifyUser } from "./notify";
+import { buildProfileDraft } from "./profile-draft";
+import { getDraftProfile, getPublishedProfile, profileSaturation } from "./profile-read";
 import { CHAT_MESSAGE_SQL } from "./pulse";
 import { learnFromTasks, reviewSessions } from "./retrospective-service";
+import { autoPromoteSkills } from "./skills";
 import { uploadBytes } from "./storage";
 import { dueNow, learnTodos, reminderText } from "./todos";
 import { tokenizeForIndex } from "./tokenize";
@@ -467,11 +471,26 @@ export async function runReviewSessions(deps: SchedulerDeps) {
     } catch (e) {
       tasks = { error: ((e as Error).message || String(e)).slice(0, 200) };
     }
+    let autoPromote: Record<string, unknown>;
+    try {
+      const promo = await autoPromoteSkills(deps.db, user);
+      if (promo.auto_published.length || promo.auto_merged.length || promo.retired_stale > 0) {
+        await cacheDeletePrefix(deps.redis(), `skills:${user.id}`).catch(() => {});
+      }
+      autoPromote = promo;
+    } catch (e) {
+      autoPromote = { error: ((e as Error).message || String(e)).slice(0, 200) };
+    }
     run.sessions = sessions;
     run.tasks = tasks;
+    run.auto_promote = autoPromote;
     await aiHealth.putJson(deps.redis(), `review_run:${user.id}`, run);
     const parts: string[] = [];
     const sNew = Array.isArray(sessions.skills_new) ? (sessions.skills_new as string[]) : [];
+    const autoPub = Array.isArray(autoPromote.auto_published) ? (autoPromote.auto_published as string[]) : [];
+    const autoMerged = Array.isArray(autoPromote.auto_merged) ? (autoPromote.auto_merged as string[]) : [];
+    if (autoPub.length) parts.push(`自动发布 ${autoPub.length} 个高频技能（${autoPub.slice(0, 3).join("、")}）`);
+    if (autoMerged.length) parts.push(`自动合并 ${autoMerged.length} 个技能改进`);
     if (sNew.length) parts.push(`${sNew.length} 个新技能待确认（${sNew.slice(0, 3).join("、")}）`);
     if (Number(sessions.skill_updates ?? 0) > 0) parts.push(`${sessions.skill_updates} 个技能有改进`);
     const pitfalls = Number(sessions.pitfalls_new ?? 0) + Number(tasks.pitfalls_new ?? 0);
@@ -509,7 +528,39 @@ export async function runMemoryLifecycle(deps: SchedulerDeps) {
     } catch (e) {
       dormant = { error: ((e as Error).message || String(e)).slice(0, 200) };
     }
-    const run = { at: new Date(startedMs).toISOString().replace("Z", "+00:00"), reconcile: reconciled, dormant };
+    let decayedTopics: unknown;
+    try {
+      decayedTopics = await decayStalePendingTopics(deps.db, user);
+    } catch (e) {
+      decayedTopics = { error: ((e as Error).message || String(e)).slice(0, 200) };
+    }
+    let graphHygiene: unknown;
+    try {
+      graphHygiene = await deduplicateAndPruneGraph(deps.db, user.id);
+    } catch (e) {
+      graphHygiene = { error: ((e as Error).message || String(e)).slice(0, 200) };
+    }
+    let profileCompact: unknown = null;
+    try {
+      const pub = await getPublishedProfile(deps.db, user);
+      if (pub && profileSaturation(pub.content).saturated) {
+        const draft = await getDraftProfile(deps.db, user);
+        if (!draft) {
+          const [, status] = await buildProfileDraft(deps.db, deps.settings, deps.redis(), user);
+          profileCompact = { triggered: true, status };
+        }
+      }
+    } catch (e) {
+      profileCompact = { error: ((e as Error).message || String(e)).slice(0, 200) };
+    }
+    const run = {
+      at: new Date(startedMs).toISOString().replace("Z", "+00:00"),
+      reconcile: reconciled,
+      dormant,
+      decayed_topics: decayedTopics,
+      graph_hygiene: graphHygiene,
+      profile_compact: profileCompact,
+    };
     await aiHealth.putJson(deps.redis(), `lifecycle_run:${user.id}`, run);
     out[user.id] = run;
   }

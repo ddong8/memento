@@ -8,7 +8,7 @@ import { buildOverview } from "../services/health-service";
 export const healthOverviewRoutes = new Hono<AppEnv>();
 
 healthOverviewRoutes.get("/overview", async (c) => {
-  const { db, redis } = c.var.deps;
+  const { db, redis, settings } = c.var.deps;
   const user = await currentUser(c);
-  return c.json(await buildOverview(db, redis(), user));
+  return c.json(await buildOverview(db, redis(), user, settings));
 });

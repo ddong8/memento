@@ -429,7 +429,7 @@ export async function* directAgentStream(
       let resonanceAppend = "";
       if (action === "agent") {
         try {
-          const res = await senseResonance(db, redis, user, { query: opts.question, project: opts.cwd ?? null, action: "agent" });
+          const res = await senseResonance(db, redis, user, { query: opts.question, project: opts.cwd ?? null, action: "agent", settings });
           resonanceAppend = renderMindResonanceMarkdown(res, opts.liveRules);
         } catch {
           /* ignore */

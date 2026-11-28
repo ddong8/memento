@@ -58,11 +58,62 @@ export default function LearnedCorrections({ topics, onChanged }: { topics: Obj[
     }
   };
 
+  const highFreqCount = topics.filter((tp) => typeof tp.times === "number" && tp.times >= 2).length;
+
+  const batchAct = async (action: "accept" | "dismiss", opts: { min_times?: number; older_than_days?: number }) => {
+    setBusy(`batch:${action}`);
+    setError(null);
+    try {
+      const res = await api.batchCorrections({ action, ...opts });
+      const n = Number(action === "accept" ? res.accepted ?? 0 : res.dismissed ?? 0);
+      const full = Boolean(res.profile_full);
+      const msg =
+        action === "accept"
+          ? full
+            ? `已批量采纳 ${n} 条（常驻画像通用段已接近上限，建议先合并精简）`
+            : n > 0
+              ? `已批量采纳 ${n} 条高频规则并写入常驻画像`
+              : "没有符合条件的高频规则"
+          : n > 0
+            ? `已清理 ${n} 条过期单次积压条目`
+            : "当前没有超过 14 天的单次积压条目";
+      onChanged(msg);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+
   return (
     <Glass padding="clamp(14px, 3vw, 22px)" radius={18} style={{ marginBottom: 16 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-        <Chip tone="accent" icon="sparkles">{p.learnedTag}</Chip>
-        <span style={{ fontSize: 12, color: "var(--aurora-fg3)" }}>{fmt(p.learnedCaption, { n: topics.length })}</span>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <Chip tone="accent" icon="sparkles">{p.learnedTag}</Chip>
+          <span style={{ fontSize: 12, color: "var(--aurora-fg3)" }}>{fmt(p.learnedCaption, { n: topics.length })}</span>
+        </div>
+        {topics.length >= 2 && (
+          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+            {highFreqCount > 0 && (
+              <Btn
+                size="sm"
+                icon="check"
+                disabled={busy !== null}
+                onClick={() => batchAct("accept", { min_times: 2 })}
+              >
+                {busy === "batch:accept" ? p.working : `一键采纳高频 (${highFreqCount})`}
+              </Btn>
+            )}
+            <Btn
+              variant="ghost"
+              size="sm"
+              disabled={busy !== null}
+              onClick={() => batchAct("dismiss", { older_than_days: 14 })}
+            >
+              {busy === "batch:dismiss" ? p.working : "清理 14 天积压"}
+            </Btn>
+          </div>
+        )}
       </div>
       {error && <p style={{ margin: "10px 0 0", fontSize: 12.5, color: "#DC2626" }}>{error}</p>}
       {topics.map((topic) => {

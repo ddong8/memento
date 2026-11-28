@@ -475,7 +475,7 @@ export async function runDreamingPipeline(
   try {
     const discovered = Array.isArray(llmOutput.discovered_scenarios) ? [...(llmOutput.discovered_scenarios as Record<string, unknown>[])] : [];
     if (discovered.length || canonicalProjects.length) await loadDynamicScenariosFromDb(db, user.id);
-    const activeScenarios = getAllScenarios();
+    const activeScenarios = getAllScenarios(user.id);
     const activeIds = new Set(activeScenarios.map((s) => s.id));
     const activeProjs = new Set(activeScenarios.map((s) => (s.target_project || "").toLowerCase()).filter(Boolean));
     if (!discovered.length && canonicalProjects.length) {
@@ -497,7 +497,7 @@ export async function runDreamingPipeline(
     }
     for (const scen of discovered) {
       if (!scen || !scen.id) continue;
-      const reg = registerScenario(scen);
+      const reg = registerScenario(scen, { userId: user.id });
       const scenContent = JSON.stringify(reg);
       const scenKey = `scenario_${reg.id}`;
       const scenPath = `/scenario/${reg.id}`;

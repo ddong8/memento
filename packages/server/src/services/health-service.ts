@@ -3,14 +3,17 @@ import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import type { Redis } from "ioredis";
 
 import type { UserRow } from "../auth/current-user";
+import type { Settings } from "../config";
 import type { Db } from "../db/client";
-import { documents, dreamJournals, machines, userProfiles } from "../db/pulled/schema";
+import { documents, dreamJournals, knowledgeEntities, machines, userProfiles } from "../db/pulled/schema";
 import { pgToIso } from "../pytime";
 import * as aiHealth from "./ai-health";
+import { getAiProviders } from "./ai-provider";
 import { correctionStats } from "./correction-service";
 import { evalSummary } from "./eval-service";
 import { outcomeSummary, regressionText } from "./learning-eval-service";
 import { lifecycleCounts } from "./memory-lifecycle";
+import { profileSaturation } from "./profile-read";
 import { profileTargets } from "./profile-targets";
 import { reviewStats } from "./retrospective-service";
 import { skillCounts } from "./skills";
@@ -99,6 +102,14 @@ export function assess(
   const broken = pDevices.filter((d) => Array.isArray(d.errors) && d.errors.length).map((d) => String(d.name));
   if (broken.length) {
     add("warn", "profile", `${broken.length} 台设备写入画像出错：${broken.slice(0, 3).join("、")}`);
+  }
+  const sat = profile.saturation && typeof profile.saturation === "object" ? (profile.saturation as Record<string, unknown>) : null;
+  if (sat && Number(sat.ratio ?? 0) >= 0.95) {
+    add(
+      "warn",
+      "profile",
+      `常驻画像通用段已达 ${sat.general_chars}/${sat.general_limit} 字符（${Math.round(Number(sat.ratio) * 100)}%），新规矩将触发自动语义压缩或受限`,
+    );
   }
 
   if (learning && Number(learning.learned_repeat_7d ?? 0) >= 2) {
@@ -231,13 +242,61 @@ async function getProfile(db: Db, redis: Redis | null, user: UserRow, nowMs: num
     });
   }
 
+  const saturation = profileSaturation(published?.content);
   return {
     published: published
       ? { version: published.version, published_at: pgToIso(published.publishedAt || published.createdAt) }
       : null,
     draft: draft ? { updated_at: pgToIso(draft.updatedAt || draft.createdAt) } : null,
+    saturation,
     last_run: await aiHealth.getJson(redis, `profile_run:${user.id}`),
     devices,
+  };
+}
+
+async function getGraphHealth(db: Db, user: UserRow) {
+  const [row] = await db
+    .select({
+      total: sql<number>`count(*)`.mapWith(Number),
+      stale: sql<number>`count(*) filter (where ${knowledgeEntities.staleAt} is not null)`.mapWith(Number),
+    })
+    .from(knowledgeEntities)
+    .where(eq(knowledgeEntities.userId, user.id));
+  return {
+    entities: Number(row?.total ?? 0),
+    stale_entities: Number(row?.stale ?? 0),
+  };
+}
+
+function buildReadiness(settings: Settings | undefined, user: UserRow) {
+  if (!settings) return null;
+  const fgProviders = getAiProviders(settings, { background: false, user });
+  const bgProviders = getAiProviders(settings, { background: true, user });
+  const llmConfigured = fgProviders.length > 0 || bgProviders.length > 0;
+  const embProvider = settings.embeddingProvider || "none";
+  const embeddingConfigured =
+    embProvider === "local"
+      ? Boolean(settings.embeddingServerUrl)
+      : embProvider !== "none" && Boolean(settings.embeddingApiKey || llmConfigured);
+  const standaloneMode = !settings.redisUrl || settings.redisUrl === "none";
+  const hints: string[] = [];
+  if (!llmConfigured) {
+    hints.push("尚未配置大模型 API Key，做梦整理、纠偏提炼、技能挖掘与画像压缩无法自动运行；请到「个人设置 → 大模型」配置。");
+  }
+  if (!embeddingConfigured) {
+    hints.push("向量检索模型未配置，当前仅使用关键词检索；配置 Embedding 后可开启混合语义检索与场景向量路由。");
+  }
+  if (!settings.enableScheduler) {
+    hints.push("后台定时调度器已关闭（MEMENTO_ENABLE_SCHEDULER=0），夜间自动复盘与生命周期治理不会自动执行。");
+  }
+  return {
+    llm_configured: llmConfigured,
+    llm_providers: fgProviders.length,
+    embedding_provider: embProvider,
+    embedding_configured: embeddingConfigured,
+    scheduler_enabled: Boolean(settings.enableScheduler),
+    standalone_mode: standaloneMode,
+    hints,
   };
 }
 
@@ -265,9 +324,9 @@ async function getDevices(db: Db, user: UserRow, nowMs: number) {
   return { total: rows.length, online };
 }
 
-export async function buildOverview(db: Db, redis: Redis | null, user: UserRow) {
+export async function buildOverview(db: Db, redis: Redis | null, user: UserRow, settings?: Settings) {
   const nowMs = Date.now();
-  const [ai, lastHour, dreaming, profile, pipeline, devices, learning, skillsC, reviewsC, todosC, memC, evalC, outcomesC, revRun, lifeRun] =
+  const [ai, lastHour, dreaming, profile, pipeline, devices, learning, skillsC, reviewsC, todosC, memC, evalC, outcomesC, revRun, lifeRun, graphC] =
     await Promise.all([
       aiHealth.summary(redis, 24),
       aiHealth.summary(redis, 1),
@@ -284,7 +343,28 @@ export async function buildOverview(db: Db, redis: Redis | null, user: UserRow) 
       outcomeSummary(db, user),
       aiHealth.getJson(redis, `review_run:${user.id}`),
       aiHealth.getJson(redis, `lifecycle_run:${user.id}`),
+      getGraphHealth(db, user),
     ]);
+  const readiness = buildReadiness(settings, user);
+  const latestOutcome = outcomesC?.latest && typeof outcomesC.latest === "object" ? (outcomesC.latest as Record<string, unknown>) : null;
+  const trendWeeks = Array.isArray(outcomesC?.trend) ? (outcomesC.trend as Record<string, unknown>[]) : [];
+  const rulesTotal = Number(latestOutcome?.rules ?? 0);
+  const rulesNeverAgain = Number(latestOutcome?.rules_never_again ?? 0);
+  const firstLearned100 = trendWeeks.find((w) => typeof w.learned_per_100 === "number")?.learned_per_100 ?? null;
+  const latestLearned100 = typeof latestOutcome?.learned_per_100 === "number" ? latestOutcome.learned_per_100 : null;
+  const growth = {
+    rules_total: rulesTotal,
+    rules_never_again: rulesNeverAgain,
+    rules_never_again_rate: rulesTotal > 0 ? Math.round((rulesNeverAgain / rulesTotal) * 1000) / 1000 : null,
+    learned_per_100_first: firstLearned100,
+    learned_per_100_latest: latestLearned100,
+    pending_corrections: Number(learning?.pending ?? 0),
+    draft_skills: Number(skillsC?.draft ?? 0),
+    published_skills: Number(skillsC?.published ?? 0),
+    pending_skill_updates: Number(skillsC?.updates ?? 0),
+    graph: graphC,
+    attribution: memC?.attribution ?? null,
+  };
   const evolution = {
     skills: skillsC,
     reviews: reviewsC,
@@ -294,13 +374,18 @@ export async function buildOverview(db: Db, redis: Redis | null, user: UserRow) 
     outcomes: outcomesC,
     review_run: revRun,
     lifecycle_run: lifeRun,
+    growth,
   };
   const issues = assess(ai, lastHour, dreaming, profile, pipeline, nowMs, learning, evolution);
+  if (readiness && !readiness.llm_configured) {
+    issues.unshift({ level: "warn", area: "readiness", text: readiness.hints[0]! });
+  }
   const level = issues.some((i) => i.level === "error") ? "error" : issues.length ? "warn" : "ok";
   return {
     generated_at: new Date(nowMs).toISOString().replace("Z", "+00:00"),
     level,
     issues,
+    readiness,
     ai,
     dreaming,
     profile,

@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 import { useI18n } from "@/lib/i18n";
 import { Icon } from "@/components/aurora/Icon";
+import { MementoMark } from "@/components/aurora/MementoMark";
 import { Btn, Glass, GhostInput } from "@/components/aurora/primitives";
 import { getApiBase, openServerSwitchModal } from "@/lib/api-client";
 import { desktop } from "@/lib/desktop";
@@ -89,10 +90,10 @@ export default function LoginPage() {
   const errorBox = (text: string) => (
     <div
       style={{
-        padding: 10,
+        padding: "10px 12px",
         borderRadius: 10,
-        background: "rgba(239,68,68,0.10)",
-        color: "#B91C1C",
+        background: "var(--aurora-danger-soft)",
+        color: "var(--aurora-danger)",
         fontSize: 13,
         letterSpacing: "-0.005em",
       }}
@@ -111,23 +112,15 @@ export default function LoginPage() {
         padding: 20,
       }}
     >
-      <Glass padding={36} radius={24} style={{ width: "100%", maxWidth: 380 }}>
-        <div
-          style={{
-            width: 56, height: 56, borderRadius: 16,
-            background: "var(--aurora-brand-grad)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            margin: "0 auto 16px",
-            boxShadow: "0 12px 40px -10px rgba(124,58,237,0.5)",
-          }}
-        >
-          <Icon name="sparkles" size={26} style={{ color: "#fff" }} strokeWidth={2} />
+      <Glass padding={32} radius={18} style={{ width: "100%", maxWidth: 388 }}>
+        <div style={{ display: "flex", justifyContent: "center", marginBottom: 16 }}>
+          <MementoMark size={50} radius={14} />
         </div>
         <h1
           style={{
             margin: 0,
-            fontSize: 24,
-            fontWeight: 600,
+            fontSize: 22,
+            fontWeight: 700,
             color: "var(--aurora-fg1)",
             textAlign: "center",
             letterSpacing: "-0.03em",
@@ -137,8 +130,8 @@ export default function LoginPage() {
         </h1>
         <p
           style={{
-            margin: "6px 0 20px",
-            fontSize: 13,
+            margin: "6px 0 22px",
+            fontSize: 13.5,
             color: "var(--aurora-fg3)",
             textAlign: "center",
             letterSpacing: "-0.01em",
@@ -175,8 +168,8 @@ export default function LoginPage() {
         <div
           style={{
             display: "flex",
-            background: "var(--aurora-bg2)",
-            borderRadius: 12,
+            background: "var(--aurora-chip)",
+            borderRadius: 10,
             padding: 3,
             marginBottom: 20,
             border: "1px solid var(--aurora-border)",
@@ -193,14 +186,14 @@ export default function LoginPage() {
               gap: 6,
               padding: "8px 0",
               fontSize: 13,
-              fontWeight: authTab === "wechat" ? 600 : 400,
-              color: authTab === "wechat" ? "var(--aurora-fg1)" : "var(--aurora-fg4)",
-              background: authTab === "wechat" ? "var(--aurora-bg1)" : "transparent",
-              borderRadius: 10,
+              fontWeight: authTab === "wechat" ? 600 : 500,
+              color: authTab === "wechat" ? "var(--aurora-fg1)" : "var(--aurora-fg3)",
+              background: authTab === "wechat" ? "var(--aurora-surface-solid)" : "transparent",
+              borderRadius: 8,
               border: "none",
               cursor: "pointer",
-              boxShadow: authTab === "wechat" ? "0 2px 8px rgba(0,0,0,0.06)" : "none",
-              transition: "all 0.15s ease",
+              boxShadow: authTab === "wechat" ? "0 1px 3px rgba(17,17,24,0.08)" : "none",
+              transition: "background-color 150ms ease, color 150ms ease, box-shadow 150ms ease",
             }}
           >
             <WechatMark size={16} />
@@ -217,14 +210,14 @@ export default function LoginPage() {
               gap: 6,
               padding: "8px 0",
               fontSize: 13,
-              fontWeight: authTab === "password" ? 600 : 400,
-              color: authTab === "password" ? "var(--aurora-fg1)" : "var(--aurora-fg4)",
-              background: authTab === "password" ? "var(--aurora-bg1)" : "transparent",
-              borderRadius: 10,
+              fontWeight: authTab === "password" ? 600 : 500,
+              color: authTab === "password" ? "var(--aurora-fg1)" : "var(--aurora-fg3)",
+              background: authTab === "password" ? "var(--aurora-surface-solid)" : "transparent",
+              borderRadius: 8,
               border: "none",
               cursor: "pointer",
-              boxShadow: authTab === "password" ? "0 2px 8px rgba(0,0,0,0.06)" : "none",
-              transition: "all 0.15s ease",
+              boxShadow: authTab === "password" ? "0 1px 3px rgba(17,17,24,0.08)" : "none",
+              transition: "background-color 150ms ease, color 150ms ease, box-shadow 150ms ease",
             }}
           >
             <Icon name="lock" size={15} />
@@ -237,20 +230,7 @@ export default function LoginPage() {
         ) : (
           <>
             <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              {banner && (
-                <div
-                  style={{
-                    padding: 10,
-                    borderRadius: 10,
-                    background: "rgba(239,68,68,0.10)",
-                    color: "#B91C1C",
-                    fontSize: 13,
-                    letterSpacing: "-0.005em",
-                  }}
-                >
-                  {banner}
-                </div>
-              )}
+              {banner && errorBox(banner)}
               <GhostInput
                 type="email"
                 placeholder={t.auth.email}

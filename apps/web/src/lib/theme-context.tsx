@@ -32,8 +32,8 @@ const SKIN_CHROME: Record<
   Record<Theme, { surface: string; pageBg: string; border: string; accent: string; accentSoft: string; fg: string }>
 > = {
   aurora: {
-    light: { surface: "#FFFFFF", pageBg: "#FAFAFC", border: "rgba(15, 15, 30, 0.11)", accent: "#6D28D9", accentSoft: "rgba(109, 40, 217, 0.10)", fg: "#3A3A48" },
-    dark: { surface: "#15151F", pageBg: "#0A0A12", border: "rgba(255, 255, 255, 0.12)", accent: "#A78BFA", accentSoft: "rgba(167, 139, 250, 0.16)", fg: "#C5C5D2" },
+    light: { surface: "#FFFFFF", pageBg: "#F7F7F9", border: "rgba(17, 17, 24, 0.145)", accent: "#4F46E5", accentSoft: "rgba(79, 70, 229, 0.09)", fg: "#343444" },
+    dark: { surface: "#14151C", pageBg: "#0B0C10", border: "rgba(255, 255, 255, 0.14)", accent: "#818CF8", accentSoft: "rgba(129, 140, 248, 0.13)", fg: "#C8CBD8" },
   },
   arc: {
     light: { surface: "#FFFFFF", pageBg: "#FAFAF7", border: "rgba(0, 0, 0, 0.13)", accent: "#C2410C", accentSoft: "rgba(194, 65, 12, 0.10)", fg: "#3A3A38" },

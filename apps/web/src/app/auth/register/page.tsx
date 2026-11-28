@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 import { useI18n } from "@/lib/i18n";
 import { Icon } from "@/components/aurora/Icon";
+import { MementoMark } from "@/components/aurora/MementoMark";
 import { Btn, Glass, GhostInput } from "@/components/aurora/primitives";
 import { TokenDisplay } from "@/components/TokenDisplay";
 import { api, type UserInfo } from "@/lib/api-client";
@@ -15,7 +16,7 @@ import { GithubLoginSection, SsoLoginButton } from "../github-login";
 function Wrap({ children, wide }: { children: React.ReactNode; wide?: boolean }) {
   return (
     <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
-      <Glass padding={36} radius={24} style={{ width: "100%", maxWidth: wide ? 520 : 380 }}>
+      <Glass padding={32} radius={18} style={{ width: "100%", maxWidth: wide ? 520 : 388 }}>
         {children}
       </Glass>
     </div>
@@ -82,27 +83,26 @@ export default function RegisterPage() {
         <div style={{ textAlign: hasToken ? "left" : "center" }}>
           <div
             style={{
-              width: 56, height: 56, borderRadius: 16,
-              background: "linear-gradient(135deg,#10B981,#34D399)",
+              width: 50, height: 50, borderRadius: 14,
+              background: "var(--aurora-success)",
               display: "flex", alignItems: "center", justifyContent: "center",
               margin: hasToken ? "0 0 16px" : "0 auto 16px",
-              boxShadow: "0 12px 40px -10px rgba(16,185,129,0.5)",
             }}
           >
-            <Icon name="check" size={28} style={{ color: "#fff" }} strokeWidth={2.4} />
+            <Icon name="check" size={26} style={{ color: "#fff" }} strokeWidth={2.4} />
           </div>
-          <h2 style={{ margin: 0, fontSize: 22, fontWeight: 600, color: "var(--aurora-fg1)", letterSpacing: "-0.03em" }}>
+          <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: "var(--aurora-fg1)", letterSpacing: "-0.03em" }}>
             {t.auth.registerSuccess}
           </h2>
           {hasToken ? (
             <>
-              <p style={{ fontSize: 13, color: "var(--aurora-fg2)", margin: "10px 0 4px", fontWeight: 500 }}>
+              <p style={{ fontSize: 13.5, color: "var(--aurora-fg2)", margin: "10px 0 4px", fontWeight: 500 }}>
                 {registered.role === "owner" ? t.auth.ownerWelcome : t.auth.memberWelcome}
               </p>
-              <p style={{ fontSize: 12, color: "var(--aurora-fg3)", margin: "0 0 18px" }}>
+              <p style={{ fontSize: 12.5, color: "var(--aurora-fg3)", margin: "0 0 18px" }}>
                 {t.auth.tokenSaveHint}
               </p>
-              <div style={{ fontSize: 11, color: "var(--aurora-fg4)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8, fontWeight: 600 }}>
+              <div style={{ fontSize: 12, color: "var(--aurora-fg3)", marginBottom: 8, fontWeight: 600 }}>
                 {t.auth.collectorTokenLabel}
               </div>
               <TokenDisplay token={registered.collector_token} maskByDefault={false} />
@@ -129,21 +129,13 @@ export default function RegisterPage() {
 
   return (
     <Wrap>
-      <div
-        style={{
-          width: 56, height: 56, borderRadius: 16,
-          background: "var(--aurora-brand-grad)",
-          display: "flex", alignItems: "center", justifyContent: "center",
-          margin: "0 auto 16px",
-          boxShadow: "0 12px 40px -10px rgba(124,58,237,0.5)",
-        }}
-      >
-        <Icon name="sparkles" size={26} style={{ color: "#fff" }} strokeWidth={2} />
+      <div style={{ display: "flex", justifyContent: "center", marginBottom: 16 }}>
+        <MementoMark size={50} radius={14} />
       </div>
-      <h1 style={{ margin: 0, fontSize: 24, fontWeight: 600, color: "var(--aurora-fg1)", textAlign: "center", letterSpacing: "-0.03em" }}>
+      <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: "var(--aurora-fg1)", textAlign: "center", letterSpacing: "-0.03em" }}>
         {t.auth.registerTitle}
       </h1>
-      <p style={{ margin: "6px 0 22px", fontSize: 13, color: "var(--aurora-fg3)", textAlign: "center" }}>
+      <p style={{ margin: "6px 0 22px", fontSize: 13.5, color: "var(--aurora-fg3)", textAlign: "center" }}>
         {t.app.title}
       </p>
       {mode?.sso_enabled && (

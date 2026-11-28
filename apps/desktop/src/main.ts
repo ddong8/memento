@@ -250,7 +250,7 @@ function isGlassEnabled(): boolean {
 }
 
 function solidWindowBg(): string {
-  return nativeTheme.shouldUseDarkColors ? "#0a0a12" : "#fafafc";
+  return nativeTheme.shouldUseDarkColors ? "#0b0c10" : "#f7f7f9";
 }
 
 function applyWindowMaterial(target?: BrowserWindow): void {
@@ -285,7 +285,7 @@ function titleBarOverlay(width?: number): Electron.TitleBarOverlay {
   const dark = nativeTheme.shouldUseDarkColors;
   return {
     color: "#00000000",
-    symbolColor: dark ? "#E8E8EE" : "#1C1B22",
+    symbolColor: dark ? "#F3F4F8" : "#111118",
     // The page's top bars are 48 px (44 px below its sm breakpoint) since 1d93ca89: the buttons match them
     height: (width ?? 1280) < 640 ? 44 : 48,
   };

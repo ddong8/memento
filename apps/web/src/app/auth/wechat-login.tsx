@@ -336,10 +336,10 @@ export function WechatLoginSection() {
         }}
       >
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%" }}>
-          <span style={{ fontSize: 11, color: "var(--aurora-fg4)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+          <span style={{ fontSize: 12, color: "var(--aurora-fg3)", fontWeight: 500 }}>
             登录口令
           </span>
-          <span style={{ fontSize: 11, color: "var(--aurora-fg4)" }}>
+          <span style={{ fontSize: 12, color: "var(--aurora-fg4)", fontVariantNumeric: "tabular-nums" }}>
             {status === "pending" && !loading ? `${timeFormatted} 有效` : ""}
           </span>
         </div>
@@ -392,15 +392,14 @@ export function WechatLoginSection() {
             justifyContent: "center",
             gap: 8,
             padding: "11px 16px",
-            borderRadius: 12,
+            borderRadius: 10,
             background: "#07C160",
             color: "#ffffff",
             fontSize: 14,
             fontWeight: 600,
             border: "none",
             cursor: "pointer",
-            boxShadow: "0 4px 14px rgba(7,193,96,0.30)",
-            transition: "all 0.15s ease",
+            transition: "opacity 150ms ease",
           }}
         >
           <WechatMark size={18} />
@@ -463,12 +462,10 @@ export function WechatLoginSection() {
         >
           <span
             style={{
-              width: 7,
-              height: 7,
+              width: 6,
+              height: 6,
               borderRadius: "50%",
-              background: "#10B981",
-              boxShadow: "0 0 8px rgba(16,185,129,0.8)",
-              animation: "pulse 2s infinite ease-in-out",
+              background: "var(--aurora-success)",
             }}
           />
           <span>等待微信扫码与发送口令…</span>
@@ -478,11 +475,11 @@ export function WechatLoginSection() {
       {errorMsg && (
         <div
           style={{
-            padding: "8px 12px",
-            borderRadius: 8,
-            background: "rgba(239,68,68,0.10)",
-            color: "#B91C1C",
-            fontSize: 12,
+            padding: "9px 12px",
+            borderRadius: 9,
+            background: "var(--aurora-danger-soft)",
+            color: "var(--aurora-danger)",
+            fontSize: 12.5,
             width: "100%",
             textAlign: "center",
           }}

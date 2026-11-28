@@ -344,7 +344,7 @@ export const AskComposer = memo(
               border: `1px solid ${attachedImageCount > 0 ? "var(--aurora-accent)" : "var(--aurora-border)"}`,
               color: attachedImageCount > 0 ? "var(--aurora-accent)" : "var(--aurora-fg3)",
               cursor: "pointer",
-              transition: "all 0.2s ease",
+              transition: "background-color 160ms ease, border-color 160ms ease, color 160ms ease",
               flexShrink: 0,
               boxSizing: "border-box",
             }}
@@ -441,7 +441,7 @@ export const AskComposer = memo(
               border: isRecordingVoice ? "1px solid #ef4444" : "1px solid var(--aurora-border)",
               color: isRecordingVoice ? "#ef4444" : "var(--aurora-fg3)",
               cursor: "pointer",
-              transition: "all 0.2s ease",
+              transition: "background-color 160ms ease, border-color 160ms ease, color 160ms ease",
               flexShrink: 0,
               boxSizing: "border-box",
             }}

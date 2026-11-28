@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { useI18n, locales, type Locale } from "@/lib/i18n";
 import { Icon } from "@/components/aurora/Icon";
+import { MementoMark } from "@/components/aurora/MementoMark";
 import { ThemeToggle, SkinPicker } from "@/components/aurora/primitives";
 
 export function LandingNav() {
@@ -13,7 +14,7 @@ export function LandingNav() {
   const [scrolled, setScrolled] = useState(false);
 
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 8);
+    const onScroll = () => setScrolled(window.scrollY > 10);
     onScroll();
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
@@ -30,19 +31,19 @@ export function LandingNav() {
         backdropFilter: scrolled ? "var(--aurora-blur)" : "none",
         WebkitBackdropFilter: scrolled ? "var(--aurora-blur)" : "none",
         borderBottom: scrolled ? "1px solid var(--aurora-border)" : "1px solid transparent",
-        transition: "all .2s",
+        transition: "background-color 180ms ease, border-color 180ms ease",
       }}
     >
       <div
         style={{
-          maxWidth: 1100,
+          maxWidth: 1120,
           margin: "0 auto",
           display: "flex",
           alignItems: "center",
           gap: 16,
         }}
       >
-        {/* Brand */}
+        {/* Brand — stronger visual presence than nav links */}
         <Link
           href="/"
           style={{
@@ -54,26 +55,16 @@ export function LandingNav() {
             minWidth: 0,
           }}
         >
-          <div
-            style={{
-              width: 30, height: 30, borderRadius: 9,
-              background: "var(--aurora-brand-grad)",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              boxShadow: "0 4px 14px -4px rgba(124,58,237,0.4)",
-              flexShrink: 0,
-            }}
-          >
-            <Icon name="sparkles" size={15} style={{ color: "#fff" }} strokeWidth={2} />
-          </div>
-          <span style={{ fontWeight: 600, fontSize: 15, letterSpacing: "-0.02em", whiteSpace: "nowrap" }}>
+          <MementoMark size={30} radius={8} />
+          <span style={{ fontWeight: 700, fontSize: 16.5, letterSpacing: "-0.03em", whiteSpace: "nowrap" }}>
             {t.app.title}
           </span>
         </Link>
 
-        {/* Anchor links — hidden on mobile */}
+        {/* Anchor links — desktop only */}
         <div
           className="hidden md:flex"
-          style={{ alignItems: "center", gap: 20, marginLeft: 18, flex: 1 }}
+          style={{ alignItems: "center", gap: 24, marginLeft: 24, flex: 1 }}
         >
           <NavLink href="#features">{t.landing.nav_features}</NavLink>
           <NavLink href="#workbench">{t.landing.nav_workbench}</NavLink>
@@ -84,39 +75,60 @@ export function LandingNav() {
           </NavLink>
         </div>
 
-        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
-          {/* Language pill — 所有断点都显示 (slogan 是主要信息,非英语访客也要能切) */}
-          <div style={{ display: "flex", gap: 2 }}>
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+          <div
+            style={{
+              display: "inline-flex",
+              gap: 2,
+              padding: 2,
+              borderRadius: 8,
+              background: "var(--aurora-chip)",
+              border: "1px solid var(--aurora-border)",
+              flexShrink: 0,
+            }}
+          >
             {(Object.keys(locales) as Locale[]).map((l) => (
               <button
                 key={l}
+                type="button"
                 onClick={() => setLocale(l)}
                 aria-label={`Switch to ${locales[l].label}`}
                 style={{
-                  padding: "4px 10px",
-                  borderRadius: 8,
-                  fontSize: 11,
-                  fontWeight: 500,
+                  padding: "4px 8px",
+                  borderRadius: 6,
+                  fontSize: 12,
+                  fontWeight: locale === l ? 600 : 500,
                   border: 0,
-                  background: locale === l ? "var(--aurora-accent-soft)" : "transparent",
-                  color: locale === l ? "var(--aurora-accent)" : "var(--aurora-fg3)",
+                  background: locale === l ? "var(--aurora-surface-solid)" : "transparent",
+                  color: locale === l ? "var(--aurora-fg1)" : "var(--aurora-fg3)",
                   cursor: "pointer",
+                  whiteSpace: "nowrap",
+                  flexShrink: 0,
+                  transition: "background-color 150ms ease, color 150ms ease",
                 }}
               >
-                {locales[l].label}
+                {l === "en-US" ? (
+                  <>
+                    <span className="sm:hidden">EN</span>
+                    <span className="hidden sm:inline">{locales[l].label}</span>
+                  </>
+                ) : (
+                  locales[l].label
+                )}
               </button>
             ))}
           </div>
-          <div className="hidden md:block"><SkinPicker /></div>
+          <div className="hidden lg:block"><SkinPicker /></div>
           <ThemeToggle />
           {!loading && (
             <Link href={token ? "/ask" : "/auth/login"} style={{ textDecoration: "none" }}>
               <button
+                type="button"
                 className="aurora-btn aurora-btn-sm"
-                style={{ padding: "6px 14px" }}
+                style={{ padding: "7px 14px" }}
               >
                 {token ? t.landing.cta_dashboard : t.landing.cta_login}
-                <Icon name="arrow_right" size={12} />
+                <Icon name="arrow_right" size={12.5} />
               </button>
             </Link>
           )}
@@ -135,11 +147,12 @@ function NavLink({
     <Comp
       {...props}
       style={{
-        fontSize: 13,
+        fontSize: 13.5,
+        fontWeight: 500,
         color: "var(--aurora-fg3)",
         textDecoration: "none",
         letterSpacing: "-0.01em",
-        transition: "color .15s",
+        transition: "color 150ms ease",
       }}
       onMouseEnter={(e) => (e.currentTarget.style.color = "var(--aurora-fg1)")}
       onMouseLeave={(e) => (e.currentTarget.style.color = "var(--aurora-fg3)")}

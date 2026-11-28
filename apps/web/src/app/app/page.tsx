@@ -9,6 +9,7 @@ import { onLiveEvent } from "@/lib/live-events";
 import { useNow } from "@/lib/use-now";
 import { timeAgo } from "@/lib/constants";
 import { Icon, ToolGlyph, PlatformGlyph, TOOL_HUE } from "@/components/aurora/Icon";
+import { MementoMark } from "@/components/aurora/MementoMark";
 import { Glass, Chip, TopBar, SectionLabel, StatCard, Skeleton } from "@/components/aurora/primitives";
 
 const QUICK_PROMPTS: { icon: Parameters<typeof Icon>[0]["name"]; label: string; prompt: string }[] = [
@@ -159,32 +160,19 @@ export default function Dashboard() {
           <div style={{ position: "relative" }}>
             <div className="flex items-center justify-between gap-4 mb-2.5">
               <div className="flex items-center gap-2.5">
-                <div
-                  style={{
-                    width: 28,
-                    height: 28,
-                    borderRadius: 8,
-                    background: "var(--aurora-brand-grad)",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    boxShadow: "0 2px 8px -2px color-mix(in srgb, var(--aurora-accent) 40%, transparent)",
-                  }}
-                >
-                  <Icon name="sparkles" size={14} style={{ color: "#fff" }} />
-                </div>
+                <MementoMark size={30} radius={8} />
                 <div>
                   <h2 style={{ fontSize: 15, fontWeight: 600, color: "var(--aurora-fg1)", letterSpacing: "-0.015em", lineHeight: 1.2 }}>
                     {t.nav.ask || "AI 执事"} · 跨设备调度
                   </h2>
-                  <p style={{ fontSize: 12, color: "var(--aurora-fg3)", marginTop: 1 }}>
+                  <p style={{ fontSize: 12.5, color: "var(--aurora-fg3)", marginTop: 2 }}>
                     基于全设备沉淀的编程知识问答，或直接向在线物理机派发任务
                   </p>
                 </div>
               </div>
               <div className="hidden sm:flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full" style={{ background: "var(--aurora-chip)", color: "var(--aurora-fg2)" }}>
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                <span style={{ fontSize: 11.5, fontWeight: 500 }}>{devices.length} 台设备就绪</span>
+                <span className="w-1.5 h-1.5 rounded-full" style={{ background: "var(--aurora-success)" }} />
+                <span style={{ fontSize: 12, fontWeight: 500, fontVariantNumeric: "tabular-nums" }}>{devices.length} 台设备就绪</span>
               </div>
             </div>
 
@@ -196,9 +184,9 @@ export default function Dashboard() {
                   alignItems: "center",
                   background: "var(--aurora-thinking-bg)",
                   border: "1px solid var(--aurora-border-strong)",
-                  borderRadius: 12,
+                  borderRadius: 11,
                   padding: "4px 6px 4px 12px",
-                  transition: "all .2s",
+                  transition: "border-color 180ms ease, background-color 180ms ease",
                 }}
               >
                 <Icon name="search" size={15} style={{ color: "var(--aurora-fg3)", flexShrink: 0 }} />
@@ -241,11 +229,7 @@ export default function Dashboard() {
                 <button
                   type="submit"
                   disabled={!askPrompt.trim()}
-                  className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-medium text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-                  style={{
-                    background: "var(--aurora-primary-grad)",
-                    boxShadow: "var(--aurora-btn-shadow)",
-                  }}
+                  className="aurora-btn aurora-btn-sm disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   <span>发送</span>
                   <Icon name="arrow_right" size={12.5} />
@@ -255,13 +239,13 @@ export default function Dashboard() {
 
             {/* Quick Prompt Chips */}
             <div className="flex items-center gap-1.5 mt-2.5 flex-wrap">
-              <span style={{ fontSize: 11, color: "var(--aurora-fg4)", marginRight: 2 }}>快捷指令:</span>
+              <span style={{ fontSize: 12, color: "var(--aurora-fg4)", marginRight: 2 }}>快捷指令:</span>
               {QUICK_PROMPTS.map((qp) => (
                 <button
                   key={qp.label}
                   type="button"
                   onClick={() => router.push(`/ask?q=${encodeURIComponent(qp.prompt)}`)}
-                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs transition-all hover:border-[var(--aurora-accent)]"
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs transition-colors duration-150 hover:border-[var(--aurora-accent)]"
                   style={{
                     background: "var(--aurora-chip)",
                     border: "1px solid var(--aurora-border)",
@@ -269,7 +253,7 @@ export default function Dashboard() {
                     cursor: "pointer",
                   }}
                 >
-                  <Icon name={qp.icon} size={11.5} style={{ color: "var(--aurora-accent)" }} />
+                  <Icon name={qp.icon} size={12} style={{ color: "var(--aurora-accent)" }} />
                   <span>{qp.label}</span>
                 </button>
               ))}
@@ -291,27 +275,27 @@ export default function Dashboard() {
         {/* Left col */}
         <div className="lg:col-span-2 space-y-6">
           {/* 7-day activity bars */}
-          <Glass padding={22} radius={22}>
+          <Glass padding={20} radius={16}>
             <SectionLabel style={{ margin: "0 0 16px" }}>{t.dashboard.weeklyActivity}</SectionLabel>
-            <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: 120 }}>
+            <div style={{ display: "flex", alignItems: "flex-end", gap: 8, height: 120 }}>
               {daily.map((d) => {
                 const h = Math.max((d.count / maxDaily) * 100, 4);
                 return (
                   <div key={d.date} style={{ flex: 1, height: "100%", display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
-                    <span style={{ fontSize: 10, color: "var(--aurora-fg4)" }}>{d.count}</span>
+                    <span style={{ fontSize: 11, color: "var(--aurora-fg4)", fontVariantNumeric: "tabular-nums" }}>{d.count}</span>
                     {/* The bar's % height needs a parent with a height: this box takes what the labels leave */}
                     <div style={{ flex: 1, minHeight: 0, width: "100%", display: "flex", alignItems: "flex-end" }}>
                     <div
                       style={{
                         width: "100%",
                         height: `${h}%`,
-                        borderRadius: "6px 6px 2px 2px",
-                        background: "linear-gradient(180deg, color-mix(in srgb, var(--aurora-accent) 60%, white), var(--aurora-accent))",
-                        boxShadow: "0 4px 12px -4px color-mix(in srgb, var(--aurora-accent) 45%, transparent)",
+                        borderRadius: "5px 5px 2px 2px",
+                        background: "var(--aurora-accent)",
+                        opacity: d.count > 0 ? 0.88 : 0.2,
                       }}
                     />
                     </div>
-                    <span style={{ fontSize: 10, color: "var(--aurora-fg4)" }}>{d.date.slice(5)}</span>
+                    <span style={{ fontSize: 11, color: "var(--aurora-fg4)", fontVariantNumeric: "tabular-nums" }}>{d.date.slice(5)}</span>
                   </div>
                 );
               })}
@@ -362,28 +346,23 @@ export default function Dashboard() {
                         </div>
                         {trend.length > 1 && (
                           <svg width="80" height="32" viewBox="0 0 80 32">
-                            <defs>
-                              <linearGradient id={`spark-${tool.id}`} x1="0" x2="0" y1="0" y2="1">
-                                <stop offset="0" stopColor={`hsl(${tg.h},80%,60%)`} stopOpacity="0.4" />
-                                <stop offset="1" stopColor={`hsl(${tg.h},80%,60%)`} stopOpacity="0" />
-                              </linearGradient>
-                            </defs>
                             <path
                               d={
                                 trend
                                   .map((v, i) => `${i === 0 ? "M" : "L"}${(i / (trend.length - 1)) * 78 + 1},${30 - (v / maxT) * 26}`)
                                   .join(" ") + ` L79,32 L1,32 Z`
                               }
-                              fill={`url(#spark-${tool.id})`}
+                              fill={`hsla(${tg.h},70%,52%,0.10)`}
                             />
                             <path
                               d={trend
                                 .map((v, i) => `${i === 0 ? "M" : "L"}${(i / (trend.length - 1)) * 78 + 1},${30 - (v / maxT) * 26}`)
                                 .join(" ")}
                               fill="none"
-                              stroke={`hsl(${tg.h},80%,55%)`}
-                              strokeWidth="1.5"
+                              stroke={`hsl(${tg.h},70%,50%)`}
+                              strokeWidth="1.6"
                               strokeLinecap="round"
+                              strokeLinejoin="round"
                             />
                           </svg>
                         )}
@@ -472,8 +451,7 @@ export default function Dashboard() {
                             width: 6,
                             height: 6,
                             borderRadius: 9999,
-                            background: isOnline ? "#10B981" : "var(--aurora-fg4)",
-                            boxShadow: isOnline ? "0 0 8px #10B981" : "none",
+                            background: isOnline ? "var(--aurora-success)" : "var(--aurora-fg4)",
                           }}
                         />
                         {isOnline ? t.online : t.never}
@@ -491,13 +469,12 @@ export default function Dashboard() {
         <Glass padding={40} radius={22} style={{ marginTop: 24, textAlign: "center" }}>
           <div
             style={{
-              width: 52, height: 52, borderRadius: 16, margin: "0 auto 16px",
+              width: 48, height: 48, borderRadius: 14, margin: "0 auto 16px",
               background: "var(--aurora-brand-grad)",
               display: "flex", alignItems: "center", justifyContent: "center",
-              boxShadow: "0 12px 40px -10px color-mix(in srgb, var(--aurora-accent) 50%, transparent)",
             }}
           >
-            <Icon name="devices" size={24} style={{ color: "#fff" }} strokeWidth={2} />
+            <Icon name="devices" size={22} style={{ color: "#fff" }} strokeWidth={2} />
           </div>
           <p style={{ fontSize: 15, fontWeight: 500, color: "var(--aurora-fg1)", marginBottom: 4, letterSpacing: "-0.02em" }}>
             {t.devices.noDevices}

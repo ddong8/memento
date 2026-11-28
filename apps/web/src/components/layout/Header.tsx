@@ -83,21 +83,21 @@ export default function Header({ onMenuToggle, className = "" }: { onMenuToggle:
         <div className="flex items-center gap-2 min-w-0">
           <div
             style={{
-              width: 22,
-              height: 22,
-              borderRadius: 6,
-              background: "var(--aurora-brand-grad)",
-              boxShadow: "0 2px 8px -2px rgba(124,58,237,0.4), inset 0 1px 0 rgba(255,255,255,0.28)",
+              width: 24,
+              height: 24,
+              borderRadius: 7,
+              background: "var(--aurora-chip)",
+              border: "1px solid var(--aurora-border)",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
               flexShrink: 0,
             }}
           >
-            <Icon name={pageMeta.icon} size={12} style={{ color: "#fff" }} strokeWidth={2.2} />
+            <Icon name={pageMeta.icon} size={13} style={{ color: "var(--aurora-fg2)" }} strokeWidth={1.9} />
           </div>
           <span
-            className="truncate text-[13px] sm:text-[13.5px]"
+            className="truncate text-[13.5px] sm:text-[14px]"
             style={{
               fontWeight: 600,
               color: "var(--aurora-fg1)",

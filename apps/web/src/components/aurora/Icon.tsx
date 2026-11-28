@@ -1,7 +1,7 @@
 "use client";
 
 import type { CSSProperties, SVGProps } from "react";
-import { BrandMark, BRAND_COLORS } from "./BrandMark";
+import { BrandMark } from "./BrandMark";
 import { useTheme } from "@/lib/theme-context";
 
 type IconName =
@@ -116,18 +116,18 @@ export function Icon({ name, size = 16, strokeWidth = 1.6, style, ...rest }: Ico
   );
 }
 
-/** Tool id → gradient accent + icon */
+/** Tool id → solid calibrated brand color + hue (zero gradients) */
 export const TOOL_HUE: Record<string, { h: number; bg: string }> = {
-  claude_code: { h: 22,  bg: "linear-gradient(135deg,#FB923C,#D97757)" },
-  openclaw:    { h: 0,   bg: "linear-gradient(135deg,#FF5E5E,#DC2626)" },
-  codex:       { h: 160, bg: "linear-gradient(135deg,#34D399,#10A37F)" },
-  antigravity: { h: 220, bg: "linear-gradient(135deg,#1E293B,#0F172A)" },
-  workbuddy:   { h: 165, bg: "linear-gradient(135deg,#0EC7A8,#00C885)" },
-  obsidian:    { h: 260, bg: "linear-gradient(135deg,#A78BFA,#7C3AED)" },
-  cursor:      { h: 220, bg: "linear-gradient(135deg,#1E293B,#090D16)" },
-  windsurf:    { h: 170, bg: "linear-gradient(135deg,#2DD4BF,#0D9488)" },
-  vscode:      { h: 210, bg: "linear-gradient(135deg,#38BDF8,#0284C7)" },
-  hermes:      { h: 200, bg: "linear-gradient(135deg,#38BDF8,#0EA5E9)" },
+  claude_code: { h: 22,  bg: "#D97757" },
+  openclaw:    { h: 0,   bg: "#E5484D" },
+  codex:       { h: 160, bg: "#10A37F" },
+  antigravity: { h: 220, bg: "#161925" },
+  workbuddy:   { h: 165, bg: "#0D9F85" },
+  obsidian:    { h: 260, bg: "#6D4AFF" },
+  cursor:      { h: 220, bg: "#14161F" },
+  windsurf:    { h: 170, bg: "#0D9488" },
+  vscode:      { h: 210, bg: "#007ACC" },
+  hermes:      { h: 200, bg: "#0284C7" },
 };
 
 const PLATFORM_ICON_NAME: Record<string, IconName> = {
@@ -141,15 +141,13 @@ const CATEGORY_ICON_NAME: Record<string, IconName> = {
 };
 
 export function ToolGlyph({ id, size = 36 }: { id: string; size?: number }) {
-  const { skin, theme } = useTheme();
+  const { skin } = useTheme();
   const tool = TOOL_HUE[id] ?? TOOL_HUE.claude_code;
-  const radius = Math.max(6, size * 0.28);
-  const brandColor = BRAND_COLORS[id] || tool.bg;
+  const radius = Math.max(6, Math.round(size * 0.26));
 
-  // Aurora: colored gradient tile + white brand mark + highlight
+  // Studio (aurora): crisp solid brand tile with clean architectural border
   if (skin === "aurora") {
-    const isDarkTile = id === "cursor" || id === "antigravity";
-    const markSize = Math.max(12, Math.round(size * 0.58));
+    const markSize = Math.max(12, Math.round(size * 0.56));
     return (
       <div
         style={{
@@ -162,29 +160,11 @@ export function ToolGlyph({ id, size = 36 }: { id: string; size?: number }) {
           justifyContent: "center",
           position: "relative",
           overflow: "hidden",
-          boxShadow: isDarkTile
-            ? `0 6px 18px -4px rgba(0,0,0,0.5),
-               0 1px 0 0 rgba(255,255,255,0.2) inset,
-               0 0 0 1px rgba(255,255,255,0.16) inset`
-            : `0 8px 24px -8px hsla(${tool.h},80%,55%,0.55),
-               0 1px 0 0 rgba(255,255,255,0.35) inset,
-               0 0 0 1px rgba(255,255,255,0.12) inset,
-               0 -8px 16px -8px rgba(0,0,0,0.25) inset`,
+          boxShadow: "0 1px 2px rgba(17, 17, 24, 0.14)",
           flexShrink: 0,
           color: "#fff",
         }}
       >
-        <div
-          aria-hidden
-          style={{
-            position: "absolute",
-            inset: 0,
-            background: isDarkTile
-              ? "radial-gradient(120% 80% at 30% 0%, rgba(255,255,255,0.15), transparent 60%)"
-              : "radial-gradient(120% 80% at 30% 0%, rgba(255,255,255,0.3), transparent 60%)",
-            pointerEvents: "none",
-          }}
-        />
         <BrandMark
           id={id}
           size={markSize}
@@ -195,27 +175,23 @@ export function ToolGlyph({ id, size = 36 }: { id: string; size?: number }) {
     );
   }
 
-  // Arc / Baseline: subtle brand-tinted tile + colored brand mark
+  // Paper (arc) / Classic (baseline): crisp solid surface tile + colored brand mark
   const pad = size >= 18;
-  const tint = pad ? brandColor + (theme === "dark" ? "20" : "10") : "transparent";
   return (
     <div
       style={{
         width: size,
         height: size,
         borderRadius: radius,
-        background: pad
-          ? `linear-gradient(180deg, ${tint}, transparent 70%), var(--aurora-surface-solid)`
-          : "transparent",
+        background: pad ? "var(--aurora-surface-solid)" : "transparent",
         border: pad ? "1px solid var(--aurora-border)" : "none",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
         flexShrink: 0,
-        boxShadow: size >= 32 ? "0 1px 0 var(--aurora-border)" : "none",
       }}
     >
-      <BrandMark id={id} size={pad ? size * 0.64 : size * 0.9} colored />
+      <BrandMark id={id} size={pad ? size * 0.62 : size * 0.88} colored />
     </div>
   );
 }
@@ -227,17 +203,17 @@ export function PlatformGlyph({ name, size = 32 }: { name: string; size?: number
       style={{
         width: size,
         height: size,
-        borderRadius: size * 0.3,
-        background: "linear-gradient(135deg,#1F1B3A,#2A1F4F)",
+        borderRadius: Math.round(size * 0.28),
+        background: "var(--aurora-chip)",
+        border: "1px solid var(--aurora-border)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        boxShadow: "0 4px 14px -4px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.08) inset",
         flexShrink: 0,
-        color: "#E5E7EB",
+        color: "var(--aurora-fg2)",
       }}
     >
-      <Icon name={PLATFORM_ICON_NAME[platform] ?? "cube"} size={size * 0.55} />
+      <Icon name={PLATFORM_ICON_NAME[platform] ?? "cube"} size={size * 0.54} />
     </div>
   );
 }

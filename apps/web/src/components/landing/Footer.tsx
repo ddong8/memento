@@ -1,14 +1,15 @@
 "use client";
 
 import { useI18n } from "@/lib/i18n";
+import { MementoMark } from "@/components/aurora/MementoMark";
 
 export function Footer() {
   const { t } = useI18n();
   return (
     <footer
       style={{
-        padding: "36px 20px",
-        maxWidth: 1100,
+        padding: "36px 20px 44px",
+        maxWidth: 1120,
         margin: "32px auto 0",
         borderTop: "1px solid var(--aurora-border)",
       }}
@@ -19,14 +20,16 @@ export function Footer() {
           flexWrap: "wrap",
           alignItems: "center",
           justifyContent: "space-between",
-          gap: 12,
-          fontSize: 12,
+          gap: 16,
+          fontSize: 13,
           color: "var(--aurora-fg4)",
-          letterSpacing: "-0.005em",
         }}
       >
-        <span>© {new Date().getFullYear()} · {t.landing.footer_tagline}</span>
-        <div style={{ display: "flex", gap: 18 }}>
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
+          <MementoMark size={22} radius={6} />
+          <span>© {new Date().getFullYear()} Memento · {t.landing.footer_tagline}</span>
+        </div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 18 }}>
           <FooterLink href="https://github.com/ddong8/memento">
             {t.landing.footer_github}
           </FooterLink>
@@ -50,7 +53,11 @@ function FooterLink({ href, children }: { href: string; children: React.ReactNod
       href={href}
       target={external ? "_blank" : undefined}
       rel={external ? "noreferrer" : undefined}
-      style={{ color: "var(--aurora-fg3)", textDecoration: "none" }}
+      style={{
+        color: "var(--aurora-fg3)",
+        textDecoration: "none",
+        transition: "color 150ms ease",
+      }}
       onMouseEnter={(e) => (e.currentTarget.style.color = "var(--aurora-accent)")}
       onMouseLeave={(e) => (e.currentTarget.style.color = "var(--aurora-fg3)")}
     >

@@ -40,10 +40,10 @@ export const SpeechHintPill = memo(function SpeechHintPill({
         padding: "5px 12px",
         marginBottom: 6,
         borderRadius: 10,
-        background: "rgba(124, 58, 237, 0.12)",
-        border: "1px solid rgba(124, 58, 237, 0.3)",
-        fontSize: 12,
-        color: "#A78BFA",
+        background: "var(--aurora-accent-soft)",
+        border: "1px solid var(--aurora-accent-border, var(--aurora-border-strong))",
+        fontSize: 12.5,
+        color: "var(--aurora-accent)",
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -206,16 +206,15 @@ export const WaitingQuestionBanner = memo(function WaitingQuestionBanner({
       }}
       style={{
         margin: "0 0 8px 0",
-        padding: "7px 12px",
+        padding: "8px 12px",
         borderRadius: 10,
-        background: "linear-gradient(90deg, rgba(245,158,11,0.18), rgba(245,158,11,0.08))",
-        border: "1px solid rgba(245,158,11,0.4)",
+        background: "var(--aurora-warn-soft)",
+        border: "1px solid color-mix(in srgb, var(--aurora-warn) 36%, transparent)",
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
         gap: 8,
         cursor: "pointer",
-        boxShadow: "0 2px 10px rgba(245,158,11,0.12)",
       }}
       className="animate-pulse"
       title={isZh ? "点击定位到提问并进行回复" : "Click to view and answer the question"}

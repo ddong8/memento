@@ -62,14 +62,12 @@ export default function TopProgressBar() {
   if (progress === 0) return null;
 
   return (
-    <div aria-hidden="true" data-testid="top-progress" className="fixed top-0 left-0 right-0 z-50 pointer-events-none" style={{ height: 2.5 }}>
+    <div aria-hidden="true" data-testid="top-progress" className="fixed top-0 left-0 right-0 z-50 pointer-events-none" style={{ height: 2 }}>
       <div
         className="h-full"
         style={{
           width: `${progress}%`,
-          background: "linear-gradient(90deg, var(--aurora-accent, #7C3AED), #06B6D4, #10B981, var(--aurora-accent, #7C3AED))",
-          backgroundSize: "200% 100%",
-          boxShadow: "0 0 10px rgba(124, 58, 237, 0.7), 0 0 4px rgba(6, 182, 212, 0.5)",
+          background: "var(--aurora-accent)",
           opacity: progress === 100 ? 0 : 1,
           transition: progress === 100 ? "width 120ms ease-out, opacity 200ms 80ms ease-out" : "width 240ms ease-out",
         }}

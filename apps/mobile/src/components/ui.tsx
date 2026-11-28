@@ -22,8 +22,22 @@ export function Button({
   small?: boolean;
 }) {
   const t = useTheme();
-  const bg = variant === "primary" ? t.accent : variant === "soft" ? t.accentSoft : variant === "danger" ? t.dangerSoft : "transparent";
-  const fg = variant === "primary" ? t.onAccent : variant === "danger" ? t.danger : variant === "ghost" ? t.fg2 : t.accent;
+  const bg =
+    variant === "primary"
+      ? t.accentPrimary
+      : variant === "soft"
+        ? t.accentSoft
+        : variant === "danger"
+          ? t.dangerSoft
+          : "transparent";
+  const fg =
+    variant === "primary"
+      ? t.onAccent
+      : variant === "danger"
+        ? t.danger
+        : variant === "ghost"
+          ? t.fg2
+          : t.accent;
   return (
     <Pressable
       onPress={onPress}
@@ -35,15 +49,16 @@ export function Button({
         gap: 6,
         backgroundColor: bg,
         borderRadius: radius.control,
-        paddingHorizontal: small ? 10 : 14,
-        paddingVertical: small ? 6 : 10,
-        opacity: disabled ? 0.45 : pressed ? 0.75 : 1,
+        paddingHorizontal: small ? 12 : 16,
+        paddingVertical: small ? 7 : 12,
+        opacity: disabled ? 0.45 : pressed ? 0.84 : 1,
+        transform: [{ scale: pressed && !disabled ? 0.985 : 1 }],
         borderWidth: variant === "ghost" ? 1 : 0,
-        borderColor: t.border,
+        borderColor: t.borderStrong,
       })}
     >
       {busy ? <ActivityIndicator size="small" color={fg} /> : icon ? <Icon name={icon} size={small ? 14 : 16} color={fg} /> : null}
-      {children != null && <Text style={{ color: fg, fontSize: small ? 13 : 14, fontWeight: "600" }}>{children}</Text>}
+      {children != null && <Text style={{ color: fg, fontSize: small ? 13 : 14.5, fontWeight: "600" }}>{children}</Text>}
     </Pressable>
   );
 }
@@ -53,7 +68,7 @@ export function Note({ children, tone = "danger" }: { children: ReactNode; tone?
   const [bg, fg] = tone === "danger" ? [t.dangerSoft, t.danger] : tone === "warn" ? [t.warnSoft, t.warn] : [t.accentSoft, t.fg2];
   return (
     <View style={{ backgroundColor: bg, borderRadius: radius.control, padding: 12, marginBottom: 12 }}>
-      <Text style={{ color: fg, fontSize: 13, lineHeight: 19 }}>{children}</Text>
+      <Text style={{ color: fg, fontSize: 13.5, lineHeight: 20 }}>{children}</Text>
     </View>
   );
 }

@@ -7,6 +7,7 @@ import { useI18n } from "@/lib/i18n";
 import { useAuth } from "@/lib/auth-context";
 import { getApiBase, authFetch, api } from "@/lib/api-client";
 import { Icon } from "@/components/aurora/Icon";
+import { MementoMark } from "@/components/aurora/MementoMark";
 import { UserMenu } from "@/components/UserMenu";
 import { desktop } from "@/lib/desktop";
 import { useIsDesktopApp, useIsMacDesktop } from "@/hooks/useClientEnv";
@@ -305,29 +306,15 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
             }`}
             title={collapsed ? "Memento · 展开侧边栏 (⌘B)" : undefined}
           >
-            <div
-              style={{
-                width: 28,
-                height: 28,
-                borderRadius: 8,
-                background: "var(--aurora-brand-grad)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                boxShadow: "0 2px 10px -2px rgba(124,58,237,0.45), inset 0 1px 0 rgba(255,255,255,0.28)",
-                flexShrink: 0,
-              }}
-            >
-              <Icon name="sparkles" size={14} style={{ color: "#fff" }} strokeWidth={2} />
-            </div>
+            <MementoMark size={28} radius={8} />
             {!collapsed && (
               <div className="min-w-0 flex-1">
                 <div
                   style={{
-                    fontSize: 13.5,
-                    fontWeight: 600,
+                    fontSize: 14.5,
+                    fontWeight: 700,
                     color: "var(--aurora-fg1)",
-                    letterSpacing: "-0.02em",
+                    letterSpacing: "-0.025em",
                     whiteSpace: "nowrap",
                     overflow: "hidden",
                     textOverflow: "ellipsis",
@@ -336,7 +323,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
                 >
                   {t.app.title}
                 </div>
-                <div style={{ fontSize: 10, color: "var(--aurora-fg4)", marginTop: 1, lineHeight: 1.15 }}>
+                <div style={{ fontSize: 10.5, color: "var(--aurora-fg4)", marginTop: 1, lineHeight: 1.15 }}>
                   {t.app.subtitle}
                 </div>
               </div>
@@ -372,7 +359,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
           <button
             type="button"
             onClick={handleOpenSearch}
-            className={`flex items-center rounded-lg transition-all group ${
+            className={`flex items-center rounded-lg transition-colors duration-150 group ${
               collapsed
                 ? "w-9 h-8 justify-center hover:bg-[var(--aurora-chip)]"
                 : "w-full justify-between px-2.5 py-1.5 hover:border-[var(--aurora-border-strong)]"
@@ -384,7 +371,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
               cursor: "pointer",
               outline: "none",
             }}
-            title={collapsed ? "快速检索记忆与会话 (⌘K)" : undefined}
+            aria-label="快速检索记忆与会话"
           >
             <div className="flex items-center gap-2 min-w-0">
               <Icon name="search" size={13.5} style={{ color: "var(--aurora-fg3)", flexShrink: 0 }} />
@@ -542,22 +529,16 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
             href="/profile?tab=devices"
             prefetch={true}
             onClick={() => handleItemClick("/profile?tab=devices")}
-            className={`flex items-center rounded-xl text-xs transition-all hover:opacity-90 mb-1.5 ${
+            className={`flex items-center rounded-xl text-xs transition-colors duration-150 mb-1.5 ${
               collapsed ? "w-10 h-9 mx-auto justify-center" : "justify-between px-3 py-1.5"
             }`}
             style={{
-              background: onlineCount > 0 ? "rgba(16,185,129,0.08)" : "var(--aurora-chip)",
-              border: onlineCount > 0 ? "1px solid rgba(16,185,129,0.25)" : "1px solid var(--aurora-border)",
+              background: onlineCount > 0 ? "var(--aurora-success-soft)" : "var(--aurora-chip)",
+              border: onlineCount > 0 ? "1px solid color-mix(in srgb, var(--aurora-success) 24%, transparent)" : "1px solid var(--aurora-border)",
               color: "var(--aurora-fg2)",
               textDecoration: "none",
             }}
-            title={
-              collapsed
-                ? onlineCount > 0
-                  ? `${onlineCount} 台设备在线 (点击管理)`
-                  : "无在线设备 (点击管理)"
-                : "点击管理终端设备"
-            }
+            aria-label={onlineCount > 0 ? `${onlineCount} 台设备在线` : "管理设备"}
           >
             <div className="flex items-center gap-2 min-w-0">
               <span
@@ -565,15 +546,14 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
                   width: 6,
                   height: 6,
                   borderRadius: 9999,
-                  background: onlineCount > 0 ? "#10B981" : "var(--aurora-fg4)",
-                  boxShadow: onlineCount > 0 ? "0 0 6px #10B981" : "none",
+                  background: onlineCount > 0 ? "var(--aurora-success)" : "var(--aurora-fg4)",
                   flexShrink: 0,
                 }}
               />
               {!collapsed && (
                 <span
                   style={{
-                    fontSize: 11.5,
+                    fontSize: 12,
                     fontWeight: 500,
                     overflow: "hidden",
                     textOverflow: "ellipsis",
@@ -587,7 +567,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
               )}
             </div>
             {!collapsed && (
-              <span style={{ color: "var(--aurora-fg4)", fontSize: 10.5 }}>
+              <span style={{ color: "var(--aurora-fg4)", fontSize: 11, fontVariantNumeric: "tabular-nums" }}>
                 {totalDevices > 0 ? `${totalDevices}台` : "管理"} &rarr;
               </span>
             )}
@@ -691,12 +671,11 @@ const SectionHeader = memo(function SectionHeader({
   return (
     <div
       style={{
-        padding: "6px 14px 3px 14px",
-        fontSize: 10.5,
+        padding: "8px 14px 4px 14px",
+        fontSize: 11.5,
         fontWeight: 600,
         color: "var(--aurora-fg4)",
-        letterSpacing: "0.05em",
-        textTransform: "uppercase",
+        letterSpacing: "-0.005em",
         display: "flex",
         alignItems: "center",
         ...style,
@@ -752,7 +731,7 @@ const NavRow = memo(function NavRow({
       onMouseEnter={handleMouseEnter}
       onTouchStart={handleMouseEnter}
       title={collapsed ? label + (badge ? ` (${badge})` : "") : undefined}
-      className={`group flex items-center relative select-none transition-all duration-150 ${
+      className={`group flex items-center relative select-none transition-colors duration-150 ${
         collapsed ? "justify-center py-2 px-0 mx-2 my-0.5" : "justify-start py-1.5 px-3 mx-2 my-0.5"
       } rounded-lg ${
         active

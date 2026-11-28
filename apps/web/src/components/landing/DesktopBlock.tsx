@@ -2,51 +2,51 @@
 
 import { useI18n } from "@/lib/i18n";
 import { Icon } from "@/components/aurora/Icon";
-import { Glass, SectionLabel } from "@/components/aurora/primitives";
 
-// Per-platform installers are published on every `v*` GitHub release.
-// Asset names embed version + arch and change each release, so we link
-// the stable "latest release" page rather than hard-coding filenames.
 const RELEASES_LATEST = "https://github.com/ddong8/memento/releases/latest";
+
+type IconName = Parameters<typeof Icon>[0]["name"];
 
 export function DesktopBlock() {
   const { t } = useI18n();
-  const platforms = [
-    { os: t.landing.desktop_macos, ext: t.landing.desktop_macos_ext },
-    { os: t.landing.desktop_windows, ext: t.landing.desktop_windows_ext },
-    { os: t.landing.desktop_linux, ext: t.landing.desktop_linux_ext },
-    { os: t.landing.desktop_android, ext: t.landing.desktop_android_ext },
+  const platforms: { os: string; ext: string; icon: IconName }[] = [
+    { os: t.landing.desktop_macos, ext: t.landing.desktop_macos_ext, icon: "apple" },
+    { os: t.landing.desktop_windows, ext: t.landing.desktop_windows_ext, icon: "windows" },
+    { os: t.landing.desktop_linux, ext: t.landing.desktop_linux_ext, icon: "linux" },
+    { os: t.landing.desktop_android, ext: t.landing.desktop_android_ext, icon: "devices" },
   ];
 
   return (
-    <section id="desktop" style={{ padding: "48px 20px", maxWidth: 1100, margin: "0 auto" }}>
-      <div style={{ textAlign: "center", marginBottom: 32 }}>
-        <SectionLabel style={{ margin: 0, marginBottom: 8 }}>{t.landing.desktop_title}</SectionLabel>
+    <section id="desktop" style={{ padding: "56px 20px", maxWidth: 1120, margin: "0 auto" }}>
+      <div style={{ maxWidth: 680, marginBottom: 28 }}>
         <h2
           style={{
             margin: 0,
-            fontSize: "clamp(22px, 3.2vw, 30px)",
-            fontWeight: 600,
+            fontSize: "clamp(24px, 3.2vw, 32px)",
+            fontWeight: 700,
             color: "var(--aurora-fg1)",
-            letterSpacing: "-0.025em",
+            letterSpacing: "-0.03em",
+            lineHeight: 1.18,
           }}
         >
-          {t.landing.desktop_sub}
+          {t.landing.desktop_title}
         </h2>
+        <p style={{ margin: "10px 0 0", fontSize: 15, color: "var(--aurora-fg3)", lineHeight: 1.55 }}>
+          {t.landing.desktop_sub}
+        </p>
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4" style={{ gap: 16 }}>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4" style={{ gap: 14 }}>
         {platforms.map((p) => (
-          <DownloadCard key={p.os} os={p.os} ext={p.ext} />
+          <DownloadCard key={p.os} os={p.os} ext={p.ext} icon={p.icon} />
         ))}
       </div>
       <p
         style={{
-          marginTop: 18,
-          fontSize: 12,
+          marginTop: 16,
+          fontSize: 13,
           color: "var(--aurora-fg4)",
-          textAlign: "center",
-          maxWidth: 680,
-          marginInline: "auto",
+          maxWidth: 720,
+          lineHeight: 1.6,
         }}
       >
         {t.landing.desktop_note}
@@ -55,65 +55,70 @@ export function DesktopBlock() {
   );
 }
 
-function DownloadCard({ os, ext }: { os: string; ext: string }) {
+function DownloadCard({ os, ext, icon }: { os: string; ext: string; icon: IconName }) {
   const { t } = useI18n();
   return (
-    <a href={RELEASES_LATEST} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
-      <Glass hover padding={0} radius={16} style={{ overflow: "hidden" }}>
+    <a
+      href={RELEASES_LATEST}
+      target="_blank"
+      rel="noreferrer"
+      className="aurora-card aurora-card-hover group"
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "space-between",
+        padding: 18,
+        borderRadius: 14,
+        textDecoration: "none",
+        gap: 16,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div
           style={{
-            padding: "12px 16px",
-            borderBottom: "1px solid var(--aurora-border)",
-            fontSize: 11,
-            fontWeight: 600,
-            color: "var(--aurora-fg4)",
-            textTransform: "uppercase",
-            letterSpacing: "0.08em",
-          }}
-        >
-          {os}
-        </div>
-        <div
-          style={{
+            width: 34,
+            height: 34,
+            borderRadius: 9,
+            background: "var(--aurora-chip)",
+            border: "1px solid var(--aurora-border)",
+            color: "var(--aurora-fg1)",
             display: "flex",
             alignItems: "center",
-            justifyContent: "space-between",
-            gap: 12,
-            padding: "20px 18px",
+            justifyContent: "center",
           }}
         >
-          <div>
-            <div style={{ fontSize: 15, fontWeight: 600, color: "var(--aurora-fg1)", letterSpacing: "-0.02em" }}>
-              {t.landing.desktop_btn}
-            </div>
-            <div
-              style={{
-                fontSize: 12,
-                color: "var(--aurora-fg4)",
-                marginTop: 3,
-                fontFamily: "var(--font-mono)",
-              }}
-            >
-              {ext}
-            </div>
-          </div>
-          <span
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              width: 38,
-              height: 38,
-              borderRadius: 12,
-              background: "var(--aurora-brand-grad)",
-              boxShadow: "0 8px 24px -8px rgba(124,58,237,0.5)",
-              flexShrink: 0,
-            }}
-          >
-            <Icon name="chevron_right" size={18} style={{ color: "#fff" }} strokeWidth={2.5} />
-          </span>
+          <Icon name={icon} size={17} />
         </div>
-      </Glass>
+        <span
+          style={{
+            width: 30,
+            height: 30,
+            borderRadius: 8,
+            background: "var(--aurora-accent-soft)",
+            color: "var(--aurora-accent)",
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <Icon name="download" size={15} />
+        </span>
+      </div>
+      <div>
+        <div style={{ fontSize: 15.5, fontWeight: 600, color: "var(--aurora-fg1)", letterSpacing: "-0.015em" }}>
+          {os} · {t.landing.desktop_btn}
+        </div>
+        <div
+          style={{
+            fontSize: 12.5,
+            color: "var(--aurora-fg4)",
+            marginTop: 4,
+            fontFamily: "var(--font-mono)",
+          }}
+        >
+          {ext}
+        </div>
+      </div>
     </a>
   );
 }

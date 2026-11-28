@@ -139,18 +139,17 @@ export function GhostInput({ icon, wrapStyle, wrapClassName, className, style, i
   );
 }
 
-/* ───────── Section heading (tiny caps) ───────── */
+/* ───────── Section heading (clean sentence-case) ───────── */
 
 export function SectionLabel({ children, style }: { children: ReactNode; style?: CSSProperties }) {
   return (
     <div
       style={{
-        fontSize: 12,
+        fontSize: 12.5,
         fontWeight: 600,
         color: "var(--aurora-fg3)",
-        letterSpacing: "0.04em",
-        textTransform: "uppercase",
-        margin: "8px 4px 12px",
+        letterSpacing: "-0.005em",
+        margin: "8px 2px 12px",
         ...style,
       }}
     >
@@ -216,14 +215,14 @@ export function StatCard({ label, value, sub }: { label: string; value: number |
   const num = typeof value === "number" ? value.toLocaleString() : value;
   return (
     <Glass padding="14px 16px" radius={14}>
-      <p style={{ fontSize: 11, color: "var(--aurora-fg3)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 600 }}>
+      <p style={{ fontSize: 12.5, color: "var(--aurora-fg3)", marginBottom: 6, fontWeight: 500, letterSpacing: "-0.005em" }}>
         {label}
       </p>
-      <p style={{ fontSize: 24, fontWeight: 600, color: "var(--aurora-fg1)", letterSpacing: "-0.03em", lineHeight: 1.05, fontVariantNumeric: "tabular-nums" }}>
+      <p style={{ fontSize: 24, fontWeight: 600, color: "var(--aurora-fg1)", letterSpacing: "-0.03em", lineHeight: 1.08, fontVariantNumeric: "tabular-nums" }}>
         {num}
       </p>
       {sub && (
-        <p style={{ fontSize: 11, color: "var(--aurora-fg4)", marginTop: 4 }}>{sub}</p>
+        <p style={{ fontSize: 12, color: "var(--aurora-fg4)", marginTop: 4, fontVariantNumeric: "tabular-nums" }}>{sub}</p>
       )}
     </Glass>
   );
@@ -238,20 +237,19 @@ export function ThemeToggle() {
   return (
     <button
       onClick={toggleTheme}
-      aria-label="Toggle theme"
-      title="Toggle theme"
+      aria-label={theme === "dark" ? "切换浅色主题" : "切换深色主题"}
       style={{
         width: 34,
         height: 34,
-        borderRadius: "var(--aurora-radius-btn, 10px)",
-        background: "var(--aurora-surface)",
-        border: "1px solid var(--aurora-border)",
-        backdropFilter: "var(--aurora-blur, none)",
+        borderRadius: "var(--aurora-radius-btn, 9px)",
+        background: "var(--aurora-surface-solid)",
+        border: "1px solid var(--aurora-border-strong)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
         cursor: "pointer",
         color: "var(--aurora-fg2)",
+        transition: "background-color 160ms ease, border-color 160ms ease, color 160ms ease",
       }}
     >
       <Icon name={theme === "dark" ? "sun" : "moon"} size={15} />
@@ -262,10 +260,10 @@ export function ThemeToggle() {
 /** Skin picker — three-segment control */
 export function SkinPicker() {
   const { skin, setSkin } = useTheme();
-  const items: { id: "aurora" | "arc" | "baseline"; label: string; hint: string }[] = [
-    { id: "aurora", label: "Aurora", hint: "Violet · glass" },
-    { id: "arc", label: "Arc", hint: "Paper · blue" },
-    { id: "baseline", label: "Baseline", hint: "Classic" },
+  const items: { id: "aurora" | "arc" | "baseline"; label: string }[] = [
+    { id: "aurora", label: "Studio" },
+    { id: "arc", label: "Paper" },
+    { id: "baseline", label: "Classic" },
   ];
   return (
     <div
@@ -275,7 +273,7 @@ export function SkinPicker() {
         gap: 2,
         background: "var(--aurora-chip)",
         border: "1px solid var(--aurora-border)",
-        borderRadius: "var(--aurora-radius-btn, 10px)",
+        borderRadius: "var(--aurora-radius-btn, 9px)",
       }}
     >
       {items.map((it) => {
@@ -284,19 +282,18 @@ export function SkinPicker() {
           <button
             key={it.id}
             onClick={() => setSkin(it.id)}
-            title={it.hint}
             style={{
               padding: "5px 10px",
-              fontSize: 11,
-              fontWeight: 500,
+              fontSize: 12,
+              fontWeight: active ? 600 : 500,
               letterSpacing: "-0.005em",
               border: 0,
               cursor: "pointer",
               background: active ? "var(--aurora-surface-solid)" : "transparent",
-              color: active ? "var(--aurora-accent)" : "var(--aurora-fg3)",
-              borderRadius: 7,
-              boxShadow: active ? "0 1px 2px rgba(0,0,0,0.05)" : "none",
-              transition: "all .15s",
+              color: active ? "var(--aurora-fg1)" : "var(--aurora-fg3)",
+              borderRadius: 6,
+              boxShadow: active ? "0 1px 2px rgba(17,17,24,0.08)" : "none",
+              transition: "background-color 160ms ease, color 160ms ease, box-shadow 160ms ease",
             }}
           >
             {it.label}

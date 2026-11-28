@@ -695,11 +695,11 @@ export default function ActiveRunsMonitor() {
               // chip (2026-11-18) let the text under it show and was harder to read.
               <div
                 onClick={() => setCollapsed(false)}
-                className={`cursor-pointer flex items-center gap-2 px-3 py-1.5 border shadow-2xl transition-all duration-200 hover:scale-[1.03] group ${docked ? "w-full rounded-lg" : "rounded-full ml-auto"} ${iconOnly ? "justify-center px-0" : ""}`}
+                className={`cursor-pointer flex items-center gap-2 px-3 py-1.5 border shadow-lg transition-transform duration-150 hover:scale-[1.02] group ${docked ? "w-full rounded-lg" : "rounded-full ml-auto"} ${iconOnly ? "justify-center px-0" : ""}`}
                 style={{
-                  background: "linear-gradient(135deg, rgba(15, 23, 42, 0.97), rgba(30, 41, 59, 0.95))",
-                  borderColor: "rgba(56, 189, 248, 0.45)",
-                  boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.45), 0 0 15px rgba(56, 189, 248, 0.25)",
+                  background: "rgba(15, 23, 42, 0.97)",
+                  borderColor: "rgba(129, 140, 248, 0.42)",
+                  boxShadow: "0 8px 20px -6px rgba(0, 0, 0, 0.45)",
                 }}
                 title="点击展开查看后台智能体任务详情"
                 data-testid="active-runs-chip"
@@ -727,11 +727,11 @@ export default function ActiveRunsMonitor() {
               </div>
             ) : (
               <div
-                className="rounded-2xl shadow-2xl transition-all duration-300 overflow-hidden w-full flex flex-col"
+                className="rounded-2xl shadow-2xl overflow-hidden w-full flex flex-col"
                 style={{
-                  background: "linear-gradient(145deg, rgba(15, 23, 42, 0.98), rgba(30, 41, 59, 0.97))",
-                  border: "1px solid rgba(56, 189, 248, 0.35)",
-                  boxShadow: "0 20px 45px -10px rgba(0, 0, 0, 0.55), 0 0 25px rgba(56, 189, 248, 0.2)",
+                  background: "rgba(15, 23, 42, 0.98)",
+                  border: "1px solid rgba(129, 140, 248, 0.34)",
+                  boxShadow: "0 20px 42px -12px rgba(0, 0, 0, 0.56)",
                   maxHeight: isMobile
                     ? "min(480px, calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 88px))"
                     : "min(480px, 70vh)",
@@ -849,13 +849,13 @@ export default function ActiveRunsMonitor() {
                             <button
                               type="button"
                               onClick={() => jumpToChat(run.conversation_id)}
-                              className="px-2.5 py-1 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all"
+                              className="px-2.5 py-1 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors duration-150"
                               style={{
                                 background: isCurrentChat
-                                  ? "rgba(255, 255, 255, 0.1)"
-                                  : "linear-gradient(135deg, rgba(56, 189, 248, 0.2), rgba(99, 102, 241, 0.2))",
-                                border: "1px solid rgba(56, 189, 248, 0.4)",
-                                color: isCurrentChat ? "#94a3b8" : "#38bdf8",
+                                  ? "rgba(255, 255, 255, 0.08)"
+                                  : "rgba(129, 140, 248, 0.16)",
+                                border: "1px solid rgba(129, 140, 248, 0.38)",
+                                color: isCurrentChat ? "#94a3b8" : "#A5B4FC",
                               }}
                             >
                               <span>{isCurrentChat ? "当前所在对话" : "直达对话"}</span>

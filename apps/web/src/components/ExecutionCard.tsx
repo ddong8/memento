@@ -1050,7 +1050,7 @@ const ExecutionCard = memo(function ExecutionCard({
                       display: "inline-flex",
                       alignItems: "center",
                       gap: 6,
-                      background: "linear-gradient(135deg, #f59e0b, #d97706)",
+                      background: "#D97706",
                       color: "#fff",
                       border: "none",
                       borderRadius: 6,
@@ -1058,7 +1058,6 @@ const ExecutionCard = memo(function ExecutionCard({
                       fontSize: 12,
                       fontWeight: 600,
                       cursor: "pointer",
-                      boxShadow: "0 2px 6px rgba(217, 119, 6, 0.24)",
                     }}
                   >
                     <Icon name="sparkles" size={13} />
@@ -1095,7 +1094,7 @@ const ExecutionCard = memo(function ExecutionCard({
                     display: "inline-flex",
                     alignItems: "center",
                     gap: 6,
-                    background: "linear-gradient(135deg, #f59e0b, #d97706)",
+                    background: "#D97706",
                     color: "#fff",
                     border: "none",
                     borderRadius: 6,
@@ -1149,7 +1148,7 @@ const ExecutionCard = memo(function ExecutionCard({
                   display: "inline-flex",
                   alignItems: "center",
                   gap: 5,
-                  background: "linear-gradient(135deg, #ef4444, #dc2626)",
+                  background: "#DC2626",
                   color: "#fff",
                   border: "none",
                   borderRadius: 6,
@@ -1157,7 +1156,6 @@ const ExecutionCard = memo(function ExecutionCard({
                   fontSize: 11.5,
                   fontWeight: 600,
                   cursor: "pointer",
-                  boxShadow: "0 2px 6px rgba(239, 68, 68, 0.25)",
                   transition: "opacity 0.15s ease",
                 }}
                 title="自动将此报错交给执事分析并尝试自动修复"

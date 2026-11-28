@@ -5,23 +5,126 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Memento</title>
 <style>
-  :root { color-scheme: light dark; --bg: #f7f7fb; --fg: #1d1b26; --muted: #6b6880; --accent: #7c3aed; }
-  @media (prefers-color-scheme: dark) { :root { --bg: #0b0b12; --fg: #ecebf5; --muted: #9a97ad; } }
-  body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: var(--bg); color: var(--fg);
-         font: 14px/1.6 -apple-system, BlinkMacSystemFont, "PingFang SC", "Segoe UI", sans-serif; -webkit-app-region: drag; }
-  main { max-width: 420px; padding: 24px; text-align: center; }
-  h1 { font-size: 20px; margin: 0 0 8px; }
-  p { color: var(--muted); margin: 0 0 20px; }
-  code { font-size: 12.5px; }
-  button { -webkit-app-region: no-drag; border: 0; border-radius: 10px; padding: 9px 20px; font-size: 14px;
-           background: var(--accent); color: #fff; cursor: pointer; }
+  :root {
+    color-scheme: light dark;
+    --bg: #f7f7f9;
+    --card: #ffffff;
+    --surface-mute: #f2f2f6;
+    --fg: #111118;
+    --muted: #5b5b6e;
+    --border-strong: rgba(17, 17, 24, 0.145);
+    --accent: #4f46e5;
+    --accent-hover: #4338ca;
+    --shadow: 0 1px 2px rgba(17, 17, 24, 0.04), 0 10px 28px -16px rgba(17, 17, 24, 0.12);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0b0c10;
+      --card: #14151c;
+      --surface-mute: #181922;
+      --fg: #f3f4f8;
+      --muted: #989db2;
+      --border-strong: rgba(255, 255, 255, 0.14);
+      --accent: #5b52f0;
+      --accent-hover: #6d65f5;
+      --shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 16px 36px -18px rgba(0, 0, 0, 0.65);
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    padding: 20px;
+    background: var(--bg);
+    color: var(--fg);
+    font: 14px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", "Adwaita Sans", Cantarell, Ubuntu, Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -webkit-app-region: drag;
+    user-select: none;
+  }
+  main {
+    width: min(420px, 92vw);
+    padding: 34px 28px 30px;
+    border-radius: 16px;
+    background: var(--card);
+    border: 1px solid var(--border-strong);
+    box-shadow: var(--shadow);
+    text-align: center;
+  }
+  .brand {
+    width: 48px;
+    height: 48px;
+    margin: 0 auto 18px;
+    border-radius: 13px;
+    background: var(--accent);
+    color: #ffffff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  h1 {
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    margin: 0 0 8px;
+  }
+  p {
+    color: var(--muted);
+    font-size: 13.5px;
+    margin: 0 0 16px;
+    line-height: 1.6;
+  }
+  .server-pill {
+    display: inline-block;
+    max-width: 100%;
+    padding: 6px 12px;
+    border-radius: 8px;
+    background: var(--surface-mute);
+    border: 1px solid var(--border-strong);
+    color: var(--fg);
+    font-family: ui-monospace, "SF Mono", Menlo, "Cascadia Mono", Consolas, "PingFang SC", "Microsoft YaHei UI", monospace;
+    font-size: 12.5px;
+    margin: 0 0 22px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    user-select: text;
+    -webkit-app-region: no-drag;
+  }
+  button {
+    -webkit-app-region: no-drag;
+    border: 0;
+    border-radius: 9px;
+    padding: 10px 22px;
+    font: 600 13.5px/1.2 inherit;
+    background: var(--accent);
+    color: #ffffff;
+    cursor: pointer;
+    transition: background-color 160ms ease;
+  }
+  button:hover { background: var(--accent-hover); }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  @media (prefers-reduced-motion: reduce) {
+    button { transition: none; }
+  }
 </style>
 </head>
 <body>
 <main>
+  <div class="brand" aria-hidden="true">
+    <svg width="28" height="28" viewBox="0 0 32 32" fill="none">
+      <path d="M6.5 24.5V9.2C6.5 8.54 7.04 8 7.7 8H10.3C10.82 8 11.29 8.29 11.53 8.75L16 17.2L20.47 8.75C20.71 8.29 21.18 8 21.7 8H24.3C24.96 8 25.5 8.54 25.5 9.2V24.5" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="16" cy="23.2" r="2" fill="currentColor"/>
+    </svg>
+  </div>
   <h1>连不上 Memento 服务</h1>
-  <p>检查网络后重试。本机采集照常在后台运行，恢复连接后会自动补传。<br><code id="server"></code></p>
-  <button id="retry">重试</button>
+  <p>请检查网络后重试。本机采集照常在后台运行，恢复连接后会自动补传。</p>
+  <div class="server-pill" id="server"></div>
+  <div>
+    <button id="retry">重新连接</button>
+  </div>
 </main>
 <script>
   const server = new URLSearchParams(location.search).get("server") || "https://mem.ihasy.com";

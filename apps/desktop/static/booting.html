@@ -7,23 +7,35 @@
 <style>
   :root {
     color-scheme: light dark;
-    --bg: #fafafc;
-    --fg: #18181b;
-    --muted: #64748b;
-    --border: rgba(15, 23, 42, 0.1);
-    --accent: #2563eb;
-    --danger: #dc2626;
+    --bg: #f7f7f9;
     --card: #ffffff;
+    --surface-mute: #f2f2f6;
+    --fg: #111118;
+    --fg2: #343444;
+    --muted: #5b5b6e;
+    --border: rgba(17, 17, 24, 0.085);
+    --border-strong: rgba(17, 17, 24, 0.145);
+    --accent: #4f46e5;
+    --accent-hover: #4338ca;
+    --danger: #dc2626;
+    --danger-soft: rgba(220, 38, 38, 0.09);
+    --shadow: 0 1px 2px rgba(17, 17, 24, 0.04), 0 10px 28px -16px rgba(17, 17, 24, 0.12);
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #0a0a12;
-      --fg: #f4f4f5;
-      --muted: #94a3b8;
-      --border: rgba(255, 255, 255, 0.1);
-      --accent: #60a5fa;
+      --bg: #0b0c10;
+      --card: #14151c;
+      --surface-mute: #181922;
+      --fg: #f3f4f8;
+      --fg2: #c8cbd8;
+      --muted: #989db2;
+      --border: rgba(255, 255, 255, 0.085);
+      --border-strong: rgba(255, 255, 255, 0.14);
+      --accent: #5b52f0;
+      --accent-hover: #6d65f5;
       --danger: #f87171;
-      --card: #12121c;
+      --danger-soft: rgba(248, 113, 113, 0.14);
+      --shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 16px 36px -18px rgba(0, 0, 0, 0.65);
     }
   }
   * { box-sizing: border-box; }
@@ -32,56 +44,130 @@
     min-height: 100vh;
     display: grid;
     place-items: center;
+    padding: 20px;
     background: var(--bg);
     color: var(--fg);
-    font: 14px/1.6 -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Segoe UI Variable", "Segoe UI", "Microsoft YaHei UI", sans-serif;
+    font: 14px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", "Adwaita Sans", Cantarell, Ubuntu, Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+    -webkit-font-smoothing: antialiased;
     -webkit-app-region: drag;
+    user-select: none;
   }
   main {
-    width: min(440px, 92vw);
-    padding: 32px 28px;
+    width: min(420px, 92vw);
+    padding: 34px 28px 30px;
     border-radius: 16px;
     background: var(--card);
-    border: 1px solid var(--border);
+    border: 1px solid var(--border-strong);
+    box-shadow: var(--shadow);
     text-align: center;
   }
-  .spinner {
-    width: 28px;
-    height: 28px;
+  .brand {
+    width: 48px;
+    height: 48px;
     margin: 0 auto 18px;
+    border-radius: 13px;
+    background: var(--accent);
+    color: #ffffff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  h1 {
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    margin: 0 0 8px;
+    line-height: 1.3;
+  }
+  #step {
+    color: var(--muted);
+    font-size: 13.5px;
+    margin: 0 0 18px;
+    min-height: 22px;
+    word-break: break-word;
+  }
+  .progress {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin-bottom: 4px;
+  }
+  .spinner {
+    width: 18px;
+    height: 18px;
     border-radius: 50%;
-    border: 2.5px solid var(--border);
+    border: 2px solid var(--border-strong);
     border-top-color: var(--accent);
     animation: spin 0.8s linear infinite;
   }
-  .spinner.stopped { animation: none; border-color: var(--danger); }
+  .spinner.stopped {
+    animation: none;
+    border-color: var(--danger);
+  }
   @keyframes spin { to { transform: rotate(360deg); } }
-  h1 { font-size: 18px; font-weight: 600; margin: 0 0 8px; }
-  #step { color: var(--muted); margin: 0 0 18px; min-height: 22px; word-break: break-word; }
-  #err { display: none; color: var(--danger); font-size: 13px; text-align: left; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border); margin: 0 0 16px; white-space: pre-wrap; word-break: break-word; }
-  .actions { display: none; gap: 10px; justify-content: center; -webkit-app-region: no-drag; }
+  #err {
+    display: none;
+    color: var(--danger);
+    background: var(--danger-soft);
+    font-family: ui-monospace, "SF Mono", Menlo, "Cascadia Mono", Consolas, "PingFang SC", "Microsoft YaHei UI", monospace;
+    font-size: 12.5px;
+    line-height: 1.55;
+    text-align: left;
+    padding: 12px 14px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    margin: 0 0 18px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    user-select: text;
+    -webkit-app-region: no-drag;
+  }
+  .actions {
+    display: none;
+    gap: 10px;
+    justify-content: center;
+    flex-wrap: wrap;
+    -webkit-app-region: no-drag;
+  }
   .actions.show { display: flex; }
   button {
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 8px 16px;
-    font-size: 13.5px;
+    border: 1px solid var(--border-strong);
+    border-radius: 9px;
+    padding: 9px 16px;
+    font: 500 13.5px/1.2 inherit;
     cursor: pointer;
-    background: transparent;
+    background: var(--surface-mute);
     color: var(--fg);
+    transition: background-color 160ms ease, border-color 160ms ease, opacity 140ms ease;
   }
+  button:hover { opacity: 0.92; }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   button.primary {
     border-color: transparent;
     background: var(--accent);
-    color: #fff;
+    color: #ffffff;
+  }
+  button.primary:hover { background: var(--accent-hover); opacity: 1; }
+  @media (prefers-reduced-motion: reduce) {
+    .spinner { animation-duration: 1.8s; }
+    button { transition: none; }
   }
 </style>
 </head>
 <body>
 <main>
-  <div id="spinner" class="spinner"></div>
+  <div class="brand" aria-hidden="true">
+    <svg width="28" height="28" viewBox="0 0 32 32" fill="none">
+      <path d="M6.5 24.5V9.2C6.5 8.54 7.04 8 7.7 8H10.3C10.82 8 11.29 8.29 11.53 8.75L16 17.2L20.47 8.75C20.71 8.29 21.18 8 21.7 8H24.3C24.96 8 25.5 8.54 25.5 9.2V24.5" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="16" cy="23.2" r="2" fill="currentColor"/>
+    </svg>
+  </div>
   <h1 id="title">正在启动 Memento 本机服务</h1>
-  <p id="step">准备内置数据库与本地工作台…</p>
+  <div class="progress">
+    <div id="spinner" class="spinner" aria-hidden="true"></div>
+    <p id="step" style="margin:0;">准备内置数据库与本地工作台…</p>
+  </div>
   <div id="err"></div>
   <div id="actions" class="actions">
     <button id="retry" class="primary">重试启动</button>

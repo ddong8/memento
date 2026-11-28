@@ -3,31 +3,26 @@ import { Redirect } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState, KeyboardAvoidingView, Linking, Platform, Pressable, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import Svg, { Circle, Defs, LinearGradient, Path, RadialGradient, Rect, Stop } from "react-native-svg";
+import Svg, { Circle, Path, Rect } from "react-native-svg";
 
 import { Button, Note } from "../components/ui";
 import { describeError } from "../lib/api";
 import { DEFAULT_SERVER, useSession } from "../lib/session";
 import { radius, useTheme } from "../lib/theme";
 
-function Mark() {
+function Mark({ color }: { color: string }) {
   return (
-    <Svg width={64} height={64} viewBox="0 0 64 64">
-      <Defs>
-        <LinearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-          <Stop offset="0" stopColor="#7C3AED" />
-          <Stop offset="0.55" stopColor="#EC4899" />
-          <Stop offset="1" stopColor="#06B6D4" />
-        </LinearGradient>
-        <RadialGradient id="c" cx="0.5" cy="0.5" r="0.5">
-          <Stop offset="0" stopColor="#ffffff" stopOpacity={0.95} />
-          <Stop offset="0.6" stopColor="#ffffff" stopOpacity={0.4} />
-          <Stop offset="1" stopColor="#ffffff" stopOpacity={0} />
-        </RadialGradient>
-      </Defs>
-      <Rect x={2} y={2} width={60} height={60} rx={16} fill="url(#g)" />
-      <Circle cx={32} cy={32} r={14} fill="url(#c)" />
-      <Circle cx={32} cy={32} r={5} fill="#ffffff" />
+    <Svg width={56} height={56} viewBox="0 0 64 64">
+      <Rect x={2} y={2} width={60} height={60} rx={16} fill={color} />
+      <Path
+        d="M16 46V20.5C16 19.12 17.12 18 18.5 18H22.8C23.75 18 24.62 18.54 25.05 19.39L32 33L38.95 19.39C39.38 18.54 40.25 18 41.2 18H45.5C46.88 18 48 19.12 48 20.5V46"
+        fill="none"
+        stroke="#FFFFFF"
+        strokeWidth={5}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <Circle cx={32} cy={44} r={3.4} fill="#FFFFFF" />
     </Svg>
   );
 }
@@ -183,7 +178,7 @@ export default function LoginScreen() {
     }
   };
 
-  const field = { fontSize: 15, color: t.fg1, backgroundColor: t.surface, borderRadius: radius.control, borderWidth: 1, borderColor: t.border, paddingHorizontal: 12, paddingVertical: 12 } as const;
+  const field = { fontSize: 15, color: t.fg1, backgroundColor: t.surface, borderRadius: radius.control, borderWidth: 1, borderColor: t.borderStrong, paddingHorizontal: 14, paddingVertical: 13 } as const;
 
   const minutes = Math.floor(countdown / 60);
   const seconds = countdown % 60;
@@ -192,17 +187,17 @@ export default function LoginScreen() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: t.bg }}>
       <KeyboardAvoidingView style={{ flex: 1, justifyContent: "center", padding: 24 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-        <View style={{ alignItems: "center", marginBottom: 20, gap: 8 }}>
-          <Mark />
-          <Text style={{ fontSize: 26, fontWeight: "700", color: t.fg1 }}>Memento</Text>
-          <Text style={{ fontSize: 13.5, color: t.fg3 }}>你的 AI 外脑，随身带着</Text>
+        <View style={{ alignItems: "center", marginBottom: 24, gap: 8 }}>
+          <Mark color={t.accentPrimary} />
+          <Text style={{ fontSize: 24, fontWeight: "700", color: t.fg1, letterSpacing: -0.5 }}>Memento</Text>
+          <Text style={{ fontSize: 14, color: t.fg3 }}>你的 AI 外脑，随身带着</Text>
         </View>
 
         {error && <Note>{error}</Note>}
 
         <View style={{ width: "100%", maxWidth: 400, alignSelf: "center", gap: 14 }}>
           {/* Tab Switcher */}
-          <View style={{ flexDirection: "row", backgroundColor: t.surface, borderRadius: radius.control, padding: 3, borderWidth: 1, borderColor: t.border }}>
+          <View style={{ flexDirection: "row", backgroundColor: t.surfaceMute, borderRadius: radius.control, padding: 3, borderWidth: 1, borderColor: t.border }}>
             <Pressable
               onPress={() => setAuthTab("wechat")}
               style={{
@@ -211,13 +206,13 @@ export default function LoginScreen() {
                 alignItems: "center",
                 justifyContent: "center",
                 gap: 6,
-                paddingVertical: 8,
+                paddingVertical: 9,
                 borderRadius: radius.control - 2,
-                backgroundColor: authTab === "wechat" ? t.bg : "transparent",
+                backgroundColor: authTab === "wechat" ? t.surface : "transparent",
               }}
             >
               <WechatMark size={16} color={authTab === "wechat" ? "#07C160" : t.fg3} />
-              <Text style={{ fontSize: 13, fontWeight: authTab === "wechat" ? "600" : "400", color: authTab === "wechat" ? t.fg1 : t.fg3 }}>
+              <Text style={{ fontSize: 13.5, fontWeight: authTab === "wechat" ? "600" : "500", color: authTab === "wechat" ? t.fg1 : t.fg3 }}>
                 微信登录
               </Text>
             </Pressable>
@@ -227,12 +222,12 @@ export default function LoginScreen() {
                 flex: 1,
                 alignItems: "center",
                 justifyContent: "center",
-                paddingVertical: 8,
+                paddingVertical: 9,
                 borderRadius: radius.control - 2,
-                backgroundColor: authTab === "password" ? t.bg : "transparent",
+                backgroundColor: authTab === "password" ? t.surface : "transparent",
               }}
             >
-              <Text style={{ fontSize: 13, fontWeight: authTab === "password" ? "600" : "400", color: authTab === "password" ? t.fg1 : t.fg3 }}>
+              <Text style={{ fontSize: 13.5, fontWeight: authTab === "password" ? "600" : "500", color: authTab === "password" ? t.fg1 : t.fg3 }}>
                 密码登录
               </Text>
             </Pressable>
@@ -246,9 +241,9 @@ export default function LoginScreen() {
                 onPress={() => void copyToClipboard(ticket)}
                 style={({ pressed }) => ({
                   backgroundColor: t.surface,
-                  borderWidth: 1.5,
-                  borderColor: copied ? "#07C160" : t.border,
-                  borderRadius: radius.control,
+                  borderWidth: 1,
+                  borderColor: copied ? "#07C160" : t.borderStrong,
+                  borderRadius: radius.card,
                   padding: 18,
                   alignItems: "center",
                   gap: 8,
@@ -256,14 +251,14 @@ export default function LoginScreen() {
                 })}
               >
                 <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", width: "100%" }}>
-                  <Text style={{ fontSize: 11, color: t.fg3, fontWeight: "600", letterSpacing: 0.5 }}>登录口令</Text>
+                  <Text style={{ fontSize: 12.5, color: t.fg3, fontWeight: "600" }}>登录口令</Text>
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                     {copied ? (
-                      <Text style={{ fontSize: 11, color: "#07C160", fontWeight: "600" }}>✓ 已复制到剪贴板</Text>
+                      <Text style={{ fontSize: 12, color: "#07C160", fontWeight: "600" }}>✓ 已复制到剪贴板</Text>
                     ) : (
-                      <Text style={{ fontSize: 11, color: t.accent }}>轻触可直接复制</Text>
+                      <Text style={{ fontSize: 12, color: t.accent }}>轻触可直接复制</Text>
                     )}
-                    <Text style={{ fontSize: 11, color: t.fg3 }}>
+                    <Text style={{ fontSize: 12, color: t.fg3, fontVariant: ["tabular-nums"] }}>
                       {ticketStatus === "pending" && !ticketLoading ? ` · ${timeFormatted}` : ""}
                     </Text>
                   </View>
@@ -275,6 +270,7 @@ export default function LoginScreen() {
                     fontSize: 34,
                     fontWeight: "700",
                     fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
+                    fontVariant: ["tabular-nums"],
                     color: ticketStatus === "expired" ? t.fg4 : copied ? "#07C160" : t.accent,
                     letterSpacing: 5,
                     paddingVertical: 4,

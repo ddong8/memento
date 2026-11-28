@@ -29,20 +29,18 @@ export function SmoothToggle({
         e.stopPropagation();
         if (!disabled) onChange(!checked);
       }}
-      className="relative shrink-0 transition-all duration-300 outline-none select-none cursor-pointer"
+      className="relative shrink-0 outline-none select-none cursor-pointer"
       style={{
         width: w,
         height: h,
         borderRadius: 9999,
         background: checked
-          ? "linear-gradient(135deg, #7C3AED 0%, #6366F1 100%)"
-          : "var(--aurora-chip, rgba(0, 0, 0, 0.08))",
-        boxShadow: checked
-          ? "0 3px 10px -2px rgba(124, 58, 237, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.3)"
-          : "inset 0 1px 2px rgba(0, 0, 0, 0.08)",
-        border: checked ? "1px solid rgba(255, 255, 255, 0.2)" : "1px solid var(--aurora-border, rgba(0,0,0,0.08))",
+          ? "var(--aurora-accent)"
+          : "var(--aurora-chip, rgba(17, 17, 24, 0.08))",
+        border: checked ? "1px solid transparent" : "1px solid var(--aurora-border-strong)",
         cursor: disabled ? "not-allowed" : "pointer",
-        opacity: disabled ? 0.6 : 1,
+        opacity: disabled ? 0.55 : 1,
+        transition: "background-color 200ms cubic-bezier(0.22, 1, 0.36, 1), border-color 200ms ease",
       }}
     >
       <span
@@ -54,8 +52,8 @@ export function SmoothToggle({
           height: dot,
           borderRadius: 9999,
           background: "#FFFFFF",
-          boxShadow: "0 2px 5px rgba(0, 0, 0, 0.18), 0 0 1px rgba(0, 0, 0, 0.15)",
-          transition: "left 0.25s cubic-bezier(0.34, 1.56, 0.64, 1)",
+          boxShadow: "0 1px 3px rgba(0, 0, 0, 0.22)",
+          transition: "left 220ms cubic-bezier(0.22, 1, 0.36, 1)",
         }}
       />
     </button>

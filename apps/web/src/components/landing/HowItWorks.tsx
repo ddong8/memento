@@ -2,108 +2,99 @@
 
 import { useI18n } from "@/lib/i18n";
 import { Icon } from "@/components/aurora/Icon";
-import { Glass, SectionLabel } from "@/components/aurora/primitives";
 
 type IconName = Parameters<typeof Icon>[0]["name"];
 
 export function HowItWorks() {
   const { t } = useI18n();
-  const steps: { icon: IconName; label: string; title: string; desc: string }[] = [
-    { icon: "devices",   label: "01", title: t.landing.how_1_title, desc: t.landing.how_1_desc },
-    { icon: "terminal",  label: "02", title: t.landing.how_2_title, desc: t.landing.how_2_desc },
-    { icon: "layers",    label: "03", title: t.landing.how_3_title, desc: t.landing.how_3_desc },
+  const steps: { icon: IconName; title: string; desc: string }[] = [
+    { icon: "devices", title: t.landing.how_1_title, desc: t.landing.how_1_desc },
+    { icon: "server", title: t.landing.how_2_title, desc: t.landing.how_2_desc },
+    { icon: "layers", title: t.landing.how_3_title, desc: t.landing.how_3_desc },
   ];
+
   return (
-    <section style={{ padding: "48px 20px", maxWidth: 1100, margin: "0 auto" }}>
-      <div style={{ textAlign: "center", marginBottom: 32 }}>
-        <SectionLabel style={{ margin: 0, marginBottom: 8 }}>{t.landing.how_title}</SectionLabel>
+    <section style={{ padding: "56px 20px", maxWidth: 1120, margin: "0 auto" }}>
+      <div style={{ maxWidth: 680, marginBottom: 28 }}>
         <h2
           style={{
             margin: 0,
-            fontSize: "clamp(22px, 3.2vw, 30px)",
-            fontWeight: 600,
+            fontSize: "clamp(24px, 3.2vw, 32px)",
+            fontWeight: 700,
             color: "var(--aurora-fg1)",
-            letterSpacing: "-0.025em",
+            letterSpacing: "-0.03em",
+            lineHeight: 1.18,
           }}
         >
-          {t.landing.how_sub}
+          {t.landing.how_title}
         </h2>
+        <p style={{ margin: "10px 0 0", fontSize: 15, color: "var(--aurora-fg3)", lineHeight: 1.55 }}>
+          {t.landing.how_sub}
+        </p>
       </div>
+
+      {/* Unified hairline-divided 3-stage pipeline — zero decorative 01/02/03 prefixes */}
       <div
         className="grid grid-cols-1 md:grid-cols-3"
-        style={{ gap: 16, position: "relative" }}
+        style={{
+          borderRadius: 14,
+          background: "var(--aurora-surface-solid)",
+          border: "1px solid var(--aurora-border-strong)",
+          overflow: "hidden",
+        }}
       >
         {steps.map((s, i) => (
-          <div key={s.label} style={{ position: "relative" }}>
-            <Glass padding={22} radius={20} style={{ height: "100%" }}>
+          <div
+            key={s.title}
+            className={i < steps.length - 1 ? "border-b md:border-b-0 md:border-r" : ""}
+            style={{
+              padding: "24px 22px",
+              borderColor: "var(--aurora-border)",
+              display: "flex",
+              flexDirection: "column",
+              gap: 10,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <div
                 style={{
-                  fontSize: 11,
-                  fontWeight: 600,
-                  color: "var(--aurora-fg4)",
-                  letterSpacing: "0.12em",
-                  fontFamily: "var(--font-mono)",
-                  marginBottom: 10,
-                }}
-              >
-                {s.label}
-              </div>
-              <div
-                style={{
-                  width: 38, height: 38, borderRadius: 11,
+                  width: 34,
+                  height: 34,
+                  borderRadius: 9,
                   background: "var(--aurora-accent-soft)",
                   color: "var(--aurora-accent)",
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  marginBottom: 14,
-                }}
-              >
-                <Icon name={s.icon} size={18} />
-              </div>
-              <h3
-                style={{
-                  margin: 0,
-                  fontSize: 16,
-                  fontWeight: 600,
-                  color: "var(--aurora-fg1)",
-                  letterSpacing: "-0.015em",
-                  marginBottom: 6,
-                }}
-              >
-                {s.title}
-              </h3>
-              <p
-                style={{
-                  margin: 0,
-                  fontSize: 13,
-                  color: "var(--aurora-fg3)",
-                  lineHeight: 1.6,
-                  letterSpacing: "-0.005em",
-                }}
-              >
-                {s.desc}
-              </p>
-            </Glass>
-            {/* Connector arrow between cards (md+) */}
-            {i < steps.length - 1 && (
-              <div
-                className="hidden md:flex"
-                aria-hidden
-                style={{
-                  position: "absolute",
-                  top: "50%",
-                  right: -18,
-                  transform: "translateY(-50%)",
-                  width: 32,
+                  display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  color: "var(--aurora-fg4)",
-                  zIndex: 1,
-                  pointerEvents: "none",
                 }}
               >
-                <Icon name="arrow_right" size={18} />
+                <Icon name={s.icon} size={17} />
               </div>
-            )}
+              {i < steps.length - 1 && (
+                <Icon name="arrow_right" size={16} className="hidden md:block" style={{ color: "var(--aurora-fg4)" }} />
+              )}
+            </div>
+            <h3
+              style={{
+                margin: "4px 0 0",
+                fontSize: 16,
+                fontWeight: 600,
+                color: "var(--aurora-fg1)",
+                letterSpacing: "-0.015em",
+              }}
+            >
+              {s.title}
+            </h3>
+            <p
+              style={{
+                margin: 0,
+                fontSize: 14,
+                color: "var(--aurora-fg3)",
+                lineHeight: 1.62,
+              }}
+            >
+              {s.desc}
+            </p>
           </div>
         ))}
       </div>

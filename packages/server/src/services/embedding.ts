@@ -8,6 +8,7 @@ import { cacheGet, cacheSet } from "../cache";
 import type { Settings } from "../config";
 import type { Db } from "../db/client";
 import { conversationMessages, documentEmbeddings, documents } from "../db/pulled/schema";
+import { cluster } from "./cluster";
 
 export const CHUNK_SIZE = 2000;
 export const CHUNK_OVERLAP = 200;
@@ -398,13 +399,11 @@ export async function embedDocument(
   return { status: "ok", sent };
 }
 
-const SWEEP_LOCK = 0x6d656d62;
-
 export async function embedPendingDocuments(db: Db, settings: Settings, budgetSeconds = 50): Promise<Record<string, unknown>> {
   const deadline = performance.now() + budgetSeconds * 1000;
   const stats: Record<string, unknown> = { embedded: 0, skipped: 0, partial: 0, failed: 0, chunks: 0 };
-  const got = (await db.execute(sql`SELECT pg_try_advisory_lock(${SWEEP_LOCK}) AS ok`)) as unknown as { ok: boolean }[];
-  if (!got[0]?.ok) return { ...stats, busy: true };
+  const lock = await cluster.mutex("embedding:sweep-pending", Math.max(60, budgetSeconds + 15));
+  if (!lock) return { ...stats, busy: true };
   try {
     const tried = new Set<string>();
     while (performance.now() < deadline) {
@@ -470,7 +469,7 @@ export async function embedPendingDocuments(db: Db, settings: Settings, budgetSe
       }
     }
   } finally {
-    await db.execute(sql`SELECT pg_advisory_unlock(${SWEEP_LOCK})`).catch(() => {});
+    await lock.release();
   }
   return stats;
 }

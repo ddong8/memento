@@ -10,7 +10,7 @@ import type postgres from "postgres";
 
 // Hex 0x6D656D656E746F == "memento" (same advisory lock key as legacy Python migrations.py)
 export const MIGRATION_LOCK_ID = "30792277001925743";
-export const CURRENT_SCHEMA_VERSION = "20261128_004_self_evolution";
+export const CURRENT_SCHEMA_VERSION = "20261128_005_perf_tuning";
 
 function locateSchemaSql(): string {
   const here = dirname(fileURLToPath(import.meta.url));
@@ -104,6 +104,10 @@ const IDEMPOTENT_ALTERS: string[] = [
   "ALTER TABLE knowledge_entities ADD COLUMN IF NOT EXISTS stale_at TIMESTAMPTZ",
   "ALTER TABLE knowledge_entities ADD COLUMN IF NOT EXISTS stale_reason TEXT",
   "ALTER TABLE eval_cases ADD COLUMN IF NOT EXISTS evidence TEXT",
+  // Lower autovacuum scale factors on large tables so dead tuples & planner stats stay fresh
+  "ALTER TABLE conversation_messages SET (autovacuum_vacuum_scale_factor = 0.05, autovacuum_analyze_scale_factor = 0.02)",
+  "ALTER TABLE document_embeddings SET (autovacuum_vacuum_scale_factor = 0.05, autovacuum_analyze_scale_factor = 0.02)",
+  "ALTER TABLE documents SET (autovacuum_vacuum_scale_factor = 0.05, autovacuum_analyze_scale_factor = 0.02)",
 ];
 
 const IDEMPOTENT_INDEXES: string[] = [

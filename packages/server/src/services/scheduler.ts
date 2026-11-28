@@ -221,6 +221,7 @@ export async function runTitleBackfill(deps: SchedulerDeps): Promise<{ scanned: 
   let healed = 0;
   let lastId: string | null = null;
   const recentSince = new Date(Date.now() - 3 * 3600_000).toISOString();
+  const parentTitleCache = new Map<string, string | null>();
 
   while (true) {
     const rows = await deps.db
@@ -243,14 +244,32 @@ export async function runTitleBackfill(deps: SchedulerDeps): Promise<{ scanned: 
         const [cRow] = await deps.db.select({ content: documents.content }).from(documents).where(eq(documents.id, r.id)).limit(1);
         if (cRow?.content) parentSid = parentSessionIdFromContent(cRow.content);
       }
-      if (parentSid) {
-        const [pRow] = await deps.db
-          .select({ title: documents.title })
-          .from(documents)
-          .where(or(sql`${documents.metadata}->>'session_id' = ${parentSid}`, sql`${documents.relativePath} LIKE ${`%${parentSid}%`}`))
-          .limit(1);
-        if (pRow?.title && !isJunkOrUuidTitle(pRow.title, parentSid)) {
-          cand = r.relativePath.includes("rollout-") ? `审核: ${pRow.title}` : pRow.title;
+      if (parentSid && (recent || isJunkOrUuidTitle(r.title, sid))) {
+        let pTitle: string | null;
+        if (parentTitleCache.has(parentSid)) {
+          pTitle = parentTitleCache.get(parentSid) ?? null;
+        } else {
+          // Query exact indexed metadata->>'session_id' first (hits idx_documents_metadata_session_id);
+          // only fall back to relative_path LIKE when not found, avoiding OR-induced sequential scans.
+          const [exactRow] = await deps.db
+            .select({ title: documents.title })
+            .from(documents)
+            .where(sql`${documents.metadata}->>'session_id' = ${parentSid}`)
+            .limit(1);
+          if (exactRow?.title) {
+            pTitle = exactRow.title;
+          } else {
+            const [pathRow] = await deps.db
+              .select({ title: documents.title })
+              .from(documents)
+              .where(sql`${documents.relativePath} LIKE ${`%${parentSid}%`}`)
+              .limit(1);
+            pTitle = pathRow?.title ?? null;
+          }
+          parentTitleCache.set(parentSid, pTitle);
+        }
+        if (pTitle && !isJunkOrUuidTitle(pTitle, parentSid)) {
+          cand = r.relativePath.includes("rollout-") ? `审核: ${pTitle}` : pTitle;
         }
       }
       if ((!sid || sid === "transcript") && r.relativePath.includes("brain/")) {

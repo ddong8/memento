@@ -45,6 +45,7 @@ async function bustUserMemoryCache(deps: Deps, userId: string): Promise<void> {
   const redis = deps.redis();
   await Promise.allSettled([
     cacheDeletePrefix(redis, `memory:tree:${userId}:`),
+    cacheDeletePrefix(redis, `memory:core:${userId}:`),
     cacheDeletePrefix(redis, `memory:stats:${userId}:`),
     cacheDeletePrefix(redis, `memory:markdown:${userId}:`),
     cacheDeletePrefix(redis, `learning:check:${userId}:`),
@@ -52,6 +53,26 @@ async function bustUserMemoryCache(deps: Deps, userId: string): Promise<void> {
     cacheDeletePrefix(redis, `user:blueprint:v4:${userId}`),
   ]);
 }
+
+// Explicit projection for user_memories reads: intentionally omits 1024-dim `embedding` vector (~4KB/row)
+const CORE_MEMORY_COLUMNS = {
+  id: userMemories.id,
+  parentId: userMemories.parentId,
+  category: userMemories.category,
+  key: userMemories.key,
+  content: userMemories.content,
+  confidence: userMemories.confidence,
+  source: userMemories.source,
+  treePath: userMemories.treePath,
+  isFolder: userMemories.isFolder,
+  status: userMemories.status,
+  statusReason: userMemories.statusReason,
+  supersededBy: userMemories.supersededBy,
+  recallCount: userMemories.recallCount,
+  lastRecalledAt: userMemories.lastRecalledAt,
+  createdAt: userMemories.createdAt,
+  updatedAt: userMemories.updatedAt,
+};
 
 function userDocIdsSq(userId: string) {
   return sql`(SELECT id FROM documents WHERE machine_id IN (SELECT id FROM machines WHERE user_id = ${userId}::uuid))`;
@@ -446,7 +467,7 @@ memoryRoutes.get("/core/tree", async (c) => {
   }
 
   const memories = await db
-    .select()
+    .select(CORE_MEMORY_COLUMNS)
     .from(userMemories)
     .where(and(...conds))
     .orderBy(asc(userMemories.category), asc(userMemories.treePath), asc(userMemories.key));
@@ -555,10 +576,17 @@ memoryRoutes.get("/core/markdown", async (c) => {
 
 memoryRoutes.get("/core", async (c) => {
   const { db } = c.var.deps;
+  const redis = c.var.deps.redis();
   const user = await currentUser(c);
   const category = c.req.query("category") || null;
   const activeOnly = (c.req.query("active_only") ?? "").toLowerCase() === "true" || c.req.query("active_only") === "1";
   const recall = (c.req.query("recall") ?? "").toLowerCase() === "true" || c.req.query("recall") === "1";
+
+  const cacheKey = `memory:core:${user.id}:${category || "all"}:${activeOnly ? "1" : "0"}`;
+  if (!recall) {
+    const cached = await cacheGet(redis, cacheKey);
+    if (cached != null) return c.json(cached);
+  }
 
   const conds: SQL[] = [eq(userMemories.userId, user.id)];
   if (activeOnly) conds.push(eq(userMemories.status, "active"));
@@ -569,7 +597,7 @@ memoryRoutes.get("/core", async (c) => {
   }
 
   const memories = await db
-    .select()
+    .select(CORE_MEMORY_COLUMNS)
     .from(userMemories)
     .where(and(...conds))
     .orderBy(desc(userMemories.isFolder), asc(userMemories.category), desc(userMemories.updatedAt));
@@ -581,26 +609,28 @@ memoryRoutes.get("/core", async (c) => {
     ).catch(() => {});
   }
 
-  return c.json(
-    memories.map((m) => ({
-      id: m.id,
-      parent_id: m.parentId,
-      category: m.category,
-      key: m.key,
-      content: m.content,
-      confidence: m.confidence,
-      source: m.source,
-      tree_path: m.treePath || `/${m.category}/${m.key}`,
-      is_folder: m.isFolder,
-      status: m.status,
-      status_reason: m.statusReason,
-      superseded_by: m.supersededBy,
-      recall_count: m.recallCount,
-      last_recalled_at: pgToIso(m.lastRecalledAt),
-      created_at: pgToIso(m.createdAt),
-      updated_at: pgToIso(m.updatedAt),
-    })),
-  );
+  const payload = memories.map((m) => ({
+    id: m.id,
+    parent_id: m.parentId,
+    category: m.category,
+    key: m.key,
+    content: m.content,
+    confidence: m.confidence,
+    source: m.source,
+    tree_path: m.treePath || `/${m.category}/${m.key}`,
+    is_folder: m.isFolder,
+    status: m.status,
+    status_reason: m.statusReason,
+    superseded_by: m.supersededBy,
+    recall_count: m.recallCount,
+    last_recalled_at: pgToIso(m.lastRecalledAt),
+    created_at: pgToIso(m.createdAt),
+    updated_at: pgToIso(m.updatedAt),
+  }));
+  if (!recall) {
+    await cacheSet(redis, cacheKey, payload, 60);
+  }
+  return c.json(payload);
 });
 
 memoryRoutes.post("/core/:memory_id/revive", async (c) => {

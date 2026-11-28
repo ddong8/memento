@@ -13,6 +13,7 @@ import { askConversations, todos } from "../db/pulled/schema";
 import { localDate, localMidnight, pgToIso, pyDateFromIso } from "../pytime";
 import * as aiHealth from "./ai-health";
 import { callPlainChat } from "./ai-provider";
+import { fetchAskUserTurnsSince } from "./ask-store";
 import { safeJsonLoads } from "./dreaming-core";
 import { cleanUserVoice, SUBAGENT_PATH_REGEX } from "./dreaming-voice";
 
@@ -281,32 +282,25 @@ export async function learnTodos(
   const askCursorKey = `todos_ask_cursor:${user.id}`;
   const askCursorIso = await aiHealth.getJson<string>(redis, askCursorKey);
   const askSinceMs = askCursorIso ? Date.parse(askCursorIso) : nowMs - 86400_000;
-  const askSinceIso = new Date(Number.isFinite(askSinceMs) ? askSinceMs : nowMs - 86400_000).toISOString();
-  const askConvs = await db
-    .select()
-    .from(askConversations)
-    .where(and(eq(askConversations.userId, user.id), sql`${askConversations.updatedAt} > ${askSinceIso}::timestamptz`))
-    .orderBy(asc(askConversations.updatedAt))
-    .limit(30);
-  let latestAskMs = Number.isFinite(askSinceMs) ? askSinceMs : nowMs - 86400_000;
-  for (const conv of askConvs) {
-    const updMs = Date.parse(conv.updatedAt.includes("T") ? conv.updatedAt : conv.updatedAt.replace(" ", "T"));
-    if (Number.isFinite(updMs) && updMs > latestAskMs) latestAskMs = updMs;
-    const cfg = conv.config && typeof conv.config === "object" ? (conv.config as Record<string, unknown>) : {};
-    const projName = cfg.project_id ? String(cfg.project_id) : null;
-    const turns = Array.isArray(conv.turns) ? (conv.turns as Record<string, unknown>[]) : [];
-    turns.forEach((turn, idx) => {
-      if (!turn || typeof turn !== "object" || turn.role !== "user" || turn.origin) return;
-      const saidMs = turn.created_at ? Date.parse(String(turn.created_at).replace("Z", "+00:00")) : updMs;
-      if (!Number.isFinite(saidMs) || saidMs <= askSinceMs) return;
-      const text = cleanUserVoice(String(turn.content ?? ""));
-      if (text && !seenTexts.has(text) && (LATER_RE.test(text) || (hasOpen && CLOSE_RE.test(text)))) {
-        seenTexts.add(text);
-        found.push({ messageId: -1 - idx, text, saidAtMs: saidMs, docId: null, project: projName });
-      }
-    });
+  const safeAskSinceMs = Number.isFinite(askSinceMs) ? askSinceMs : nowMs - 86400_000;
+  const askSinceIso = new Date(safeAskSinceMs).toISOString();
+  const askData = await fetchAskUserTurnsSince(db, user.id, askSinceIso, { maxConvs: 30, maxTurnsPerConv: 200 });
+  let latestAskMs = safeAskSinceMs;
+  if (askData.latestUpdatedAt) {
+    const uMs = Date.parse(askData.latestUpdatedAt);
+    if (Number.isFinite(uMs) && uMs > latestAskMs) latestAskMs = uMs;
   }
-  if (latestAskMs > askSinceMs) {
+  for (const turn of askData.turns) {
+    const updMs = Date.parse(turn.updatedAt);
+    const saidMs = turn.createdAt ? Date.parse(turn.createdAt.replace("Z", "+00:00")) : updMs;
+    if (!Number.isFinite(saidMs) || saidMs <= safeAskSinceMs) continue;
+    const text = cleanUserVoice(turn.content);
+    if (text && !seenTexts.has(text) && (LATER_RE.test(text) || (hasOpen && CLOSE_RE.test(text)))) {
+      seenTexts.add(text);
+      found.push({ messageId: -1 - turn.turnIdx, text, saidAtMs: saidMs, docId: null, project: turn.projectId });
+    }
+  }
+  if (latestAskMs > safeAskSinceMs) {
     await aiHealth.putJson(redis, askCursorKey, new Date(latestAskMs).toISOString(), 90 * 86400);
   }
 

@@ -70,7 +70,123 @@ export async function sliceTurns(db: Db, convId: string, before: number | null, 
 }
 
 const MAX_TASK_EVENTS = 800;
+const STORED_TASK_EVENTS = 200;
+const STORED_EVENT_FIELD_CHARS = 4_000;
+const STORED_OUTPUT_CHARS = 40_000;
 const SLIM_OUTPUT_CHARS = 20_000;
+const RICH_RECENT_TURNS = 40;
+
+export interface AskUserTurnSnippet {
+  convId: string;
+  title: string;
+  projectId: string | null;
+  updatedAt: string;
+  turnIdx: number;
+  content: string;
+  createdAt: string | null;
+}
+
+/**
+ * Lightweight reader for background learning jobs (todos / corrections / dreaming).
+ * Step 1 reads only metadata (no TOAST `turns` column) to find updated conversations.
+ * Step 2 uses LATERAL jsonb_array_elements inside PostgreSQL to extract ONLY user turns
+ * without shipping multi-megabyte assistant toolCalls blobs to Node.js.
+ */
+export async function fetchAskUserTurnsSince(
+  db: Db,
+  userId: string,
+  sinceIso: string,
+  opts: { untilIso?: string | null; maxConvs?: number; maxTurnsPerConv?: number } = {},
+): Promise<{ turns: AskUserTurnSnippet[]; convCount: number; latestUpdatedAt: string | null }> {
+  const maxConvs = opts.maxConvs ?? 30;
+  const maxTurnsPerConv = opts.maxTurnsPerConv ?? 200;
+  const untilCond = opts.untilIso ? sql`AND updated_at <= ${opts.untilIso}::timestamptz` : sql``;
+
+  const metaRows = (await db.execute(sql`
+    SELECT id::text AS id, title, config->>'project_id' AS project_id, updated_at
+    FROM ask_conversations
+    WHERE user_id = ${userId}::uuid
+      AND updated_at > ${sinceIso}::timestamptz
+      ${untilCond}
+    ORDER BY updated_at ASC
+    LIMIT ${maxConvs}
+  `)) as unknown as { id: string; title: string; project_id: string | null; updated_at: string }[];
+
+  if (!metaRows.length) {
+    return { turns: [], convCount: 0, latestUpdatedAt: null };
+  }
+
+  const latestUpdatedAt = pgToIso(String(metaRows[metaRows.length - 1]!.updated_at)) ?? String(metaRows[metaRows.length - 1]!.updated_at);
+  const metaMap = new Map(metaRows.map((m) => [m.id, m]));
+  const ids = metaRows.map((m) => m.id);
+
+  const turnRows = (await db.execute(sql`
+    SELECT conv_id, turn_idx, content, created_at
+    FROM (
+      SELECT
+        ac.id::text AS conv_id,
+        (t.ord - 1)::int AS turn_idx,
+        left(t.elem->>'content', 2000) AS content,
+        t.elem->>'created_at' AS created_at,
+        row_number() OVER (PARTITION BY ac.id ORDER BY t.ord DESC) AS rn
+      FROM ask_conversations ac
+      CROSS JOIN LATERAL jsonb_array_elements(coalesce(ac.turns, '[]'::jsonb)) WITH ORDINALITY AS t(elem, ord)
+      WHERE ac.id IN (${sql.join(ids.map((id) => sql`${id}::uuid`), sql`, `)})
+        AND t.elem->>'role' = 'user'
+        AND coalesce(t.elem->>'origin', '') = ''
+        AND length(coalesce(t.elem->>'content', '')) > 0
+    ) sub
+    WHERE rn <= ${maxTurnsPerConv}
+    ORDER BY conv_id, turn_idx ASC
+  `)) as unknown as { conv_id: string; turn_idx: number; content: string; created_at: string | null }[];
+
+  const turns: AskUserTurnSnippet[] = [];
+  for (const r of turnRows) {
+    const m = metaMap.get(r.conv_id);
+    if (!m) continue;
+    turns.push({
+      convId: r.conv_id,
+      title: m.title || "",
+      projectId: m.project_id ? String(m.project_id) : null,
+      updatedAt: pgToIso(String(m.updated_at)) ?? String(m.updated_at),
+      turnIdx: Number(r.turn_idx),
+      content: String(r.content ?? ""),
+      createdAt: r.created_at ? String(r.created_at) : null,
+    });
+  }
+
+  return { turns, convCount: metaRows.length, latestUpdatedAt };
+}
+
+function capEventRecord(ev: unknown): unknown {
+  if (!ev || typeof ev !== "object" || Array.isArray(ev)) return ev;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(ev as Record<string, unknown>)) {
+    if (typeof v === "string" && v.length > STORED_EVENT_FIELD_CHARS) {
+      out[k] = `${v.slice(0, STORED_EVENT_FIELD_CHARS)}…[truncated]`;
+    } else {
+      out[k] = v;
+    }
+  }
+  return out;
+}
+
+export function compactToolCallForStorage(tc: Record<string, unknown>): Record<string, unknown> {
+  const sanitized = sanitizeToolCallEntry(tc);
+  const res = sanitized.result;
+  if (!res || typeof res !== "object" || Array.isArray(res)) return sanitized;
+  const nextRes: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(res as Record<string, unknown>)) {
+    if (k === "events" && Array.isArray(v)) {
+      nextRes[k] = v.slice(-STORED_TASK_EVENTS).map(capEventRecord);
+    } else if ((k === "stdout" || k === "stderr" || k === "content") && typeof v === "string" && v.length > STORED_OUTPUT_CHARS) {
+      nextRes[k] = v.slice(-STORED_OUTPUT_CHARS);
+    } else {
+      nextRes[k] = v;
+    }
+  }
+  return { ...sanitized, result: nextRes };
+}
 
 export function extractThinkingFromEvents(events: unknown): string {
   if (!Array.isArray(events) || !events.length) return "";
@@ -358,15 +474,26 @@ export async function appendConversationTurns(
   const baseTurns = dropCopiesOfRun(existingTurns, opts.question, opts.answer, Number.isFinite(startMs) ? startMs : null);
 
   const cleanToolCalls = Array.isArray(opts.toolCalls) && opts.toolCalls.length
-    ? opts.toolCalls.map((tc) => sanitizeToolCallEntry(tc))
+    ? opts.toolCalls.map((tc) => compactToolCallForStorage(tc))
     : Array.isArray(opts.steps) && opts.steps.length
       ? stepsToToolCalls(opts.steps, {
           idPrefix: `run_${randomUUID().slice(0, 8)}`,
           origin: opts.executionMode || "agent",
           prompt: opts.question,
           stdout: opts.answer,
-        })
+        }).map((tc) => compactToolCallForStorage(tc))
       : [];
+
+  // Keep the most recent RICH_RECENT_TURNS turns intact; slim older historical toolCalls (strip raw events)
+  // so long-running conversations never snowball into 100MB+ JSONB blobs.
+  const keepRichFrom = Math.max(0, baseTurns.length - RICH_RECENT_TURNS);
+  const compactedBase = baseTurns.map((turn, idx) => {
+    if (idx >= keepRichFrom || !Array.isArray(turn.toolCalls) || !turn.toolCalls.length) return turn;
+    return {
+      ...turn,
+      toolCalls: turn.toolCalls.map((tc) => (tc && typeof tc === "object" ? slimToolCallEntry(tc as Record<string, unknown>) : tc)),
+    };
+  });
 
   const userAt = opts.userCreatedAt || nowIso;
   const userTurn: TimelineTurn = {
@@ -409,7 +536,7 @@ export async function appendConversationTurns(
   }
 
   const writeTurns = async (calls: Record<string, unknown>[]) => {
-    const nextTurns = [...baseTurns, userTurn, buildAssistTurn(calls)];
+    const nextTurns = [...compactedBase, userTurn, buildAssistTurn(calls)];
     await db
       .update(askConversations)
       .set({

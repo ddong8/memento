@@ -3,6 +3,7 @@ import { asc, eq, inArray, sql } from "drizzle-orm";
 
 import type { Db } from "../db/client";
 import { documentPendingDeltas, documents } from "../db/pulled/schema";
+import { cluster } from "./cluster";
 import { MAX_INPUT_CHARS } from "./tokenize";
 
 export const STAGE_MIN_BYTES = 1 << 20;
@@ -173,13 +174,13 @@ export async function mergePending(db: Db, docId: string): Promise<number> {
   });
 }
 
-const MERGE_LOCK = 0x6d656d6d;
-
 export async function mergeDue(db: Db, budgetSeconds = 50): Promise<Record<string, unknown>> {
   const deadline = performance.now() + budgetSeconds * 1000;
   const stats: Record<string, unknown> = { documents: 0, deltas: 0 };
-  const got = (await db.execute(sql`SELECT pg_try_advisory_lock(${MERGE_LOCK}) AS ok`)) as unknown as { ok: boolean }[];
-  if (!got[0]?.ok) return { ...stats, busy: true };
+  // Use Redis/local cluster mutex instead of session-level pg_try_advisory_lock on a pooled connection
+  // (pooled db.execute can acquire on conn A and unlock on conn B, leaking the advisory lock).
+  const lock = await cluster.mutex("content-staging:merge-due", Math.max(60, budgetSeconds + 15));
+  if (!lock) return { ...stats, busy: true };
   try {
     const due = (await db.execute(sql`
       SELECT document_id FROM document_pending_deltas
@@ -200,7 +201,7 @@ export async function mergeDue(db: Db, budgetSeconds = 50): Promise<Record<strin
       }
     }
   } finally {
-    await db.execute(sql`SELECT pg_advisory_unlock(${MERGE_LOCK})`).catch(() => {});
+    await lock.release();
   }
   return stats;
 }

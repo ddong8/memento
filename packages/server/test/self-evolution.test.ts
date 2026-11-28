@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import { compactToolCallForStorage } from "../src/services/ask-store";
 import { CLI_GUARD_TOOLS, evaluateAskCompletionGuard, GUARD_TOOLS } from "../src/services/guard-service";
 import { feedbackMultiplier, getRecentlyInjectedMemoryIds, termsFor, trackInjectedMemories } from "../src/services/guidance-service";
 import {
@@ -184,5 +185,39 @@ describe("self-evolution upgrades", () => {
     expect(autoPublishEnabled({ proactiveSettings: null })).toBe(true);
     expect(autoPublishEnabled({ proactiveSettings: {} })).toBe(true);
     expect(autoPublishEnabled({ proactiveSettings: { auto_publish_skills: false } })).toBe(false);
+  });
+
+  it("forbids session-level pg_try_advisory_lock / pg_advisory_unlock on pooled connections", () => {
+    const srcDir = join(import.meta.dirname, "../src");
+    const bad: string[] = [];
+    for (const file of walkTs(srcDir)) {
+      const content = readFileSync(file, "utf8");
+      if (/pg_try_advisory_lock\(|pg_advisory_unlock\(|(?<!xact_)pg_advisory_lock\(/.test(content)) {
+        bad.push(file);
+      }
+    }
+    expect(bad).toEqual([]);
+  });
+
+  it("compacts oversized toolCall outputs and events before storing in ask_conversations", () => {
+    const bigEvents = Array.from({ length: 500 }, (_, i) => ({
+      kind: "tool_result",
+      index: i,
+      text: "x".repeat(8000),
+    }));
+    const compacted = compactToolCallForStorage({
+      name: "run_on_device",
+      result: {
+        stdout: "a".repeat(100_000),
+        stderr: "b".repeat(100_000),
+        events: bigEvents,
+      },
+    });
+    const res = compacted.result as { stdout: string; stderr: string; events: { index: number; text: string }[] };
+    expect(res.stdout.length).toBeLessThanOrEqual(40_000);
+    expect(res.stderr.length).toBeLessThanOrEqual(40_000);
+    expect(res.events.length).toBe(200);
+    expect(res.events[0]!.index).toBe(300);
+    expect(res.events[0]!.text.length).toBeLessThanOrEqual(4020);
   });
 });

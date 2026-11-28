@@ -25,6 +25,7 @@ import {
 } from "../db/pulled/schema";
 import * as aiHealth from "./ai-health";
 import { callPlainChat, getAiProviders } from "./ai-provider";
+import { fetchAskUserTurnsSince } from "./ask-store";
 import { cluster, PREFIX, type Mutex } from "./cluster";
 import { safeJsonLoads } from "./dreaming-core";
 import { cleanUserVoice, fetchUserVoiceRows, planUserVoiceBatches, renderUserVoice, sanitizeTransientText } from "./dreaming-voice";
@@ -233,12 +234,7 @@ export async function runDreamingPipeline(
     )
     .orderBy(asc(dailySummaries.summaryDate));
 
-  const askRows = await db
-    .select()
-    .from(askConversations)
-    .where(and(eq(askConversations.userId, user.id), gte(askConversations.updatedAt, sinceIso), lte(askConversations.updatedAt, untilIso)))
-    .orderBy(asc(askConversations.updatedAt))
-    .limit(30);
+  const askData = await fetchAskUserTurnsSince(db, user.id, sinceIso, { untilIso, maxConvs: 30, maxTurnsPerConv: 6 });
 
   const voiceRows = await fetchUserVoiceRows(db, user.id, sinceIso, untilIso);
   const { batches: voiceBatches, stats: voiceStats } = planUserVoiceBatches(voiceRows);
@@ -260,7 +256,7 @@ export async function runDreamingPipeline(
     .limit(entLimit);
 
   const scannedCount =
-    dailyRows.length + askRows.length + (voiceStats.kept ?? 0) + windowDocs.length + windowEnts.length + canonicalProjects.length;
+    dailyRows.length + askData.convCount + (voiceStats.kept ?? 0) + windowDocs.length + windowEnts.length + canonicalProjects.length;
   if (skipIfEmpty && scannedCount === 0) return null;
 
   const snippets: string[] = [];
@@ -274,17 +270,21 @@ export async function runDreamingPipeline(
     snippets.push("### 【每日研发摘要】");
     for (const ds of dailyRows) snippets.push(`- [${ds.summaryDate}] ${ds.title}:\n${sanitizeTransientText(ds.summary)}`);
   }
-  if (askRows.length) {
+  if (askData.turns.length) {
     snippets.push("\n### 【近期交互对话】");
-    for (const c of askRows) {
-      const turns = Array.isArray(c.turns) ? (c.turns as Record<string, unknown>[]) : [];
-      const userTurns = turns.filter((t) => t?.role === "user" && !t.origin).slice(-6);
-      const tLines: string[] = [];
-      for (const t of userTurns) {
-        const clean = cleanUserVoice(String(t.content ?? ""));
-        if (clean) tLines.push(`  [user]: ${clean}`);
+    const byConv = new Map<string, { title: string; lines: string[] }>();
+    for (const t of askData.turns) {
+      const clean = cleanUserVoice(t.content);
+      if (!clean) continue;
+      let grp = byConv.get(t.convId);
+      if (!grp) {
+        grp = { title: t.title, lines: [] };
+        byConv.set(t.convId, grp);
       }
-      if (tLines.length) snippets.push(`- 对话《${c.title}》:\n${tLines.join("\n")}`);
+      grp.lines.push(`  [user]: ${clean}`);
+    }
+    for (const grp of byConv.values()) {
+      if (grp.lines.length) snippets.push(`- 对话《${grp.title}》:\n${grp.lines.join("\n")}`);
     }
   }
   if (windowDocs.length) {
@@ -349,7 +349,7 @@ export async function runDreamingPipeline(
   let promoted: Record<string, unknown>[] = [];
   let relations: Record<string, unknown>[] = [];
   if (!Object.keys(llmOutput).length) {
-    lightNotes = `扫描了近 ${daysBack} 天的 ${scannedCount} 条记录（含 ${dailyRows.length} 篇日报、${askRows.length} 组问答、${voiceStats.kept ?? 0} 条用户原话）。完成临时垃圾过滤与去噪。`;
+    lightNotes = `扫描了近 ${daysBack} 天的 ${scannedCount} 条记录（含 ${dailyRows.length} 篇日报、${askData.convCount} 组问答、${voiceStats.kept ?? 0} 条用户原话）。完成临时垃圾过滤与去噪。`;
     if (llmStatus === "failed" || llmStatus === "unparsed") {
       const reason = llmStatus === "failed" ? "模型没有回答" : "模型的回答不是有效的 JSON";
       remNotes = `REM 反思阶段：${reason}，本次没有做反思。`;

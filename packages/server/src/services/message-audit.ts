@@ -4,6 +4,7 @@ import type { Redis } from "ioredis";
 
 import type { Db } from "../db/client";
 import { messageAudit } from "../db/pulled/schema";
+import { cluster } from "./cluster";
 import { MAX_CONTENT_CHARS } from "./content-staging";
 import { messagesToStore } from "./conversation-parser";
 import { pushCommand } from "./device-commands";
@@ -15,7 +16,6 @@ export const TOO_BIG_CHARS = MAX_CONTENT_CHARS - 200_000;
 export const TRUNCATED_MARK = "[TRUNCATED: line exceeded";
 export const AUDIT_VERSION = 3;
 export const MODES = new Set(["off", "observe", "repair"]);
-const AUDIT_LOCK = 0x6d656d61756469;
 
 async function recordAudit(
   db: Db,
@@ -202,8 +202,8 @@ export async function auditDue(
   const deadline = performance.now() + budgetSeconds * 1000;
   const stats: Record<string, unknown> = { mode };
 
-  const got = (await db.execute(sql`SELECT pg_try_advisory_lock(${AUDIT_LOCK}) AS ok`)) as unknown as { ok: boolean }[];
-  if (!got[0]?.ok) return { mode, busy: true };
+  const lock = await cluster.mutex("message-audit:due", Math.max(120, budgetSeconds + 30));
+  if (!lock) return { mode, busy: true };
   try {
     const redoClause = repair ? sql`OR a.outcome = 'needs_repair'` : sql``;
     const due = (await db.execute(sql`
@@ -258,7 +258,7 @@ export async function auditDue(
       }
     }
   } finally {
-    await db.execute(sql`SELECT pg_advisory_unlock(${AUDIT_LOCK})`).catch(() => {});
+    await lock.release();
   }
   return stats;
 }

@@ -65,8 +65,8 @@ export default function LearnedCorrections({ topics, onChanged }: { topics: Obj[
     setError(null);
     try {
       const res = await api.batchCorrections({ action, ...opts });
-      const n = Number(action === "accept" ? res.accepted ?? 0 : res.dismissed ?? 0);
-      const full = Boolean(res.profile_full);
+      const n = Number(res.processed ?? 0);
+      const full = Number(res.skipped_full ?? 0) > 0;
       const msg =
         action === "accept"
           ? full

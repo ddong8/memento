@@ -50,8 +50,8 @@ function applyAttrs(skin: Skin, theme: Theme, glass: boolean) {
   document.documentElement.setAttribute("data-skin", skin);
   document.documentElement.setAttribute("data-theme", theme);
   document.documentElement.setAttribute("data-glass", glass ? "on" : "off");
-  // Swap favicon to match skin
-  const href = `/favicon-${skin}.svg`;
+  // Swap favicon to match skin (query version busts 7-day nginx edge cache)
+  const href = `/favicon-${skin}.svg?v=2`;
   let link = document.querySelector<HTMLLinkElement>("link[rel~='icon'][data-skin-icon]");
   if (!link) {
     link = document.createElement("link");

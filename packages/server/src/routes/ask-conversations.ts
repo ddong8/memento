@@ -52,8 +52,23 @@ function convEtag(
   device: string | null,
 ): string {
   const page = before === null ? `${limit}` : `${limit}:${before}`;
-  const seed = `v5:${convId}:${updatedAtIso || ""}:${totalTurns}:${page}:${device || ""}:${mediaUrlEpoch()}`;
+  const seed = `v6:${convId}:${updatedAtIso || ""}:${totalTurns}:${page}:${device || ""}:${mediaUrlEpoch()}`;
   return `"${createHash("sha1").update(seed, "utf8").digest("hex")}"`;
+}
+
+/** RFC 9110 weak ETag comparison: handles gzip-weakened `W/"..."` and comma-separated `If-None-Match` lists. */
+export function etagMatches(ifNoneMatch: string | undefined, etag: string): boolean {
+  if (!ifNoneMatch) return false;
+  const target = etag.trim().replace(/^W\//i, "").replace(/^"|"$/g, "");
+  if (!target) return false;
+  for (const part of ifNoneMatch.split(",")) {
+    const raw = part.trim();
+    if (!raw) continue;
+    if (raw === "*") return true;
+    const norm = raw.replace(/^W\//i, "").replace(/^"|"$/g, "");
+    if (norm === target) return true;
+  }
+  return false;
 }
 
 export async function bustConvList(deps: Deps, userId: string): Promise<void> {
@@ -400,7 +415,7 @@ askConversationRoutes.post("/conversations/ensure-by-session", async (c) => {
     return conv.id;
   });
 
-  await syncQuietly(deps.db, convId, { sessionId });
+  await syncQuietly(deps.db, convId, { sessionId, redis: deps.redis() });
 
   const [conv] = await deps.db.select().from(askConversations).where(eq(askConversations.id, convId)).limit(1);
   if (!conv) throw new HttpError(404, "Conversation not found");
@@ -449,8 +464,9 @@ askConversationRoutes.get("/conversations/:conv_id", async (c) => {
   const before = beforeRaw !== undefined && beforeRaw !== "" && Number.isFinite(Number(beforeRaw)) ? Math.max(0, Math.trunc(Number(beforeRaw))) : null;
 
   if (before === null) {
-    await syncQuietly(deps.db, cid);
-    await recoverOrphanedTasksForConv(deps.db, cid).catch(() => {});
+    // Run sequentially: both use <1ms zero-TOAST metadata prechecks on the hot path, avoiding concurrent config overwrites.
+    await syncQuietly(deps.db, cid, { redis: deps.redis() });
+    await recoverOrphanedTasksForConv(deps.db, cid).catch(() => 0);
   }
 
   const cond = and(eq(askConversations.id, cid), or(eq(askConversations.userId, user.id), isNull(askConversations.userId)));
@@ -548,8 +564,7 @@ askConversationRoutes.get("/conversations/:conv_id", async (c) => {
   const createdAtIso = pgToIso(conv.createdAt);
   const updatedAtIso = pgToIso(conv.updatedAt);
   const etag = convEtag(cid, updatedAtIso, totalTurns, limit, before, conv.deviceId);
-  const inm = (c.req.header("if-none-match") || "").trim().replace(/^"|"$/g, "");
-  if (inm && inm === etag.replace(/^"|"$/g, "")) {
+  if (etagMatches(c.req.header("if-none-match"), etag)) {
     return c.body(null, 304, { ETag: etag, "Cache-Control": "private, no-cache" });
   }
 
@@ -574,7 +589,7 @@ askConversationRoutes.get("/conversations/:conv_id", async (c) => {
   }
 
   const cfg = inferConversationConfig({ deviceId: conv.deviceId, cwd: conv.cwd, config: conv.config, turns: rawTurns });
-  const convTurns = sanitizeTurnsForResponse(rawTurns, deps.settings.secretKey);
+  const convTurns = sanitizeTurnsForResponse(rawTurns, deps.settings.secretKey, { slimOlder: true });
   const projIdVal = String(cfg.project_id ?? "");
   const projTitleVal = await lookupProjectTitle(deps.db, projIdVal);
   const { machMap, machRowsSummary } = await getProjectAndMachineMaps(deps, user.id);

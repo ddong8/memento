@@ -932,11 +932,16 @@ function AskPageContent() {
   const [historyFilterDevice, setHistoryFilterDevice] = useState<boolean>(false);
 
   // Load conversation list
-  const loadConversations = useCallback(async (filterDev?: string) => {
+  const loadConversations = useCallback(async (filterDev?: string, opts?: { force?: boolean }) => {
     try {
       // 桌面/网页端默认加载全量历史会话 ("all")，由抽屉内置的高性能 filter 进行设备级瞬时切换
       const devToQuery = filterDev !== undefined ? filterDev : "all";
-      const list = await api.listAskConversations(devToQuery, 500);
+      const list = await api.listAskConversations(
+        devToQuery,
+        500,
+        undefined,
+        opts?.force ? { skipCache: true, timeoutMs: 8_000 } : undefined,
+      );
       // A list fetched around a delete can still carry the deleted one (another api replica's cache, a
       // request already on its way): it never comes back
       const safeList = (list || []).filter((c) => !deletedConversationIds.has(c.id));
@@ -2393,11 +2398,13 @@ function AskPageContent() {
     let timer: ReturnType<typeof setTimeout> | null = null;
     // Keepalives come every 8 s (server services/ask_runs.py KEEPALIVE_SECONDS): quieter than this, dead
     const STREAM_SILENT_MS = 15000;
+    const RESUME_STREAM_KICK_AWAY_MS = 2500;
+    const RESUME_STREAM_KICK_SILENT_MS = 5000;
     const following = () => Boolean(abortRef.current && !abortRef.current.signal.aborted);
     const streamAlive = () => following() && Date.now() - lastStreamActivityRef.current < STREAM_SILENT_MS;
 
     // false: the server couldn't be asked (no network yet, its trouble), a later wake tries again
-    const checkServerRun = async (resumed = false): Promise<false | void> => {
+    const checkServerRun = async (resumed = false, wasAwayMs = 0): Promise<false | void> => {
       const convId = activeConversationIdRef.current;
       if (!convId || !isMounted) return;
       if (!resumed && typeof document !== "undefined" && document.visibilityState === "hidden") {
@@ -2411,16 +2418,24 @@ function AskPageContent() {
       const stillOpen = () => isMounted && activeConversationIdRef.current === convId;
 
       try {
-        const status = await api.getAskRunStatus(convId);
+        // When returning from another app while idle, fetch /run and conditional ETag conversation in parallel (1 RTT instead of 2).
+        const prefetchIdleConv = resumed && !runExpected && !streamingRef.current;
+        const convPromise = prefetchIdleConv
+          ? api.getAskConversation(convId, 40, { timeoutMs: 8_000 }).catch(() => null)
+          : null;
+        const status = await api.getAskRunStatus(convId, undefined, resumed ? { force: true, timeoutMs: 8_000 } : undefined);
         if (!stillOpen()) return;
         if (!status.ok) return false; // the server's trouble: the next tick retries
         const run = status.run;
 
         if (run && !run.done && !run.cancelled) {
           // Still running on the server
-          if (streamAlive()) return;
           if (following()) {
-            // This page's stream went quiet: drop the dead connection, the follower picks the run up where it stopped
+            // Returning from background on mobile usually leaves WKWebView's old SSE socket silently frozen:
+            // kick immediately instead of waiting 15s-25s for timeout.
+            const maybeFrozen =
+              resumed && (wasAwayMs >= RESUME_STREAM_KICK_AWAY_MS || Date.now() - lastStreamActivityRef.current >= RESUME_STREAM_KICK_SILENT_MS);
+            if (!maybeFrozen && streamAlive()) return;
             kickStreamRef.current?.();
             return;
           }
@@ -2437,12 +2452,12 @@ function AskPageContent() {
 
         // Ended, or no longer held by the server
         if (runExpected) {
-          if (streamingRef.current && streamAlive()) return; // its done frame is on the way
+          if (streamingRef.current && streamAlive() && !(resumed && wasAwayMs >= RESUME_STREAM_KICK_AWAY_MS)) return; // its done frame is on the way
           // Ends the follower; its own end-of-stream bookkeeping still runs
           abortRef.current?.abort();
           const wasStreaming = streamingRef.current;
           invalidateApiCache(`/api/ask/conversations/${convId}`);
-          const data = await api.getAskConversation(convId, 40).catch(() => null);
+          const data = await api.getAskConversation(convId, 40, { timeoutMs: 8_000 }).catch(() => null);
           if (!stillOpen()) return;
           if (data?.turns) {
             const prev = turnsRef.current;
@@ -2477,9 +2492,8 @@ function AskPageContent() {
         }
 
         if (resumed) {
-          // Nothing running: only what was saved meanwhile (another device went on with it). The request
-          // is conditional, so nothing new costs a 304 and nothing on screen is touched.
-          const data = await api.getAskConversation(convId, 40).catch(() => null);
+          // Nothing running: reuse the parallel conditional-ETag request (304 costs 0 bytes and touches nothing on screen).
+          const data = convPromise ? await convPromise : await api.getAskConversation(convId, 40, { timeoutMs: 8_000 }).catch(() => null);
           if (!stillOpen() || streamingRef.current || !data?.turns) return;
           const prev = turnsRef.current;
           const next = mergeFinishedTurns(prev, data.turns);
@@ -2515,14 +2529,15 @@ function AskPageContent() {
       if (convId && convId === activeConversationIdRef.current && streamingRef.current) {
         void checkServerRun(false);
       }
-      void loadConversations();
+      void loadConversations(undefined, { force: true });
     });
     // The open conversation got turns from its session (said in the tool's own app, issue #20): what was
     // saved, as when coming back to the page. A run of it going here is its own, nothing to merge then.
     const offSyncEvent = onLiveEvent("ask_conversation_synced", (e) => {
       const convId = (e.data as { conversation_id?: string }).conversation_id;
+      void loadConversations(undefined, { force: true });
       if (convId && convId === activeConversationIdRef.current && !streamingRef.current) {
-        void checkServerRun(true);
+        void checkServerRun(true, 0);
       }
     });
 
@@ -2530,24 +2545,37 @@ function AskPageContent() {
     // visibilitychange, focus, pageshow and the app's own wake events, on a phone spread over a second
     // or more: one check answers them all, unless it couldn't reach the server.
     let waking = false;
+    let hiddenAt = 0;
+    const markHidden = () => {
+      if (!hiddenAt) hiddenAt = Date.now();
+    };
     const onWake = () => {
       const now = Date.now();
+      const wasAwayMs = hiddenAt > 0 ? now - hiddenAt : 0;
+      hiddenAt = 0;
       if (waking || now - lastWakeAtRef.current < WAKE_COALESCE_MS) return;
       lastWakeAtRef.current = now;
       waking = true;
-      void loadConversations();
-      void checkServerRun(true).then((learned) => {
-        waking = false;
-        if (learned === false) lastWakeAtRef.current = 0;
-      });
+      forgetRunStatus(activeConversationIdRef.current || undefined);
+      void loadConversations(undefined, { force: true });
+      void checkServerRun(true, wasAwayMs)
+        .then((learned) => {
+          if (learned === false) lastWakeAtRef.current = 0;
+        })
+        .finally(() => {
+          waking = false;
+        });
     };
     const onVisibilityChange = () => {
-      if (document.visibilityState === "visible") {
+      if (document.visibilityState === "hidden") {
+        markHidden();
+      } else if (document.visibilityState === "visible") {
         onWake();
       }
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
     window.addEventListener("focus", onWake);
+    window.addEventListener("blur", markHidden);
     window.addEventListener("pageshow", onWake);
     window.addEventListener("memento_wake_stream", onWake);
     window.addEventListener("memento_app_active", onWake);
@@ -2559,6 +2587,7 @@ function AskPageContent() {
       offSyncEvent();
       document.removeEventListener("visibilitychange", onVisibilityChange);
       window.removeEventListener("focus", onWake);
+      window.removeEventListener("blur", markHidden);
       window.removeEventListener("pageshow", onWake);
       window.removeEventListener("memento_wake_stream", onWake);
       window.removeEventListener("memento_app_active", onWake);
@@ -3492,15 +3521,15 @@ function AskPageContent() {
 
     try {
       for (;;) {
-        // Watchdog: server emits keepalive every 8s. If no data arrives for 25s,
-        // the TCP socket is dead (common during VPN handover/NAT timeout). Cancel and let followRun reconnect.
+        // Watchdog: server emits keepalive every 8s. If no data arrives for 16s,
+        // the TCP socket is dead (common after mobile app switch / NAT timeout). Cancel and let followRun reconnect.
         let timer: ReturnType<typeof setTimeout> | undefined;
         const readPromise = reader.read();
         const timeoutPromise = new Promise<{ done: true; value: undefined }>((_, reject) => {
           timer = setTimeout(() => {
             try { reader.cancel(); } catch {}
             reject(new Error("Stream idle timeout (zombie socket detected)"));
-          }, 25000);
+          }, 16000);
         });
 
         const { done, value } = await Promise.race([readPromise, timeoutPromise]).finally(() => {

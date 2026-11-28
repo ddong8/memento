@@ -80,7 +80,7 @@ describe("live events", () => {
     expect(calls).toHaveLength(1);
 
     answer = true;
-    await vi.advanceTimersByTimeAsync(40_000 + 4_000);
+    await vi.advanceTimersByTimeAsync(12_000 + 4_000);
     expect(calls).toHaveLength(2);
     send(calls[1]!, 'data: {"type":"keepalive","data":{},"timestamp":1}\n\n');
     await vi.advanceTimersByTimeAsync(0);
@@ -104,14 +104,59 @@ describe("live events", () => {
     expect(calls[1]!.headers["Last-Event-ID"]).toBe("1761650000.250000");
   });
 
-  it("drops a connection gone silent for 75 s", async () => {
+  it("drops a connection gone silent for 50 s", async () => {
     const live = await import("../src/lib/live-events");
     live.onLiveStatus(() => {});
     await vi.advanceTimersByTimeAsync(0);
     send(calls[0]!, 'data: {"type":"keepalive","data":{},"timestamp":1}\n\n');
-    await vi.advanceTimersByTimeAsync(74_000);
+    await vi.advanceTimersByTimeAsync(49_000);
     expect(live.isLiveConnected()).toBe(true);
     await vi.advanceTimersByTimeAsync(2_000);
     expect(live.isLiveConnected()).toBe(false);
+  });
+
+  it("reopens immediately without backoff on native app resume after backgrounding", async () => {
+    const winListeners = new Map<string, Set<() => void>>();
+    const docListeners = new Map<string, Set<() => void>>();
+    let visState: DocumentVisibilityState = "visible";
+    vi.stubGlobal("window", {
+      location: { href: "https://mem.ihasy.com/ask", origin: "https://mem.ihasy.com", protocol: "https:", hostname: "mem.ihasy.com", port: "", pathname: "/ask" },
+      addEventListener: (ev: string, fn: () => void) => {
+        if (!winListeners.has(ev)) winListeners.set(ev, new Set());
+        winListeners.get(ev)!.add(fn);
+      },
+      removeEventListener: (ev: string, fn: () => void) => winListeners.get(ev)?.delete(fn),
+    });
+    vi.stubGlobal("document", {
+      get visibilityState() {
+        return visState;
+      },
+      addEventListener: (ev: string, fn: () => void) => {
+        if (!docListeners.has(ev)) docListeners.set(ev, new Set());
+        docListeners.get(ev)!.add(fn);
+      },
+      removeEventListener: (ev: string, fn: () => void) => docListeners.get(ev)?.delete(fn),
+    });
+
+    const live = await import("../src/lib/live-events");
+    live.onLiveStatus(() => {});
+    await vi.advanceTimersByTimeAsync(0);
+    send(calls[0]!, 'data: {"type":"keepalive","data":{},"timestamp":1}\n\n');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(live.isLiveConnected()).toBe(true);
+
+    // Switch away for 4 seconds (< 10s wasUp threshold, so backoff would be 4s without wake fast-path)
+    visState = "hidden";
+    for (const fn of docListeners.get("visibilitychange") ?? []) fn();
+    await vi.advanceTimersByTimeAsync(4_000);
+
+    // Return via native app active event: old frozen socket is aborted and reopened at 0ms delay
+    visState = "visible";
+    for (const fn of winListeners.get("memento_app_active") ?? []) fn();
+    await vi.advanceTimersByTimeAsync(10);
+    expect(calls).toHaveLength(2);
+    send(calls[1]!, 'data: {"type":"keepalive","data":{},"timestamp":2}\n\n');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(live.isLiveConnected()).toBe(true);
   });
 });

@@ -19,6 +19,7 @@ import { _getToken, authFetch, getApiBase } from "./server-endpoint";
 interface FetchOptions extends RequestInit {
   token?: string;
   skipCache?: boolean;
+  timeoutMs?: number;
 }
 
 // In-flight GET deduplication: if the same URL is requested while a previous
@@ -49,7 +50,7 @@ export function invalidateApiCache(prefix?: string) {
 }
 
 async function apiFetch<T>(path: string, opts: FetchOptions = {}): Promise<T> {
-  const { token, skipCache, ...init } = opts;
+  const { token, skipCache, timeoutMs, ...init } = opts;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     ...(init.headers as Record<string, string>),
@@ -83,7 +84,23 @@ async function apiFetch<T>(path: string, opts: FetchOptions = {}): Promise<T> {
   }
 
   const run = (async () => {
-    const res = await fetch(fullUrl, { ...init, headers });
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let signal = init.signal;
+    if (timeoutMs && timeoutMs > 0) {
+      const ctrl = new AbortController();
+      if (init.signal) {
+        if (init.signal.aborted) ctrl.abort(init.signal.reason);
+        else init.signal.addEventListener("abort", () => ctrl.abort(init.signal?.reason), { once: true });
+      }
+      timer = setTimeout(() => ctrl.abort(new DOMException("Request timed out", "AbortError")), timeoutMs);
+      signal = ctrl.signal;
+    }
+    let res: Response;
+    try {
+      res = await fetch(fullUrl, { ...init, headers, signal });
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
     if (res.status === 304 && etagEntry) {
       return etagEntry.data as T;
     }
@@ -642,9 +659,9 @@ export interface GuardOverview {
   }[];
 }
 
-function fresh<T>(path: string): Promise<T> {
+function fresh<T>(path: string, opts: FetchOptions = {}): Promise<T> {
   invalidateApiCache(`${getApiBase()}${path}`);
-  return apiFetch<T>(path);
+  return apiFetch<T>(path, { skipCache: true, ...opts });
 }
 
 /** GET /api/ask/conversations/{id}/run: `ok` false when the server couldn't be asked (no network yet,
@@ -689,12 +706,16 @@ function abortable<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
   });
 }
 
+const RESUME_FETCH_TIMEOUT_MS = 8_000;
+
 /** Runs going, and those finished in the last `recentSeconds`. A shared answer may reach further back. */
-function listAskRunsShared(recentSeconds: number): Promise<AskRunSummary[]> {
+function listAskRunsShared(recentSeconds: number, opts?: { force?: boolean; timeoutMs?: number }): Promise<AskRunSummary[]> {
   const now = Date.now();
   const shared = _runsShared;
-  if (shared && shared.recent >= recentSeconds && now - shared.at < RUN_STATUS_SHARE_MS) return shared.promise;
-  const promise = fresh<AskRunSummary[]>(`/api/ask/runs${recentSeconds > 0 ? `?recent=${recentSeconds}` : ""}`);
+  if (!opts?.force && shared && shared.recent >= recentSeconds && now - shared.at < RUN_STATUS_SHARE_MS) return shared.promise;
+  const promise = fresh<AskRunSummary[]>(`/api/ask/runs${recentSeconds > 0 ? `?recent=${recentSeconds}` : ""}`, {
+    timeoutMs: opts?.timeoutMs ?? RESUME_FETCH_TIMEOUT_MS,
+  });
   const entry = { at: now, recent: recentSeconds, promise };
   _runsShared = entry;
   // A failure isn't shared: the next ask tries again
@@ -704,18 +725,28 @@ function listAskRunsShared(recentSeconds: number): Promise<AskRunSummary[]> {
   return promise;
 }
 
-function getAskRunStatusShared(conversationId: string, signal?: AbortSignal): Promise<AskRunStatus> {
+function getAskRunStatusShared(
+  conversationId: string,
+  signal?: AbortSignal,
+  opts?: { force?: boolean; timeoutMs?: number },
+): Promise<AskRunStatus> {
   const now = Date.now();
   const shared = _runShared.get(conversationId);
-  if (shared && now - shared.at < RUN_STATUS_SHARE_MS) return abortable(shared.promise, signal);
+  if (!opts?.force && shared && now - shared.at < RUN_STATUS_SHARE_MS) return abortable(shared.promise, signal);
   for (const [id, e] of _runShared) if (now - e.at >= RUN_STATUS_SHARE_MS) _runShared.delete(id);
-  const promise = authFetch(`${getApiBase()}/api/ask/conversations/${conversationId}/run`).then(
-    async (res): Promise<AskRunStatus> => {
+  const timeoutMs = opts?.timeoutMs ?? RESUME_FETCH_TIMEOUT_MS;
+  const timeoutCtrl = new AbortController();
+  const timer = setTimeout(() => timeoutCtrl.abort(new DOMException("Run status timed out", "AbortError")), timeoutMs);
+  const promise = authFetch(`${getApiBase()}/api/ask/conversations/${conversationId}/run`, {
+    signal: timeoutCtrl.signal,
+    cache: "no-store",
+  })
+    .then(async (res): Promise<AskRunStatus> => {
       if (res.status === 404) return { ok: true, run: null };
       if (!res.ok) return { ok: false, run: null };
       return { ok: true, run: await res.json() };
-    },
-  );
+    })
+    .finally(() => clearTimeout(timer));
   const entry = { at: now, promise };
   _runShared.set(conversationId, entry);
   const drop = () => {
@@ -1113,7 +1144,7 @@ export const api = {
     if (category) params.set("category", category);
     return apiFetch<TimelineResponse>(`/api/projects/${projectId}/timeline?${params}`);
   },
-  listAskConversations: (deviceId?: string, limit?: number, offset?: number) => {
+  listAskConversations: (deviceId?: string, limit?: number, offset?: number, opts?: { skipCache?: boolean; timeoutMs?: number }) => {
     const params = new URLSearchParams();
     if (deviceId && deviceId !== "auto" && deviceId !== "ask_only" && deviceId !== "all") {
       params.set("device_id", deviceId);
@@ -1125,7 +1156,7 @@ export const api = {
       params.set("offset", String(offset));
     }
     const q = params.toString() ? `?${params.toString()}` : "";
-    return apiFetch<AskConversationSummary[]>(`/api/ask/conversations${q}`);
+    return apiFetch<AskConversationSummary[]>(`/api/ask/conversations${q}`, opts);
   },
   getAskConversation: (id: string, limit?: number, opts?: FetchOptions & { before?: number }) => {
     const params = new URLSearchParams();
@@ -1295,9 +1326,10 @@ export const api = {
       body: JSON.stringify(body),
       skipCache: true,
     }),
-  listAskRuns: (recentSeconds = 0) => listAskRunsShared(recentSeconds),
+  listAskRuns: (recentSeconds = 0, opts?: { force?: boolean; timeoutMs?: number }) => listAskRunsShared(recentSeconds, opts),
   /** The conversation's run; rejects on a network error, or with AbortError once `signal` aborts. */
-  getAskRunStatus: (convId: string, signal?: AbortSignal) => getAskRunStatusShared(convId, signal),
+  getAskRunStatus: (convId: string, signal?: AbortSignal, opts?: { force?: boolean; timeoutMs?: number }) =>
+    getAskRunStatusShared(convId, signal, opts),
   warmupAsk: () =>
     apiFetch<{ warmed: boolean }>("/api/ask/warmup", { method: "POST" }),
   ensureConversationBySession: (body: {

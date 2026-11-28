@@ -148,6 +148,7 @@ const IDEMPOTENT_INDEXES: string[] = [
   "CREATE INDEX IF NOT EXISTS idx_ask_conv_session_id ON ask_conversations (((config->>'session_id'))) WHERE (config->>'session_id') IS NOT NULL",
   "CREATE INDEX IF NOT EXISTS idx_ask_conv_user_device ON ask_conversations (user_id, device_id, updated_at DESC)",
   "CREATE INDEX IF NOT EXISTS idx_device_tasks_status_created ON device_tasks (status, created_at) WHERE status IN ('queued', 'running', 'still_running', 'pending', 'dispatched')",
+  "CREATE INDEX IF NOT EXISTS idx_device_tasks_conv_id ON device_tasks (((payload->>'conversation_id'))) WHERE (payload->>'conversation_id') IS NOT NULL",
   "CREATE INDEX IF NOT EXISTS idx_doc_embedding_hnsw_half ON document_embeddings USING hnsw (CAST(embedding AS HALFVEC(1024)) halfvec_cosine_ops) WITH (m = 16, ef_construction = 64)",
   "CREATE INDEX IF NOT EXISTS idx_user_memories_embedding_hnsw ON user_memories USING hnsw (embedding vector_cosine_ops)",
 ];

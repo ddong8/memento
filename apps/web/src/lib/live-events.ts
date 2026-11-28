@@ -36,12 +36,17 @@ let retryTimer: ReturnType<typeof setTimeout> | null = null;
 let retryDelay = 2_000;
 let lastEventId = "";
 let lastDataAt = 0;
+let hiddenAt = 0;
+let connectStartedAt = 0;
+let wakeTriggered = false;
 
-// No answer to the request in this long: it's stuck (a connection the network dropped silently), open
-// another. Longer than the server's keepalive interval (30 s), for a server that sends nothing first.
-const OPEN_TIMEOUT_MS = 40_000;
-// The server sends a keepalive every 30 s: silence for this long means the connection is gone.
-const SILENCE_TIMEOUT_MS = 75_000;
+// Server sends an initial keepalive on open: 12s without headers means a dead/frozen socket.
+const OPEN_TIMEOUT_MS = 12_000;
+// Server sends a keepalive every 30s: 50s of silence means the connection is gone.
+const SILENCE_TIMEOUT_MS = 50_000;
+// Returning from another app after >=2.5s on mobile usually leaves WKWebView's old TCP socket silently frozen.
+const RESUME_REOPEN_AWAY_MS = 2_500;
+const RESUME_REOPEN_SILENCE_MS = 12_000;
 
 /** Whether pushes are arriving: callers stretch their polling while this holds. */
 export function isLiveConnected(): boolean {
@@ -109,19 +114,47 @@ function dispatch(event: LiveEvent): void {
 function ensureStarted(): void {
   if (started || typeof window === "undefined") return;
   started = true;
-  // Come back right away when the tab is shown again or the network returns
-  const wake = () => {
-    if (document.visibilityState === "hidden") return;
+  const markHidden = () => {
+    if (!hiddenAt) hiddenAt = Date.now();
+  };
+  // Come back right away when the tab/app is shown again or the network returns
+  const wake = (fromAppResume = false) => {
+    if (document.visibilityState === "hidden") {
+      markHidden();
+      return;
+    }
+    const now = Date.now();
+    const awayMs = hiddenAt > 0 ? now - hiddenAt : 0;
+    hiddenAt = 0;
     if (!connected) {
+      // If a pre-background connect() attempt is hung on a dead socket, cancel it so a fresh one starts now.
+      if (abort) {
+        if (connectStartedAt > 0 && now - connectStartedAt > 2_000) {
+          wakeTriggered = true;
+          abort.abort();
+        }
+        return;
+      }
+      retryDelay = 2_000;
       reconnectSoon(0);
       return;
     }
-    // Back from the background, a phone has usually cut the connection without the page hearing of
-    // it: silence past a keepalive interval means it's gone, reopen now instead of after 75 s.
-    if (Date.now() - lastDataAt > 35_000) abort?.abort();
+    // Back from another app, iOS/Android usually froze the old TCP socket without firing close/error:
+    // reopen immediately instead of waiting 50s for SILENCE_TIMEOUT_MS.
+    const silenceLimit = fromAppResume ? RESUME_REOPEN_AWAY_MS : RESUME_REOPEN_SILENCE_MS;
+    if (awayMs >= RESUME_REOPEN_AWAY_MS || now - lastDataAt > silenceLimit) {
+      wakeTriggered = true;
+      abort?.abort();
+    }
   };
-  document.addEventListener("visibilitychange", wake);
-  window.addEventListener("online", wake);
+  const onPassiveWake = () => wake(false);
+  const onAppResumeWake = () => wake(true);
+  document.addEventListener("visibilitychange", onPassiveWake);
+  window.addEventListener("online", onPassiveWake);
+  window.addEventListener("focus", onPassiveWake);
+  window.addEventListener("blur", markHidden);
+  window.addEventListener("memento_app_active", onAppResumeWake);
+  window.addEventListener("memento_wake_stream", onAppResumeWake);
   void connect();
 }
 
@@ -142,6 +175,7 @@ async function connect(): Promise<void> {
   }
   const ctrl = new AbortController();
   abort = ctrl;
+  connectStartedAt = Date.now();
   let openedAt = 0;
   let watchdog = setTimeout(() => ctrl.abort(), OPEN_TIMEOUT_MS);
   try {
@@ -192,11 +226,21 @@ async function connect(): Promise<void> {
     // dropped, refused or timed out: retried below
   } finally {
     clearTimeout(watchdog);
-    if (abort === ctrl) abort = null;
+    if (abort === ctrl) {
+      abort = null;
+      connectStartedAt = 0;
+    }
     setConnected(false);
   }
-  // One that was up a while and dropped (a server restart, the phone coming back) reopens at once; one
-  // that failed or dropped straight away waits longer each time, up to a minute.
+  // Wake-triggered abort reopens immediately (no backoff); otherwise a connection that was up a while
+  // reopens fast, while one that failed straight away backs off up to a minute.
+  const woke = wakeTriggered;
+  wakeTriggered = false;
+  if (woke && document.visibilityState !== "hidden") {
+    retryDelay = 2_000;
+    reconnectSoon(0);
+    return;
+  }
   const wasUp = openedAt > 0 && Date.now() - openedAt > 10_000;
   const delay = wasUp ? 500 : (retryDelay = Math.min(retryDelay * 2, 60_000));
   reconnectSoon(document.visibilityState === "hidden" ? Math.max(delay, 30_000) : delay);

@@ -362,7 +362,7 @@ export default function ActiveRunsMonitor() {
       let recent: AskRunSummary[];
       resumeSyncingRef.current = true;
       try {
-        recent = await api.listAskRuns(300);
+        recent = await api.listAskRuns(300, { force: true });
       } catch {
         // No network yet (or the server's trouble): the next wake event tries again, still knowing since when
         lastResumeSyncAtRef.current = 0;

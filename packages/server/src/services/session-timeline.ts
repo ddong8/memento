@@ -3,12 +3,15 @@
 import { createHash } from "node:crypto";
 
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import type { Redis } from "ioredis";
 
+import { cacheDeletePrefix } from "../cache";
 import { withoutNul, type Db } from "../db/client";
 import { askConversations, conversationMessages, documents, machines } from "../db/pulled/schema";
 import { pgToIso } from "../pytime";
 import { isJunkOrUuidTitle, stripInjectedContext } from "./ingest-service";
 import { cleanText } from "./session-compactor";
+import { publishEvent } from "./sse";
 
 export const MERGE_MATCH_WINDOW_MS = 10 * 60 * 1000;
 const MERGE_TEXT_SLICE = 80;
@@ -475,9 +478,19 @@ export function mergeSession(existingTurns: TimelineTurn[], incomingTurns: Timel
 export async function syncConversation(
   db: Db,
   convId: string,
-  opts: { docId?: string | null; sessionId?: string | null; machineId?: string | null } = {},
+  opts: { docId?: string | null; sessionId?: string | null; machineId?: string | null; redis?: Redis | null } = {},
 ): Promise<boolean> {
-  const [conv] = await db.select().from(askConversations).where(eq(askConversations.id, convId)).limit(1);
+  // Fast metadata-only precheck: NEVER touch the multi-MB TOASTed `turns` column unless the source doc hash changed.
+  const [conv] = await db
+    .select({
+      id: askConversations.id,
+      title: askConversations.title,
+      userId: askConversations.userId,
+      config: askConversations.config,
+    })
+    .from(askConversations)
+    .where(eq(askConversations.id, convId))
+    .limit(1);
   if (!conv) return false;
   const cfg = (conv.config && typeof conv.config === "object" ? conv.config : {}) as Record<string, unknown>;
   const sid = opts.sessionId || (typeof cfg.session_id === "string" ? cfg.session_id : null) || (typeof cfg.agent_session_id === "string" ? cfg.agent_session_id : null);
@@ -524,22 +537,25 @@ export async function syncConversation(
   if (!docId) return false;
   if (docHash && cfg._timeline_hash === docHash && cfg._timeline_fmt === TIMELINE_FMT_VERSION) return false;
 
-  const rows = await db
-    .select({
-      lineNumber: conversationMessages.lineNumber,
-      role: conversationMessages.role,
-      messageType: conversationMessages.messageType,
-      content: conversationMessages.content,
-      metadata: conversationMessages.metadata,
-      timestamp: conversationMessages.timestamp,
-    })
-    .from(conversationMessages)
-    .where(eq(conversationMessages.documentId, docId))
-    .orderBy(asc(conversationMessages.lineNumber));
+  const [rows, fullConvRows] = await Promise.all([
+    db
+      .select({
+        lineNumber: conversationMessages.lineNumber,
+        role: conversationMessages.role,
+        messageType: conversationMessages.messageType,
+        content: conversationMessages.content,
+        metadata: conversationMessages.metadata,
+        timestamp: conversationMessages.timestamp,
+      })
+      .from(conversationMessages)
+      .where(eq(conversationMessages.documentId, docId))
+      .orderBy(asc(conversationMessages.lineNumber)),
+    db.select({ turns: askConversations.turns }).from(askConversations).where(eq(askConversations.id, convId)).limit(1),
+  ]);
 
   if (!rows.length) return false;
   const incoming = messagesToTurns(rows, docToolId);
-  const currentTurns = Array.isArray(conv.turns) ? (conv.turns as TimelineTurn[]) : [];
+  const currentTurns = Array.isArray(fullConvRows[0]?.turns) ? (fullConvRows[0]!.turns as TimelineTurn[]) : [];
   const { turns: merged, changed } = mergeSession(currentTurns, incoming);
 
   const hash = docHash || createHash("sha1").update(String(rows.length)).digest("hex");
@@ -556,10 +572,20 @@ export async function syncConversation(
   }
 
   await db.update(askConversations).set(patch).where(eq(askConversations.id, convId));
+  if (changed && conv.userId) {
+    if (opts.redis) {
+      await cacheDeletePrefix(opts.redis, `ask_conv_list:${conv.userId}:`).catch(() => {});
+    }
+    publishEvent("ask_conversation_synced", { conversation_id: convId }, conv.userId);
+  }
   return changed;
 }
 
-export async function syncQuietly(db: Db, convId: string, opts?: { docId?: string | null; sessionId?: string | null }): Promise<boolean> {
+export async function syncQuietly(
+  db: Db,
+  convId: string,
+  opts?: { docId?: string | null; sessionId?: string | null; redis?: Redis | null },
+): Promise<boolean> {
   try {
     return await syncConversation(db, convId, opts);
   } catch {
@@ -569,7 +595,7 @@ export async function syncQuietly(db: Db, convId: string, opts?: { docId?: strin
 
 const scheduledSyncs = new Map<string, ReturnType<typeof setTimeout>>();
 
-export function scheduleForDocument(db: Db, docId: string, sessionId?: string | null): void {
+export function scheduleForDocument(db: Db, docId: string, sessionId?: string | null, redis?: Redis | null): void {
   if (!sessionId) return;
   const key = `${docId}:${sessionId}`;
   const prev = scheduledSyncs.get(key);
@@ -586,7 +612,7 @@ export function scheduleForDocument(db: Db, docId: string, sessionId?: string | 
           )
           .limit(5);
         for (const c of convs) {
-          await syncQuietly(db, c.id, { docId, sessionId });
+          await syncQuietly(db, c.id, { docId, sessionId, redis });
         }
       } catch {
         /* ignore */

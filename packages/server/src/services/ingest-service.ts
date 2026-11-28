@@ -1120,7 +1120,7 @@ export async function ingestFile(params: IngestFileParams): Promise<{ id: string
 
   publishEventThrottled("file_synced", { document_id: docId, tool_id: toolId, category, relative_path: relativePath, title: finalTitle }, userId ?? null);
   if (category === "conversation" && sid) {
-    scheduleForDocument(db, docId, sid);
+    scheduleForDocument(db, docId, sid, redis);
   }
 
   return { id: docId, title: finalTitle, toolId, category };

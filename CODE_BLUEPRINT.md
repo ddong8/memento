@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `e47c5247` · Updated: `2026-11-28`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `80484dcd` · Updated: `2026-11-28`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,8 +16,8 @@
 - 规模 (Scale): 9 个子系统 · 1 组 API 路由 / 2 个接口 · 39 个前端页面 · 84 个数据模型 · 35 个服务模块 · 150 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `packages/server`, `embedding`, `deploy`
 - 自测命令 (Verify): `npm test` ; `npx tsc --noEmit` ; `npm run lint` ; `npm run build`
-- 最近改动 (Latest): `d9691a3e` (2026-11-28): feat(standalone): 支持单机模式手机扫码直连与无状态 HTTPS 反向盲隧道
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 77（✅ 77 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 12 · 状态 10 · 最近提交碰到 `R-ENT-SSO`, `R-ENT-DEVICE-POLICY`, `R-LOGIN-PERSIST`, `R-UI-COMMERCIAL`, `R-THINKING-FULL`, `R-LLM-IN-PROFILE`, `R-PERSONA-ONBOARD`
+- 最近改动 (Latest): `25fddf93` (2026-11-28): chore(release): 发布 v1.0.173 与 iOS TestFlight Build 23
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 77（✅ 77 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 12 · 状态 10 · 最近提交碰到 `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `S-CLIENT-VERSION`, `R-ENT-SSO`, `R-ENT-DEVICE-POLICY`, `R-LOGIN-PERSIST`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -255,8 +255,8 @@ flowchart TD
 
 | Suite | Directory | Files | Sample Tests |
 | :--- | :--- | :--- | :--- |
-| apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 71 | `active-runs-chip.test.tsx`, `agent-modes.test.ts`, `api-client.test.ts`, `ask-performance-guards.test.tsx`, `ask-reading-and-persona-rules.test.tsx` |
-| packages/daemon/test (vitest / jest) | [`packages/daemon/test`](packages/daemon/test) | 65 | `acp-runner.test.ts`, `agent-args.test.ts`, `agent-login.test.ts`, `agent-stream.test.ts`, `agy-background.test.ts` |
+| apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 72 | `active-runs-chip.test.tsx`, `agent-modes.test.ts`, `api-client.test.ts`, `ask-performance-guards.test.tsx`, `ask-reading-and-persona-rules.test.tsx` |
+| packages/daemon/test (vitest / jest) | [`packages/daemon/test`](packages/daemon/test) | 64 | `acp-runner.test.ts`, `agent-args.test.ts`, `agent-login.test.ts`, `agent-stream.test.ts`, `agy-background.test.ts` |
 | apps/desktop/test (vitest / jest) | [`apps/desktop/test`](apps/desktop/test) | 7 | `embedded-e2e.test.ts`, `embedded-server.test.ts`, `helpers.test.ts`, `local-server.test.ts`, `mobile-connect.test.ts` |
 | apps/mobile/test (vitest / jest) | [`apps/mobile/test`](apps/mobile/test) | 5 | `deeplink.test.ts`, `glass-surface.test.ts`, `injected-helpers.test.ts`, `standalone-route.test.ts`, `webview-props.test.ts` |
 | packages/core/test (vitest / jest) | [`packages/core/test`](packages/core/test) | 2 | `ask-stream.test.ts`, `task-events.test.ts` |
@@ -267,12 +267,12 @@ flowchart TD
 - [`docs/ts-server-migration.md`](docs/ts-server-migration.md) (10 commits)
 - [`packages/server/scripts/contract.mts`](packages/server/scripts/contract.mts) (10 commits)
 - [`packages/server/src/main.ts`](packages/server/src/main.ts) (10 commits)
-- [`apps/mobile/src/app/index.tsx`](apps/mobile/src/app/index.tsx) (9 commits)
 - [`deploy/k8s/ingress.yaml`](deploy/k8s/ingress.yaml) (9 commits)
 - [`apps/desktop/src/main.ts`](apps/desktop/src/main.ts) (8 commits)
-- [`apps/web/src/app/globals.css`](apps/web/src/app/globals.css) (8 commits)
+- [`apps/mobile/src/app/index.tsx`](apps/mobile/src/app/index.tsx) (8 commits)
 - [`apps/desktop/scripts/build.mjs`](apps/desktop/scripts/build.mjs) (7 commits)
-- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (7 commits)
+- [`apps/web/src/app/globals.css`](apps/web/src/app/globals.css) (7 commits)
+- [`packages/server/src/config.ts`](packages/server/src/config.ts) (7 commits)
 
 ## 8. Development & Verification Commands
 
@@ -289,12 +289,12 @@ npm run build
 
 ## 9. Recent Architectural Evolutions
 
+- `25fddf93` (2026-11-28): chore(release): 发布 v1.0.173 与 iOS TestFlight Build 23
 - `d9691a3e` (2026-11-28): feat(standalone): 支持单机模式手机扫码直连与无状态 HTTPS 反向盲隧道
 - `e38ec0b6` (2026-11-28): fix(web,desktop): 还原官网真实图标、更新最新特性文案并完善默认单机模式体验
 - `86260690` (2026-11-28): fix(web): 全面修复移动端布局避让与遗留主题对比度适配
 - `7e9b4203` (2026-11-28): fix(web): 侧边栏移动端解析真实 App 版本号并同步 Web 版本至 1.0.172
 - `d48f7f85` (2026-11-28): chore(mobile): 递增 iOS TestFlight 构建号至 1.0.172 (22)
-- `916358b9` (2026-11-28): fix(mobile): 禁用下滑时底部导航栏收起为悬浮球
 
 ## 10. Key Environment Variables & Configuration
 
@@ -317,9 +317,9 @@ npm run build
 
 ### 最近提交碰到的业务条目（改动后复查它们还成不成立）
 
+- `25fddf93` chore(release): 发布 v1.0.173 与 iOS TestFlight Build 23 → `R-APP-NAME`, `R-ALL-TYPESCRIPT`, `S-CLIENT-VERSION`
 - `d9691a3e` feat(standalone): 支持单机模式手机扫码直连与无状态 HTTPS 反向盲隧道 → `R-ENT-SSO`, `R-ENT-DEVICE-POLICY`, `R-LOGIN-PERSIST`
 - `e38ec0b6` fix(web,desktop): 还原官网真实图标、更新最新特性文案并完善默认单机模式体验 → `R-ENT-SSO`, `R-ENT-DEVICE-POLICY`
-- `86260690` fix(web): 全面修复移动端布局避让与遗留主题对比度适配 → `R-UI-COMMERCIAL`, `R-THINKING-FULL`, `R-LLM-IN-PROFILE`, `R-PERSONA-ONBOARD`
 
 ---
 _Auto-maintained by `scripts/project_blueprint.mjs` (v20261126) & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._

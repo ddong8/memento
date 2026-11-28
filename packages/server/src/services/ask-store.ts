@@ -277,31 +277,114 @@ export function buildToolCallFromDeviceTask(
   return { toolCall, thinking: extractThinkingFromEvents(events) };
 }
 
-export function sanitizeTurnsForResponse(turns: unknown, secretKey?: string): TimelineTurn[] {
+const RECENT_FULL_TURNS = 6;
+const OLDER_TURN_MAX_EVENTS = 60;
+const OLDER_EVENT_DETAIL_CHARS = 400;
+const OLDER_EVENT_OUTPUT_CHARS = 600;
+const OLDER_STDOUT_CHARS = 8_000;
+const MAX_CHECKED_TASK_IDS = 30;
+
+function mergeCheckedTaskIds(existing: unknown, added: Iterable<string>): string[] {
+  const prev = Array.isArray(existing) ? existing.filter((x): x is string => typeof x === "string" && x.length > 0) : [];
+  const next = [...prev];
+  const seen = new Set(prev);
+  for (const id of added) {
+    if (id && !seen.has(id)) {
+      seen.add(id);
+      next.push(id);
+    }
+  }
+  return next.slice(-MAX_CHECKED_TASK_IDS);
+}
+
+function slimHistoricalToolCall(tc: Record<string, unknown>, turnContent: string): Record<string, unknown> {
+  const res = tc.result;
+  if (!res || typeof res !== "object" || Array.isArray(res)) return tc;
+  const r = res as Record<string, unknown>;
+  let changed = false;
+  const nextRes: Record<string, unknown> = { ...r };
+
+  if (Array.isArray(r.events) && r.events.length > 0) {
+    const compacted: unknown[] = [];
+    for (const ev of r.events) {
+      if (!ev || typeof ev !== "object" || Array.isArray(ev)) continue;
+      const rec = ev as Record<string, unknown>;
+      // Historical turns already carry full `turn.thinking`: skip redundant thinking events inside toolCalls
+      if (rec.kind === "thinking") {
+        changed = true;
+        continue;
+      }
+      const nextEv: Record<string, unknown> = { ...rec };
+      if (typeof nextEv.detail === "string" && nextEv.detail.length > OLDER_EVENT_DETAIL_CHARS) {
+        nextEv.detail = `${nextEv.detail.slice(0, OLDER_EVENT_DETAIL_CHARS)}…`;
+        changed = true;
+      }
+      if (typeof nextEv.output === "string" && nextEv.output.length > OLDER_EVENT_OUTPUT_CHARS) {
+        nextEv.output = `${nextEv.output.slice(-OLDER_EVENT_OUTPUT_CHARS)}`;
+        changed = true;
+      }
+      if (typeof nextEv.text === "string" && nextEv.text.length > OLDER_EVENT_OUTPUT_CHARS) {
+        nextEv.text = `${nextEv.text.slice(0, OLDER_EVENT_OUTPUT_CHARS)}…`;
+        changed = true;
+      }
+      compacted.push(nextEv);
+    }
+    if (compacted.length > OLDER_TURN_MAX_EVENTS) {
+      changed = true;
+      nextRes.events = compacted.slice(-OLDER_TURN_MAX_EVENTS);
+    } else if (changed) {
+      nextRes.events = compacted;
+    }
+  }
+
+  if (typeof r.stdout === "string" && r.stdout.length > 0) {
+    if (turnContent && r.stdout.trim() === turnContent.trim()) {
+      nextRes.stdout = "";
+      changed = true;
+    } else if (r.stdout.length > OLDER_STDOUT_CHARS) {
+      nextRes.stdout = r.stdout.slice(-OLDER_STDOUT_CHARS);
+      changed = true;
+    }
+  }
+  if (typeof r.stderr === "string" && r.stderr.length > OLDER_STDOUT_CHARS) {
+    nextRes.stderr = r.stderr.slice(-OLDER_STDOUT_CHARS);
+    changed = true;
+  }
+
+  return changed ? { ...tc, result: nextRes } : tc;
+}
+
+export function sanitizeTurnsForResponse(turns: unknown, secretKey?: string, opts: { slimOlder?: boolean } = {}): TimelineTurn[] {
   if (!Array.isArray(turns)) return [];
-  return turns
-    .filter((t): t is TimelineTurn => Boolean(t && typeof t === "object"))
-    .map((t, idx) => {
-      const out: TimelineTurn = { ...t };
-      if (Array.isArray(out.images)) {
-        const imgs = out.images.filter((img): img is string => typeof img === "string" && !img.startsWith("data:")).slice(0, 12);
-        out.images = secretKey ? imgs.map((img) => signMediaUrl(img, secretKey)) : imgs;
-      }
-      if (secretKey && typeof out.content === "string") {
-        out.content = signVideoLinksInText(out.content, secretKey);
-      }
-      if (Array.isArray(out.toolCalls) && out.toolCalls.length) {
-        out.toolCalls = out.toolCalls.map((tc) => (tc && typeof tc === "object" ? sanitizeToolCallEntry(tc as Record<string, unknown>) : tc));
-      } else if (Array.isArray(out.steps) && out.steps.length) {
-        // Legacy TS turns saved with `steps` instead of `toolCalls`: normalize on read so ExecutionCard renders them.
-        out.toolCalls = stepsToToolCalls(out.steps, {
-          idPrefix: `legacy_${idx}`,
-          origin: typeof out.execution_mode === "string" && out.execution_mode ? out.execution_mode : "agent",
-          stdout: typeof out.content === "string" ? out.content : "",
-        });
-      }
-      return out;
-    });
+  const valid = turns.filter((t): t is TimelineTurn => Boolean(t && typeof t === "object"));
+  const slimBefore = opts.slimOlder ? Math.max(0, valid.length - RECENT_FULL_TURNS) : 0;
+  return valid.map((t, idx) => {
+    const out: TimelineTurn = { ...t };
+    const isOlder = idx < slimBefore;
+    if (Array.isArray(out.images)) {
+      const imgs = out.images.filter((img): img is string => typeof img === "string" && !img.startsWith("data:")).slice(0, 12);
+      out.images = secretKey ? imgs.map((img) => signMediaUrl(img, secretKey)) : imgs;
+    }
+    if (secretKey && typeof out.content === "string") {
+      out.content = signVideoLinksInText(out.content, secretKey);
+    }
+    if (Array.isArray(out.toolCalls) && out.toolCalls.length) {
+      out.toolCalls = out.toolCalls.map((tc) => {
+        if (!tc || typeof tc !== "object") return tc;
+        const clean = sanitizeToolCallEntry(tc as Record<string, unknown>);
+        return isOlder ? slimHistoricalToolCall(clean, typeof out.content === "string" ? out.content : "") : clean;
+      });
+    } else if (Array.isArray(out.steps) && out.steps.length) {
+      // Legacy TS turns saved with `steps` instead of `toolCalls`: normalize on read so ExecutionCard renders them.
+      const built = stepsToToolCalls(out.steps, {
+        idPrefix: `legacy_${idx}`,
+        origin: typeof out.execution_mode === "string" && out.execution_mode ? out.execution_mode : "agent",
+        stdout: typeof out.content === "string" ? out.content : "",
+      });
+      out.toolCalls = isOlder ? built.map((tc) => slimHistoricalToolCall(tc, typeof out.content === "string" ? out.content : "")) : built;
+    }
+    return out;
+  });
 }
 
 export function extractRealAssistantContent(rawStdout: string | null | undefined, events?: unknown[]): string {
@@ -518,6 +601,12 @@ export async function appendConversationTurns(
   });
 
   const curCfg = (conv.config && typeof conv.config === "object" ? conv.config : {}) as Record<string, unknown>;
+  const savedTaskIds: string[] = [];
+  if (opts.taskId) savedTaskIds.push(opts.taskId);
+  for (const tc of cleanToolCalls) {
+    const tid = (tc?.result as Record<string, unknown> | undefined)?.task_id;
+    if (typeof tid === "string" && tid) savedTaskIds.push(tid);
+  }
   const nextCfg: Record<string, unknown> = {
     ...curCfg,
     ...(opts.configPatch || {}),
@@ -526,6 +615,7 @@ export async function appendConversationTurns(
       : opts.agentSessionId
         ? { session_id: opts.agentSessionId, agent_session_id: opts.agentSessionId }
         : {}),
+    ...(savedTaskIds.length ? { _checked_task_ids: mergeCheckedTaskIds(curCfg._checked_task_ids, savedTaskIds) } : {}),
     compact_mode: false,
   };
 
@@ -629,9 +719,40 @@ export async function recordStoppedOrphans(
 }
 
 export async function recoverOrphanedTasksForConv(db: Db, convId: string): Promise<number> {
-  const [conv] = await db.select().from(askConversations).where(eq(askConversations.id, convId)).limit(1);
-  if (!conv) return 0;
-  const turns = Array.isArray(conv.turns) ? [...(conv.turns as TimelineTurn[])] : [];
+  // Fast zero-TOAST precheck: only query candidate task IDs + lightweight conv.config first.
+  const [taskMeta, convMetaRows] = await Promise.all([
+    db
+      .select({ id: deviceTasks.id })
+      .from(deviceTasks)
+      .where(
+        and(
+          sql`${deviceTasks.payload}->>'conversation_id' = ${convId}`,
+          inArray(deviceTasks.status, ["succeeded", "failed", "timeout", "cancelled", "still_running"]),
+        ),
+      )
+      .orderBy(desc(deviceTasks.finishedAt))
+      .limit(10),
+    db.select({ id: askConversations.id, config: askConversations.config }).from(askConversations).where(eq(askConversations.id, convId)).limit(1),
+  ]);
+
+  const convMeta = convMetaRows[0];
+  if (!convMeta || !taskMeta.length) return 0;
+
+  const cfg = (convMeta.config && typeof convMeta.config === "object" ? convMeta.config : {}) as Record<string, unknown>;
+  const checkedSet = new Set(
+    Array.isArray(cfg._checked_task_ids) ? cfg._checked_task_ids.filter((x): x is string => typeof x === "string") : [],
+  );
+  const uncheckedIds = taskMeta.map((t) => t.id).filter((id) => !checkedSet.has(id));
+  if (!uncheckedIds.length) return 0;
+
+  // Only when an unchecked task ID exists do we read full turns + candidate task payloads.
+  const [fullConvRows, tasks] = await Promise.all([
+    db.select({ turns: askConversations.turns }).from(askConversations).where(eq(askConversations.id, convId)).limit(1),
+    db.select().from(deviceTasks).where(inArray(deviceTasks.id, uncheckedIds)).orderBy(desc(deviceTasks.finishedAt)),
+  ]);
+  if (!fullConvRows[0]) return 0;
+
+  const turns = Array.isArray(fullConvRows[0].turns) ? [...(fullConvRows[0].turns as TimelineTurn[])] : [];
   const existingTaskIds = new Set<string>();
   for (const t of turns) {
     if (t.task_id) existingTaskIds.add(t.task_id);
@@ -642,18 +763,6 @@ export async function recoverOrphanedTasksForConv(db: Db, convId: string): Promi
       }
     }
   }
-
-  const tasks = await db
-    .select()
-    .from(deviceTasks)
-    .where(
-      and(
-        sql`${deviceTasks.payload}->>'conversation_id' = ${convId}`,
-        inArray(deviceTasks.status, ["succeeded", "failed", "timeout", "cancelled", "still_running"]),
-      ),
-    )
-    .orderBy(desc(deviceTasks.finishedAt))
-    .limit(10);
 
   let recovered = 0;
   let nextSession: string | null = null;
@@ -687,21 +796,27 @@ export async function recoverOrphanedTasksForConv(db: Db, convId: string): Promi
     recovered++;
   }
 
+  const nextCfg: Record<string, unknown> = {
+    ...cfg,
+    _checked_task_ids: mergeCheckedTaskIds(cfg._checked_task_ids, uncheckedIds),
+  };
   if (recovered > 0) {
-    const cfg = { ...((conv.config && typeof conv.config === "object" ? conv.config : {}) as Record<string, unknown>) };
     if (nextSession) {
-      cfg.session_id = nextSession;
-      cfg.agent_session_id = nextSession;
+      nextCfg.session_id = nextSession;
+      nextCfg.agent_session_id = nextSession;
     }
     await db
       .update(askConversations)
       .set({
         turns: withoutNul(turns),
         messageCount: turns.length,
-        config: withoutNul(cfg),
+        config: withoutNul(nextCfg),
         updatedAt: new Date().toISOString(),
       })
       .where(eq(askConversations.id, convId));
+  } else {
+    // Persist checked IDs without changing updatedAt so ETag 304 stays valid and future reads skip TOAST completely.
+    await db.update(askConversations).set({ config: withoutNul(nextCfg) }).where(eq(askConversations.id, convId));
   }
   return recovered;
 }

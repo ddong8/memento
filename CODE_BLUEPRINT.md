@@ -1,7 +1,7 @@
 # Code Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `a518a52b` · Updated: `2026-11-28`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `d48f7f85` · Updated: `2026-11-28`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,8 +16,8 @@
 - 规模 (Scale): 9 个子系统 · 1 组 API 路由 / 2 个接口 · 39 个前端页面 · 84 个数据模型 · 35 个服务模块 · 150 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `packages/server`, `embedding`, `deploy`
 - 自测命令 (Verify): `npm test` ; `npx tsc --noEmit` ; `npm run lint` ; `npm run build`
-- 最近改动 (Latest): `916358b9` (2026-11-28): fix(mobile): 禁用下滑时底部导航栏收起为悬浮球
-- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 77（✅ 77 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 12 · 状态 10 · 最近提交碰到 `F-ASK`, `R-ISLAND-CLEANUP`, `R-ENT-DEVICE-POLICY`, `S-RUN-STATE`, `R-ENT-SSO`, `R-UI-COMMERCIAL`
+- 最近改动 (Latest): `d48f7f85` (2026-11-28): chore(mobile): 递增 iOS TestFlight 构建号至 1.0.172 (22)
+- 业务蓝图 (Business): `BUSINESS_BLUEPRINT.md` · 规则 77（✅ 77 · ⚠️ 0 · ❌ 0）· 流程 9 · 术语 12 · 状态 10 · 最近提交碰到 `F-ASK`, `R-ISLAND-CLEANUP`, `R-ENT-DEVICE-POLICY`, `S-RUN-STATE`
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -31,7 +31,7 @@
 | 8. Development & Verification Commands | L270-L281 |
 | 9. Recent Architectural Evolutions | L283-L290 |
 | 10. Key Environment Variables & Configuration | L292-L304 |
-| 11. 业务蓝图核对 (Business Blueprint Check) | L306-L314 |
+| 11. 业务蓝图核对 (Business Blueprint Check) | L306-L313 |
 
 ## 1. Project Overview & Tech Stack
 
@@ -247,25 +247,25 @@ flowchart TD
 
 | Suite | Directory | Files | Sample Tests |
 | :--- | :--- | :--- | :--- |
-| apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 69 | `active-runs-chip.test.tsx`, `agent-modes.test.ts`, `api-client.test.ts`, `ask-performance-guards.test.tsx`, `ask-reading-and-persona-rules.test.tsx` |
+| apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 70 | `active-runs-chip.test.tsx`, `agent-modes.test.ts`, `api-client.test.ts`, `ask-performance-guards.test.tsx`, `ask-reading-and-persona-rules.test.tsx` |
 | packages/daemon/test (vitest / jest) | [`packages/daemon/test`](packages/daemon/test) | 67 | `acp-runner.test.ts`, `agent-args.test.ts`, `agent-login.test.ts`, `agent-stream.test.ts`, `agy-background.test.ts` |
 | apps/desktop/test (vitest / jest) | [`apps/desktop/test`](apps/desktop/test) | 5 | `embedded-e2e.test.ts`, `embedded-server.test.ts`, `helpers.test.ts`, `local-server.test.ts`, `updater-and-daemon.test.ts` |
 | apps/mobile/test (vitest / jest) | [`apps/mobile/test`](apps/mobile/test) | 4 | `deeplink.test.ts`, `glass-surface.test.ts`, `injected-helpers.test.ts`, `webview-props.test.ts` |
-| packages/mcp/test (vitest / jest) | [`packages/mcp/test`](packages/mcp/test) | 3 | `remote-and-tools.test.ts`, `server.test.ts`, `task-tools.test.ts` |
 | packages/core/test (vitest / jest) | [`packages/core/test`](packages/core/test) | 2 | `ask-stream.test.ts`, `task-events.test.ts` |
+| packages/mcp/test (vitest / jest) | [`packages/mcp/test`](packages/mcp/test) | 2 | `remote-and-tools.test.ts`, `server.test.ts` |
 
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
-- [`apps/mobile/src/app/index.tsx`](apps/mobile/src/app/index.tsx) (11 commits)
 - [`packages/server/src/app.ts`](packages/server/src/app.ts) (11 commits)
-- [`apps/web/src/app/globals.css`](apps/web/src/app/globals.css) (10 commits)
+- [`apps/mobile/src/app/index.tsx`](apps/mobile/src/app/index.tsx) (10 commits)
 - [`docs/ts-server-migration.md`](docs/ts-server-migration.md) (10 commits)
 - [`packages/server/scripts/contract.mts`](packages/server/scripts/contract.mts) (10 commits)
-- [`apps/web/test/glass-system.test.ts`](apps/web/test/glass-system.test.ts) (9 commits)
+- [`apps/web/src/app/globals.css`](apps/web/src/app/globals.css) (9 commits)
 - [`deploy/k8s/ingress.yaml`](deploy/k8s/ingress.yaml) (9 commits)
 - [`packages/server/src/main.ts`](packages/server/src/main.ts) (9 commits)
-- [`apps/mobile/src/components/GlassSurface.tsx`](apps/mobile/src/components/GlassSurface.tsx) (7 commits)
-- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (7 commits)
+- [`apps/web/test/glass-system.test.ts`](apps/web/test/glass-system.test.ts) (8 commits)
+- [`packages/server/src/config.ts`](packages/server/src/config.ts) (7 commits)
+- [`.github/workflows/desktop-release.yml`](.github/workflows/desktop-release.yml) (6 commits)
 
 ## 8. Development & Verification Commands
 
@@ -282,12 +282,12 @@ npm run build
 
 ## 9. Recent Architectural Evolutions
 
+- `d48f7f85` (2026-11-28): chore(mobile): 递增 iOS TestFlight 构建号至 1.0.172 (22)
 - `916358b9` (2026-11-28): fix(mobile): 禁用下滑时底部导航栏收起为悬浮球
 - `14afc798` (2026-11-28): fix(web): 为站点图标追加版本参数以穿透 Nginx 缓存
 - `9d4866f8` (2026-11-28): feat(ui): 还原真实 App 图标并升级同系紫调与 macOS 毛玻璃质感
 - `6ea7c9b1` (2026-11-28): feat(ui): 基于 frontend-design 统一优化 Web、桌面端与移动端前端设计
 - `570771ba` (2026-11-28): fix(server-ts): 修复连接池咨询锁泄露并治理对话膨胀与慢查询
-- `cba0bc53` (2026-11-28): fix(web): 对齐批量纠偏接口返回字段 processed 与 skipped_full
 
 ## 10. Key Environment Variables & Configuration
 
@@ -311,7 +311,6 @@ npm run build
 ### 最近提交碰到的业务条目（改动后复查它们还成不成立）
 
 - `9d4866f8` feat(ui): 还原真实 App 图标并升级同系紫调与 macOS 毛玻璃质感 → `F-ASK`, `R-ISLAND-CLEANUP`, `R-ENT-DEVICE-POLICY`, `S-RUN-STATE`
-- `6ea7c9b1` feat(ui): 基于 frontend-design 统一优化 Web、桌面端与移动端前端设计 → `F-ASK`, `R-ISLAND-CLEANUP`, `R-ENT-SSO`, `R-ENT-DEVICE-POLICY`, `R-UI-COMMERCIAL`, `S-RUN-STATE`
 
 ---
 _Auto-maintained by `scripts/project_blueprint.mjs` (v20261126) & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._

@@ -16,6 +16,17 @@ import pkg from "../../../package.json";
 
 const WEB_VERSION = `v${(pkg as { version: string }).version}`;
 
+export function parseMobileAppVersion(userAgent: string | null | undefined): string | null {
+  if (!userAgent) return null;
+  const match = /MementoMobile\/(\d+\.\d+\.\d+)/i.exec(userAgent);
+  return match ? match[1] : null;
+}
+
+export function formatVersionTag(version: string): string {
+  const trimmed = version.trim();
+  return trimmed.startsWith("v") ? trimmed : `v${trimmed}`;
+}
+
 type IconName = Parameters<typeof Icon>[0]["name"];
 
 export default function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -38,10 +49,16 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
       d.info()
         .then((info) => {
           if (info?.version) {
-            setAppVersion(info.version.startsWith("v") ? info.version : `v${info.version}`);
+            setAppVersion(formatVersionTag(info.version));
           }
         })
         .catch(() => {});
+      return;
+    }
+    const mobileVer =
+      typeof navigator !== "undefined" ? parseMobileAppVersion(navigator.userAgent) : null;
+    if (mobileVer) {
+      setAppVersion(formatVersionTag(mobileVer));
     }
   }, []);
 
@@ -118,25 +135,23 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
     return () => clearInterval(timer);
   }, []);
 
-  // Check update version
+  // Check update version (only desktop app has an in-app updater; mobile updates via TestFlight/APK and web reloads via /build-id)
   useEffect(() => {
     const d = desktop();
+    if (!d) return;
     const check = async () => {
       let plat = "web";
       let currentVer = WEB_VERSION.replace(/^v/, "");
-      if (d) {
-        try {
-          const info = await d.info();
-          if (info?.platform) plat = info.platform;
-          if (info?.version) currentVer = info.version.replace(/^v/, "");
-        } catch {}
-      }
+      try {
+        const info = await d.info();
+        if (info?.platform) plat = info.platform;
+        if (info?.version) currentVer = info.version.replace(/^v/, "");
+      } catch {}
       try {
         const r = await authFetch(`${getApiBase()}/api/system/update/check?platform=${encodeURIComponent(plat)}&version=${encodeURIComponent(currentVer)}`);
         const data = await r.json();
         if (data?.has_update && data.latest_version) {
-          const lv = data.latest_version.startsWith("v") ? data.latest_version : `v${data.latest_version}`;
-          setUpdateAvailable(lv);
+          setUpdateAvailable(formatVersionTag(data.latest_version));
         }
       } catch {}
     };

@@ -7,8 +7,8 @@
  * Expects apps/desktop/dist-embedded/ to be built first (`MEMENTO_BUNDLE_EMBEDDED=1 npm run build -w @memento/desktop`).
  */
 import { execFileSync } from "node:child_process";
-import { chmodSync, cpSync, existsSync, mkdirSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readlinkSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -24,8 +24,29 @@ if (!existsSync(join(EMBEDDED, "server", "main.mjs")) || !existsSync(join(EMBEDD
 
 rmSync(STAGE, { recursive: true, force: true });
 mkdirSync(STAGE, { recursive: true });
-cpSync(EMBEDDED, STAGE, { recursive: true, dereference: false });
+cpSync(EMBEDDED, STAGE, { recursive: true, dereference: false, verbatimSymlinks: true });
 cpSync(join(HERE, "standalone.mjs"), join(STAGE, "standalone.mjs"));
+
+if (process.platform !== "win32") {
+  const checkSymlinks = (dir) => {
+    for (const ent of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, ent.name);
+      const st = lstatSync(full);
+      if (st.isSymbolicLink()) {
+        const target = readlinkSync(full);
+        if (isAbsolute(target)) {
+          throw new Error(`pack-standalone: 禁止绝对路径软链进入压缩包：${full} -> ${target}`);
+        }
+        if (!existsSync(resolve(dirname(full), target))) {
+          throw new Error(`pack-standalone: 发现悬空软链：${full} -> ${target}`);
+        }
+      } else if (st.isDirectory()) {
+        checkSymlinks(full);
+      }
+    }
+  };
+  checkSymlinks(STAGE);
+}
 
 if (process.platform === "win32") {
   writeFileSync(join(STAGE, "start.cmd"), "@echo off\r\nnode \"%~dp0standalone.mjs\" %*\r\n");

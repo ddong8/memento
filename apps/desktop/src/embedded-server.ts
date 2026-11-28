@@ -7,7 +7,7 @@
 // Also provides bidirectional account data migration (standalone <-> cloud/enterprise server) with local backup.
 import { execFile, fork, type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -108,7 +108,8 @@ export function buildEmbeddedEnv(opts: {
   const entries: [string, string][] = [
     ["POSTGRES_PASSWORD", pgPass],
     ["MEMENTO_DATABASE_URL", `postgres://postgres:${pgPass}@127.0.0.1:${opts.pgPort}/postgres`],
-    ["MEMENTO_REDIS_URL", ""],
+    // Use "none" rather than "" because Electron utilityProcess.fork strips empty-string env vars
+    ["MEMENTO_REDIS_URL", "none"],
     ["MEMENTO_STORAGE_DIR", join(opts.dataDir, "storage")],
     ["MEMENTO_SECRET_KEY", prev.get("MEMENTO_SECRET_KEY") || rand(32)],
     ["MEMENTO_COLLECTOR_TOKEN", prev.get("MEMENTO_COLLECTOR_TOKEN") || rand(32)],
@@ -342,6 +343,10 @@ export class EmbeddedServer {
     const pgPassFile = join(this.dataDir, ".pgpass.tmp");
     if (!existsSync(join(this.pgDataDir, "PG_VERSION"))) {
       progress("初始化本机内置数据库（PostgreSQL 16 · UTF8）…");
+      // Clear any incomplete leftover files from an earlier failed initdb so retry succeeds cleanly
+      if (existsSync(this.pgDataDir)) {
+        rmSync(this.pgDataDir, { recursive: true, force: true });
+      }
       mkdirSync(this.pgDataDir, { recursive: true, mode: 0o700 });
       writeFileSync(pgPassFile, `${envMap.get("POSTGRES_PASSWORD") || "memento"}\n`, { mode: 0o600 });
       const initRes = await runFile(initdb, [

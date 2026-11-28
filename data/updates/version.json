@@ -1,7 +1,7 @@
 {
   "version": "1.0.170",
   "title": "Memento v1.0.170",
-  "release_notes": "1. 单机免 Docker 单安装包正式就绪：桌面端内置 PostgreSQL 16（UTF8 + 预编译 pgvector）、TypeScript 服务端与 Next.js 网页界面，新装打开默认直接启动本机单机版（零 Docker、零 Redis、零 MinIO）\n2. 支持单机版与云端/企业服务版一键双向全量迁移（迁移前自动保留本地时间戳备份 ZIP）\n3. 同步提供无界面零 Docker 单压缩包服务端（macOS / Windows / Linux），解压后单命令即可运行完整版 Memento",
+  "release_notes": "1. 修复 macOS / Linux 单机模式与无界面单压缩包中内置 PostgreSQL 动态库软链指向构建机绝对路径导致初始化失败（libicudata.68.dylib 找不到）的问题\n2. 修复桌面端单机模式下内置服务被 Electron 剥离空环境变量后误连 Redis 导致 /health/deep 降级超时的问题，并在重试初始化时自动清理上次残缺目录\n3. 消除移动端底部标签栏毛玻璃发灰并与顶栏及多皮肤色值完全同步",
   "platforms": {
     "windows": {
       "asset_name": "Memento-1.0.170-win-x64.zip",

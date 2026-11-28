@@ -26,9 +26,11 @@ export function plainDatabaseUrl(url: string): string {
 
 export function loadSettings(env: Env = process.env) {
   const s = (name: string, fallback = "") => env[`MEMENTO_${name.toUpperCase()}`] ?? fallback;
+  const rawRedisUrl = s("redis_url", "redis://localhost:6380/0").trim();
   const settings = {
     databaseUrl: plainDatabaseUrl(s("database_url", "postgresql+asyncpg://postgres:postgres@localhost:5433/memento")),
-    redisUrl: s("redis_url", "redis://localhost:6380/0"),
+    // "none"/"local"/"off"/"disabled"/"memory" explicitly disable external Redis (Electron utilityProcess drops empty-string env vars)
+    redisUrl: /^(none|off|disabled|local|memory)$/i.test(rawRedisUrl) ? "" : rawRedisUrl,
     shutdownDrainSeconds: parseIntStrict(s("shutdown_drain_seconds"), 600, "SHUTDOWN_DRAIN_SECONDS"),
     // S3 / MinIO and optional local-folder backend for single-installer desktop mode
     s3Endpoint: s("s3_endpoint", "http://localhost:9000"),

@@ -11,7 +11,7 @@
  */
 import { execFile, fork } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -106,7 +106,7 @@ async function main() {
   const envEntries = [
     ["POSTGRES_PASSWORD", pgPass],
     ["MEMENTO_DATABASE_URL", `postgres://postgres:${pgPass}@127.0.0.1:${pgPort}/postgres`],
-    ["MEMENTO_REDIS_URL", ""],
+    ["MEMENTO_REDIS_URL", "none"],
     ["MEMENTO_STORAGE_DIR", join(dataDir, "storage")],
     ["MEMENTO_SECRET_KEY", prev.get("MEMENTO_SECRET_KEY") || randomBytes(32).toString("hex")],
     ["MEMENTO_COLLECTOR_TOKEN", prev.get("MEMENTO_COLLECTOR_TOKEN") || randomBytes(32).toString("hex")],
@@ -128,6 +128,7 @@ async function main() {
   const initdb = join(pgNative, "bin", INITDB);
   if (!existsSync(join(pgDataDir, "PG_VERSION"))) {
     console.log("[memento] 初始化内置 PostgreSQL 16 (UTF8)...");
+    if (existsSync(pgDataDir)) rmSync(pgDataDir, { recursive: true, force: true });
     mkdirSync(pgDataDir, { recursive: true, mode: 0o700 });
     const passFile = join(dataDir, ".pgpass.tmp");
     writeFileSync(passFile, `${pgPass}\n`, { mode: 0o600 });

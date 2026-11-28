@@ -1,9 +1,9 @@
 // Bundles the main process, preload and daemon into dist/, so the packaged app
 // needs no node_modules. The daemon's Antigravity runner ships next to it.
 import { build } from "esbuild";
-import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -154,8 +154,30 @@ const stagedPgSrc = join(root, "../../packages/server/embedded/staged", plat, "n
 const fallbackPgSrc = join(root, "../../node_modules", `@embedded-postgres/${pgPlat}`, "native");
 const embPgSrc = existsSync(stagedPgSrc) ? stagedPgSrc : fallbackPgSrc;
 if (existsSync(embPgSrc)) {
-  // Preserve deduplicated shared-library symlinks on POSIX
-  cpSync(embPgSrc, join(embeddedOut, "embedded-pg/native"), { recursive: true, dereference: false });
+  // Preserve deduplicated shared-library relative symlinks verbatim on POSIX
+  // (without verbatimSymlinks: true, Node cpSync rewrites relative links to absolute build-runner paths!)
+  const embPgDst = join(embeddedOut, "embedded-pg/native");
+  cpSync(embPgSrc, embPgDst, { recursive: true, dereference: false, verbatimSymlinks: true });
+  if (process.platform !== "win32") {
+    const checkSymlinks = (dir) => {
+      for (const ent of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, ent.name);
+        const st = lstatSync(full);
+        if (st.isSymbolicLink()) {
+          const target = readlinkSync(full);
+          if (isAbsolute(target)) {
+            throw new Error(`build.mjs: 禁止绝对路径软链进入安装包：${full} -> ${target}`);
+          }
+          if (!existsSync(resolve(dirname(full), target))) {
+            throw new Error(`build.mjs: 发现悬空软链：${full} -> ${target}`);
+          }
+        } else if (st.isDirectory()) {
+          checkSymlinks(full);
+        }
+      }
+    };
+    checkSymlinks(embPgDst);
+  }
 }
 const pgvSrc = join(root, "../../packages/server/embedded/out", plat);
 const alreadyPreinstalled =

@@ -127,6 +127,72 @@ jobs:
           unset MAC_CSC_LINK MAC_CSC_KEY_PASSWORD
           npx electron-builder ${{ matrix.args }} --publish never -c.extraMetadata.version="$VERSION" "${EXTRA[@]}"
 
+      - name: Verify packaged embedded runtime (macOS / Linux)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Delete build-time staging folders first so any absolute runner-path symlink immediately breaks!
+          rm -rf packages/server/embedded/staged apps/desktop/dist-embedded
+          node - <<'EOF'
+          const { execFileSync } = require("node:child_process");
+          const { existsSync, lstatSync, mkdtempSync, readdirSync, readlinkSync, rmSync } = require("node:fs");
+          const { tmpdir } = require("node:os");
+          const { dirname, isAbsolute, join, resolve } = require("node:path");
+
+          function checkTree(root, label) {
+            let links = 0;
+            const walk = (dir) => {
+              for (const ent of readdirSync(dir, { withFileTypes: true })) {
+                const full = join(dir, ent.name);
+                const st = lstatSync(full);
+                if (st.isSymbolicLink()) {
+                  links++;
+                  const target = readlinkSync(full);
+                  if (isAbsolute(target)) throw new Error(`${label}: absolute symlink ${full} -> ${target}`);
+                  if (!existsSync(resolve(dirname(full), target))) throw new Error(`${label}: broken symlink ${full} -> ${target}`);
+                } else if (st.isDirectory()) {
+                  walk(full);
+                }
+              }
+            };
+            walk(root);
+            const initdb = join(root, "embedded-pg", "native", "bin", "initdb");
+            const ver = execFileSync(initdb, ["--version"], { encoding: "utf8" }).trim();
+            console.log(`[verify-embedded] ${label}: OK (${links} relative symlinks, ${ver})`);
+          }
+
+          if (process.platform === "darwin") {
+            const macDir = readdirSync("apps/desktop/release").find((d) => d.startsWith("mac"));
+            if (!macDir) throw new Error("mac* unpacked directory not found");
+            checkTree(join("apps/desktop/release", macDir, "Memento.app/Contents/Resources/embedded"), "mac-unpacked");
+
+            const zipName = readdirSync("apps/desktop/release").find((f) => f.endsWith(".zip") && !f.endsWith(".blockmap"));
+            if (!zipName) throw new Error("mac .zip artifact not found");
+            const tmpZip = mkdtempSync(join(tmpdir(), "memento-verify-zip-"));
+            try {
+              execFileSync("unzip", ["-q", join("apps/desktop/release", zipName), "-d", tmpZip]);
+              checkTree(join(tmpZip, "Memento.app/Contents/Resources/embedded"), "mac-zip");
+            } finally {
+              rmSync(tmpZip, { recursive: true, force: true });
+            }
+          } else {
+            checkTree("apps/desktop/release/linux-unpacked/resources/embedded", "linux-unpacked");
+          }
+
+          const tarName = readdirSync("dist-standalone").find((f) => f.endsWith(".tar.gz"));
+          if (tarName) {
+            const tmpTar = mkdtempSync(join(tmpdir(), "memento-verify-tar-"));
+            try {
+              execFileSync("tar", ["-xzf", join("dist-standalone", tarName), "-C", tmpTar]);
+              const inner = readdirSync(tmpTar)[0];
+              checkTree(join(tmpTar, inner), "standalone-tar");
+            } finally {
+              rmSync(tmpTar, { recursive: true, force: true });
+            }
+          }
+          EOF
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:

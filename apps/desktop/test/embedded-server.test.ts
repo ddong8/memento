@@ -22,7 +22,7 @@ describe("embedded single-installer server helpers", () => {
     const dir = mkTmp();
     const text = buildEmbeddedEnv({ port: 8770, pgPort: 54329, webPort: 38770, dataDir: dir, rand: (n) => "a".repeat(n * 2) });
     const env = parseEnv(text);
-    expect(env.get("MEMENTO_REDIS_URL")).toBe("");
+    expect(env.get("MEMENTO_REDIS_URL")).toBe("none");
     expect(env.get("MEMENTO_ENABLE_SCHEDULER")).toBe("true");
     expect(env.get("MEMENTO_HOST")).toBe("127.0.0.1");
     expect(env.get("MEMENTO_PORT")).toBe("8770");
@@ -66,6 +66,22 @@ describe("embedded single-installer server helpers", () => {
     expect(hasPgvectorInstalled(found!)).toBe(true);
     expect(existsSync(join(pgLib, "vector.so"))).toBe(true);
     expect(existsSync(join(pgExt, "vector.control"))).toBe(true);
+  });
+
+  it("all embedded packaging scripts pass verbatimSymlinks: true whenever dereference: false is used", () => {
+    const scripts = [
+      join(__dirname, "..", "scripts", "build.mjs"),
+      join(__dirname, "..", "..", "..", "packages", "server", "embedded", "stage-embedded.mjs"),
+      join(__dirname, "..", "..", "..", "packages", "server", "scripts", "pack-standalone.mjs"),
+    ];
+    for (const file of scripts) {
+      const src = readFileSync(file, "utf8");
+      const lines = src.split(/\r?\n/).filter((l) => l.includes("dereference: false"));
+      expect(lines.length, `${file} should preserve symlinks`).toBeGreaterThan(0);
+      for (const line of lines) {
+        expect(line, `${file} must set verbatimSymlinks: true to avoid absolute build-runner symlinks`).toContain("verbatimSymlinks: true");
+      }
+    }
   });
 
   it("migrates account data between two servers while keeping a local backup ZIP", async () => {

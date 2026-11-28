@@ -70,6 +70,15 @@ describe("standalone webUpstream proxy", () => {
     expect(body.name).toBe("Memento");
   });
 
+  it("treats sentinel MEMENTO_REDIS_URL values (none/local/off) as disabled local mode for Electron utilityProcess", () => {
+    for (const sentinel of ["none", "NONE", "local", "off", "disabled", "memory"]) {
+      const s = loadSettings({ MEMENTO_DEBUG: "1", MEMENTO_REDIS_URL: sentinel });
+      expect(s.redisUrl).toBe("");
+    }
+    const fallback = loadSettings({ MEMENTO_DEBUG: "1" });
+    expect(fallback.redisUrl).toBe("redis://localhost:6380/0");
+  });
+
   it("proxies /, HTML pages, Set-Cookie, and 302 redirects while keeping /health & /api/* on the TS server", async () => {
     const app = makeApp(upstreamUrl);
 

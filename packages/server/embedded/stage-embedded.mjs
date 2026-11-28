@@ -17,13 +17,14 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  readlinkSync,
   rmSync,
   statSync,
   symlinkSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join, relative } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -166,14 +167,14 @@ function main() {
         const base = binEnt.name.replace(/\.exe$/i, "").toLowerCase();
         const isDll = IS_WIN && /\.dll$/i.test(binEnt.name);
         if (!isDll && !KEEP_BINS.has(base)) continue;
-        cpSync(join(src, binEnt.name), join(dst, binEnt.name), { recursive: true, dereference: false });
+        cpSync(join(src, binEnt.name), join(dst, binEnt.name), { recursive: true, dereference: false, verbatimSymlinks: true });
         if (!IS_WIN && !lstatSync(join(dst, binEnt.name)).isSymbolicLink()) {
           chmodSync(join(dst, binEnt.name), 0o755);
         }
       }
       continue;
     }
-    cpSync(src, dst, { recursive: true, dereference: false });
+    cpSync(src, dst, { recursive: true, dereference: false, verbatimSymlinks: true });
   }
 
   // Remove static archives & debug symbols if any
@@ -209,6 +210,29 @@ function main() {
   }
   for (const f of readdirSync(join(pgvectorDir, "extension"))) {
     cpSync(join(pgvectorDir, "extension", f), join(extDir, f));
+  }
+
+  // Verify no symlink escaped to an absolute build-machine path or dangles
+  if (!IS_WIN) {
+    const checkSymlinks = (dir) => {
+      for (const ent of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, ent.name);
+        const st = lstatSync(full);
+        if (st.isSymbolicLink()) {
+          const target = readlinkSync(full);
+          if (isAbsolute(target)) {
+            throw new Error(`stage-embedded: 发现绝对路径软链 ${full} -> ${target}`);
+          }
+          const resolved = resolve(dirname(full), target);
+          if (!existsSync(resolved)) {
+            throw new Error(`stage-embedded: 发现悬空软链 ${full} -> ${target}`);
+          }
+        } else if (st.isDirectory()) {
+          checkSymlinks(full);
+        }
+      }
+    };
+    checkSymlinks(STAGED_NATIVE);
   }
 
   const totalMb = (dirBytes(STAGED_NATIVE) / 1024 / 1024).toFixed(1);

@@ -958,6 +958,8 @@ CREATE TABLE public.user_memories (
     is_folder boolean NOT NULL,
     last_recalled_at timestamp with time zone,
     recall_count integer DEFAULT 0 NOT NULL,
+    feedback_pos integer DEFAULT 0 NOT NULL,
+    feedback_neg integer DEFAULT 0 NOT NULL,
     status character varying(20) DEFAULT 'active'::character varying NOT NULL,
     status_reason text,
     superseded_by uuid,

@@ -65,7 +65,7 @@ export function SourcesDrawer({ sources: selectedSources, onClose }: { sources: 
                   fontSize: 11,
                   padding: "2px 7px",
                   borderRadius: 999,
-                  background: "rgba(56, 189, 248, 0.15)",
+                  background: "var(--aurora-accent-soft)",
                   color: "var(--aurora-accent)",
                   fontWeight: 600,
                 }}
@@ -99,7 +99,7 @@ export function SourcesDrawer({ sources: selectedSources, onClose }: { sources: 
           style={{
             flex: 1,
             overflowY: "auto",
-            padding: "14px",
+            padding: "14px 14px calc(14px + var(--memento-tabbar-inset, 0px))",
             display: "flex",
             flexDirection: "column",
             gap: 12,

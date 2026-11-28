@@ -146,23 +146,23 @@ export function LifeRhythmView() {
                 width: 44,
                 height: 44,
                 borderRadius: 14,
-                background: "linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%)",
+                background: "var(--aurora-primary-grad)",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
                 color: "#fff",
-                boxShadow: "0 4px 16px -2px rgba(99,102,241,0.4)",
+                boxShadow: "0 4px 16px -2px color-mix(in srgb, var(--aurora-accent) 36%, transparent)",
                 flexShrink: 0,
               }}
             >
               <Icon name="clock" size={22} />
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <h3 className="text-base font-semibold text-[var(--aurora-fg1)]">
                   生活作息与时间精力分配
                 </h3>
-                <span className="text-[10px] bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 px-2 py-0.5 rounded-full font-semibold">
+                <span className="text-[10px] bg-[var(--aurora-accent-soft)] text-[var(--aurora-accent)] border border-[var(--aurora-accent-border)] px-2 py-0.5 rounded-full font-semibold">
                   AI 决策顾问
                 </span>
               </div>
@@ -313,14 +313,14 @@ export function LifeRhythmView() {
 
             {/* Time Allocation (Work vs Distraction vs Social) */}
             <Glass className="p-5">
-              <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center justify-between flex-wrap gap-2 mb-4">
                 <SectionLabel>精力分配结构 (专注 vs 娱乐分心)</SectionLabel>
-                <div className="flex items-center gap-3 text-xs">
-                  <span className="flex items-center gap-1.5 text-blue-400">
-                    <span className="w-2.5 h-2.5 rounded-full bg-blue-500 inline-block" /> 生产力工作 (
+                <div className="flex items-center gap-3 flex-wrap text-xs">
+                  <span className="flex items-center gap-1.5 text-[var(--aurora-accent)]">
+                    <span className="w-2.5 h-2.5 rounded-full bg-[var(--aurora-accent)] inline-block" /> 生产力工作 (
                     {currentDay.productive_minutes}m)
                   </span>
-                  <span className="flex items-center gap-1.5 text-amber-400">
+                  <span className="flex items-center gap-1.5 text-amber-500">
                     <span className="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block" /> 社交娱乐 (
                     {currentDay.distraction_minutes}m)
                   </span>
@@ -333,14 +333,14 @@ export function LifeRhythmView() {
                   <div
                     style={{
                       width: `${(currentDay.productive_minutes / currentDay.total_screen_minutes) * 100}%`,
-                      background: "linear-gradient(90deg, #3B82F6, #6366F1)",
+                      background: "var(--aurora-primary-grad)",
                     }}
                     title="工作专注时长"
                   />
                   <div
                     style={{
                       width: `${(currentDay.distraction_minutes / currentDay.total_screen_minutes) * 100}%`,
-                      background: "linear-gradient(90deg, #F59E0B, #EF4444)",
+                      background: "#F59E0B",
                     }}
                     title="娱乐与分心时长"
                   />

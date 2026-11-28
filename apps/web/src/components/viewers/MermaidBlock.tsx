@@ -141,21 +141,21 @@ export function MermaidBlock({ code, className }: MermaidBlockProps) {
         className={`not-prose my-3 rounded-2xl overflow-hidden border border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/90 shadow-md ${className || ""}`}
       >
         {/* Top Action Bar */}
-        <div className="flex items-center justify-between px-3.5 py-2 bg-white/5 border-b border-white/5 text-xs text-[var(--aurora-fg3)] select-none">
+        <div className="flex items-center justify-between flex-wrap gap-2 px-3.5 py-2 bg-[var(--aurora-chip)] border-b border-[var(--aurora-border)] text-xs text-[var(--aurora-fg3)] select-none">
           <div className="flex items-center gap-2">
-            <span className="font-semibold flex items-center gap-1.5 text-purple-400">
-              <span className="w-2 h-2 rounded-full bg-purple-400 animate-pulse" />
+            <span className="font-semibold flex items-center gap-1.5 text-[var(--aurora-accent)]">
+              <span className="w-2 h-2 rounded-full bg-[var(--aurora-accent)] animate-pulse" />
               MERMAID 图表
             </span>
 
             {/* View Mode Toggle: Diagram vs Code */}
-            <div className="flex items-center bg-white/10 rounded-lg p-0.5 ml-2 border border-white/5">
+            <div className="flex items-center bg-[var(--aurora-surface-mute)] rounded-lg p-0.5 ml-1 border border-[var(--aurora-border)]">
               <button
                 type="button"
                 onClick={() => setViewMode("diagram")}
                 className={`px-2 py-0.5 rounded-md text-[11px] font-medium transition-colors ${
                   viewMode === "diagram"
-                    ? "bg-[var(--aurora-accent)] text-white shadow-sm"
+                    ? "bg-[var(--aurora-primary-grad)] text-white shadow-sm"
                     : "text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)]"
                 }`}
               >
@@ -166,7 +166,7 @@ export function MermaidBlock({ code, className }: MermaidBlockProps) {
                 onClick={() => setViewMode("code")}
                 className={`px-2 py-0.5 rounded-md text-[11px] font-medium transition-colors ${
                   viewMode === "code"
-                    ? "bg-[var(--aurora-accent)] text-white shadow-sm"
+                    ? "bg-[var(--aurora-primary-grad)] text-white shadow-sm"
                     : "text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)]"
                 }`}
               >
@@ -175,14 +175,14 @@ export function MermaidBlock({ code, className }: MermaidBlockProps) {
             </div>
           </div>
 
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 flex-wrap">
             {viewMode === "diagram" && !error && svgHtml && (
               <>
                 <button
                   type="button"
                   onClick={handleZoomOut}
                   title="缩小"
-                  className="px-1.5 py-1 rounded-lg hover:bg-white/10 text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] transition-colors"
+                  className="px-1.5 py-1 rounded-lg hover:bg-[var(--aurora-surface-mute)] text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] transition-colors"
                 >
                   <Icon name="minus" size={12} />
                 </button>
@@ -190,7 +190,7 @@ export function MermaidBlock({ code, className }: MermaidBlockProps) {
                   type="button"
                   onClick={handleResetZoom}
                   title="重置缩放"
-                  className="px-1.5 py-0.5 text-[10px] font-mono rounded hover:bg-white/10 text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)]"
+                  className="px-1.5 py-0.5 text-[10px] font-mono rounded hover:bg-[var(--aurora-surface-mute)] text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)]"
                 >
                   {Math.round(zoom * 100)}%
                 </button>
@@ -198,16 +198,16 @@ export function MermaidBlock({ code, className }: MermaidBlockProps) {
                   type="button"
                   onClick={handleZoomIn}
                   title="放大"
-                  className="px-1.5 py-1 rounded-lg hover:bg-white/10 text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] transition-colors"
+                  className="px-1.5 py-1 rounded-lg hover:bg-[var(--aurora-surface-mute)] text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] transition-colors"
                 >
                   <Icon name="plus" size={12} />
                 </button>
-                <div className="w-px h-3 bg-white/10 mx-1" />
+                <div className="w-px h-3 bg-[var(--aurora-border)] mx-1" />
                 <button
                   type="button"
                   onClick={() => setIsFullscreen(true)}
                   title="全屏沉浸查看"
-                  className="px-2 py-1 rounded-lg hover:bg-white/10 text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] transition-colors flex items-center gap-1 text-[11px]"
+                  className="px-2 py-1 rounded-lg hover:bg-[var(--aurora-surface-mute)] text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] transition-colors flex items-center gap-1 text-[11px]"
                 >
                   <Icon name="maximize" size={12} />
                   <span>全屏</span>
@@ -216,7 +216,7 @@ export function MermaidBlock({ code, className }: MermaidBlockProps) {
                   type="button"
                   onClick={handleCopySvg}
                   title="复制 SVG 代码"
-                  className="px-2 py-1 rounded-lg hover:bg-white/10 text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] transition-colors flex items-center gap-1 text-[11px]"
+                  className="px-2 py-1 rounded-lg hover:bg-[var(--aurora-surface-mute)] text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] transition-colors flex items-center gap-1 text-[11px]"
                 >
                   <Icon name={copied ? "check" : "copy"} size={12} />
                   <span>{copied ? "已复制" : "复制SVG"}</span>
@@ -228,7 +228,7 @@ export function MermaidBlock({ code, className }: MermaidBlockProps) {
               type="button"
               onClick={handleCopyCode}
               title="复制 Mermaid 源代码"
-              className="px-2 py-1 rounded-lg hover:bg-white/10 text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] transition-colors flex items-center gap-1 text-[11px]"
+              className="px-2 py-1 rounded-lg hover:bg-[var(--aurora-surface-mute)] text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] transition-colors flex items-center gap-1 text-[11px]"
             >
               <Icon name={copied ? "check" : "copy"} size={12} />
               <span>{copied ? "已复制" : "复制代码"}</span>
@@ -238,7 +238,7 @@ export function MermaidBlock({ code, className }: MermaidBlockProps) {
 
         {/* Content Body */}
         {viewMode === "code" || error ? (
-          <div className="p-4 bg-black/30 font-mono text-xs overflow-x-auto text-[var(--aurora-fg2)]">
+          <div className="p-4 bg-[var(--aurora-code-surface)] font-mono text-xs overflow-x-auto text-[var(--aurora-fg2)]">
             {error && (
               <div className="mb-3 p-2.5 rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-300 text-xs flex items-center gap-2">
                 <Icon name="alert" size={14} className="shrink-0" />
@@ -252,7 +252,7 @@ export function MermaidBlock({ code, className }: MermaidBlockProps) {
         ) : (
           <div
             ref={containerRef}
-            className="p-4 sm:p-6 flex items-center justify-center min-h-[160px] overflow-x-auto bg-black/10 select-none transition-all"
+            className="p-4 sm:p-6 flex items-center justify-center min-h-[160px] overflow-x-auto bg-[var(--aurora-surface-mute)] select-none transition-all"
           >
             {loading ? (
               <div className="flex flex-col items-center justify-center gap-2 text-xs text-[var(--aurora-fg3)] py-8">
@@ -277,7 +277,7 @@ export function MermaidBlock({ code, className }: MermaidBlockProps) {
       {/* Fullscreen Overlay Modal */}
       {isFullscreen && (
         <div
-          className="fixed inset-0 z-50 flex flex-col bg-black/85 backdrop-blur-md p-4 sm:p-8 animate-in fade-in"
+          className="fixed inset-0 z-50 flex flex-col bg-black/85 backdrop-blur-md p-4 pb-[calc(1rem+var(--memento-tabbar-inset,0px))] sm:p-8 animate-in fade-in"
           onClick={() => setIsFullscreen(false)}
         >
           <div

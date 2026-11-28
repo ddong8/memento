@@ -609,7 +609,7 @@ export default function SkillsPage() {
               />
               <div
                 onTouchStart={(e) => e.stopPropagation()}
-                className="absolute z-30 max-sm:inset-x-2 max-sm:bottom-2 max-sm:max-h-[72vh] sm:top-14 sm:right-3 sm:bottom-3 sm:w-[380px] xl:w-[440px] flex flex-col pointer-events-auto bg-black/90 backdrop-blur-2xl border border-white/20 rounded-2xl shadow-2xl overflow-hidden animate-in fade-in max-sm:slide-in-from-bottom-6 sm:slide-in-from-right-4 duration-200"
+                className="absolute z-30 max-sm:inset-x-2 max-sm:bottom-2 max-sm:max-h-[72dvh] sm:top-14 sm:right-3 sm:bottom-3 sm:w-[380px] xl:w-[440px] flex flex-col pointer-events-auto bg-black/90 backdrop-blur-2xl border border-white/20 rounded-2xl shadow-2xl overflow-hidden animate-in fade-in max-sm:slide-in-from-bottom-6 sm:slide-in-from-right-4 duration-200"
               >
                 {/* Mobile Drag Handle */}
                 <div className="w-10 h-1 rounded-full bg-white/25 mx-auto my-1.5 sm:hidden shrink-0" />

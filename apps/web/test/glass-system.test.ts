@@ -113,5 +113,44 @@ describe("frosted glass architecture", () => {
     expect(ask).toContain('selectedModel.replace(/^(claude|gpt|gemini)-/i, "")');
     expect(ask).toContain('className="hidden sm:inline-flex"\n                      style={{\n                        alignItems: "center",');
   });
+
+  it("defines scrollbar hiding utilities, clears floating tab bar in overlays, and preserves brand contrast", () => {
+    const repoRoot = path.resolve(__dirname, "../../..");
+    const read = (f: string) => fs.readFileSync(path.join(repoRoot, "apps/web/src", f), "utf8");
+
+    const css = read("app/globals.css");
+    expect(css).toContain(".no-scrollbar,");
+    expect(css).toContain(".scrollbar-none {");
+    expect(css).toContain('input:not([type]),');
+
+    // Public header uses official MementoMark and primary violet CTA (never washed-out light lavender)
+    const publicFrame = read("components/layout/PublicPageFrame.tsx");
+    expect(publicFrame).toContain("<MementoMark");
+    expect(publicFrame).toContain("var(--aurora-primary-grad)");
+    expect(read("app/support/page.tsx")).toContain("var(--aurora-primary-grad)");
+
+    // WeChat passcode stays single-line with non-wrapping copy badge on 375px viewports
+    const wechat = read("app/auth/wechat-login.tsx");
+    expect(wechat).toContain('whiteSpace: "nowrap"');
+    expect(wechat).not.toContain("var(--aurora-bg3)");
+
+    // Fixed overlays and modals respect --memento-tabbar-inset
+    for (const rel of [
+      "components/ask/SourcesDrawer.tsx",
+      "components/CommandPalette.tsx",
+      "components/quota/AgentQuotaPopover.tsx",
+      "components/server/ServerSwitchModal.tsx",
+      "components/ShareModal.tsx",
+      "components/devices/AgentLogin.tsx",
+      "components/devices/DevicesView.tsx",
+      "components/UserMenu.tsx",
+    ]) {
+      expect(read(rel), `${rel} should respect --memento-tabbar-inset`).toContain("--memento-tabbar-inset");
+    }
+
+    // No illegible text-slate-900 on purple accent buttons/checkboxes
+    expect(read("app/ask/page.tsx")).not.toContain("bg-[var(--aurora-accent)] border-[var(--aurora-accent)] text-slate-900");
+    expect(read("app/s/[token]/page.tsx")).not.toContain("bg-[var(--aurora-accent)] text-slate-900");
+  });
 });
 

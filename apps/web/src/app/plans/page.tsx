@@ -94,7 +94,7 @@ export default function PlansPage() {
           }}
         />
         <div className="grid grid-cols-1 sm:grid-cols-[1fr_200px] gap-2" style={{ marginTop: 10 }}>
-          <input value={cwd} onChange={(e) => setCwd(e.target.value)} placeholder="代码目录（可选），如 /Users/me/dev/memento" style={fieldStyle} />
+          <input type="text" value={cwd} onChange={(e) => setCwd(e.target.value)} placeholder="代码目录（可选），如 /Users/me/dev/memento" style={fieldStyle} />
           <select value={source} onChange={(e) => setSource(e.target.value)} style={fieldStyle} disabled={!cwd.trim()}>
             <option value="">代码所在设备</option>
             {devices.map((d) => (

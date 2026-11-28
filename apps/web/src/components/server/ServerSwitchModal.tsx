@@ -234,10 +234,10 @@ export function ServerSwitchModal({ open: externalOpen, onClose: externalClose }
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        padding: 16,
+        padding: "16px 16px calc(16px + var(--memento-tabbar-inset, 0px))",
       }}
     >
-      <div onClick={(e) => e.stopPropagation()} style={{ maxWidth: 540, width: "100%", maxHeight: "90vh", display: "flex", flexDirection: "column" }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ maxWidth: 540, width: "100%", maxHeight: "min(90dvh, calc(100dvh - 32px - var(--memento-tabbar-inset, 0px)))", display: "flex", flexDirection: "column" }}>
         <Glass padding={26} radius={22} style={{ display: "flex", flexDirection: "column", gap: 18, overflowY: "auto" }}>
           {/* Header */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>

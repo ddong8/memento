@@ -527,7 +527,7 @@ export const AssistantBubble = memo(function AssistantBubble({
                 fontSize: 10.5,
                 padding: "1px 6px",
                 borderRadius: 999,
-                background: "rgba(56, 189, 248, 0.15)",
+                background: "var(--aurora-accent-soft)",
                 color: "var(--aurora-accent)",
                 fontWeight: 600,
               }}

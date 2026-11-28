@@ -21,7 +21,7 @@ function RenderTodoTitle({ title }: { title: string }) {
                 style={{
                   padding: "1px 5px",
                   borderRadius: 4,
-                  background: "rgba(255, 255, 255, 0.08)",
+                  background: "var(--aurora-chip)",
                   fontSize: "0.92em",
                   fontFamily: "var(--font-mono)",
                   color: "var(--aurora-accent)",

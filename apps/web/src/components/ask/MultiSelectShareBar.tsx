@@ -34,7 +34,7 @@ export const MultiSelectShareBar = memo(function MultiSelectShareBar({
         <button
           type="button"
           onClick={onToggleSelectAll}
-          className="text-xs text-[var(--aurora-fg3)] hover:text-white underline cursor-pointer"
+          className="text-xs text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] underline cursor-pointer"
         >
           {allSelected
             ? isZh

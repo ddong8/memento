@@ -159,7 +159,7 @@ export default function ScheduledTasksPanel() {
                 </select>
               )}
               <input type="time" className={`${input} !w-auto`} value={form.time} onChange={(e) => setForm({ ...form, time: e.target.value })} />
-              <button type="button" onClick={() => void save()} className="ml-auto px-4 py-2 rounded-xl text-[13px] font-semibold text-white bg-[var(--aurora-accent)] cursor-pointer">
+              <button type="button" onClick={() => void save()} className="ml-auto px-4 py-2 rounded-xl text-[13px] font-semibold text-white bg-[var(--aurora-primary-grad)] cursor-pointer">
                 保存
               </button>
             </div>

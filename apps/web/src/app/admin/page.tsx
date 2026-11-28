@@ -670,12 +670,15 @@ function AuditTab({ headers }: { headers: Headers }) {
           </div>
         )}
         {items.map((row, i) => (
-          <div key={row.id} style={{
-            padding: "10px 14px",
-            borderTop: i === 0 ? "none" : "1px solid var(--aurora-border)",
-            display: "grid", gridTemplateColumns: "1fr 1.2fr 1.2fr 2fr 1fr",
-            gap: 8, fontSize: 12, alignItems: "center",
-          }}>
+          <div
+            key={row.id}
+            className="grid grid-cols-1 md:grid-cols-[1fr_1.2fr_1.2fr_2fr_1fr] gap-1.5 md:gap-2 items-start md:items-center"
+            style={{
+              padding: "10px 14px",
+              borderTop: i === 0 ? "none" : "1px solid var(--aurora-border)",
+              fontSize: 12,
+            }}
+          >
             <span style={{ color: "var(--aurora-fg4)" }} title={row.created_at}>
               {new Date(row.created_at).toLocaleString(dateFmt)}
             </span>

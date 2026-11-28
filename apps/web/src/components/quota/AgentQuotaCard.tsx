@@ -82,11 +82,11 @@ export function AgentQuotaCard({ deviceId, activeTool, recentTools }: AgentQuota
       padding: "14px 16px",
       borderRadius: 14,
       border: isCurrentActive
-        ? "1.5px solid var(--aurora-accent, #6366F1)"
+        ? "1.5px solid var(--aurora-accent)"
         : "1px solid var(--aurora-border)",
       background: "var(--aurora-card)",
       boxShadow: isCurrentActive
-        ? "0 0 0 1px rgba(99, 102, 241, 0.22), 0 4px 16px -2px rgba(99, 102, 241, 0.14)"
+        ? "0 0 0 1px color-mix(in srgb, var(--aurora-accent) 22%, transparent), 0 4px 16px -2px color-mix(in srgb, var(--aurora-accent) 16%, transparent)"
         : undefined,
       display: "flex",
       flexDirection: "column" as const,
@@ -101,13 +101,13 @@ export function AgentQuotaCard({ deviceId, activeTool, recentTools }: AgentQuota
       <span
         className="px-2 py-0.5 rounded-full text-[10px] font-semibold inline-flex items-center gap-1 whitespace-nowrap shrink-0"
         style={{
-          background: "rgba(99, 102, 241, 0.12)",
-          color: "var(--aurora-accent, #6366F1)",
-          border: "1px solid rgba(99, 102, 241, 0.3)",
+          background: "var(--aurora-accent-soft)",
+          color: "var(--aurora-accent)",
+          border: "1px solid var(--aurora-accent-border)",
         }}
         title="当前会话使用的智能体"
       >
-        <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse shrink-0" />
+        <span className="w-1.5 h-1.5 rounded-full bg-[var(--aurora-accent)] animate-pulse shrink-0" />
         当前使用
       </span>
     );

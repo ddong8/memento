@@ -62,12 +62,17 @@ function ProfileContent() {
   });
   const activeTab: TabKey = paramTab ?? selectedTab;
   const isDesktopEnv = useIsDesktopApp();
+  const activeTabBtnRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
     if (paramTab && typeof window !== "undefined") {
       localStorage.setItem("memento_profile_tab", paramTab);
     }
   }, [paramTab]);
+
+  useEffect(() => {
+    activeTabBtnRef.current?.scrollIntoView?.({ inline: "center", block: "nearest", behavior: "smooth" });
+  }, [activeTab]);
 
   const switchTab = (tab: TabKey) => {
     setActiveTab(tab);
@@ -118,6 +123,7 @@ function ProfileContent() {
             return (
               <button
                 key={tab.id}
+                ref={active ? activeTabBtnRef : undefined}
                 onClick={() => switchTab(tab.id)}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs sm:text-[13px] font-medium transition-all duration-150 whitespace-nowrap cursor-pointer select-none"
                 style={{
@@ -294,7 +300,7 @@ function AccountTab() {
       <SectionLabel>{t.profile.basicInfo || "基本信息"}</SectionLabel>
       <Glass padding={22} radius={20} style={{ marginBottom: 20 }}>
         {/* Avatar & Photo Actions */}
-        <div style={{ display: "flex", alignItems: "center", gap: 20, paddingBottom: 20, borderBottom: "1px solid var(--aurora-border)" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap", paddingBottom: 20, borderBottom: "1px solid var(--aurora-border)" }}>
           <div
             style={{
               position: "relative",
@@ -383,11 +389,11 @@ function AccountTab() {
 
         {/* Nickname row */}
         <form onSubmit={handleSaveProfile} style={{ padding: "14px 0", borderBottom: "1px solid var(--aurora-border)" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <span style={{ fontSize: 13, color: "var(--aurora-fg3)", width: 70, flexShrink: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 13, color: "var(--aurora-fg3)", width: 64, flexShrink: 0 }}>
               {t.profile.name}
             </span>
-            <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ flex: "1 1 150px", minWidth: 0 }}>
               <GhostInput
                 value={name}
                 onChange={(e) => setName(e.target.value)}
@@ -480,7 +486,7 @@ function AccountTab() {
           type="file"
           accept=".zip,application/zip"
           onChange={(e) => setImportFile(e.target.files?.[0] ?? null)}
-          style={{ fontSize: 12, marginBottom: 12, display: "block" }}
+          style={{ fontSize: 12, marginBottom: 12, display: "block", maxWidth: "100%" }}
         />
         <Btn size="sm" icon="arrow_up" onClick={handleImport} disabled={!importFile || importing}>
           {importing ? t.profile.importing : t.profile.importBtn}
@@ -582,7 +588,7 @@ function AccountTab() {
             alignItems: "center",
             justifyContent: "center",
             zIndex: 9999,
-            padding: 16,
+            padding: "16px 16px calc(16px + var(--memento-tabbar-inset, 0px))",
           }}
         >
           <div

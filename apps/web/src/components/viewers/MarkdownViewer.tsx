@@ -107,18 +107,18 @@ function PreBlock({ children, ...props }: any) {
 
   return (
     <div className="not-prose relative group/code my-3 rounded-xl overflow-hidden border border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/90 shadow-md">
-      <div className="flex items-center justify-between px-3.5 py-1.5 bg-white/5 border-b border-white/5 text-[11px] text-[var(--aurora-fg3)] font-mono select-none">
+      <div className="flex items-center justify-between flex-wrap gap-1.5 px-3.5 py-1.5 bg-[var(--aurora-chip)] border-b border-[var(--aurora-border)] text-[11px] text-[var(--aurora-fg3)] font-mono select-none">
         <div className="flex items-center gap-2">
           {isDiff ? (
-            <span className="font-semibold text-emerald-400 flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+            <span className="font-semibold text-emerald-500 flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
               DIFF / PATCH
             </span>
           ) : (
             <span className="font-semibold">{lang ? lang.toUpperCase() : "CODE"}</span>
           )}
           {lineCount > 1 && (
-            <span className="text-[10px] px-1.5 py-0.2 rounded bg-white/5 text-[var(--aurora-fg4)]">
+            <span className="text-[10px] px-1.5 py-0.2 rounded bg-[var(--aurora-surface-mute)] text-[var(--aurora-fg4)]">
               {lineCount} lines
             </span>
           )}
@@ -128,7 +128,7 @@ function PreBlock({ children, ...props }: any) {
             <button
               type="button"
               onClick={handleCopyApply}
-              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 border border-emerald-500/20 transition-colors cursor-pointer"
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium text-emerald-500 hover:text-emerald-400 hover:bg-emerald-500/10 border border-emerald-500/20 transition-colors cursor-pointer"
               title="复制 git apply 命令，可直接在终端粘贴执行应用改动"
             >
               <Icon name={copiedApply ? "check" : "zap"} size={11} />
@@ -138,7 +138,7 @@ function PreBlock({ children, ...props }: any) {
           <button
             type="button"
             onClick={() => setIsWrap((w) => !w)}
-            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10.5px] text-[var(--aurora-fg4)] hover:text-[var(--aurora-fg2)] hover:bg-white/5 transition-colors cursor-pointer"
+            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10.5px] text-[var(--aurora-fg4)] hover:text-[var(--aurora-fg2)] hover:bg-[var(--aurora-surface-mute)] transition-colors cursor-pointer"
             title={isWrap ? "切换为横向滚动" : "自动换行"}
           >
             {isWrap ? "↩ 换行" : "↔ 单行"}
@@ -146,7 +146,7 @@ function PreBlock({ children, ...props }: any) {
           <button
             type="button"
             onClick={handleCopy}
-            className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-white/10 transition-colors cursor-pointer"
+            className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-surface-mute)] transition-colors cursor-pointer"
             title="复制代码"
           >
             {copied ? "✓ 已复制" : "复制"}

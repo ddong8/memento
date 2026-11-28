@@ -353,11 +353,11 @@ async function copyTextToClipboard(text: string): Promise<boolean> {
         backdropFilter: "blur(6px)",
         WebkitBackdropFilter: "blur(6px)",
         display: "flex", alignItems: "center", justifyContent: "center",
-        padding: "clamp(12px, 3vw, 20px)",
+        padding: "clamp(12px, 3vw, 20px) clamp(12px, 3vw, 20px) calc(clamp(12px, 3vw, 20px) + var(--memento-tabbar-inset, 0px))",
       }}
     >
-      <div onClick={(e) => e.stopPropagation()} style={{ maxWidth: 540, width: "100%", maxHeight: "90vh", display: "flex", flexDirection: "column" }}>
-        <Glass padding="clamp(16px, 3vw, 24px)" radius={22} style={{ overflowY: "auto", maxHeight: "90vh", display: "flex", flexDirection: "column" }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ maxWidth: 540, width: "100%", maxHeight: "min(90dvh, calc(100dvh - 24px - var(--memento-tabbar-inset, 0px)))", display: "flex", flexDirection: "column" }}>
+        <Glass padding="clamp(16px, 3vw, 24px)" radius={22} style={{ overflowY: "auto", maxHeight: "min(90dvh, calc(100dvh - 24px - var(--memento-tabbar-inset, 0px)))", display: "flex", flexDirection: "column" }}>
           {/* Header */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
             <div className="flex items-center gap-2">
@@ -371,7 +371,7 @@ async function copyTextToClipboard(text: string): Promise<boolean> {
             <button
               onClick={onClose}
               aria-label="Close"
-              className="p-1.5 rounded-lg text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-white/10 transition-colors cursor-pointer"
+              className="p-1.5 rounded-lg text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)] transition-colors cursor-pointer"
               style={{ background: "transparent", border: 0 }}
             >
               <Icon name="close" size={17} />
@@ -390,7 +390,7 @@ async function copyTextToClipboard(text: string): Promise<boolean> {
 
           {/* Segmented Switcher */}
           {content && (
-            <div className="flex items-center gap-1 p-1 mb-3.5 rounded-xl bg-black/20 border border-[var(--aurora-border)] text-xs select-none">
+            <div className="flex items-center gap-1 p-1 mb-3.5 rounded-xl bg-[var(--aurora-chip)] border border-[var(--aurora-border)] text-xs select-none">
               <button
                 type="button"
                 onClick={() => {
@@ -400,7 +400,7 @@ async function copyTextToClipboard(text: string): Promise<boolean> {
                 className={`flex-1 py-1.5 px-2.5 rounded-lg font-medium transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
                   activeTab === "publish"
                     ? "bg-[var(--aurora-accent-soft)] text-[var(--aurora-accent)] border border-[var(--aurora-accent)]/30 font-semibold shadow-sm"
-                    : "text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-white/5 border border-transparent"
+                    : "text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-surface-mute)] border border-transparent"
                 }`}
               >
                 <Icon name="sparkles" size={12.5} className="text-[var(--aurora-accent)]" />

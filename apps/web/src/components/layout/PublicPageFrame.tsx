@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { Icon } from "@/components/aurora/Icon";
+import { MementoMark } from "@/components/aurora/MementoMark";
 import { useAuth } from "@/lib/auth-context";
 
 /**
@@ -25,12 +25,7 @@ export function PublicPageFrame({ children }: { children: ReactNode }) {
         }}
       >
         <Link href="/" className="flex items-center gap-2.5">
-          <span
-            className="flex h-7 w-7 items-center justify-center rounded-lg"
-            style={{ background: "var(--aurora-brand-grad)", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.28)" }}
-          >
-            <Icon name="sparkles" size={14} strokeWidth={2} style={{ color: "#fff" }} />
-          </span>
+          <MementoMark size={28} radius={8} />
           <span className="text-[14px] font-semibold tracking-tight" style={{ color: "var(--aurora-fg1)" }}>
             Memento
           </span>
@@ -38,7 +33,7 @@ export function PublicPageFrame({ children }: { children: ReactNode }) {
         <Link
           href="/auth/login"
           className="rounded-[10px] px-3 py-1.5 text-[13px] font-medium"
-          style={{ background: "var(--aurora-accent)", color: "#fff" }}
+          style={{ background: "var(--aurora-primary-grad)", color: "#fff" }}
         >
           登录
         </Link>

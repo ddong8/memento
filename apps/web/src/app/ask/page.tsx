@@ -4990,7 +4990,7 @@ function AskPageContent() {
               <div
                 className={`w-5 h-5 rounded-md border flex items-center justify-center transition-all ${
                   isSelected
-                    ? "bg-[var(--aurora-accent)] border-[var(--aurora-accent)] text-slate-900 shadow-sm"
+                    ? "bg-[var(--aurora-primary-grad)] border-[var(--aurora-primary-grad)] text-white shadow-sm"
                     : "border-[var(--aurora-border-strong)] bg-[var(--aurora-chip)] hover:border-[var(--aurora-accent)] text-transparent"
                 }`}
               >
@@ -5506,7 +5506,7 @@ function AskPageContent() {
             ...(isDraggingOver
               ? {
                   border: "2px dashed var(--aurora-accent)",
-                  boxShadow: "0 0 24px rgba(99, 102, 241, 0.25)",
+                  boxShadow: "0 0 24px color-mix(in srgb, var(--aurora-accent) 25%, transparent)",
                 }
               : undefined),
             borderRadius: 16,
@@ -5551,7 +5551,7 @@ function AskPageContent() {
                 position: "absolute",
                 inset: 0,
                 borderRadius: 15,
-                background: "rgba(99, 102, 241, 0.12)",
+                background: "var(--aurora-accent-soft)",
                 backdropFilter: "blur(3px)",
                 display: "flex",
                 alignItems: "center",

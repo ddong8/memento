@@ -444,7 +444,7 @@ export function ProactiveAgentView() {
           style={{
             borderRadius: 18,
             border: settings.evening_reflection_enabled
-              ? "1px solid color-mix(in srgb, #6366F1 25%, var(--aurora-border))"
+              ? "1px solid color-mix(in srgb, var(--aurora-accent) 28%, var(--aurora-border))"
               : "1px solid var(--aurora-border)",
             opacity: settings.evening_reflection_enabled ? 1 : 0.76,
           }}
@@ -457,11 +457,11 @@ export function ProactiveAgentView() {
                     width: 34,
                     height: 34,
                     borderRadius: 10,
-                    background: "#4F46E5",
+                    background: "var(--aurora-primary-grad)",
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
-                    boxShadow: "0 3px 10px -2px rgba(79, 70, 229, 0.32)",
+                    boxShadow: "0 3px 10px -2px color-mix(in srgb, var(--aurora-accent) 32%, transparent)",
                     color: "#fff",
                   }}
                 >
@@ -502,7 +502,7 @@ export function ProactiveAgentView() {
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-all duration-200 cursor-pointer select-none"
               style={{
                 background: "var(--aurora-surface, rgba(255, 255, 255, 0.7))",
-                border: "1px solid color-mix(in srgb, #6366F1 35%, var(--aurora-border))",
+                border: "1px solid color-mix(in srgb, var(--aurora-accent) 35%, var(--aurora-border))",
                 color: "var(--aurora-fg1)",
                 boxShadow: "0 2px 6px -1px rgba(0, 0, 0, 0.04)",
               }}
@@ -622,8 +622,8 @@ export function ProactiveAgentView() {
             disabled={saving}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold text-white transition-all duration-200 cursor-pointer shadow-sm disabled:opacity-50"
             style={{
-              background: "linear-gradient(135deg, #7C3AED 0%, #6366F1 100%)",
-              boxShadow: "0 4px 14px -3px rgba(124, 58, 237, 0.4)",
+              background: "var(--aurora-primary-grad)",
+              boxShadow: "0 4px 14px -3px color-mix(in srgb, var(--aurora-accent) 40%, transparent)",
             }}
           >
             <Icon name={saving ? "refresh" : "check"} size={13} className={saving ? "animate-spin" : ""} />

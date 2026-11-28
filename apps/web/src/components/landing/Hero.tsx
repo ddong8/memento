@@ -171,18 +171,20 @@ export function Hero() {
       >
         {/* Stage Header Chrome */}
         <div
+          className="px-3 py-3 sm:px-[18px]"
           style={{
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
             gap: 12,
             flexWrap: "wrap",
-            padding: "12px 18px",
             borderBottom: "1px solid var(--aurora-border)",
             background: "var(--aurora-surface-mute)",
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+          <div
+            className="no-scrollbar flex items-center gap-1 sm:gap-1.5 overflow-x-auto max-w-full flex-nowrap"
+          >
             {(Object.keys(SCENARIOS) as StageScenario[]).map((key) => {
               const active = scenario === key;
               return (
@@ -190,15 +192,16 @@ export function Hero() {
                   key={key}
                   type="button"
                   onClick={() => setScenario(key)}
+                  className="px-2 py-1.5 sm:px-2.5 text-[11.5px] sm:text-[12.5px]"
                   style={{
-                    padding: "6px 12px",
                     borderRadius: 8,
                     border: active ? "1px solid var(--aurora-border-strong)" : "1px solid transparent",
                     background: active ? "var(--aurora-surface-solid)" : "transparent",
                     color: active ? "var(--aurora-fg1)" : "var(--aurora-fg3)",
-                    fontSize: 13,
                     fontWeight: active ? 600 : 500,
                     cursor: "pointer",
+                    whiteSpace: "nowrap",
+                    flexShrink: 0,
                     transition: "background-color 150ms ease, color 150ms ease, border-color 150ms ease",
                   }}
                 >
@@ -214,24 +217,24 @@ export function Hero() {
               style={{
                 display: "flex",
                 alignItems: "center",
-                gap: 14,
+                gap: "6px 12px",
                 fontSize: 12.5,
                 color: "var(--aurora-fg3)",
                 fontVariantNumeric: "tabular-nums",
                 flexWrap: "wrap",
               }}
             >
-              <span>
+              <span style={{ whiteSpace: "nowrap" }}>
                 <strong style={{ color: "var(--aurora-fg1)", fontWeight: 600 }}>{stats.total_documents.toLocaleString()}</strong>{" "}
                 {t.landing.stats_files}
               </span>
-              <span style={{ color: "var(--aurora-fg5)" }}>/</span>
-              <span>
+              <span className="hidden sm:inline" style={{ color: "var(--aurora-fg5)" }}>/</span>
+              <span style={{ whiteSpace: "nowrap" }}>
                 <strong style={{ color: "var(--aurora-fg1)", fontWeight: 600 }}>{stats.total_devices.toLocaleString()}</strong>{" "}
                 {t.landing.stats_devices}
               </span>
-              <span style={{ color: "var(--aurora-fg5)" }}>/</span>
-              <span>
+              <span className="hidden sm:inline" style={{ color: "var(--aurora-fg5)" }}>/</span>
+              <span style={{ whiteSpace: "nowrap" }}>
                 <strong style={{ color: "var(--aurora-fg1)", fontWeight: 600 }}>{stats.total_messages.toLocaleString()}</strong>{" "}
                 {t.landing.stats_messages}
               </span>

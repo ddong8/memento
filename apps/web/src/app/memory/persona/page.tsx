@@ -986,7 +986,7 @@ export default function PersonaPage() {
               />
               <div
                 onTouchStart={(e) => e.stopPropagation()}
-                className="absolute z-30 max-sm:inset-x-2 max-sm:bottom-14 max-sm:max-h-[66vh] sm:top-14 sm:right-3 sm:bottom-14 sm:w-[380px] xl:w-[440px] flex flex-col pointer-events-auto bg-black/90 backdrop-blur-2xl border border-white/20 rounded-2xl shadow-2xl overflow-hidden animate-in fade-in max-sm:slide-in-from-bottom-6 sm:slide-in-from-right-4 duration-200"
+                className="absolute z-30 max-sm:inset-x-2 max-sm:bottom-14 max-sm:max-h-[66dvh] sm:top-14 sm:right-3 sm:bottom-14 sm:w-[380px] xl:w-[440px] flex flex-col pointer-events-auto bg-black/90 backdrop-blur-2xl border border-white/20 rounded-2xl shadow-2xl overflow-hidden animate-in fade-in max-sm:slide-in-from-bottom-6 sm:slide-in-from-right-4 duration-200"
               >
                 {/* Mobile Drag Handle */}
                 <div className="w-10 h-1 rounded-full bg-white/25 mx-auto my-1.5 sm:hidden shrink-0" />
@@ -1153,7 +1153,7 @@ export default function PersonaPage() {
                     {evolutionData.exp}/1000
                   </span>
                 </div>
-                <div className="w-full h-1 rounded-full bg-black/20 overflow-hidden mt-1.5">
+                <div className="w-full h-1 rounded-full bg-[var(--aurora-chip)] overflow-hidden mt-1.5">
                   <div
                     className="h-full rounded-full bg-[var(--aurora-accent)] transition-all duration-500 shadow-sm"
                     style={{ width: `${(evolutionData.exp / 1000) * 100}%` }}
@@ -1794,8 +1794,8 @@ export default function PersonaPage() {
                               <span
                                 className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-lg border ${
                                   isUnlocked
-                                    ? "bg-[#3B82F6]/15 text-[#3B82F6] border-[#3B82F6]/30"
-                                    : "bg-black/20 text-[var(--aurora-fg4)] border-white/10"
+                                    ? "bg-[var(--aurora-accent-soft)] text-[var(--aurora-accent)] border-[var(--aurora-accent-border)]"
+                                    : "bg-[var(--aurora-chip)] text-[var(--aurora-fg4)] border-[var(--aurora-border)]"
                                 }`}
                               >
                                 Lv.{tier.level}
@@ -1808,7 +1808,7 @@ export default function PersonaPage() {
                               className={`text-[9px] font-mono px-2 py-0.2 rounded-full font-semibold ${
                                 isUnlocked
                                   ? "bg-[#10B981]/15 text-[#10B981]"
-                                  : "bg-black/20 text-[var(--aurora-fg4)]"
+                                  : "bg-[var(--aurora-chip)] text-[var(--aurora-fg4)]"
                               }`}
                             >
                               {isUnlocked ? "已激活" : "未解锁"}

@@ -374,7 +374,7 @@ export default function CommandPalette() {
         display: "flex",
         alignItems: "flex-start",
         justifyContent: "center",
-        padding: "10vh 16px 16px",
+        padding: "min(10dvh, 80px) 16px calc(16px + var(--memento-tabbar-inset, 0px))",
       }}
     >
       <div
@@ -386,7 +386,7 @@ export default function CommandPalette() {
           borderRadius: 20,
           overflow: "hidden",
           padding: 0,
-          maxHeight: "76vh",
+          maxHeight: "min(76dvh, calc(100dvh - 96px - var(--memento-tabbar-inset, 0px)))",
           display: "flex",
           flexDirection: "column",
           boxShadow: "0 24px 64px -12px rgba(0, 0, 0, 0.45), 0 0 0 1px var(--aurora-border)",

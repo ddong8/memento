@@ -132,7 +132,9 @@ export default function Dashboard() {
           {[0, 1, 2, 3].map((i) => <Skeleton key={i} height={104} radius={16} />)}
         </div>
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <Skeleton height={220} radius={16} style={{ gridColumn: "span 2" }} />
+          <div className="lg:col-span-2">
+            <Skeleton height={220} radius={16} />
+          </div>
           <Skeleton height={220} radius={16} />
         </div>
       </div>
@@ -194,8 +196,8 @@ export default function Dashboard() {
                   type="text"
                   value={askPrompt}
                   onChange={(e) => setAskPrompt(e.target.value)}
-                  placeholder="向 AI 提问编程记忆，或下发设备指令（如：检查开发机端口、总结昨天工作）..."
-                  className="flex-1 bg-transparent border-0 outline-none text-[13.5px] px-2.5 py-1.5 text-[var(--aurora-fg1)] placeholder:text-[var(--aurora-fg4)] min-w-0"
+                  placeholder="向 AI 提问或下发设备指令..."
+                  className="flex-1 bg-transparent border-0 outline-none text-[13.5px] px-2 sm:px-2.5 py-1.5 text-[var(--aurora-fg1)] placeholder:text-[var(--aurora-fg4)] min-w-0"
                 />
 
                 {/* Target device selector */}

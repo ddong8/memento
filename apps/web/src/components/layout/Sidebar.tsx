@@ -403,6 +403,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
             </div>
             {!collapsed && (
               <kbd
+                className="hidden lg:inline"
                 style={{
                   fontFamily: "var(--font-mono)",
                   fontSize: 10,

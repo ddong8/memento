@@ -512,6 +512,10 @@ function UserMenuPanel({
     ...(isAdmin ? [{ href: "/admin", icon: "lock" as IconName, label: labels.admin }] : []),
   ];
   const fromBelow = variant === "sidebar";
+  const maxHeight =
+    pos.bottom !== undefined
+      ? `calc(100dvh - ${Number(pos.bottom) + GAP}px)`
+      : `calc(100dvh - ${Number(pos.top ?? 0) + GAP}px - var(--memento-tabbar-inset, 0px))`;
 
   return createPortal(
     <div
@@ -522,6 +526,9 @@ function UserMenuPanel({
       style={{
         position: "fixed",
         ...pos,
+        maxHeight,
+        overflowY: "auto",
+        overscrollBehavior: "contain",
         zIndex: 1000,
         background: "var(--aurora-surface-solid)",
         border: "1px solid var(--aurora-border)",

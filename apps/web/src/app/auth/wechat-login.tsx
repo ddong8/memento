@@ -352,26 +352,39 @@ export function WechatLoginSection() {
             cursor: "pointer",
             display: "flex",
             alignItems: "center",
+            justifyContent: "center",
             gap: 10,
-            fontSize: 26,
-            fontWeight: 700,
-            fontFamily: "var(--font-mono)",
-            color: "var(--aurora-accent)",
-            letterSpacing: "0.15em",
-            padding: "2px 0",
+            width: "100%",
+            padding: "4px 0",
           }}
         >
-          {loading ? "••••••" : ticket ? ticket.split("").join(" ") : "------"}
+          <span
+            style={{
+              fontSize: "clamp(20px, 5.8vw, 26px)",
+              fontWeight: 700,
+              fontFamily: "var(--font-mono)",
+              fontVariantNumeric: "tabular-nums",
+              color: "var(--aurora-accent)",
+              letterSpacing: "0.1em",
+              whiteSpace: "nowrap",
+              lineHeight: 1.2,
+            }}
+          >
+            {loading ? "••••••" : ticket ? ticket.split("").join(" ") : "------"}
+          </span>
           {!loading && ticket && (
             <span
               style={{
-                fontSize: 11,
-                fontWeight: 500,
-                color: copied ? "var(--aurora-accent)" : "var(--aurora-fg4)",
+                fontSize: 11.5,
+                fontWeight: 600,
+                color: copied ? "var(--aurora-accent)" : "var(--aurora-fg3)",
                 letterSpacing: "normal",
-                padding: "2px 6px",
+                padding: "3px 8px",
                 borderRadius: 6,
-                background: "var(--aurora-bg3)",
+                background: "var(--aurora-chip)",
+                border: "1px solid var(--aurora-border)",
+                whiteSpace: "nowrap",
+                flexShrink: 0,
               }}
             >
               {copied ? "已复制" : "复制"}

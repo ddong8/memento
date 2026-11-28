@@ -90,35 +90,37 @@ export default function ProjectsPage() {
         title={t.projectPage.title}
         subtitle={`${shown.length} ${t.projects}`}
         right={
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            <label className="aurora-input w-full sm:w-auto" style={{ padding: "8px 14px", minWidth: 200 }}>
-              <Icon name="search" size={14} style={{ color: "var(--aurora-fg3)" }} />
-              <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="搜索项目名或路径" />
+          <div className="w-full sm:w-auto flex flex-col sm:flex-row sm:items-center gap-2">
+            <label className="aurora-input w-full sm:w-[210px]" style={{ padding: "8px 14px" }}>
+              <Icon name="search" size={14} style={{ color: "var(--aurora-fg3)", flexShrink: 0 }} />
+              <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="搜索项目名或路径" />
             </label>
-            <label className="aurora-input" style={{ padding: "8px 14px", minWidth: 160 }}>
-              <Icon name="devices" size={14} style={{ color: "var(--aurora-fg3)" }} />
-              <select value={filterDevice} onChange={(e) => setFilterDevice(e.target.value)}>
-                <option value="">全部设备</option>
-                {devices.map((d) => (
-                  <option key={d.device_id} value={d.device_id}>
-                    {d.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="aurora-input" style={{ padding: "8px 14px", minWidth: 160 }}>
-              <Icon name="grid" size={14} style={{ color: "var(--aurora-fg3)" }} />
-              <select value={filterTool} onChange={(e) => setFilterTool(e.target.value)}>
-                <option value="">{t.all}</option>
-                <option value="claude_code">Claude Code</option>
-                <option value="openclaw">OpenClaw</option>
-                <option value="codex">Codex</option>
-                <option value="antigravity">Antigravity</option>
-                <option value="workbuddy">WorkBuddy</option>
-                <option value="obsidian">Obsidian</option>
-                <option value="cursor">Cursor</option>
-              </select>
-            </label>
+            <div className="grid grid-cols-2 sm:flex gap-2 w-full sm:w-auto">
+              <label className="aurora-input w-full sm:w-[160px]" style={{ padding: "8px 12px" }}>
+                <Icon name="devices" size={14} style={{ color: "var(--aurora-fg3)", flexShrink: 0 }} />
+                <select value={filterDevice} onChange={(e) => setFilterDevice(e.target.value)}>
+                  <option value="">全部设备</option>
+                  {devices.map((d) => (
+                    <option key={d.device_id} value={d.device_id}>
+                      {d.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="aurora-input w-full sm:w-[150px]" style={{ padding: "8px 12px" }}>
+                <Icon name="grid" size={14} style={{ color: "var(--aurora-fg3)", flexShrink: 0 }} />
+                <select value={filterTool} onChange={(e) => setFilterTool(e.target.value)}>
+                  <option value="">{t.all}</option>
+                  <option value="claude_code">Claude Code</option>
+                  <option value="openclaw">OpenClaw</option>
+                  <option value="codex">Codex</option>
+                  <option value="antigravity">Antigravity</option>
+                  <option value="workbuddy">WorkBuddy</option>
+                  <option value="obsidian">Obsidian</option>
+                  <option value="cursor">Cursor</option>
+                </select>
+              </label>
+            </div>
           </div>
         }
       />

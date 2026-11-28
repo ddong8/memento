@@ -465,7 +465,7 @@ node packages/daemon/dist/cli.js install-service`}
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            padding: 20,
+            padding: "16px 16px calc(16px + var(--memento-tabbar-inset, 0px))",
           }}
         >
           <div onClick={(e) => e.stopPropagation()} style={{ maxWidth: 540, width: "100%" }}>

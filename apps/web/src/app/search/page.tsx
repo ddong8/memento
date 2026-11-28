@@ -75,31 +75,33 @@ function SearchPageInner() {
         subtitle={result ? fmt(t.searchPage.results, { total: result.total, query: result.query }) : "Search conversations, memory, plans, notes"}
       />
 
-      <form onSubmit={handleSearch} style={{ display: "flex", gap: 10, marginBottom: 22, flexWrap: "wrap" }}>
+      <form onSubmit={handleSearch} className="flex flex-col sm:flex-row gap-2.5 mb-5">
         <GhostInput
-          type="text"
+          type="search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder={t.searchPage.placeholder}
           icon="search"
-          wrapStyle={{ flex: 1, minWidth: 240 }}
+          wrapClassName="w-full sm:flex-1"
         />
-        <label className="aurora-input" style={{ minWidth: 160 }}>
-          <Icon name="grid" size={15} style={{ color: "var(--aurora-fg3)" }} />
-          <select value={toolFilter} onChange={(e) => setToolFilter(e.target.value)}>
-            <option value="">{t.searchPage.allTools}</option>
-            <option value="claude_code">Claude Code</option>
-            <option value="openclaw">OpenClaw</option>
-            <option value="codex">Codex</option>
-            <option value="antigravity">Antigravity</option>
-            <option value="workbuddy">WorkBuddy</option>
-            <option value="obsidian">Obsidian</option>
-            <option value="cursor">Cursor</option>
-          </select>
-        </label>
-        <Btn type="submit" disabled={loading} icon={loading ? undefined : "search"}>
-          {loading ? "…" : t.search}
-        </Btn>
+        <div className="flex items-center gap-2.5 w-full sm:w-auto">
+          <label className="aurora-input flex-1 sm:w-[160px]">
+            <Icon name="grid" size={15} style={{ color: "var(--aurora-fg3)", flexShrink: 0 }} />
+            <select value={toolFilter} onChange={(e) => setToolFilter(e.target.value)}>
+              <option value="">{t.searchPage.allTools}</option>
+              <option value="claude_code">Claude Code</option>
+              <option value="openclaw">OpenClaw</option>
+              <option value="codex">Codex</option>
+              <option value="antigravity">Antigravity</option>
+              <option value="workbuddy">WorkBuddy</option>
+              <option value="obsidian">Obsidian</option>
+              <option value="cursor">Cursor</option>
+            </select>
+          </label>
+          <Btn type="submit" disabled={loading} icon={loading ? undefined : "search"}>
+            {loading ? "…" : t.search}
+          </Btn>
+        </div>
       </form>
 
       {result && (

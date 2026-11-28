@@ -247,6 +247,7 @@ code, kbd, samp, pre, .font-mono {
   --aurora-fg5: #BFBFB8;
   --aurora-accent: #C2410C;
   --aurora-accent-soft: rgba(194, 65, 12, 0.08);
+  --aurora-accent-border: rgba(194, 65, 12, 0.26);
   --aurora-chip: #EFEFEA;
   --aurora-thinking-bg: #F6F6F2;
   --aurora-thinking-header: #F2F2ED;
@@ -285,6 +286,7 @@ code, kbd, samp, pre, .font-mono {
   --aurora-fg5: #3A3A37;
   --aurora-accent: #F97316;
   --aurora-accent-soft: rgba(249, 115, 22, 0.13);
+  --aurora-accent-border: rgba(249, 115, 22, 0.32);
   --aurora-chip: #1F1F1D;
   --aurora-thinking-bg: #181816;
   --aurora-thinking-header: #1C1C1A;
@@ -324,6 +326,7 @@ code, kbd, samp, pre, .font-mono {
   --aurora-fg5: #d1d5db;
   --aurora-accent: #2563eb;
   --aurora-accent-soft: #dbeafe;
+  --aurora-accent-border: rgba(37, 99, 235, 0.28);
   --aurora-chip: #f3f4f6;
   --aurora-thinking-bg: #f9fafb;
   --aurora-thinking-header: #f3f4f6;
@@ -362,6 +365,7 @@ code, kbd, samp, pre, .font-mono {
   --aurora-fg5: #475569;
   --aurora-accent: #3b82f6;
   --aurora-accent-soft: rgba(59, 130, 246, 0.15);
+  --aurora-accent-border: rgba(59, 130, 246, 0.34);
   --aurora-chip: #334155;
   --aurora-thinking-bg: rgba(15, 23, 42, 0.55);
   --aurora-thinking-header: rgba(51, 65, 85, 0.45);
@@ -606,6 +610,15 @@ html[data-theme="dark"] .aurora-btn-glass {
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover { background: var(--aurora-fg5); }
+.no-scrollbar,
+.scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar,
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
 
 /* =========================================================================
    Markdown Typography System
@@ -846,6 +859,12 @@ html.memento-glass-tabbar .memento-stage-main {
 html.memento-glass-tabbar .memento-stage-shell {
   height: calc(100dvh - 3.5rem - var(--memento-tabbar-inset, 0px) - 8px) !important;
   max-height: calc(100dvh - 3.5rem - var(--memento-tabbar-inset, 0px) - 8px) !important;
+}
+@media (min-width: 640px) {
+  html.memento-glass-tabbar .memento-stage-shell {
+    height: calc(100dvh - 4rem - var(--memento-tabbar-inset, 0px) - 8px) !important;
+    max-height: calc(100dvh - 4rem - var(--memento-tabbar-inset, 0px) - 8px) !important;
+  }
 }
 html.memento-glass-tabbar footer[data-ask-footer="true"] {
   /* Same side margins as the native tab bar (left/right 10) and a 6px gap above it (tab bar top = inset - 8px) */
@@ -1094,10 +1113,13 @@ html, body {
   }
   .aurora-input input,
   .aurora-input select,
+  input:not([type]),
   input[type="text"],
   input[type="search"],
   input[type="password"],
   input[type="email"],
+  input[type="url"],
+  input[type="number"],
   select,
   textarea {
     font-size: 16px !important; /* Critical: iOS WebKit auto-zooms if < 16px */

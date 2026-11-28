@@ -414,8 +414,8 @@ function ConversationShareView({
                 onClick={() => setShowAll(false)}
                 className={`px-2.5 py-1 rounded-lg text-xs font-medium cursor-pointer transition-colors ${
                   !showAll
-                    ? "bg-[var(--aurora-accent)] text-slate-900 font-bold"
-                    : "text-[var(--aurora-fg3)] hover:text-white"
+                    ? "bg-[var(--aurora-primary-grad)] text-white font-bold"
+                    : "text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)]"
                 }`}
               >
                 单篇切换
@@ -425,8 +425,8 @@ function ConversationShareView({
                 onClick={() => setShowAll(true)}
                 className={`px-2.5 py-1 rounded-lg text-xs font-medium cursor-pointer transition-colors ${
                   showAll
-                    ? "bg-[var(--aurora-accent)] text-slate-900 font-bold"
-                    : "text-[var(--aurora-fg3)] hover:text-white"
+                    ? "bg-[var(--aurora-primary-grad)] text-white font-bold"
+                    : "text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)]"
                 }`}
               >
                 展开全部
@@ -446,7 +446,7 @@ function ConversationShareView({
                     className={`px-3 py-1.5 rounded-xl text-xs font-medium shrink-0 cursor-pointer transition-all flex items-center gap-1.5 select-none ${
                       active
                         ? "bg-[var(--aurora-surface-solid)] border border-[var(--aurora-accent)] text-[var(--aurora-accent)] shadow-sm font-semibold"
-                        : "bg-white/5 border border-transparent text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-white/10"
+                        : "bg-[var(--aurora-surface-mute)] border border-transparent text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)]"
                     }`}
                   >
                     <Icon name="message" size={15} />
@@ -546,8 +546,8 @@ function ConversationItemCard({
               <div
                 className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-xs font-bold shadow-sm ${
                   isUser
-                    ? "bg-gradient-to-br from-indigo-500 to-purple-600 text-white"
-                    : "bg-gradient-to-br from-cyan-400 to-blue-600 text-slate-900"
+                    ? "bg-[var(--aurora-primary-grad)] text-white"
+                    : "bg-[var(--aurora-accent-soft)] text-[var(--aurora-accent)] border border-[var(--aurora-accent-border)]"
                 }`}
               >
                 {isUser ? "你" : "AI"}
@@ -557,17 +557,17 @@ function ConversationItemCard({
               <div
                 className={`max-w-[88%] sm:max-w-[84%] rounded-2xl p-3.5 sm:p-4 border transition-all ${
                   isUser
-                    ? "bg-gradient-to-br from-indigo-600/20 to-purple-600/15 border-indigo-500/30 text-[var(--aurora-fg1)] shadow-sm"
+                    ? "bg-[var(--aurora-accent-soft)] border-[var(--aurora-accent-border)] text-[var(--aurora-fg1)] shadow-sm"
                     : "bg-[var(--aurora-surface-solid)] border-[var(--aurora-border)] text-[var(--aurora-fg1)] shadow-md"
                 }`}
               >
                 {/* 思考过程展开块 */}
                 {turn.thinking && (
-                  <details className="mb-3 rounded-xl border border-purple-500/25 bg-purple-500/10 p-2.5 text-xs group/think">
-                    <summary className="cursor-pointer font-semibold text-purple-300 flex items-center gap-1.5 select-none">
+                  <details className="mb-3 rounded-xl border border-[var(--aurora-accent-border)] bg-[var(--aurora-accent-soft)] p-2.5 text-xs group/think">
+                    <summary className="cursor-pointer font-semibold text-[var(--aurora-accent)] flex items-center gap-1.5 select-none">
                       <Icon name="brain" size={15} />
                       <span>深度思考过程</span>
-                      <span className="text-[10px] text-purple-400/60 font-mono">(展开)</span>
+                      <span className="text-[10px] opacity-70 font-mono">(展开)</span>
                     </summary>
                     <div className="mt-2 text-purple-200/80 whitespace-pre-wrap font-mono text-[11px] max-h-52 overflow-y-auto leading-relaxed border-t border-purple-500/15 pt-2">
                       {turn.thinking}

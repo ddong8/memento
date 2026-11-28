@@ -456,7 +456,7 @@ export default function MemoryPage() {
         </div>
 
         {/* Action Controls */}
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 flex-wrap justify-end">
           <button
             onClick={() => {
               setIsPanelCollapsed(false);
@@ -547,7 +547,7 @@ export default function MemoryPage() {
               />
               <div
                 onTouchStart={(e) => e.stopPropagation()}
-                className="absolute z-30 max-sm:inset-x-2 max-sm:bottom-2 max-sm:max-h-[70vh] sm:top-14 sm:right-3 sm:bottom-3 sm:w-[380px] xl:w-[440px] rounded-2xl bg-black/90 backdrop-blur-2xl border border-white/20 shadow-2xl flex flex-col overflow-hidden animate-in fade-in max-sm:slide-in-from-bottom-6 sm:slide-in-from-right-4 duration-300 pointer-events-auto"
+                className="absolute z-30 max-sm:inset-x-2 max-sm:bottom-2 max-sm:max-h-[70dvh] sm:top-14 sm:right-3 sm:bottom-3 sm:w-[380px] xl:w-[440px] rounded-2xl bg-black/90 backdrop-blur-2xl border border-white/20 shadow-2xl flex flex-col overflow-hidden animate-in fade-in max-sm:slide-in-from-bottom-6 sm:slide-in-from-right-4 duration-300 pointer-events-auto"
               >
                 {/* Mobile Drag Handle */}
                 <div className="w-10 h-1 rounded-full bg-white/25 mx-auto my-1.5 sm:hidden shrink-0" />

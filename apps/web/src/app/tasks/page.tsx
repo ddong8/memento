@@ -117,9 +117,9 @@ export default function TasksPage() {
       <TopBar title={t.tasks.title} subtitle={t.tasks.subtitle} />
 
       <Glass padding={18} radius={18} style={{ marginBottom: 18 }}>
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
-          <label className="aurora-input" style={{ minWidth: 220, flex: 1 }}>
-            <Icon name="devices" size={15} style={{ color: "var(--aurora-fg3)" }} />
+        <div className="grid grid-cols-1 sm:flex gap-2.5 mb-2.5">
+          <label className="aurora-input w-full sm:flex-1 sm:min-w-[200px]">
+            <Icon name="devices" size={15} style={{ color: "var(--aurora-fg3)", flexShrink: 0 }} />
             <select value={deviceId} onChange={(e) => setDeviceId(e.target.value)}>
               {devices.length === 0 && <option value="">{t.tasks.noDevices}</option>}
               {devices.map((d) => (
@@ -130,29 +130,31 @@ export default function TasksPage() {
             </select>
           </label>
 
-          <label className="aurora-input" style={{ minWidth: 150 }}>
-            <Icon name="command" size={15} style={{ color: "var(--aurora-fg3)" }} />
-            <select
-              value={action}
-              onChange={(e) => setAction(e.target.value as "shell" | "agent")}
-            >
-              <option value="shell">{t.tasks.shell}</option>
-              <option value="agent">{t.tasks.agent}</option>
-            </select>
-          </label>
+          <div className="grid grid-cols-2 sm:flex gap-2.5">
+            <label className="aurora-input w-full sm:min-w-[140px]">
+              <Icon name="command" size={15} style={{ color: "var(--aurora-fg3)", flexShrink: 0 }} />
+              <select
+                value={action}
+                onChange={(e) => setAction(e.target.value as "shell" | "agent")}
+              >
+                <option value="shell">{t.tasks.shell}</option>
+                <option value="agent">{t.tasks.agent}</option>
+              </select>
+            </label>
 
-          <label className="aurora-input" style={{ width: 130 }}>
-            <Icon name="clock" size={15} style={{ color: "var(--aurora-fg3)" }} />
-            <input
-              type="number"
-              min={0}
-              max={86400}
-              value={timeout}
-              placeholder="0 为不限时"
-              onChange={(e) => setTimeoutSec(Number(e.target.value) >= 0 ? Number(e.target.value) : 7200)}
-              style={{ width: "100%", background: "transparent", border: "none", outline: "none", color: "var(--aurora-fg1)" }}
-            />
-          </label>
+            <label className="aurora-input w-full sm:w-[130px]">
+              <Icon name="clock" size={15} style={{ color: "var(--aurora-fg3)", flexShrink: 0 }} />
+              <input
+                type="number"
+                min={0}
+                max={86400}
+                value={timeout}
+                placeholder="0 为不限时"
+                onChange={(e) => setTimeoutSec(Number(e.target.value) >= 0 ? Number(e.target.value) : 7200)}
+                style={{ width: "100%", background: "transparent", border: "none", outline: "none", color: "var(--aurora-fg1)" }}
+              />
+            </label>
+          </div>
         </div>
 
         <GhostInput

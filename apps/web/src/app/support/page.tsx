@@ -96,7 +96,7 @@ export default function SupportPage() {
           <a
             href={`mailto:${SUPPORT_EMAIL}`}
             className={`${linkBtn} justify-center self-start sm:self-auto`}
-            style={{ background: "var(--aurora-accent)", color: "#fff" }}
+            style={{ background: "var(--aurora-primary-grad)", color: "#fff" }}
           >
             <Icon name="external_link" size={13} />
             {SUPPORT_EMAIL}
